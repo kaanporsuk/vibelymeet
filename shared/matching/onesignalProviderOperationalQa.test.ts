@@ -86,6 +86,9 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
   assert.match(webOneSignal, /OneSignal\.login\(userId\)/);
   assert.match(webOneSignal, /if \(loginInFlightUserId === userId\) loginInFlightUserId = null/);
   assert.match(webOneSignal, /OneSignal\.logout\(\)/);
+  assert.match(webOneSignal, /resolveNotificationActionRoute\(data\?\.action\)/);
+  assert.match(webOneSignal, /settingsDrawerActionRoute = actionRoute === "\/settings\?drawer=notifications"/);
+  assert.match(webOneSignal, /normalizePushDeepLinkHref\(actionRoute \?\? payloadUrl\)/);
   assert.match(nativeOneSignal, /runtimeState\.activeIdentityUserId = nextUserId \|\| null;\s*runtimeState\.lastLoggedInUserId = null/s);
 });
 
@@ -115,7 +118,9 @@ test("web player-id and subscription sync writes through subscription RPCs only"
   assert.doesNotMatch(webPushHealth, /\.order\(["']last_seen_at["']/);
   assert.match(webPushHealth, /\.select\(["']push_enabled, paused_until["']\)/);
   assert.match(webPushHealth, /vibely-onesignal-subscription-changed/);
-  assert.match(pushPermissionPrompt, /requestWebPushPermissionAndSync\(user\.id\)/);
+  assert.match(pushPermissionPrompt, /requestWebPushPermissionAndSync\(promptUserId\)/);
+  assert.match(pushPermissionPrompt, /PROMPTED_KEY_PREFIX/);
+  assert.match(pushPermissionPrompt, /promptedKeyForUser\(user\.id\)/);
   assert.match(pushPermissionPrompt, /Notifications are blocked in your browser/);
   assert.match(pushPermissionPrompt, /Use your browser site settings/);
   assert.match(pushPermissionPrompt, /Notification prompt did not open/);

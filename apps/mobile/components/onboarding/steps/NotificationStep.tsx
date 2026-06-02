@@ -19,34 +19,50 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
   const [busy, setBusy] = useState(false);
   const [showDeniedRecovery, setShowDeniedRecovery] = useState(false);
   const settingsRecoveryActiveRef = useRef(false);
+  const activeUserIdRef = useRef(userId);
+  activeUserIdRef.current = userId;
+
+  useEffect(() => {
+    settingsRecoveryActiveRef.current = false;
+    setBusy(false);
+    setShowDeniedRecovery(false);
+  }, [userId]);
 
   useEffect(() => {
     if (!isGranted || (!showDeniedRecovery && !settingsRecoveryActiveRef.current)) return;
+    const promptUserId = userId;
     settingsRecoveryActiveRef.current = false;
     setShowDeniedRecovery(false);
-    void syncBackendAfterPushGrant(userId).finally(onNext);
+    void syncBackendAfterPushGrant(promptUserId).finally(() => {
+      if (activeUserIdRef.current === promptUserId) onNext();
+    });
   }, [isGranted, onNext, showDeniedRecovery, userId]);
 
   const ask = async () => {
     if (busy) return;
+    const promptUserId = userId;
     setBusy(true);
     try {
-      await markNativePushPermissionRequestInFlight();
+      await markNativePushPermissionRequestInFlight(promptUserId);
       const result = await requestPermission();
+      if (activeUserIdRef.current !== promptUserId) return;
       if (result.osDenied) {
-        await markNativePushPermissionAsked();
+        await markNativePushPermissionAsked('true', promptUserId);
+        if (activeUserIdRef.current !== promptUserId) return;
         setShowDeniedRecovery(true);
         return;
       }
       if (result.granted) {
-        await markNativePushPermissionAsked();
-        await syncBackendAfterPushGrant(userId);
+        await markNativePushPermissionAsked('true', promptUserId);
+        await syncBackendAfterPushGrant(promptUserId);
+        if (activeUserIdRef.current !== promptUserId) return;
       } else {
-        await clearNativePushPermissionAskedMarker();
+        await clearNativePushPermissionAskedMarker(promptUserId);
+        if (activeUserIdRef.current !== promptUserId) return;
       }
       onNext();
     } finally {
-      setBusy(false);
+      if (activeUserIdRef.current === promptUserId) setBusy(false);
     }
   };
 
@@ -60,7 +76,7 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
       <VibelyButton label="Turn on notifications" onPress={ask} variant="gradient" disabled={busy} />
       <Pressable
         onPress={() => {
-          void markNativePushPermissionAsked('skipped');
+          void markNativePushPermissionAsked('skipped', userId);
           onNext();
         }}
       >
@@ -72,7 +88,7 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
         onClose={() => {
           settingsRecoveryActiveRef.current = false;
           setShowDeniedRecovery(false);
-          void markNativePushPermissionAsked('skipped');
+          void markNativePushPermissionAsked('skipped', userId);
           onNext();
         }}
         onOpenSettings={() => {

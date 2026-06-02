@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -82,23 +83,41 @@ serve(async (req) => {
     const roundedLat = cityLevelCoordinate(lat);
     const roundedLng = cityLevelCoordinate(lng);
 
-    // Call Nominatim API from server side (no CORS issues)
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${roundedLat}&lon=${roundedLng}&zoom=10&addressdetails=1`,
-      {
-        headers: {
-          'User-Agent': 'Vibely Dating App (support@vibelymeet.com)',
-          'Accept': 'application/json',
+    const fallback = { lat: roundedLat, lng: roundedLng, city: 'Unknown', country: 'Unknown', formatted: 'Location detected' };
+    let response: Response;
+    try {
+      // Call Nominatim API from server side (no CORS issues)
+      response = await fetchWithProviderTimeout(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${roundedLat}&lon=${roundedLng}&zoom=10&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'Vibely Dating App (support@vibelymeet.com)',
+            'Accept': 'application/json',
+          },
         },
-      }
-    );
+        {
+          provider: 'nominatim',
+          operation: 'reverse_geocode',
+          timeoutMs: providerFetchTimeoutMs('nominatim', 'reverse_geocode', 5_000),
+        },
+      );
+    } catch (error) {
+      console.error('Nominatim API unavailable:', error instanceof Error ? error.message : String(error));
+      return new Response(
+        JSON.stringify({
+          error: 'Geocoding service temporarily unavailable',
+          fallback,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!response.ok) {
       console.error('Nominatim API error:', response.status, response.statusText);
       return new Response(
         JSON.stringify({ 
           error: 'Geocoding service temporarily unavailable',
-          fallback: { lat: roundedLat, lng: roundedLng, city: 'Unknown', country: 'Unknown', formatted: 'Location detected' }
+          fallback,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

@@ -21,24 +21,30 @@ import {
 import type { PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
 export const VIBELY_PUSH_PERMISSION_ASKED_KEY = 'vibely_push_permission_asked';
+export const VIBELY_PUSH_PERMISSION_ASKED_KEY_PREFIX = 'vibely_push_permission_asked:';
 export const VIBELY_PUSH_PERMISSION_IN_FLIGHT_PREFIX = 'in_flight:';
 const PUSH_PERMISSION_IN_FLIGHT_TTL_MS = 10 * 60 * 1000;
 
 const APP_ID = (process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '').trim();
 
-export async function markNativePushPermissionAsked(value: 'true' | 'skipped' = 'true'): Promise<void> {
-  await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, value);
+function nativePushPermissionAskedKey(userId?: string | null): string {
+  const cleanUserId = typeof userId === 'string' ? userId.trim() : '';
+  return cleanUserId ? `${VIBELY_PUSH_PERMISSION_ASKED_KEY_PREFIX}${cleanUserId}` : VIBELY_PUSH_PERMISSION_ASKED_KEY;
 }
 
-export async function markNativePushPermissionRequestInFlight(): Promise<void> {
+export async function markNativePushPermissionAsked(value: 'true' | 'skipped' = 'true', userId?: string | null): Promise<void> {
+  await AsyncStorage.setItem(nativePushPermissionAskedKey(userId), value);
+}
+
+export async function markNativePushPermissionRequestInFlight(userId?: string | null): Promise<void> {
   await AsyncStorage.setItem(
-    VIBELY_PUSH_PERMISSION_ASKED_KEY,
+    nativePushPermissionAskedKey(userId),
     `${VIBELY_PUSH_PERMISSION_IN_FLIGHT_PREFIX}${Date.now()}`,
   );
 }
 
-export async function clearNativePushPermissionAskedMarker(): Promise<void> {
-  await AsyncStorage.removeItem(VIBELY_PUSH_PERMISSION_ASKED_KEY);
+export async function clearNativePushPermissionAskedMarker(userId?: string | null): Promise<void> {
+  await AsyncStorage.removeItem(nativePushPermissionAskedKey(userId));
 }
 
 function parsePushPermissionInFlightStartedAt(value: string): number | null {
@@ -50,6 +56,7 @@ function parsePushPermissionInFlightStartedAt(value: string): number | null {
 export type PushPromptOsStatus = OsPushPermissionState | 'unknown';
 
 export type DashboardPushPrepromptContext = {
+  userId?: string | null;
   permissionStateHydrated: boolean;
   osStatus: PushPromptOsStatus;
   promptVisible?: boolean;
@@ -61,10 +68,24 @@ export type DashboardPushPrepromptDecision =
   | { offer: false; reason: string };
 
 const pushPromptSessionState = {
+  activeUserId: null as string | null,
   prepromptScheduledThisSession: false,
   prepromptVisible: false,
   osPermissionRequestInFlight: false,
 };
+
+function normalizePromptUserId(userId?: string | null): string | null {
+  const cleanUserId = typeof userId === 'string' ? userId.trim() : '';
+  return cleanUserId || null;
+}
+
+function syncPushPromptSessionUser(userId?: string | null): void {
+  const nextUserId = normalizePromptUserId(userId);
+  if (pushPromptSessionState.activeUserId === nextUserId) return;
+  pushPromptSessionState.activeUserId = nextUserId;
+  pushPromptSessionState.prepromptScheduledThisSession = false;
+  pushPromptSessionState.prepromptVisible = false;
+}
 
 function logPrepromptSuppressed(reason: string, extra?: Record<string, unknown>): void {
   pushPermDevLog('preprompt_suppressed', { reason, ...extra });
@@ -90,6 +111,8 @@ export async function shouldOfferDashboardPushPreprompt(
   context: DashboardPushPrepromptContext,
 ): Promise<boolean> {
   try {
+    syncPushPromptSessionUser(context.userId);
+
     if (!context.permissionStateHydrated) {
       logPrepromptSuppressed('permission_state_not_hydrated', {
         osStatus: context.osStatus,
@@ -119,10 +142,11 @@ export async function shouldOfferDashboardPushPreprompt(
       return false;
     }
 
-    const v = await AsyncStorage.getItem(VIBELY_PUSH_PERMISSION_ASKED_KEY);
+    const promptMarkerKey = nativePushPermissionAskedKey(context.userId);
+    const v = await AsyncStorage.getItem(promptMarkerKey);
     const inFlightStartedAt = v ? parsePushPermissionInFlightStartedAt(v) : null;
     if (inFlightStartedAt != null && Date.now() - inFlightStartedAt >= PUSH_PERMISSION_IN_FLIGHT_TTL_MS) {
-      await AsyncStorage.removeItem(VIBELY_PUSH_PERMISSION_ASKED_KEY);
+      await AsyncStorage.removeItem(promptMarkerKey);
       logPrepromptSuppressed('stale_in_flight_marker_recovered', { storedValue: v });
     } else if (v != null && v !== '') {
       logPrepromptSuppressed('preprompt_already_answered_or_skipped', { storedValue: v });
@@ -155,6 +179,8 @@ export async function shouldShowDashboardPushPreprompt(
   context: DashboardPushPrepromptContext,
 ): Promise<DashboardPushPrepromptDecision> {
   try {
+    syncPushPromptSessionUser(context.userId);
+
     if (!pushPromptSessionState.prepromptScheduledThisSession) {
       return { offer: false, reason: 'preprompt_not_scheduled' };
     }
@@ -221,7 +247,8 @@ export type PushPromptResult =
   | { outcome: 'already_denied' }
   | { outcome: 'denied_after_sheet' }
   | { outcome: 'request_failed' }
-  | { outcome: 'no_app_id' };
+  | { outcome: 'no_app_id' }
+  | { outcome: 'stale_identity' };
 
 function recordNativePushPromptResult(
   outcome: PushPromptResult['outcome'] | 'already_granted',
@@ -249,11 +276,38 @@ function recordNativePushSyncResult(result: PushSyncResult, surface: string, per
   });
 }
 
+async function isActiveAuthUserForPush(userId: string, context: string): Promise<boolean> {
+  const { data, error } = await supabase.auth.getSession();
+  const currentUserId = data.session?.user?.id ?? null;
+  const isActive = !error && currentUserId === userId;
+  if (!isActive) {
+    pushPermDevLog('prompt_suppressed', {
+      reason: 'stale_identity',
+      context,
+      hasCurrentUser: Boolean(currentUserId),
+      authReadFailed: Boolean(error),
+    });
+  }
+  return isActive;
+}
+
+async function stalePromptIdentityResult(userId: string, context: string): Promise<PushPromptResult> {
+  await clearNativePushPermissionAskedMarker(userId);
+  pushPermDevLog('prompt_suppressed', { reason: 'stale_identity', context });
+  recordNativePushPromptResult('stale_identity', 'unknown');
+  return { outcome: 'stale_identity' };
+}
+
 /** Shared success path after OS permission is granted (prefs + OneSignal subscription; no prompts). */
 export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyncResult> {
   if (__DEV__) pushPermDevLog('syncBackendAfterPushGrant', { userId });
   if (!APP_ID) {
     const result = { code: 'app_id_missing', synced: false, playerId: null } satisfies PushSyncResult;
+    recordNativePushSyncResult(result, 'permission_grant_sync');
+    return result;
+  }
+  if (!(await isActiveAuthUserForPush(userId, 'permission_grant_sync'))) {
+    const result = { code: 'stale_identity', synced: false, playerId: null } satisfies PushSyncResult;
     recordNativePushSyncResult(result, 'permission_grant_sync');
     return result;
   }
@@ -267,6 +321,11 @@ export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyn
     if (!isPaused) {
       disablePush(true);
     }
+    recordNativePushSyncResult(result, 'permission_grant_sync');
+    return result;
+  }
+  if (!(await isActiveAuthUserForPush(userId, 'permission_grant_sync_before_preferences'))) {
+    const result = { code: 'stale_identity', synced: false, playerId: null } satisfies PushSyncResult;
     recordNativePushSyncResult(result, 'permission_grant_sync');
     return result;
   }
@@ -292,17 +351,26 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
     recordNativePushPromptResult('no_app_id', 'unknown');
     return { outcome: 'no_app_id' };
   }
+  if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_start'))) {
+    return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_start');
+  }
 
-  await markNativePushPermissionRequestInFlight();
+  await markNativePushPermissionRequestInFlight(userId);
   initOneSignal();
   const os = await getPromptableOsState('request_push_permissions_after_prompt_before');
+  if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_before'))) {
+    return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_before');
+  }
   if (!os) {
-    await clearNativePushPermissionAskedMarker();
+    await clearNativePushPermissionAskedMarker(userId);
     recordNativePushPromptResult('denied_after_sheet', 'unknown');
     return { outcome: 'denied_after_sheet' };
   }
   if (os === 'denied') {
-    await markNativePushPermissionAsked();
+    if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_denied'))) {
+      return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_denied');
+    }
+    await markNativePushPermissionAsked('true', userId);
     await supabase.from('notification_preferences').upsert(
       { user_id: userId, push_enabled: false },
       { onConflict: 'user_id' }
@@ -311,7 +379,10 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
     return { outcome: 'already_denied' };
   }
   if (os === 'granted') {
-    await markNativePushPermissionAsked();
+    if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_granted'))) {
+      return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_granted');
+    }
+    await markNativePushPermissionAsked('true', userId);
     recordNativePushPromptResult('already_granted', os);
     const sync = await syncBackendAfterPushGrant(userId);
     return { outcome: 'granted', sync };
@@ -320,26 +391,32 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
   setDashboardPushOsPermissionRequestInFlight(true);
   try {
     const { granted } = await requestOneSignalPushPermission();
+    if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_after_sheet'))) {
+      return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_after_sheet');
+    }
     if (granted) {
-      await markNativePushPermissionAsked();
+      await markNativePushPermissionAsked('true', userId);
       recordNativePushPromptResult('granted', 'granted');
       const sync = await syncBackendAfterPushGrant(userId);
       return { outcome: 'granted', sync };
     }
   } catch {
-    await clearNativePushPermissionAskedMarker();
+    await clearNativePushPermissionAskedMarker(userId);
     recordNativePushPromptResult('request_failed', 'unknown');
     return { outcome: 'request_failed' };
   } finally {
     setDashboardPushOsPermissionRequestInFlight(false);
   }
   const after = await getPromptableOsState('request_push_permissions_after_prompt_after');
+  if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_after_state'))) {
+    return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_after_state');
+  }
   if (after !== 'denied') {
-    await clearNativePushPermissionAskedMarker();
+    await clearNativePushPermissionAskedMarker(userId);
     recordNativePushPromptResult('request_failed', after ?? 'unknown');
     return { outcome: 'request_failed' };
   }
-  await markNativePushPermissionAsked();
+  await markNativePushPermissionAsked('true', userId);
   await supabase.from('notification_preferences').upsert(
     { user_id: userId, push_enabled: false },
     { onConflict: 'user_id' }

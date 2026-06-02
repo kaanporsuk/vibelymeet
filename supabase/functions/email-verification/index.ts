@@ -4,6 +4,7 @@ import {
   normalizeEmailAddress,
   resolveCanonicalAuthEmail,
 } from "../_shared/verificationSemantics.ts";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const EMAIL_VERIFICATION_FROM_EMAIL =
@@ -213,17 +214,19 @@ async function sendEmail(
     requestId,
     fromConfigured: EMAIL_VERIFICATION_FROM_EMAIL.trim().length > 0,
   });
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-    },
-    body: JSON.stringify({
-      from: EMAIL_VERIFICATION_FROM_EMAIL,
-      to: [to],
-      subject: "Your Vibely Verification Code",
-      html: `
+  let response: Response;
+  try {
+    response = await fetchWithProviderTimeout("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: EMAIL_VERIFICATION_FROM_EMAIL,
+        to: [to],
+        subject: "Your Vibely Verification Code",
+        html: `
         <!DOCTYPE html>
         <html>
         <head>
@@ -254,8 +257,26 @@ async function sendEmail(
         </body>
         </html>
       `,
-    }),
-  });
+      }),
+    }, {
+      provider: "resend",
+      operation: "email_send",
+      timeoutMs: providerFetchTimeoutMs("resend", "email_send", 8_000),
+    });
+  } catch (error) {
+    logStage("resend_fetch_failed", {
+      requestId,
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return {
+      ok: false,
+      status: 503,
+      payload: {
+        error: "Email provider is temporarily unavailable.",
+        code: "resend_fetch_failed",
+      },
+    };
+  }
 
   const responseText = await response.text();
   let responseBody: unknown = null;

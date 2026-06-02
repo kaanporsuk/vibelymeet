@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -50,6 +50,21 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   const grantedBaselineRef = useRef<boolean | null>(null);
   const prepromptVisibleRef = useRef(false);
   const osPermissionRequestInFlightRef = useRef(false);
+  const activeUserIdRef = useRef<string | null>(null);
+  activeUserIdRef.current = userId ?? null;
+
+  const isActivePromptUser = useCallback(
+    (promptUserId: string | undefined) => (promptUserId ?? null) === activeUserIdRef.current,
+    [],
+  );
+
+  useEffect(() => {
+    grantedBaselineRef.current = null;
+    if (!userId) {
+      setEnableBusy(false);
+      setPhase('preprompt');
+    }
+  }, [userId]);
 
   useEffect(() => {
     prepromptVisibleRef.current = visible;
@@ -105,14 +120,16 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
     const prev = grantedBaselineRef.current;
     grantedBaselineRef.current = isGranted;
     if (prev || !isGranted) return;
+    const promptUserId = userId;
     void (async () => {
-      await markNativePushPermissionAsked();
-      await syncBackendAfterPushGrant(userId);
+      await markNativePushPermissionAsked('true', promptUserId);
+      await syncBackendAfterPushGrant(promptUserId);
+      if (!isActivePromptUser(promptUserId)) return;
       setPhase('preprompt');
       onClose();
       onCompleted?.();
     })();
-  }, [visible, userId, isGranted, onClose, onCompleted]);
+  }, [visible, userId, isGranted, onClose, onCompleted, isActivePromptUser]);
 
   useEffect(() => {
     if (!visible) return;
@@ -137,7 +154,9 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       return;
     }
     if (__DEV__) pushPermDevLog('PushPermissionPrompt: Not now / cancel — dismiss, no OS request');
-    await markNativePushPermissionAsked('skipped');
+    const promptUserId = userId;
+    await markNativePushPermissionAsked('skipped', promptUserId);
+    if (!isActivePromptUser(promptUserId)) return;
     onClose();
     onCompleted?.();
   };
@@ -155,18 +174,22 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
     osPermissionRequestInFlightRef.current = true;
     setDashboardPushOsPermissionRequestInFlight(true);
     setEnableBusy(true);
+    const promptUserId = userId;
     try {
-      if (!userId) {
+      if (!promptUserId) {
         await markNativePushPermissionAsked();
+        if (!isActivePromptUser(promptUserId)) return;
         onClose();
         onCompleted?.();
         return;
       }
       await refresh('push_prompt_enable_pressed');
+      if (!isActivePromptUser(promptUserId)) return;
       let os: OsPushPermissionState;
       try {
         os = await getStableOsPushPermissionState('push_prompt_enable_before_request');
       } catch (e) {
+        if (!isActivePromptUser(promptUserId)) return;
         if (__DEV__) {
           pushPermDevLog('prompt_suppressed', {
             reason: 'permission_state_read_failed',
@@ -178,28 +201,32 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       }
       if (os === 'denied') {
         if (__DEV__) pushPermDevLog('PushPermissionPrompt: OS denied — passive recovery only, no requestPermission');
-        await markNativePushPermissionAsked();
+        await markNativePushPermissionAsked('true', promptUserId);
+        if (!isActivePromptUser(promptUserId)) return;
         setPhase('deniedRecovery');
         return;
       }
       if (os === 'granted') {
-        await markNativePushPermissionAsked();
-        await syncBackendAfterPushGrant(userId);
+        await markNativePushPermissionAsked('true', promptUserId);
+        await syncBackendAfterPushGrant(promptUserId);
+        if (!isActivePromptUser(promptUserId)) return;
         onClose();
         onCompleted?.();
         return;
       }
       /** Persist an expiring in-flight marker so no other effect can re-show preprompt while the system sheet runs. */
-      await markNativePushPermissionRequestInFlight();
+      await markNativePushPermissionRequestInFlight(promptUserId);
+      if (!isActivePromptUser(promptUserId)) return;
       if (__DEV__) pushPermDevLog('PushPermissionPrompt: undetermined — close branded modal, then OS sheet');
       onClose();
       await new Promise<void>((resolve) => setTimeout(resolve, DISMISS_BEFORE_OS_PERMISSION_MS));
-      await requestPushPermissionsAfterPrompt(userId);
+      await requestPushPermissionsAfterPrompt(promptUserId);
+      if (!isActivePromptUser(promptUserId)) return;
       onCompleted?.();
     } finally {
       osPermissionRequestInFlightRef.current = false;
       setDashboardPushOsPermissionRequestInFlight(false);
-      setEnableBusy(false);
+      if (isActivePromptUser(promptUserId)) setEnableBusy(false);
     }
   };
 
@@ -214,7 +241,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
           <View style={{ width: Math.min(width - 40, 400), alignSelf: 'center' }}>
             <NotificationDeniedRecoverySurface
               onOpenSettings={() => {
-                void markNativePushPermissionAsked();
+                void markNativePushPermissionAsked('true', userId);
                 openSettings();
                 onClose();
                 onCompleted?.();

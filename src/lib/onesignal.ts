@@ -9,6 +9,7 @@ import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 import { classifyPushDeepLink, normalizePushDeepLinkHref, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
 import { recordServiceWorkerState } from "@/lib/browserDiagnostics";
 import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from "@/lib/notificationDispatchAck";
+import { resolveNotificationActionRoute } from "@/lib/notificationActions";
 import {
   preloadVideoDatePushTargetsFromPayload,
   resolveVideoDatePushHrefFromCanonicalTruth,
@@ -356,7 +357,10 @@ export const initOneSignal = () => {
           void ackNotificationDispatchFromPayload(data, "web_click", providerNotificationId);
           void markNotificationOpenedV2FromPayload(data);
         }
-        const url = data?.url ?? data?.deep_link;
+        const actionRoute = resolveNotificationActionRoute(data?.action);
+        const settingsDrawerActionRoute = actionRoute === "/settings?drawer=notifications" ? actionRoute : null;
+        const payloadUrl = data?.url ?? data?.deep_link;
+        const url = actionRoute ?? payloadUrl;
         const deepLink = classifyPushDeepLink(url);
         recordPushDeliveryTelemetry("push_notification_tap", {
           platform: "web",
@@ -368,7 +372,11 @@ export const initOneSignal = () => {
           surface: "onesignal_click",
           ...deepLink,
         });
-        const safeHref = normalizePushDeepLinkHref(url);
+        if (settingsDrawerActionRoute) {
+          window.location.href = settingsDrawerActionRoute;
+          return;
+        }
+        const safeHref = normalizePushDeepLinkHref(actionRoute ?? payloadUrl);
         if (safeHref) {
           void resolveVideoDatePushHrefFromCanonicalTruth(safeHref).then((href) => {
             window.location.href = normalizePushDeepLinkHref(href) ?? safeHref;

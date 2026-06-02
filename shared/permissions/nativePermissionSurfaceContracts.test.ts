@@ -185,7 +185,8 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.match(matchCall, /setLocalAudio\(true\)/);
   assert.match(matchCall, /setLocalVideo\(true\)/);
   assert.match(notificationStep, /settingsRecoveryActiveRef/);
-  assert.match(notificationStep, /syncBackendAfterPushGrant\(userId\)\.finally\(onNext\)/);
+  assert.match(notificationStep, /syncBackendAfterPushGrant\(promptUserId\)\.finally\(\(\) => \{/);
+  assert.match(notificationStep, /activeUserIdRef\.current === promptUserId/);
   assert.doesNotMatch(notificationStep, /openSettings\(\);\s*setShowDeniedRecovery\(false\)/);
   assert.deepEqual(directOpenSettingsHits, []);
 });

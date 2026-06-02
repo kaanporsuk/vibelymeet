@@ -104,6 +104,8 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   assert.match(hook, /navigator\.mediaDevices\.getUserMedia/);
   assert.match(hook, /start_call_media_preflight_blocked/);
   assert.match(hook, /answer_call_media_preflight_blocked/);
+  assert.match(hook, /active_rejoin_media_preflight_blocked/);
+  assert.match(hook, /kind: "active_rejoin"/);
   assert.match(hook, /data-testid="match-call-preflight-permission-recovery"/);
   const startCallIndex = hook.indexOf("const startCall = useCallback");
   const preflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(type)", startCallIndex);
@@ -111,6 +113,13 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   assert.ok(
     startCallIndex >= 0 && preflightIndex > startCallIndex && createIndex > preflightIndex,
     "start call should preflight browser media before creating a Daily room",
+  );
+  const rejoinIndex = hook.indexOf("const joinActiveCall = useCallback");
+  const rejoinPreflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(nextCallType)", rejoinIndex);
+  const rejoinDailyIndex = hook.indexOf('supabase.functions.invoke("daily-room"', rejoinIndex);
+  assert.ok(
+    rejoinIndex >= 0 && rejoinPreflightIndex > rejoinIndex && rejoinDailyIndex > rejoinPreflightIndex,
+    "active web rejoin should preflight browser media before requesting a Daily token",
   );
   assert.match(hook, /audioState === "blocked"[\s\S]*setLocalAudio\(true\)/);
   assert.match(hook, /videoState === "blocked"[\s\S]*setLocalVideo\(true\)/);

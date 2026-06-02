@@ -30,6 +30,43 @@ const pushSubscriptionPublicGrantHardeningMigration = read(
   "supabase/migrations/20260602023000_push_subscription_public_grants_hardening.sql",
 );
 
+test("permission-adjacent provider exchanges have bounded fetch timeouts", () => {
+  const providerFetch = read("supabase/functions/_shared/provider-fetch.ts");
+  const geocode = read("supabase/functions/geocode/index.ts");
+  const phoneVerify = read("supabase/functions/phone-verify/index.ts");
+  const emailVerification = read("supabase/functions/email-verification/index.ts");
+  const createChatClip = read("supabase/functions/create-chat-vibe-clip-upload/index.ts");
+  const completeChatClip = read("supabase/functions/complete-chat-vibe-clip-upload/index.ts");
+  const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
+
+  assert.match(providerFetch, /export async function fetchWithProviderTimeout/);
+  assert.match(providerFetch, /AbortController/);
+  assert.match(providerFetch, /ProviderFetchTimeoutError/);
+  assert.match(providerFetch, /providerFetchTimeoutMs/);
+
+  assert.match(geocode, /fetchWithProviderTimeout/);
+  assert.match(geocode, /provider: 'nominatim'/);
+  assert.match(geocode, /fallback/);
+
+  assert.match(phoneVerify, /provider: "twilio"/);
+  assert.match(phoneVerify, /operation: "lookup_phone"/);
+  assert.match(phoneVerify, /operation: "verify_send"/);
+  assert.match(phoneVerify, /operation: "verify_check"/);
+  assert.match(phoneVerify, /twilio_send_fetch_failed/);
+  assert.match(phoneVerify, /twilio_verify_fetch_failed/);
+
+  assert.match(emailVerification, /provider: "resend"/);
+  assert.match(emailVerification, /operation: "email_send"/);
+  assert.match(emailVerification, /resend_fetch_failed/);
+
+  assert.match(createChatClip, /provider: "bunny_stream"/);
+  assert.match(createChatClip, /operation: "video_create"/);
+  assert.match(createChatClip, /operation: "video_delete"/);
+  assert.match(completeChatClip, /operation: "video_status"/);
+  assert.match(getChatMediaUrl, /provider: "bunny_storage"/);
+  assert.match(getChatMediaUrl, /operation: "proxy_fetch"/);
+});
+
 test("native iOS permission metadata matches the shipped runtime prompts", () => {
   const appConfig = read("apps/mobile/app.base.json");
   const plistPaths = [
@@ -94,17 +131,38 @@ test("native push and match-call permission recovery survives interrupted or ret
   const matchCall = read("apps/mobile/lib/useMatchCall.tsx");
   const nativeMedia = read("apps/mobile/lib/nativeMediaPermissions.ts");
   const nativeOneSignal = read("apps/mobile/lib/onesignal.ts");
+  const nativeAuth = read("apps/mobile/context/AuthContext.tsx");
   const nativePrefsHook = read("apps/mobile/lib/useNotificationPreferences.ts");
   const nativeSettings = read("apps/mobile/app/settings/notifications.tsx");
 
   assert.match(requestPush, /VIBELY_PUSH_PERMISSION_IN_FLIGHT_PREFIX/);
+  assert.match(requestPush, /VIBELY_PUSH_PERMISSION_ASKED_KEY_PREFIX/);
+  assert.match(requestPush, /function nativePushPermissionAskedKey/);
+  assert.match(requestPush, /activeUserId: null as string \| null/);
+  assert.match(requestPush, /function syncPushPromptSessionUser/);
+  assert.match(requestPush, /syncPushPromptSessionUser\(context\.userId\)/);
+  assert.match(requestPush, /function isActiveAuthUserForPush/);
+  assert.match(requestPush, /supabase\.auth\.getSession\(\)/);
+  assert.match(requestPush, /code: 'stale_identity'/);
+  assert.match(requestPush, /permission_grant_sync_before_preferences/);
+  assert.match(requestPush, /stalePromptIdentityResult\(userId, 'request_push_permissions_after_prompt_after_sheet'\)/);
+  assert.match(requestPush, /nativePushPermissionAskedKey\(context\.userId\)/);
   assert.match(requestPush, /PUSH_PERMISSION_IN_FLIGHT_TTL_MS = 10 \* 60 \* 1000/);
   assert.match(requestPush, /stale_in_flight_marker_recovered/);
   assert.match(requestPush, /outcome: 'request_failed'/);
-  assert.match(dashboardPrompt, /markNativePushPermissionRequestInFlight/);
-  assert.match(dashboardPrompt, /markNativePushPermissionAsked\('skipped'\)/);
-  assert.match(onboardingStep, /markNativePushPermissionRequestInFlight/);
-  assert.match(onboardingStep, /markNativePushPermissionAsked\('skipped'\)/);
+  assert.match(dashboardPrompt, /activeUserIdRef/);
+  assert.match(dashboardPrompt, /function isActivePromptUser|const isActivePromptUser/);
+  assert.match(dashboardPrompt, /const promptUserId = userId/);
+  assert.match(dashboardPrompt, /grantedBaselineRef\.current = null/);
+  assert.match(dashboardPrompt, /requestPushPermissionsAfterPrompt\(promptUserId\)/);
+  assert.match(dashboardPrompt, /markNativePushPermissionRequestInFlight\(promptUserId\)/);
+  assert.match(dashboardPrompt, /markNativePushPermissionAsked\('skipped', promptUserId\)/);
+  assert.match(onboardingStep, /activeUserIdRef/);
+  assert.match(onboardingStep, /const promptUserId = userId/);
+  assert.match(onboardingStep, /activeUserIdRef\.current !== promptUserId/);
+  assert.match(onboardingStep, /syncBackendAfterPushGrant\(promptUserId\)/);
+  assert.match(onboardingStep, /markNativePushPermissionRequestInFlight\(promptUserId\)/);
+  assert.match(onboardingStep, /markNativePushPermissionAsked\('skipped', userId\)/);
   assert.match(onboardingStep, /onClose=\{\(\) => \{[\s\S]*onNext\(\);[\s\S]*\}\}/);
 
   assert.match(masterSwitch, /getStableOsPushPermissionState/);
@@ -130,6 +188,8 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.match(nativeOneSignal, /unregister_onesignal_push_subscription/);
   assert.doesNotMatch(nativeOneSignal, /isMissingPushSubscriptionRpc/);
   assert.doesNotMatch(nativeOneSignal, /\.from\('notification_preferences'\)/);
+  assert.match(nativeAuth, /markSessionExpired[\s\S]*disconnectOneSignalForLogout\(uid \?\? null\)/);
+  assert.match(nativeAuth, /markSessionExpired[\s\S]*clearRevenueCatUser\(\)/);
 
   assert.match(nativePrefsHook, /pendingPatchRef/);
   assert.match(nativePrefsHook, /activeUserIdRef/);
@@ -164,6 +224,7 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   const prompt = read("src/components/PushPermissionPrompt.tsx");
   const drawer = read("src/components/settings/NotificationsDrawer.tsx");
   const pushTypes = read("shared/pushDeliveryHealth.ts");
+  const webAuth = read("src/contexts/AuthContext.tsx");
 
   assert.match(helper, /register_onesignal_push_subscription/);
   assert.match(helper, /unregister_onesignal_push_subscription/);
@@ -200,7 +261,21 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(pushTypes, /unsupported_browser/);
   assert.match(pushTypes, /prompt_unavailable/);
   assert.match(prompt, /Use your browser site settings/);
+  assert.match(prompt, /PROMPTED_KEY_PREFIX/);
+  assert.match(prompt, /function promptedKeyForUser/);
+  assert.match(prompt, /promptedKeyForUser\(user\.id\)/);
+  assert.match(prompt, /activeUserIdRef/);
+  assert.match(prompt, /const promptUserId = user\.id/);
+  assert.match(prompt, /activeUserIdRef\.current === promptUserId/);
+  assert.match(prompt, /requestWebPushPermissionAndSync\(promptUserId\)/);
+  assert.match(prompt, /user_id: promptUserId/);
+  assert.match(prompt, /setOpen\(false\);\s*setBusy\(false\);\s*setRecovery\(null\);/);
+  assert.match(prompt, /lastEligibilityCountsRef\.current = \{ matchCount: null, regCount: null \}/);
+  assert.match(prompt, /let cancelled = false/);
+  assert.match(prompt, /window\.clearTimeout\(promptTimer\)/);
   assert.match(prompt, /Notification prompt did not open/);
+  assert.match(webAuth, /web_push\.invalid_session_clear/);
+  assert.match(webAuth, /removeExternalUserId/);
   assert.doesNotMatch(prompt, /settingsLink/);
   assert.doesNotMatch(prompt, /settings\?drawer=notifications/);
   assert.match(drawer, /unsupported_browser/);
@@ -263,7 +338,10 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
   }
   assert.match(webTelemetry, /normalizeNotificationAppPath\(rawPath, "web"\)/);
   assert.match(nativeTelemetry, /normalizeNotificationAppPath\(rawPath, 'native'\)/);
-  assert.match(webOneSignal, /normalizePushDeepLinkHref\(url\)/);
+  assert.match(webOneSignal, /resolveNotificationActionRoute\(data\?\.action\)/);
+  assert.match(webOneSignal, /settingsDrawerActionRoute = actionRoute === "\/settings\?drawer=notifications"/);
+  assert.match(webOneSignal, /if \(settingsDrawerActionRoute\) \{[\s\S]*window\.location\.href = settingsDrawerActionRoute;[\s\S]*return;/);
+  assert.match(webOneSignal, /normalizePushDeepLinkHref\(actionRoute \?\? payloadUrl\)/);
   assert.match(webOneSignal, /window\.location\.href = safeHref/);
   assert.match(nativeDeepLink, /CANONICAL_NOTIFICATION_ORIGINS/);
   assert.match(nativeDeepLink, /NATIVE_NOTIFICATION_SCHEMES/);

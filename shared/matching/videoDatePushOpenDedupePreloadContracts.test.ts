@@ -93,7 +93,7 @@ test("video-date push outbox retries reuse a stable provider idempotency key", (
   assert.match(outboxDrainer, /isMissingProviderIdempotencyColumnError/);
   assert.match(outboxDrainer, /previewColumns\},provider_idempotency_key/);
   assert.match(outboxDrainer, /\.select\(previewColumns\)/);
-  assert.match(sendNotification, /const requestProviderIdempotencyKey = validProviderIdempotencyKey\(provider_idempotency_key\)/);
+  assert.match(sendNotification, /let requestProviderIdempotencyKey = validProviderIdempotencyKey\(provider_idempotency_key\)/);
   assert.match(sendNotification, /osPayload\.idempotency_key = requestProviderIdempotencyKey/);
 });
 
@@ -112,7 +112,9 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
   assert.match(webOneSignal, /ackNotificationDispatchFromPayload\(data, "web_click"/);
   assert.match(webOneSignal, /markNotificationOpenedV2FromPayload\(data\)/);
   assert.match(webOneSignal, /preloadVideoDatePushTargetsFromPayload\(data\)/);
-  assert.match(webOneSignal, /const safeHref = normalizePushDeepLinkHref\(url\)/);
+  assert.match(webOneSignal, /resolveNotificationActionRoute\(data\?\.action\)/);
+  assert.match(webOneSignal, /settingsDrawerActionRoute = actionRoute === "\/settings\?drawer=notifications"/);
+  assert.match(webOneSignal, /const safeHref = normalizePushDeepLinkHref\(actionRoute \?\? payloadUrl\)/);
   assert.match(webOneSignal, /resolveVideoDatePushHrefFromCanonicalTruth\(safeHref\)/);
   assert.match(webOneSignal, /window\.location\.href = normalizePushDeepLinkHref\(href\) \?\? safeHref/);
   assert.match(webOneSignal, /window\.location\.href = safeHref/);
