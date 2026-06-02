@@ -51,6 +51,7 @@ test("video-date OneSignal payloads carry canonical open, dedupe, route, and ent
 
   assert.match(sendNotification, /function attachVideoDateOneSignalContract/);
   assert.match(sendNotification, /category === 'post_date_feedback_reminder'/);
+  assert.match(sendNotification, /category === 'date_starting' \|\| category === 'reconnection' \|\| category === 'date_reminder' \|\| category === 'post_date_feedback_reminder'/);
   assert.match(sendNotification, /recipientId: args\.recipientId/);
   assert.match(sendNotification, /dedupeKey[\s\S]+\? createNotificationDispatchGroupId/);
   assert.match(sendNotification, /next\.notification_id = notificationId/);

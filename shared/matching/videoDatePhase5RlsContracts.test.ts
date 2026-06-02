@@ -24,6 +24,7 @@ const v4FoundationMigration = read("supabase/migrations/20260521150000_video_dat
 const transactionEngineMigration = read("supabase/migrations/20260521203000_video_date_phase2_transaction_engine.sql");
 const snapshotCoreMigration = read("supabase/migrations/20260521193000_video_date_phase1_snapshot_event_id.sql");
 const tokenRefreshFunction = read("supabase/functions/video-date-token-refresh/index.ts");
+const privilegeBoundaryMigration = read("supabase/migrations/20260602030309_video_date_privilege_boundary_hardening.sql");
 const validationPack = read("supabase/validation/video_date_phase5_rls_contracts.sql");
 const packageJson = read("package.json");
 const tokenRefreshLogBlocks = [...tokenRefreshFunction.matchAll(/console\.error\(JSON\.stringify\(\{[\s\S]*?\}\)\);/g)]
@@ -162,6 +163,31 @@ test("Phase 5 outbox and refund worker surfaces remain service-role only", () =>
   assert.match(paymentMigration, /GRANT EXECUTE ON FUNCTION public\.claim_event_ticket_refund_jobs_v1\(text, integer, integer\)[\s\S]+TO service_role/);
   assert.match(paymentMigration, /REVOKE ALL ON FUNCTION public\.complete_event_ticket_refund_job_v1\(uuid, text, boolean, text, text, text, integer, boolean, boolean\)[\s\S]+FROM PUBLIC, anon, authenticated/);
   assert.match(paymentMigration, /GRANT EXECUTE ON FUNCTION public\.complete_event_ticket_refund_job_v1\(uuid, text, boolean, text, text, text, integer, boolean, boolean\)[\s\S]+TO service_role/);
+});
+
+test("Video Date privilege boundary hardening closes worker RPC and default grant drift", () => {
+  assert.match(privilegeBoundaryMigration, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public[\s\S]+REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated/);
+  assert.match(privilegeBoundaryMigration, /ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public[\s\S]+REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated/);
+  assert.match(privilegeBoundaryMigration, /Skipping supabase_admin function default-privilege revoke/);
+  assert.match(privilegeBoundaryMigration, /ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public[\s\S]+REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated/);
+  assert.match(privilegeBoundaryMigration, /ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public[\s\S]+REVOKE ALL ON TABLES FROM PUBLIC, anon, authenticated/);
+
+  for (const signature of [
+    "claim_post_date_pending_verdict_reminders\\(integer\\)",
+    "mark_post_date_pending_verdicts_stale\\(interval, integer\\)",
+    "detect_post_date_half_verdict_timeouts\\(interval, integer\\)",
+    "record_post_date_pending_verdict_reminder_result\\(uuid, boolean, text\\)",
+    "record_event_loop_observability\\(text, text, text, integer, uuid, uuid, uuid, jsonb\\)",
+  ]) {
+    assert.match(privilegeBoundaryMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${signature}[\\s\\S]+FROM PUBLIC, anon, authenticated`));
+    assert.match(privilegeBoundaryMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${signature}[\\s\\S]+TO service_role`));
+  }
+
+  assert.match(privilegeBoundaryMigration, /REVOKE ALL ON TABLE public\.notification_preferences FROM PUBLIC, anon, authenticated/);
+  assert.match(privilegeBoundaryMigration, /GRANT SELECT, INSERT, UPDATE ON TABLE public\.notification_preferences TO authenticated/);
+  assert.match(privilegeBoundaryMigration, /CREATE POLICY "Admins can view pending post-date verdicts"[\s\S]+TO authenticated/);
+  assert.match(privilegeBoundaryMigration, /CREATE POLICY "Participants can read sanitized video session events"[\s\S]+TO authenticated/);
+  assert.match(privilegeBoundaryMigration, /CREATE POLICY "Actors can read own actor-only video session events"[\s\S]+TO authenticated/);
 });
 
 test("Phase 5 validation and test packs are wired into the no-build safety net", () => {

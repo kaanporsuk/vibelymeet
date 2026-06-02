@@ -9,6 +9,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
 const tokenRefreshProviderLimitMigration = read("supabase/migrations/20260601184730_video_date_token_refresh_provider_rate_limit.sql");
 const definitiveCloudAlignmentMigration = read("supabase/migrations/20260602005051_video_date_definitive_cloud_alignment.sql");
+const tokenRefreshEnumLintFixMigration = read("supabase/migrations/20260602024000_video_date_token_refresh_enum_lint_fix.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const deadlineFinalizer = read("supabase/functions/video-date-deadline-finalizer/index.ts");
@@ -169,6 +170,10 @@ test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guar
   assert.match(definitiveCloudAlignmentMigration, /CREATE OR REPLACE FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1/);
   assert.match(definitiveCloudAlignmentMigration, /v_scoped_bucket := concat\(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text\)/);
   assert.match(definitiveCloudAlignmentMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_scoped_bucket/);
+  assert.match(tokenRefreshEnumLintFixMigration, /CREATE OR REPLACE FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1/);
+  assert.match(tokenRefreshEnumLintFixMigration, /COALESCE\(v_session\.state::text, ''\) IN \('handshake', 'date'\)/);
+  assert.match(tokenRefreshEnumLintFixMigration, /COALESCE\(v_session\.phase::text, ''\) IN \('handshake', 'date'\)/);
+  assert.doesNotMatch(tokenRefreshEnumLintFixMigration, /COALESCE\(v_session\.state, ''\)/);
   assert.match(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1/);
   assert.match(tokenRefreshProviderLimitMigration, /GRANT EXECUTE ON FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1\(uuid, text\)[\s\S]+TO authenticated, service_role/);
   assert.match(tokenRefresh, /error: tokenError\.clientError/);
