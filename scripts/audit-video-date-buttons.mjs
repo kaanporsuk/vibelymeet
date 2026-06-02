@@ -177,7 +177,9 @@ mustInclude("nativeEventLobby", "onManualExitConfirmed={suppressReadyGateAfterMa
 mustInclude("nativeEventLobby", "isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)", "native lobby must suppress date re-entry after a local pre-connect exit");
 mustInclude("nativeEventLobby", "date_nav_suppressed_before_prepare", "native lobby must record manual date re-entry suppression before preparing provider entry");
 mustInclude("nativeStandaloneReady", "const result = await forfeit()", "standalone native Ready Gate Step away must await server forfeit truth");
-mustInclude("nativeStandaloneReady", "if (!result.ok) throw new Error('ready_gate_forfeit_failed')", "standalone native Ready Gate must keep retryable forfeit failure handling");
+mustInclude("nativeStandaloneReady", "resolveReadyGateTransitionFailureCopy", "standalone native Ready Gate must keep conflict-aware forfeit failure handling");
+mustInclude("nativeStandaloneReady", "action: 'forfeit'", "standalone native Ready Gate forfeit failures must be classified by action");
+mustInclude("nativeStandaloneReady", "multi_device_conflict: fallback.staleOrConflict", "standalone native Ready Gate must surface multi-device forfeit conflicts");
 
 mustOrderAfter(
   "webDate",

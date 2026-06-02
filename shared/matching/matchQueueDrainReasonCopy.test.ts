@@ -38,10 +38,37 @@ test("maps v2 runtime and safety drain blocks to calm lobby copy", () => {
   );
 });
 
+test("maps v2 queue, admission, and registration reasons to visible waiting copy", () => {
+  assert.deepEqual(getMatchQueueDrainReasonCopy("no_queued_session"), {
+    reason: "no_queued_session",
+    title: "Queue is syncing",
+    message: "We are checking for a match. Keep the lobby open while the queue catches up.",
+  });
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason_code: "session_not_promotable" })?.message,
+    "This queued match can no longer open Ready Gate. Keep browsing while we look for the next one.",
+  );
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, failure_reason: "admission_not_confirmed" })?.title,
+    "Event access pending",
+  );
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason: "registration_missing" })?.message,
+    "Your event registration changed. Refresh the lobby to continue.",
+  );
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason: "pair_already_met_this_event" })?.title,
+    "Already matched here",
+  );
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason: "lock_busy" })?.message,
+    "Another queue check is running. Keep the lobby open and we will retry.",
+  );
+});
+
 test("ignores unknown, null, and non-string reasons", () => {
   assert.equal(getMatchQueueDrainReasonCopy(null), null);
   assert.equal(getMatchQueueDrainReasonCopy(undefined), null);
-  assert.equal(getMatchQueueDrainReasonCopy("no_queued_session"), null);
   assert.equal(getMatchQueueDrainReasonCopy({ found: false, reason: "self_not_present" }), null);
   assert.equal(getMatchQueueDrainReasonCopy({ found: false, reason: 123 }), null);
   assert.equal(getMatchQueueDrainReasonCopy({ found: false }), null);

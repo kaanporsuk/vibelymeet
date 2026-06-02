@@ -244,6 +244,10 @@ test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fi
   assert.equal(nextCopy.compactLabel, "Position 1 · now");
   assert.equal(nextCopy.isNext, true);
   assert.equal(nextCopy.positionLabel, "You're next");
+  assert.equal(
+    nextCopy.message,
+    "Keep this lobby open so we can confirm presence. Ready Gate opens when your match is ready.",
+  );
   assert.deepEqual(nextCopy.detailParts, ["You're next", "now"]);
 
   const reliefCopy = resolveVideoDateQueueCopy(
@@ -304,7 +308,7 @@ test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fi
   assert.deepEqual(resolveVideoDateQueueCopy(null, 1), {
     compactLabel: "1 waiting in queue",
     title: "Holding your place",
-    message: "Keep browsing. Ready Gate opens automatically when a match is available.",
+    message: "Keep browsing with the lobby open. Ready Gate opens automatically when a match is available.",
     positionLabel: null,
     etaLabel: null,
     reliefLabel: null,

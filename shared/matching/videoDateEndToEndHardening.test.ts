@@ -1050,7 +1050,7 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
   assert.match(webReadyGateHook, /ok: false[\s\S]*ok: true/);
   assert.match(readyGateOverlay, /const runTerminalAction = useCallback\(/);
   assert.match(readyGateOverlay, /const result = await skip\(\)/);
-  assert.match(readyGateOverlay, /if \(!result\.ok\) \{[\s\S]*ready_gate_forfeit_failed/s);
+  assert.match(readyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: "forfeit"/s);
   assert.match(readyGateOverlay, /result\.status === "both_ready"/);
   assert.match(readyGateOverlay, /manualExitRequestedRef/);
   assert.match(readyGateOverlay, /setTerminalActionError\(message\)/);
@@ -1073,7 +1073,7 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
   assert.match(nativeReadyGateApi, /ok: false[\s\S]*ok: true/);
   assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'skip' = 'skip'\) =>/);
   assert.match(nativeReadyGateOverlay, /const result = await forfeit\(\)/);
-  assert.match(nativeReadyGateOverlay, /if \(!result\.ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
+  assert.match(nativeReadyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'forfeit'/s);
   assert.match(nativeReadyGateOverlay, /result\.status === 'both_ready'/);
   assert.match(nativeReadyGateOverlay, /manualExitRequestedRef/);
   assert.match(nativeReadyGateOverlay, /setTerminalActionError\(message\)/);
@@ -1090,13 +1090,13 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(webReadyGateHook, /runReadyGateTransition\("mark_ready"\)/);
   assert.match(webReadyGateHook, /runReadyGateTransition\("snooze"\)/);
   assert.match(readyGateOverlay, /const result = await markReady\(\)/);
-  assert.match(readyGateOverlay, /if \(!result\.ok\) \{[\s\S]*ready_gate_mark_ready_failed/s);
-  assert.match(readyGateOverlay, /throw new Error\("ready_gate_mark_ready_failed"\)/);
-  assert.match(readyGateOverlay, /We couldn't mark you ready\. Check your connection and try again\./);
+  assert.match(readyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: "mark_ready"/s);
+  assert.match(readyGateOverlay, /throw new Error\(transitionFailure\.message\)/);
+  assert.match(readyGateOverlay, /setTerminalActionError\(message\)/);
   assert.match(readyGateOverlay, /const result = await snooze\(\)/);
-  assert.match(readyGateOverlay, /if \(!result\.ok\) \{[\s\S]*ready_gate_snooze_failed/s);
-  assert.match(readyGateOverlay, /throw new Error\("ready_gate_snooze_failed"\)/);
-  assert.match(readyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
+  assert.match(readyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: "snooze"/s);
+  assert.match(readyGateOverlay, /reason: fallback\.reasonCode/);
+  assert.match(readyGateOverlay, /multi_device_conflict: fallback\.staleOrConflict/);
   assert.match(readyGateOverlay, /EXPIRY_SYNC_RETRY_DELAY_MS/);
   assert.match(readyGateOverlay, /source === "initial" \|\| source === "poll"[\s\S]*const syncResult = await syncSession\(\)/);
   assert.match(readyGateOverlay, /void syncSession\(\)[\s\S]*countdown expiry sync deferred after RPC error/s);
@@ -1108,21 +1108,21 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(nativeReadyGateApi, /runReadyGateTransition\('mark_ready'\)/);
   assert.match(nativeReadyGateApi, /runReadyGateTransition\('snooze'\)/);
   assert.match(nativeReadyGateOverlay, /const result = await markReady\(\)/);
-  assert.match(nativeReadyGateOverlay, /if \(!result\.ok\) throw new Error\('ready_gate_mark_ready_failed'\)/);
-  assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_mark_ready_failed'\)/);
-  assert.match(nativeReadyGateOverlay, /We couldn't mark you ready\. Check your connection and try again\./);
+  assert.match(nativeReadyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'mark_ready'/s);
+  assert.match(nativeReadyGateOverlay, /throw new Error\(transitionFailure\.message\)/);
+  assert.match(nativeReadyGateOverlay, /setTerminalActionError\(fallback\.message\)/);
   assert.match(nativeReadyGateOverlay, /const result = await snooze\(\)/);
-  assert.match(nativeReadyGateOverlay, /if \(!result\.ok\) throw new Error\('ready_gate_snooze_failed'\)/);
-  assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_snooze_failed'\)/);
-  assert.match(nativeReadyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
+  assert.match(nativeReadyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'snooze'/s);
+  assert.match(nativeReadyGateOverlay, /reason: fallback\.reasonCode/);
+  assert.match(nativeReadyGateOverlay, /multi_device_conflict: fallback\.staleOrConflict/);
   assert.match(nativeReadyGateOverlay, /EXPIRY_SYNC_RETRY_DELAY_MS/);
   assert.match(nativeReadyGateOverlay, /void syncSession\(\)[\s\S]*countdown_expiry_sync_deferred/s);
   assert.doesNotMatch(nativeReadyGateOverlay, /TIMEOUT_FORFEIT|timeoutForfeit|timeout_auto_forfeit|handleSkip\('timeout'\)/);
 
   assert.match(nativeReadyRoute, /const runReadyGateForfeit = useCallback\(/);
   assert.match(nativeReadyRoute, /const result = await forfeit\(\)/);
-  assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
-  assert.match(nativeReadyRoute, /setTerminalActionError\("We couldn't step away\. Check your connection and try again\."\)/);
+  assert.match(nativeReadyRoute, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'forfeit'/s);
+  assert.match(nativeReadyRoute, /setTerminalActionError\(fallback\.message\)/);
   assert.match(nativeReadyRoute, /EXPIRY_SYNC_RETRY_DELAY_MS/);
   assert.match(nativeReadyRoute, /const syncExpiredReadyGate = useCallback/);
   assert.match(nativeReadyRoute, /const result = await syncSession\(\)/);
@@ -1131,13 +1131,11 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(nativeReadyRoute, /primaryAction: \{ label: 'Step away', onPress: \(\) => \{ void runReadyGateForfeit\('skip'\); \} \}/);
   assert.doesNotMatch(nativeReadyRoute, /forfeit\(\);\s*return 0/);
   assert.match(nativeReadyRoute, /const result = await markReady\(\)/);
-  assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_mark_ready_failed'\)/);
-  assert.match(nativeReadyRoute, /throw new Error\('ready_gate_mark_ready_failed'\)/);
-  assert.match(nativeReadyRoute, /We couldn't mark you ready\. Check your connection and try again\./);
+  assert.match(nativeReadyRoute, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'mark_ready'/s);
+  assert.match(nativeReadyRoute, /throw new Error\(transitionFailure\.message\)/);
   assert.match(nativeReadyRoute, /const result = await snooze\(\)/);
-  assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_snooze_failed'\)/);
-  assert.match(nativeReadyRoute, /throw new Error\('ready_gate_snooze_failed'\)/);
-  assert.match(nativeReadyRoute, /We couldn't snooze this match\. Check your connection and try again\./);
+  assert.match(nativeReadyRoute, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'snooze'/s);
+  assert.match(nativeReadyRoute, /multi_device_conflict: fallback\.staleOrConflict/);
 });
 
 test("ready-gate mark_ready both_ready uses RPC short-circuit telemetry", () => {
@@ -2041,6 +2039,8 @@ test("shared ice breaker state normalizes and rotates from the server anchor", (
     normalizeVideoDateIceBreakerQuestions([" First? ", "first?", "", 123, "Second?"]),
     ["First?", "Second?"],
   );
+  assert.match(sharedIceBreakers, /question\.toLowerCase\(\)/);
+  assert.doesNotMatch(sharedIceBreakers, /toLocaleLowerCase/);
   const shuffled = shuffleVideoDateIceBreakerQuestions(["A", "B", "C"], () => 0);
   assert.deepEqual(shuffled, ["B", "C", "A"]);
   const anchor = "2026-05-03T12:00:00.000Z";
@@ -3124,8 +3124,9 @@ test("Sprint 1H added recovery trace points are wired with safe correlation meta
     assert.match(readyGateSource, /source_surface: ['"]ready_gate_overlay['"]/);
     assert.match(readyGateSource, /outcome: ['"]success['"]/);
     assert.match(readyGateSource, /outcome: ['"]failure['"]/);
-    assert.match(readyGateSource, /reason_code: ['"]ready_gate_forfeit_failed['"]/);
-    assert.match(readyGateSource, /retryable: true/);
+    assert.match(readyGateSource, /reason_code: fallback\.reasonCode/);
+    assert.match(readyGateSource, /retryable: fallback\.retryable/);
+    assert.match(readyGateSource, /multi_device_conflict: fallback\.staleOrConflict/);
   }
 
   for (const dateRouteSource of [webVideoDatePage, nativeVideoDateRoute]) {

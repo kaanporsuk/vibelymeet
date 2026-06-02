@@ -27,6 +27,7 @@ import {
 } from "../_shared/admin-video-date-ops.ts";
 
 const MAX_ROWS = 10_000;
+const PUSH_PROVIDER_FAILURE_STATUSES = new Set(["failed", "bounced"]);
 const SURVEY_CONVERSION_WINDOW_MS = 10 * 60 * 1000;
 const SLOW_LAUNCH_SESSION_LIMIT = 20;
 const SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5;
@@ -167,6 +168,52 @@ type Sprint7SafetyPrivacyOpsHealthPayload = {
   source_error?: string;
 };
 
+type ProviderOutboxNotificationRow = {
+  session_id?: string | null;
+  kind?: string | null;
+  state?: string | null;
+  attempts?: number | null;
+  next_attempt_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_error?: string | null;
+};
+
+type ProviderFailureLogRow = {
+  target_kind?: string | null;
+  session_id?: string | null;
+  provider?: string | null;
+  operation?: string | null;
+  error_code?: string | null;
+  permanent?: boolean | null;
+  lease_lost?: boolean | null;
+  created_at?: string | null;
+};
+
+type ProviderDeadLetterRow = {
+  target_kind?: string | null;
+  session_id?: string | null;
+  provider?: string | null;
+  operation?: string | null;
+  reason?: string | null;
+  created_at?: string | null;
+};
+
+type NotificationLogHealthRow = {
+  category?: string | null;
+  delivered?: boolean | null;
+  suppressed_reason?: string | null;
+  created_at?: string | null;
+  data?: unknown;
+};
+
+type PushNotificationTelemetryRow = {
+  status?: string | null;
+  platform?: string | null;
+  error_code?: string | null;
+  created_at?: string | null;
+};
+
 type LaunchLatencyCheckpointRow = {
   created_at?: string | null;
   latency_ms: number | null;
@@ -211,6 +258,15 @@ const LAUNCH_SEGMENT_KEYS = [
   ["daily_join_ms", "Daily join"],
   ["daily_join_to_first_remote_frame_ms", "Join -> first frame"],
   ["both_ready_to_first_remote_frame_ms", "Both ready -> first frame"],
+] as const;
+
+const VIDEO_DATE_NOTIFICATION_CATEGORIES = [
+  "ready_gate",
+  "partner_ready",
+  "date_starting",
+  "reconnection",
+  "date_reminder",
+  "post_date_feedback_reminder",
 ] as const;
 
 type QueryResult<T> = {
@@ -319,6 +375,48 @@ async function fetchByIds<T>(
   }
 
   return { rows: allRows.slice(0, MAX_ROWS), truncated: allRows.length >= MAX_ROWS };
+}
+
+function emptyRows<T>(): QueryResult<T> {
+  return { rows: [], truncated: false };
+}
+
+function combineSourceErrors(...results: Array<QueryResult<unknown> | null | undefined>): string | undefined {
+  const errors = results.map((result) => result?.error).filter((error): error is string => Boolean(error));
+  return errors.length ? errors.join(";") : undefined;
+}
+
+function topStringCounts<T>(
+  rows: T[],
+  selector: (row: T) => string | null | undefined,
+  fallback = "unknown",
+  limit = 6,
+) {
+  const counts = rows.reduce<Record<string, number>>((acc, row) => {
+    const raw = selector(row);
+    const key = typeof raw === "string" && raw.trim() ? raw.trim() : fallback;
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  return Object.entries(counts)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+    .slice(0, limit);
+}
+
+async function getEventSessionIds(
+  service: SupabaseClientLike,
+  eventId: string | null,
+): Promise<QueryResult<{ id: string }>> {
+  if (!eventId) return emptyRows();
+  return fetchRows<{ id: string }>(
+    service
+      .from("video_sessions")
+      .select("id")
+      .eq("event_id", eventId)
+      .order("started_at", { ascending: false })
+      .limit(MAX_ROWS),
+  );
 }
 
 async function fetchFeedbackRowsForSessions(
@@ -956,6 +1054,206 @@ async function getQueueFairnessHealth(
   };
 }
 
+async function getNotificationOutboxHealth(
+  service: SupabaseClientLike,
+  sinceIso: string,
+  eventId: string | null,
+) {
+  const sessionLookup = await getEventSessionIds(service, eventId);
+  const eventSessionIds = eventId
+    ? sessionLookup.rows.map((row) => row.id).filter(Boolean).slice(0, 500)
+    : null;
+  const sessionFilterUnavailable = Boolean(eventId && sessionLookup.error);
+  const sessionFilterTruncated = Boolean(eventId && sessionLookup.truncated);
+  const nowMs = Date.now();
+  const staleThresholdMs = 5 * 60 * 1000;
+
+  let providerOutbox: QueryResult<ProviderOutboxNotificationRow> = emptyRows();
+  let providerFailures: QueryResult<ProviderFailureLogRow> = emptyRows();
+  let providerDeadLetters: QueryResult<ProviderDeadLetterRow> = emptyRows();
+
+  if (!eventId || eventSessionIds?.length) {
+    let outboxQuery = service
+      .from("video_date_provider_outbox")
+      .select("session_id,kind,state,attempts,next_attempt_at,created_at,updated_at,last_error")
+      .gte("created_at", sinceIso)
+      .in("kind", ["notification.send"])
+      .order("created_at", { ascending: false })
+      .limit(MAX_ROWS);
+    let failureQuery = service
+      .from("video_date_provider_outbox_failure_log")
+      .select("target_kind,session_id,provider,operation,error_code,permanent,lease_lost,created_at")
+      .gte("created_at", sinceIso)
+      .in("target_kind", ["outbox", "provider"])
+      .order("created_at", { ascending: false })
+      .limit(MAX_ROWS);
+    let deadLetterQuery = service
+      .from("video_date_provider_dead_letters")
+      .select("target_kind,session_id,provider,operation,reason,created_at")
+      .gte("created_at", sinceIso)
+      .in("target_kind", ["outbox", "provider"])
+      .order("created_at", { ascending: false })
+      .limit(MAX_ROWS);
+
+    if (eventSessionIds?.length) {
+      outboxQuery = outboxQuery.in("session_id", eventSessionIds);
+      failureQuery = failureQuery.in("session_id", eventSessionIds);
+      deadLetterQuery = deadLetterQuery.in("session_id", eventSessionIds);
+    }
+
+    [providerOutbox, providerFailures, providerDeadLetters] = await Promise.all([
+      fetchRows<ProviderOutboxNotificationRow>(outboxQuery),
+      fetchRows<ProviderFailureLogRow>(failureQuery),
+      fetchRows<ProviderDeadLetterRow>(deadLetterQuery),
+    ]);
+  }
+
+  let notificationLogQuery = service
+    .from("notification_log")
+    .select("category,delivered,suppressed_reason,created_at,data")
+    .gte("created_at", sinceIso)
+    .in("category", VIDEO_DATE_NOTIFICATION_CATEGORIES)
+    .order("created_at", { ascending: false })
+    .limit(MAX_ROWS);
+  if (eventId) notificationLogQuery = notificationLogQuery.eq("data->>event_id", eventId);
+
+  const [notificationLog, pushTelemetry] = await Promise.all([
+    fetchRows<NotificationLogHealthRow>(notificationLogQuery),
+    fetchRows<PushNotificationTelemetryRow>(
+      service
+        .from("push_notification_events")
+        .select("status,platform,error_code,created_at")
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: false })
+        .limit(MAX_ROWS),
+    ),
+  ]);
+
+  const outboxPending = providerOutbox.rows.filter((row) => row.state === "pending").length;
+  const outboxClaimed = providerOutbox.rows.filter((row) => row.state === "claimed").length;
+  const outboxDone = providerOutbox.rows.filter((row) => row.state === "done").length;
+  const outboxFailed = providerOutbox.rows.filter((row) => row.state === "failed").length;
+  const staleActiveRows = providerOutbox.rows.filter((row) => {
+    if (row.state !== "pending" && row.state !== "claimed") return false;
+    const nextAttemptMs = typeof row.next_attempt_at === "string" ? new Date(row.next_attempt_at).getTime() : NaN;
+    const updatedMs = typeof row.updated_at === "string" ? new Date(row.updated_at).getTime() : NaN;
+    const markerMs = Number.isFinite(nextAttemptMs) ? nextAttemptMs : updatedMs;
+    return Number.isFinite(markerMs) && nowMs - markerMs > staleThresholdMs;
+  }).length;
+  const maxAttempts = providerOutbox.rows.reduce((max, row) => Math.max(max, Number(row.attempts ?? 0)), 0);
+
+  const appLogRows = notificationLog.rows.length;
+  const appDelivered = notificationLog.rows.filter((row) => row.delivered === true).length;
+  const appSuppressed = notificationLog.rows.filter((row) => typeof row.suppressed_reason === "string" && row.suppressed_reason.length > 0).length;
+  const appProviderErrors = notificationLog.rows.filter((row) => {
+    const reason = row.suppressed_reason ?? "";
+    return /error|failed|provider|onesignal/i.test(reason);
+  }).length;
+
+  const pushFailed = pushTelemetry.rows.filter((row) => {
+    const status = typeof row.status === "string" ? row.status.trim().toLowerCase() : "";
+    return PUSH_PROVIDER_FAILURE_STATUSES.has(status) || Boolean(row.error_code);
+  }).length;
+  const pushTelemetryAffectsStatus = !eventId;
+  const failurePermanent = providerFailures.rows.filter((row) => row.permanent === true).length;
+  const deadLetterCount = providerDeadLetters.rows.length;
+  const sourceError = combineSourceErrors(
+    sessionLookup,
+    providerOutbox,
+    providerFailures,
+    providerDeadLetters,
+    notificationLog,
+    pushTelemetry,
+  );
+  const status: MetricStatus = sourceError || sessionFilterUnavailable || sessionFilterTruncated
+    ? "unknown"
+    : deadLetterCount > 0 || outboxFailed > 0 || failurePermanent > 0
+      ? "critical"
+      : staleActiveRows > 0 || providerFailures.rows.length > 0 || appProviderErrors > 0 || (pushTelemetryAffectsStatus && pushFailed > 0)
+        ? "warning"
+        : "healthy";
+
+  return {
+    status,
+    source: "admin-video-date-ops",
+    event_id: eventId,
+    since: sinceIso,
+    ...(sourceError ? { source_error: sourceError } : {}),
+    event_session_filter: eventId
+      ? {
+          session_count: eventSessionIds?.length ?? 0,
+          truncated: sessionFilterTruncated,
+          unavailable: sessionFilterUnavailable,
+        }
+      : null,
+    app_notification_log: {
+      source: "notification_log",
+      event_filter_applied: Boolean(eventId),
+      rows: appLogRows,
+      delivered: appDelivered,
+      suppressed: appSuppressed,
+      provider_error_like_rows: appProviderErrors,
+      delivery_rate: safeRate(appDelivered, appLogRows),
+      top_categories: topStringCounts(notificationLog.rows, (row) => row.category),
+      top_suppressed_reasons: topStringCounts(
+        notificationLog.rows.filter((row) => Boolean(row.suppressed_reason)),
+        (row) => row.suppressed_reason,
+      ),
+      truncated: notificationLog.truncated,
+    },
+    video_date_provider_outbox: {
+      source: "video_date_provider_outbox",
+      kind_filter: ["notification.send"],
+      rows: providerOutbox.rows.length,
+      pending: outboxPending,
+      claimed: outboxClaimed,
+      done: outboxDone,
+      failed: outboxFailed,
+      stale_active_rows: staleActiveRows,
+      max_attempts: maxAttempts,
+      top_last_errors: topStringCounts(
+        providerOutbox.rows.filter((row) => Boolean(row.last_error)),
+        (row) => row.last_error,
+      ),
+      truncated: providerOutbox.truncated,
+    },
+    provider_failure_log: {
+      source: "video_date_provider_outbox_failure_log",
+      rows: providerFailures.rows.length,
+      permanent: failurePermanent,
+      lease_lost: providerFailures.rows.filter((row) => row.lease_lost === true).length,
+      top_operations: topStringCounts(providerFailures.rows, (row) => row.operation),
+      top_error_codes: topStringCounts(providerFailures.rows, (row) => row.error_code),
+      truncated: providerFailures.truncated,
+    },
+    provider_dead_letters: {
+      source: "video_date_provider_dead_letters",
+      rows: deadLetterCount,
+      top_reasons: topStringCounts(providerDeadLetters.rows, (row) => row.reason),
+      truncated: providerDeadLetters.truncated,
+    },
+    push_provider_telemetry: {
+      source: "push_notification_events",
+      note: "Provider/webhook telemetry is not authoritative for transactional send-notification rows unless production webhook correlation is confirmed.",
+      event_filter_supported: false,
+      status_affects_window: pushTelemetryAffectsStatus,
+      rows: pushTelemetry.rows.length,
+      failed: pushFailed,
+      top_statuses: topStringCounts(pushTelemetry.rows, (row) => row.status),
+      sent_or_delivered: pushTelemetry.rows.filter((row) =>
+        row.status === "sent" || row.status === "delivered" || row.status === "opened" || row.status === "clicked"
+      ).length,
+      opened_or_clicked: pushTelemetry.rows.filter((row) => row.status === "opened" || row.status === "clicked").length,
+      top_platforms: topStringCounts(pushTelemetry.rows, (row) => row.platform),
+      top_error_codes: topStringCounts(
+        pushTelemetry.rows.filter((row) => Boolean(row.error_code)),
+        (row) => row.error_code,
+      ),
+      truncated: pushTelemetry.truncated,
+    },
+  };
+}
+
 function getTimerDriftExternalMetric() {
   return {
     status: "external_only" as MetricStatus,
@@ -1266,6 +1564,7 @@ async function buildWindowMetrics(
     queueFairness,
     dailyPerformanceDecision,
     dailyPerformanceEmissionHealth,
+    notificationOutboxHealth,
   ] = await Promise.all([
     getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
@@ -1275,6 +1574,7 @@ async function buildWindowMetrics(
     getQueueFairnessHealth(service, eventId),
     getDailyPerformanceDecision(service, window, eventId),
     getDailyPerformanceEmissionHealth(service, window, eventId),
+    getNotificationOutboxHealth(service, sinceIso, eventId),
   ]);
 
   return {
@@ -1290,6 +1590,7 @@ async function buildWindowMetrics(
     queue_fairness: queueFairness,
     daily_performance_decision: dailyPerformanceDecision,
     daily_performance_emission_health: dailyPerformanceEmissionHealth,
+    notification_outbox_health: notificationOutboxHealth,
     safety_privacy_ops_health: selectSprint7SafetyPrivacyOpsHealth(
       sprint7SafetyPrivacyOpsHealthPayload,
       window,

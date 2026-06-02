@@ -36,7 +36,7 @@ export function normalizeVideoDateIceBreakerQuestions(raw: unknown): string[] {
     if (typeof value !== "string") continue;
     const question = value.trim();
     if (!question || question.length > VIDEO_DATE_ICE_BREAKER_MAX_LENGTH) continue;
-    const dedupeKey = question.toLocaleLowerCase();
+    const dedupeKey = question.toLowerCase();
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
     out.push(question);

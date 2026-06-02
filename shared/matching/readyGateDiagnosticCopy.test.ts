@@ -6,6 +6,7 @@ import {
   resolveReadyGateDiagnosticChecklist,
   resolveReadyGateDiagnosticCopy,
   resolveReadyGatePrepareEntryFailureCopy,
+  resolveReadyGateTransitionFailureCopy,
 } from "./readyGateDiagnosticCopy";
 
 const root = process.cwd();
@@ -156,6 +157,36 @@ test("Ready Gate prepare-entry failure copy preserves web and native provider wo
   );
 });
 
+test("Ready Gate transition failure copy distinguishes multi-device conflicts from generic retries", () => {
+  assert.deepEqual(resolveReadyGateTransitionFailureCopy({
+    action: "mark_ready",
+    code: "SURFACE_CLAIM_CONFLICT",
+    platform: "web",
+  }), {
+    action: "mark_ready",
+    code: "SURFACE_CLAIM_CONFLICT",
+    reasonCode: "ready_gate_transition_conflict",
+    title: "Ready Gate changed",
+    message: "Another device or tab already changed this Ready Gate. We are syncing the latest state.",
+    retryable: true,
+    staleOrConflict: true,
+  });
+
+  assert.equal(
+    resolveReadyGateTransitionFailureCopy({
+      action: "snooze",
+      reason: "guarded_update_zero_rows",
+      platform: "native",
+    }).message,
+    "Another device already changed this Ready Gate. We are syncing the latest state.",
+  );
+
+  assert.equal(
+    resolveReadyGateTransitionFailureCopy({ action: "forfeit", error: "network_error" }).reasonCode,
+    "ready_gate_forfeit_failed",
+  );
+});
+
 test("web and native Ready Gate surfaces consume shared failure copy", () => {
   const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
   const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
@@ -163,6 +194,7 @@ test("web and native Ready Gate surfaces consume shared failure copy", () => {
 
   for (const source of [webReadyGate, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /resolveReadyGatePrepareEntryFailureCopy/);
+    assert.match(source, /resolveReadyGateTransitionFailureCopy/);
   }
 });
 

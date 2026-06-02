@@ -38,6 +38,7 @@ import {
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
+import { fetchReadyGateSharedVibes } from '@/lib/readyGateSharedVibes';
 import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
@@ -86,6 +87,7 @@ import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGat
 import {
   resolveReadyGateDiagnosticChecklist,
   resolveReadyGatePrepareEntryFailureCopy,
+  resolveReadyGateTransitionFailureCopy,
   type ReadyGateDiagnosticCopy,
 } from '@clientShared/matching/readyGateDiagnosticCopy';
 import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
@@ -193,6 +195,7 @@ export function ReadyGateOverlay({
   const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailure | null>(null);
   const [terminalActionPending, setTerminalActionPending] = useState(false);
   const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
+  const [sharedVibes, setSharedVibes] = useState<string[]>([]);
   const [nativeMediaDiagnostics, setNativeMediaDiagnostics] = useState(defaultNativeReadyGateMediaDiagnostics);
   const [nativePermissionDiagnostics, setNativePermissionDiagnostics] = useState(
     defaultNativeReadyGatePermissionDiagnostics,
@@ -1075,6 +1078,21 @@ export function ReadyGateOverlay({
   });
 
   useEffect(() => {
+    let cancelled = false;
+    setSharedVibes([]);
+    void fetchReadyGateSharedVibes({ sessionId, userId })
+      .then((labels) => {
+        if (!cancelled) setSharedVibes(labels);
+      })
+      .catch(() => {
+        if (!cancelled) setSharedVibes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, userId]);
+
+  useEffect(() => {
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidSessionNotifiedRef.current = false;
@@ -1105,6 +1123,7 @@ export function ReadyGateOverlay({
     setPrepareEntryFailure(null);
     setTerminalActionPending(false);
     setTerminalActionError(null);
+    setSharedVibes([]);
     setNativeMediaDiagnostics(defaultNativeReadyGateMediaDiagnostics());
     setNativePermissionDiagnostics(defaultNativeReadyGatePermissionDiagnostics());
     if (!rgImpressionRef.current) {
@@ -1325,9 +1344,21 @@ export function ReadyGateOverlay({
       dismiss_variant: dismissVariant,
     });
     manualExitRequestedRef.current = true;
+    let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
     try {
       const result = await forfeit();
-      if (!result.ok) throw new Error('ready_gate_forfeit_failed');
+      if (result.ok === false) {
+        transitionFailure = resolveReadyGateTransitionFailureCopy({
+          action: 'forfeit',
+          code: result.code,
+          errorCode: result.errorCode,
+          reason: result.reason,
+          error: result.error,
+          status: result.status,
+          platform: 'native',
+        });
+        throw new Error(transitionFailure.message);
+      }
       if (result.status === 'both_ready') {
         manualExitRequestedRef.current = false;
         terminalActionInFlightRef.current = false;
@@ -1351,7 +1382,17 @@ export function ReadyGateOverlay({
         result.status === 'expired' ||
         result.status === 'cancelled' ||
         result.status === 'ended';
-      if (!terminal) throw new Error('ready_gate_forfeit_not_terminal');
+      if (!terminal) {
+        transitionFailure = resolveReadyGateTransitionFailureCopy({
+          action: 'forfeit',
+          code: result.code,
+          errorCode: result.errorCode,
+          reason: result.reason ?? 'ready_gate_forfeit_not_terminal',
+          status: result.status,
+          platform: 'native',
+        });
+        throw new Error(transitionFailure.message);
+      }
       trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
         platform: 'native',
         session_id: sessionId,
@@ -1374,7 +1415,12 @@ export function ReadyGateOverlay({
       pendingForfeitReasonRef.current = null;
       manualExitRequestedRef.current = false;
       if (closedRef.current || dateNavigationStartedRef.current) return;
-      const message = "We couldn't step away. Check your connection and try again.";
+      const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
+        action: 'forfeit',
+        error: e instanceof Error ? e.message : String(e),
+        platform: 'native',
+      });
+      const message = fallback.message;
       setTerminalActionPending(false);
       setTerminalActionError(message);
       rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeit_failed_kept_open', {
@@ -1389,16 +1435,18 @@ export function ReadyGateOverlay({
         source_surface: 'ready_gate_overlay',
         source_action: dismissVariant,
         outcome: 'failure',
-        reason_code: 'ready_gate_forfeit_failed',
-        retryable: true,
+        reason_code: fallback.reasonCode,
+        retryable: fallback.retryable,
         error_name: e instanceof Error ? e.name : 'unknown',
+        multi_device_conflict: fallback.staleOrConflict,
       });
       trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
         action: 'forfeit',
         source_action: dismissVariant,
-        reason: 'ready_gate_forfeit_failed',
-        error_code: 'ready_gate_forfeit_failed',
+        reason: fallback.reasonCode,
+        error_code: fallback.code ?? fallback.reasonCode,
         terminal: false,
+        multi_device_conflict: fallback.staleOrConflict,
       });
     }
   }, [eventId, forfeit, handleForfeited, iAmReady, sessionId, trackNativeReadyGateEvent]);
@@ -1686,6 +1734,24 @@ export function ReadyGateOverlay({
               )}
             </View>
 
+            {sharedVibes.length > 0 ? (
+              <View style={styles.sharedVibesWrap} accessibilityLabel="Shared vibes">
+                {sharedVibes.map((vibe) => (
+                  <View
+                    key={vibe}
+                    style={[
+                      styles.sharedVibeChip,
+                      { borderColor: withAlpha(theme.tint, 0.28), backgroundColor: withAlpha(theme.tint, 0.12) },
+                    ]}
+                  >
+                    <Text style={[styles.sharedVibeText, { color: theme.text }]} numberOfLines={1}>
+                      {vibe}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
             {partnerReady && !iAmReady ? (
               <View style={styles.partnerReadyRow}>
                 <Ionicons name="checkmark-circle" size={18} color={theme.success} />
@@ -1780,6 +1846,7 @@ export function ReadyGateOverlay({
                     });
                     setMarkingReady(true);
                     void (async () => {
+                      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
                       try {
                         setTerminalActionError(null);
                         const permissionReady = await requestMediaPermissions();
@@ -1795,19 +1862,36 @@ export function ReadyGateOverlay({
                           return;
                         }
                         const result = await markReady();
-                        if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
+                        if (result.ok === false) {
+                          transitionFailure = resolveReadyGateTransitionFailureCopy({
+                            action: 'mark_ready',
+                            code: result.code,
+                            errorCode: result.errorCode,
+                            reason: result.reason,
+                            error: result.error,
+                            status: result.status,
+                            platform: 'native',
+                          });
+                          throw new Error(transitionFailure.message);
+                        }
                         startRoomWarmupAfterReady('ready_tap_mark_ready_success', result.status ?? null);
                       } catch (e) {
-                        setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
+                        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
+                          action: 'mark_ready',
+                          error: e instanceof Error ? e.message : String(e),
+                          platform: 'native',
+                        });
+                        setTerminalActionError(fallback.message);
                         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_mark_ready_exception', {
                           message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
                         });
                         trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
                           action: 'mark_ready',
                           source_action: 'ready_tap',
-                          reason: 'ready_gate_mark_ready_failed',
-                          error_code: 'ready_gate_mark_ready_failed',
+                          reason: fallback.reasonCode,
+                          error_code: fallback.code ?? fallback.reasonCode,
                           terminal: false,
+                          multi_device_conflict: fallback.staleOrConflict,
                         });
                       } finally {
                         setMarkingReady(false);
@@ -1833,21 +1917,39 @@ export function ReadyGateOverlay({
                       });
                       setRequestingSnooze(true);
                       void (async () => {
+                        let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
                         try {
                           setTerminalActionError(null);
                           const result = await snooze();
-                          if (!result.ok) throw new Error('ready_gate_snooze_failed');
+                          if (result.ok === false) {
+                            transitionFailure = resolveReadyGateTransitionFailureCopy({
+                              action: 'snooze',
+                              code: result.code,
+                              errorCode: result.errorCode,
+                              reason: result.reason,
+                              error: result.error,
+                              status: result.status,
+                              platform: 'native',
+                            });
+                            throw new Error(transitionFailure.message);
+                          }
                         } catch (e) {
-                          setTerminalActionError("We couldn't snooze this match. Check your connection and try again.");
+                          const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
+                            action: 'snooze',
+                            error: e instanceof Error ? e.message : String(e),
+                            platform: 'native',
+                          });
+                          setTerminalActionError(fallback.message);
                           rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_snooze_exception', {
                             message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
                           });
                           trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
                             action: 'snooze',
                             source_action: 'snooze_tap',
-                            reason: 'ready_gate_snooze_failed',
-                            error_code: 'ready_gate_snooze_failed',
+                            reason: fallback.reasonCode,
+                            error_code: fallback.code ?? fallback.reasonCode,
                             terminal: false,
+                            multi_device_conflict: fallback.staleOrConflict,
                           });
                         } finally {
                           setRequestingSnooze(false);
@@ -2012,6 +2114,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
     textAlign: 'center',
+  },
+  sharedVibesWrap: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
+  },
+  sharedVibeChip: {
+    maxWidth: '45%',
+    minHeight: 26,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sharedVibeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   readyBtn: {
     alignSelf: 'stretch',
