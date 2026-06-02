@@ -46,6 +46,10 @@ import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload
 import { preloadVideoDatePushTargetsFromPayload } from '@/lib/videoDatePushPreload';
 import { isFeatureFlagEnabledWithAlias } from '@clientShared/featureFlags/featureFlagAliasResolution';
 import {
+  normalizeNotificationAppPath,
+  normalizeNotificationRouteSegment,
+} from '@clientShared/notifications';
+import {
   recordOneSignalNotificationOpenForDiagnostics,
   type NativeOneSignalNotificationOpenSnapshot,
 } from '@/lib/onesignal';
@@ -75,64 +79,19 @@ const NATIVE_NOTIFICATION_SCHEMES = new Set([
   'com.vibelymeet.vibely',
   'vibely',
 ]);
-const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
-const NOTIFICATION_STATIC_APP_PATHS = new Set([
-  '/',
-  '/(tabs)/profile',
-  '/credits',
-  '/daily-drop',
-  '/events',
-  '/matches',
-  '/premium',
-  '/profile',
-  '/schedule',
-  '/settings',
-  '/settings/credits',
-  '/settings/notifications',
-]);
-const NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user']);
-
-function normalizeNotificationRouteSegment(value: unknown): string | null {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  if (!trimmed || trimmed === '.' || trimmed === '..') return null;
-  return SAFE_NOTIFICATION_ROUTE_SEGMENT.test(trimmed) ? encodeURIComponent(trimmed) : null;
-}
-
-function isAllowedNotificationAppPath(path: string): boolean {
-  if (NOTIFICATION_STATIC_APP_PATHS.has(path)) return true;
-  const segments = path.split('/').filter(Boolean);
-  if (segments.length === 2 && NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
-    return normalizeNotificationRouteSegment(segments[1]) === segments[1];
-  }
-  if (segments.length === 3 && segments[0] === 'event' && segments[2] === 'lobby') {
-    return normalizeNotificationRouteSegment(segments[1]) === segments[1];
-  }
-  if (segments.length === 3 && segments[0] === 'settings' && segments[1] === 'ticket') {
-    return normalizeNotificationRouteSegment(segments[2]) === segments[2];
-  }
-  return false;
-}
-
-function normalizeNotificationAppPath(rawPath: string): string | null {
-  const trimmed = rawPath.trim();
-  if (!trimmed || trimmed.startsWith('//') || trimmed.includes('\\')) return null;
-  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  const [cleanPath] = path.split(/[?#]/);
-  return isAllowedNotificationAppPath(cleanPath || '/') ? path : null;
-}
 
 function pathFromUrlLike(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith('/')) return normalizeNotificationAppPath(trimmed);
+  if (trimmed.startsWith('/')) return normalizeNotificationAppPath(trimmed, 'native');
   if (/^[A-Za-z0-9_()/-]+([?#].*)?$/.test(trimmed)) {
-    return normalizeNotificationAppPath(trimmed);
+    return normalizeNotificationAppPath(trimmed, 'native');
   }
   try {
     const u = new URL(trimmed);
     if (u.protocol === 'http:' || u.protocol === 'https:') {
       if (!CANONICAL_NOTIFICATION_ORIGINS.has(u.origin)) return null;
-      return normalizeNotificationAppPath(`${u.pathname || '/'}${u.search}${u.hash}`);
+      return normalizeNotificationAppPath(`${u.pathname || '/'}${u.search}${u.hash}`, 'native');
     }
 
     const scheme = u.protocol.replace(/:$/, '');
@@ -140,7 +99,7 @@ function pathFromUrlLike(raw: string): string | null {
     const customSchemePath = u.host
       ? `/${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search}${u.hash}`
       : `${u.pathname || '/'}${u.search}${u.hash}`;
-    return normalizeNotificationAppPath(customSchemePath);
+    return normalizeNotificationAppPath(customSchemePath, 'native');
   } catch {
     return null;
   }

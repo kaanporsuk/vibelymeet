@@ -1,23 +1,9 @@
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
+import { normalizeNotificationAppPath } from "@clientShared/notifications";
 
 const CANONICAL_APP_ORIGIN = "https://www.vibelymeet.com";
 const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN.replace("://www.", "://");
-const SAFE_PUSH_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
-const PUSH_STATIC_APP_PATHS = new Set([
-  "/",
-  "/credits",
-  "/daily-drop",
-  "/events",
-  "/matches",
-  "/premium",
-  "/profile",
-  "/schedule",
-  "/settings",
-  "/settings/credits",
-  "/settings/notifications",
-]);
-const PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(["chat", "date", "events", "ready", "user"]);
 
 type PushTelemetryValue = string | number | boolean | null | undefined;
 type PushTelemetryProperties = Record<string, PushTelemetryValue>;
@@ -95,31 +81,8 @@ function routeClassForPath(path: string): DeepLinkRouteClass {
   return "unknown";
 }
 
-function normalizePushRouteSegment(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "." || trimmed === "..") return null;
-  return SAFE_PUSH_ROUTE_SEGMENT.test(trimmed) ? encodeURIComponent(trimmed) : null;
-}
-
-function isAllowedPushAppPath(path: string): boolean {
-  if (PUSH_STATIC_APP_PATHS.has(path)) return true;
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length === 2 && PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
-    return normalizePushRouteSegment(segments[1]) === segments[1];
-  }
-  if (segments.length === 3 && segments[0] === "event" && segments[2] === "lobby") {
-    return normalizePushRouteSegment(segments[1]) === segments[1];
-  }
-  if (segments.length === 3 && segments[0] === "settings" && segments[1] === "ticket") {
-    return normalizePushRouteSegment(segments[2]) === segments[2];
-  }
-  return false;
-}
-
 function normalizePushAppPath(rawPath: string): string | null {
-  const path = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-  const [cleanPath] = path.split(/[?#]/);
-  return isAllowedPushAppPath(cleanPath || "/") ? path : null;
+  return normalizeNotificationAppPath(rawPath, "web");
 }
 
 export function classifyPushDeepLink(raw: unknown): {

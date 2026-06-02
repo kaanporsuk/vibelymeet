@@ -149,6 +149,10 @@ test("web Scavenger uses real media selection and upload instead of mock remote 
   const creator = read("src/components/arcade/creators/ScavengerCreator.tsx");
   const game = read("src/components/arcade/games/ScavengerGame.tsx");
   const helper = read("src/lib/scavengerPhotoUpload.ts");
+  const sendGameEvent = read("supabase/functions/send-game-event/index.ts");
+  const webGamesApi = read("src/lib/webGamesApi.ts");
+  const nativeGamesApi = read("apps/mobile/lib/gamesApi.ts");
+  const nativeStorageUploads = read("apps/mobile/lib/mediaSdk/nativeStorageUploads.ts");
   const gameTypes = read("src/types/games.ts");
 
   for (const source of [creator, game]) {
@@ -164,9 +168,32 @@ test("web Scavenger uses real media selection and upload instead of mock remote 
   assert.match(helper, /uploadImageWithMediaSdk/);
   assert.match(helper, /context: "chat"/);
   assert.match(helper, /matchId: cleanMatchId/);
-  assert.match(helper, /const \{ url \} = await uploadImageWithMediaSdk/);
-  assert.match(helper, /return url/);
-  assert.doesNotMatch(helper, /return path/);
+  assert.match(helper, /const \{ path \} = await uploadImageWithMediaSdk/);
+  assert.match(helper, /return path/);
+  assert.doesNotMatch(helper, /const \{ url \} = await uploadImageWithMediaSdk/);
+  assert.doesNotMatch(helper, /return url/);
+  assert.match(helper, /private media reference/);
+  assert.match(sendGameEvent, /function normalizeScavengerPhotoRef/);
+  assert.match(sendGameEvent, /photos\/match-\$\{matchId\}\/\$\{actorId\}\//);
+  assert.match(sendGameEvent, /url\.protocol !== "https:"/);
+  assert.match(sendGameEvent, /allowedHosts\.size === 0/);
+  assert.match(sendGameEvent, /!allowedHosts\.has\(url\.hostname\.toLowerCase\(\)\)/);
+  assert.match(sendGameEvent, /path\.includes\("%"\)/);
+  assert.match(sendGameEvent, /path\.startsWith\(expectedPrefix\)/);
+  assert.match(sendGameEvent, /sender_photo_url: photoRef/);
+  assert.match(sendGameEvent, /receiver_photo_url: photoRef/);
+  assert.match(sendGameEvent, /ensureGameMessageMediaOrRollback/);
+  assert.match(sendGameEvent, /media_sync_failed/);
+  assert.doesNotMatch(sendGameEvent, /isSafeUrl\(url\)/);
+  assert.match(nativeStorageUploads, /return uploaded\.path/);
+  assert.match(nativeStorageUploads, /terminal\.result\?\.mediaRef \?\? terminal\.result\?\.providerPath/);
+  for (const source of [webGamesApi, nativeGamesApi]) {
+    assert.match(source, /invalid_scavenger_start/);
+    assert.match(source, /invalid_photo_url/);
+    assert.match(source, /media_sync_failed/);
+    assert.match(source, /Could not verify that photo/);
+    assert.match(source, /Could not attach that photo safely/);
+  }
   assert.match(gameTypes, /type: 'scavenger'/);
   assert.doesNotMatch(gameTypes, /Disabled: stubbed photo\/media flow/);
 });
@@ -176,6 +203,8 @@ test("web notification master switch cannot enable app prefs while browser permi
 
   assert.match(source, /const handleMasterToggle = async/);
   assert.match(source, /health\.status === "blocked"/);
+  assert.match(source, /Notification\.permission !== "granted"/);
+  assert.match(source, /await refreshPushHealth\(\);[\s\S]*Allow notifications in your browser site settings first/);
   assert.match(source, /const result = await handleEnablePush\(\);/);
   assert.match(source, /if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}/);
   assert.ok(

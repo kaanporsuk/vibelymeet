@@ -25,10 +25,11 @@ const NON_CANONICAL_APEX_ORIGIN = 'https://vibelymeet.com'
 const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/
 const PUSH_STATIC_APP_PATHS = new Set([
   '/',
-  '/(tabs)/profile',
   '/credits',
   '/daily-drop',
+  '/dashboard',
   '/events',
+  '/home',
   '/matches',
   '/premium',
   '/profile',
@@ -75,7 +76,8 @@ function normalizePushDeepLinkPath(raw: unknown): string | null {
     if (!pathLike || pathLike.startsWith('//') || pathLike.includes('\\')) return null
     const path = pathLike.startsWith('/') ? pathLike : `/${pathLike}`
     const [cleanPath] = path.split(/[?#]/)
-    return isAllowedPushAppPath(cleanPath || '/') ? path : null
+    const appPath = cleanPath || '/'
+    return isAllowedPushAppPath(appPath) ? appPath : null
   }
   if (value.startsWith('/')) return normalizePath(value)
 
@@ -1021,10 +1023,19 @@ function classifyDeepLink(raw: unknown): {
   }
 
   if (value.startsWith('/')) {
+    const safePath = normalizePushDeepLinkPath(value)
+    if (!safePath) {
+      return {
+        deeplink_url_present: true,
+        deeplink_url_kind: 'invalid_url',
+        deeplink_route_class: 'unknown',
+        canonical_origin_valid: false,
+      }
+    }
     return {
       deeplink_url_present: true,
       deeplink_url_kind: 'relative_app_path',
-      deeplink_route_class: routeClassForPath(value),
+      deeplink_route_class: routeClassForPath(safePath),
       canonical_origin_valid: true,
     }
   }
@@ -1032,25 +1043,43 @@ function classifyDeepLink(raw: unknown): {
   try {
     const url = new URL(value)
     if (url.origin === CANONICAL_APP_ORIGIN) {
+      const safePath = normalizePushDeepLinkPath(`${url.pathname || '/'}${url.search}${url.hash}`)
+      if (!safePath) {
+        return {
+          deeplink_url_present: true,
+          deeplink_url_kind: 'invalid_url',
+          deeplink_route_class: 'unknown',
+          canonical_origin_valid: true,
+        }
+      }
       return {
         deeplink_url_present: true,
         deeplink_url_kind: 'canonical_www_url',
-        deeplink_route_class: routeClassForPath(url.pathname),
+        deeplink_route_class: routeClassForPath(safePath),
         canonical_origin_valid: true,
       }
     }
     if (url.origin === NON_CANONICAL_APEX_ORIGIN) {
+      const safePath = normalizePushDeepLinkPath(`${url.pathname || '/'}${url.search}${url.hash}`)
+      if (!safePath) {
+        return {
+          deeplink_url_present: true,
+          deeplink_url_kind: 'invalid_url',
+          deeplink_route_class: 'unknown',
+          canonical_origin_valid: false,
+        }
+      }
       return {
         deeplink_url_present: true,
         deeplink_url_kind: 'non_canonical_apex_url',
-        deeplink_route_class: routeClassForPath(url.pathname),
+        deeplink_route_class: routeClassForPath(safePath),
         canonical_origin_valid: false,
       }
     }
     return {
       deeplink_url_present: true,
       deeplink_url_kind: 'external_url',
-      deeplink_route_class: routeClassForPath(url.pathname),
+      deeplink_route_class: 'unknown',
       canonical_origin_valid: false,
     }
   } catch {

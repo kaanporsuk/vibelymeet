@@ -24,6 +24,7 @@ const MAX_QUESTION = 400;
 const MAX_EMOJI_ENTRY = 40;
 const MAX_EMOJIS = 24;
 const MAX_URL = 2048;
+const SAFE_SCAVENGER_PHOTO_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
 
 const GAME_TYPES = new Set([
   "2truths",
@@ -53,14 +54,105 @@ function noHtml(s: string): boolean {
   return !/[<>]/.test(s);
 }
 
-function isSafeUrl(s: string): boolean {
-  if (typeof s !== "string" || s.length > MAX_URL) return false;
+function normalizedEnvHostname(name: string): string | null {
+  const value = Deno.env.get(name)?.trim();
+  if (!value) return null;
   try {
-    const u = new URL(s);
-    return u.protocol === "https:" || u.protocol === "http:";
+    return new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`).hostname.toLowerCase();
   } catch {
-    return false;
+    return value.replace(/^https?:\/\//i, "").replace(/^\/+|\/+$/g, "").toLowerCase() || null;
   }
+}
+
+function allowedBunnyCdnHostnames(): Set<string> {
+  return new Set(
+    [
+      normalizedEnvHostname("BUNNY_CDN_HOSTNAME"),
+      normalizedEnvHostname("BUNNY_ARCHIVE_CDN_HOSTNAME"),
+      normalizedEnvHostname("BUNNY_CDN_ARCHIVE_HOSTNAME"),
+    ].filter((value): value is string => !!value),
+  );
+}
+
+function stripKnownCdnPathPrefix(path: string): string {
+  const normalizedPath = path.replace(/^\/+/, "");
+  const prefixes = [
+    Deno.env.get("BUNNY_CDN_PATH_PREFIX"),
+    Deno.env.get("BUNNY_ARCHIVE_CDN_PATH_PREFIX"),
+    Deno.env.get("BUNNY_CDN_ARCHIVE_PATH_PREFIX"),
+  ]
+    .map((value) => value?.trim().replace(/^\/+|\/+$/g, "") ?? "")
+    .filter(Boolean);
+
+  for (const prefix of prefixes) {
+    if (normalizedPath === prefix) return "";
+    if (normalizedPath.startsWith(`${prefix}/`)) return normalizedPath.slice(prefix.length + 1);
+  }
+  return normalizedPath;
+}
+
+function scavengerPhotoPathCandidate(value: string): string | null {
+  const raw = value.trim();
+  if (!raw || raw.length > MAX_URL || raw.includes("\\") || raw.includes("\0") || /[<>]/.test(raw)) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+        return null;
+      }
+      const allowedHosts = allowedBunnyCdnHostnames();
+      if (allowedHosts.size === 0 || !allowedHosts.has(url.hostname.toLowerCase())) {
+        return null;
+      }
+      return stripKnownCdnPathPrefix(url.pathname);
+    } catch {
+      return null;
+    }
+  }
+
+  if (raw.includes(":") || raw.includes("?") || raw.includes("#") || raw.startsWith("/") || raw.startsWith("//")) {
+    return null;
+  }
+  return raw;
+}
+
+function normalizeScavengerPhotoRef(value: unknown, matchId: string, actorId: string): string | null {
+  if (typeof value !== "string") return null;
+  const candidate = scavengerPhotoPathCandidate(value);
+  if (!candidate) return null;
+  const path = candidate.trim().replace(/^\/+/, "");
+  if (
+    !path ||
+    path.length > MAX_URL ||
+    path.includes("\\") ||
+    path.includes("%") ||
+    path.includes("..") ||
+    path.includes("//") ||
+    path.includes("?") ||
+    path.includes("#")
+  ) {
+    return null;
+  }
+
+  const expectedPrefix = `photos/match-${matchId}/${actorId}/`;
+  if (!path.startsWith(expectedPrefix)) return null;
+  const suffix = path.slice(expectedPrefix.length);
+  if (!suffix) return null;
+  const segments = suffix.split("/");
+  if (
+    segments.some(
+      (segment) =>
+        segment === "." ||
+        segment === ".." ||
+        !SAFE_SCAVENGER_PHOTO_PATH_SEGMENT.test(segment),
+    )
+  ) {
+    return null;
+  }
+  return path;
 }
 
 type BlockedUserRow = {
@@ -180,6 +272,7 @@ function validatePayload(
   gameType: string,
   eventType: string,
   payload: unknown,
+  context: { matchId: string; actorId: string },
 ): { ok: true; payload: Record<string, unknown> } | { ok: false; error: string } {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return { ok: false, error: "invalid_payload" };
@@ -236,11 +329,11 @@ function validatePayload(
     }
     if (gameType === "scavenger") {
       const prompt = str("prompt", MAX_PROMPT);
-      const url = p.sender_photo_url;
-      if (!prompt || typeof url !== "string" || !isSafeUrl(url)) {
+      const photoRef = normalizeScavengerPhotoRef(p.sender_photo_url, context.matchId, context.actorId);
+      if (!prompt || !photoRef) {
         return { ok: false, error: "invalid_scavenger_start" };
       }
-      return { ok: true, payload: { prompt, sender_photo_url: url } };
+      return { ok: true, payload: { prompt, sender_photo_url: photoRef } };
     }
     if (gameType === "roulette") {
       const q = str("question", MAX_QUESTION);
@@ -280,9 +373,9 @@ function validatePayload(
     return { ok: true, payload: { guess: g } };
   }
   if (eventType === "scavenger_photo") {
-    const url = p.receiver_photo_url;
-    if (typeof url !== "string" || !isSafeUrl(url)) return { ok: false, error: "invalid_photo_url" };
-    return { ok: true, payload: { receiver_photo_url: url } };
+    const photoRef = normalizeScavengerPhotoRef(p.receiver_photo_url, context.matchId, context.actorId);
+    if (!photoRef) return { ok: false, error: "invalid_photo_url" };
+    return { ok: true, payload: { receiver_photo_url: photoRef } };
   }
   if (eventType === "roulette_answer") {
     const ra = str("receiver_answer", MAX_ANSWER);
@@ -438,7 +531,7 @@ serve(async (req) => {
       );
     }
 
-    const validated = validatePayload(gameType, eventType, rawPayload);
+    const validated = validatePayload(gameType, eventType, rawPayload, { matchId, actorId });
     if (!validated.ok) {
       return new Response(JSON.stringify({ success: false, error: validated.error }), {
         status: 200,

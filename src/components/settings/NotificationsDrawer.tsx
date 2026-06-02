@@ -197,6 +197,15 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
       toast.error("Allow notifications in your browser site settings first.");
       return;
     }
+    if (
+      nextEnabled &&
+      typeof Notification !== "undefined" &&
+      Notification.permission !== "granted"
+    ) {
+      await refreshPushHealth();
+      toast.error("Allow notifications in your browser site settings first.");
+      return;
+    }
     if (nextEnabled && health.status === "unsupported") {
       toast.error("This browser does not support push notifications.");
       return;

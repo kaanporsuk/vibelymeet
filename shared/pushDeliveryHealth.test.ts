@@ -134,6 +134,10 @@ assert.match(sendNotificationSource, /onesignal_errors_object/);
 assert.match(sendNotificationSource, /canonical_www_url/);
 assert.match(sendNotificationSource, /non_canonical_apex_url/);
 assert.match(sendNotificationSource, /external_url/);
+assert.match(sendNotificationSource, /const safePath = normalizePushDeepLinkPath\(value\)/);
+assert.match(sendNotificationSource, /normalizePushDeepLinkPath\(`\$\{url\.pathname \|\| '\/'\}\$\{url\.search\}\$\{url\.hash\}`\)/);
+assert.doesNotMatch(sendNotificationSource, /deeplink_route_class: routeClassForPath\(value\)/);
+assert.doesNotMatch(sendNotificationSource, /deeplink_route_class: routeClassForPath\(url\.pathname\)/);
 assert.doesNotMatch(sendNotificationSource, /provider_raw_payload/);
 
 const webOneSignalSource = readFileSync(join(process.cwd(), 'src/lib/onesignal.ts'), 'utf8');

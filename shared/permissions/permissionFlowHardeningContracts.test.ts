@@ -176,6 +176,16 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
   assert.match(sendNotification, /PUSH_STATIC_APP_PATHS/);
   assert.match(sendNotification, /PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES/);
   assert.match(sendNotification, /function isAllowedPushAppPath/);
+  assert.match(sendNotification, /'\/dashboard'/);
+  assert.match(sendNotification, /'\/home'/);
+  assert.doesNotMatch(sendNotification, /'\/\(tabs\)\/profile'/);
+  assert.match(sendNotification, /const appPath = cleanPath \|\| '\/'/);
+  assert.match(sendNotification, /const safePath = normalizePushDeepLinkPath\(value\)/);
+  assert.match(sendNotification, /deeplink_route_class: routeClassForPath\(safePath\)/);
+  assert.match(sendNotification, /normalizePushDeepLinkPath\(`\$\{url\.pathname \|\| '\/'\}\$\{url\.search\}\$\{url\.hash\}`\)/);
+  assert.match(sendNotification, /deeplink_url_kind: 'external_url'[\s\S]*deeplink_route_class: 'unknown'/);
+  assert.doesNotMatch(sendNotification, /deeplink_route_class: routeClassForPath\(value\)/);
+  assert.doesNotMatch(sendNotification, /deeplink_route_class: routeClassForPath\(url\.pathname\)/);
   assert.match(sendNotification, /return normalizePushDeepLinkPath\(action\.url\)/);
   assert.match(sendNotification, /provider_response_body_snippet: null/);
   assert.match(sendNotification, /title: `\[\$\{category\}\]`/);
@@ -187,21 +197,21 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
   for (const source of [webTelemetry, nativeTelemetry]) {
     assert.match(source, /normalizePushDeepLinkHref/);
     assert.match(source, /value\.startsWith\(["']\/\/["']\) \|\| value\.includes/);
-    assert.match(source, /PUSH_STATIC_APP_PATHS/);
-    assert.match(source, /function isAllowedPushAppPath/);
+    assert.match(source, /normalizeNotificationAppPath/);
     assert.match(source, /return normalizePushAppPath\(value\)/);
     assert.doesNotMatch(source, /if \(value\.startsWith\(["']\/["']\)\) return value/);
     assert.match(source, /return null/);
   }
+  assert.match(webTelemetry, /normalizeNotificationAppPath\(rawPath, "web"\)/);
+  assert.match(nativeTelemetry, /normalizeNotificationAppPath\(rawPath, 'native'\)/);
   assert.match(webOneSignal, /normalizePushDeepLinkHref\(url\)/);
   assert.match(webOneSignal, /window\.location\.href = safeHref/);
   assert.match(nativeDeepLink, /CANONICAL_NOTIFICATION_ORIGINS/);
   assert.match(nativeDeepLink, /NATIVE_NOTIFICATION_SCHEMES/);
   assert.match(nativeDeepLink, /!CANONICAL_NOTIFICATION_ORIGINS\.has\(u\.origin\)[\s\S]*return null/);
   assert.match(nativeDeepLink, /!NATIVE_NOTIFICATION_SCHEMES\.has\(scheme\)[\s\S]*return null/);
-  assert.match(nativeDeepLink, /SAFE_NOTIFICATION_ROUTE_SEGMENT/);
-  assert.match(nativeDeepLink, /NOTIFICATION_STATIC_APP_PATHS/);
-  assert.match(nativeDeepLink, /NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES/);
+  assert.match(nativeDeepLink, /from '@clientShared\/notifications'/);
+  assert.match(nativeDeepLink, /normalizeNotificationAppPath\(trimmed, 'native'\)/);
   assert.match(nativeDeepLink, /normalizeNotificationRouteSegment\(additionalData\?\.other_user_id\)/);
   assert.match(nativeDeepLink, /normalizeNotificationRouteSegment\(raw\?\.sender_id\)[\s\S]*normalizeNotificationRouteSegment\(raw\?\.other_user_id\)/);
   assert.match(nativeDeepLink, /const ticketId = normalizeNotificationRouteSegment\(data\.ticket_id\)/);

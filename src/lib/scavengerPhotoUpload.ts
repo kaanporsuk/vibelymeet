@@ -15,14 +15,14 @@ export async function uploadWebScavengerPhoto(file: File, matchId: string | null
   const accessToken = session?.access_token;
   if (!accessToken) throw new Error("Please sign in again before uploading a photo.");
 
-  const { url } = await uploadImageWithMediaSdk({
+  const { path } = await uploadImageWithMediaSdk({
     file,
     accessToken,
     context: "chat",
     matchId: cleanMatchId,
   });
-  if (!url?.trim()) {
-    throw new Error("Photo upload completed without a shareable URL.");
+  if (!path?.trim()) {
+    throw new Error("Photo upload completed without a private media reference.");
   }
-  return url.trim();
+  return path.trim();
 }

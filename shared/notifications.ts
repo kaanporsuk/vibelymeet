@@ -60,14 +60,13 @@ function stringProp(value: unknown, key: string): string | null {
 
 export const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
 
-export const NOTIFICATION_STATIC_APP_PATHS = new Set([
+export type NotificationRoutePlatform = 'any' | 'native' | 'web';
+
+const UNIVERSAL_NOTIFICATION_STATIC_APP_PATHS = [
   '/',
-  '/(tabs)/profile',
   '/credits',
   '/daily-drop',
-  '/dashboard',
   '/events',
-  '/home',
   '/matches',
   '/premium',
   '/profile',
@@ -75,6 +74,22 @@ export const NOTIFICATION_STATIC_APP_PATHS = new Set([
   '/settings',
   '/settings/credits',
   '/settings/notifications',
+] as const;
+
+export const WEB_NOTIFICATION_STATIC_APP_PATHS = new Set([
+  ...UNIVERSAL_NOTIFICATION_STATIC_APP_PATHS,
+  '/dashboard',
+  '/home',
+]);
+
+export const NATIVE_NOTIFICATION_STATIC_APP_PATHS = new Set([
+  ...UNIVERSAL_NOTIFICATION_STATIC_APP_PATHS,
+  '/(tabs)/profile',
+]);
+
+export const NOTIFICATION_STATIC_APP_PATHS = new Set([
+  ...WEB_NOTIFICATION_STATIC_APP_PATHS,
+  ...NATIVE_NOTIFICATION_STATIC_APP_PATHS,
 ]);
 
 export const NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user']);
@@ -89,8 +104,14 @@ function routeSegment(value: string | null | undefined): string | null {
   return normalizeNotificationRouteSegment(value);
 }
 
-export function isAllowedNotificationAppPath(path: string): boolean {
-  if (NOTIFICATION_STATIC_APP_PATHS.has(path)) return true;
+function staticNotificationPathsForPlatform(platform: NotificationRoutePlatform): Set<string> {
+  if (platform === 'web') return WEB_NOTIFICATION_STATIC_APP_PATHS;
+  if (platform === 'native') return NATIVE_NOTIFICATION_STATIC_APP_PATHS;
+  return NOTIFICATION_STATIC_APP_PATHS;
+}
+
+export function isAllowedNotificationAppPath(path: string, platform: NotificationRoutePlatform = 'any'): boolean {
+  if (staticNotificationPathsForPlatform(platform).has(path)) return true;
   const segments = path.split('/').filter(Boolean);
   if (segments.length === 2 && NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
     return normalizeNotificationRouteSegment(segments[1]) === segments[1];
@@ -104,12 +125,16 @@ export function isAllowedNotificationAppPath(path: string): boolean {
   return false;
 }
 
-export function normalizeNotificationAppPath(rawPath: string): string | null {
+export function normalizeNotificationAppPath(
+  rawPath: string,
+  platform: NotificationRoutePlatform = 'any',
+): string | null {
   const trimmed = rawPath.trim();
   if (!trimmed || trimmed.startsWith('//') || trimmed.includes('\\')) return null;
   const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
   const [cleanPath] = path.split(/[?#]/);
-  return isAllowedNotificationAppPath(cleanPath || '/') ? path : null;
+  const appPath = cleanPath || '/';
+  return isAllowedNotificationAppPath(appPath, platform) ? appPath : null;
 }
 
 export function isUrgentNotification(priority: string | null | undefined): boolean {
