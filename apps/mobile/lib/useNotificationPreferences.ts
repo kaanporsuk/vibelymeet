@@ -2,7 +2,8 @@
  * Notification preferences — fetch/update notification_preferences (parity with web).
  * Columns match public.notification_preferences (see supabase migrations).
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 const SELECT_COLUMNS =
@@ -54,6 +55,8 @@ export const NOTIFICATION_PREFS_DEFAULTS: NotificationPrefs = {
   message_bundle_enabled: true,
 };
 
+type NotificationPrefsPatch = Partial<NotificationPrefs>;
+
 function mergeRow(row: Record<string, unknown> | null): NotificationPrefs {
   if (!row) return { ...NOTIFICATION_PREFS_DEFAULTS };
   const b = (k: string, def: boolean) => (row[k] === null || row[k] === undefined ? def : Boolean(row[k]));
@@ -84,8 +87,41 @@ function mergeRow(row: Record<string, unknown> | null): NotificationPrefs {
   };
 }
 
+function notificationPreferencesQueryKey(userId: string) {
+  return ['notification-preferences', userId] as const;
+}
+
 export function useNotificationPreferences(userId: string | null | undefined) {
   const qc = useQueryClient();
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const activeUserIdRef = useRef<string | null>(userId ?? null);
+  const mountedRef = useRef(true);
+  const pendingPatchRef = useRef<NotificationPrefsPatch>({});
+  const flushInFlightRef = useRef(false);
+  const persistedPrefsRef = useRef<NotificationPrefs>({ ...NOTIFICATION_PREFS_DEFAULTS });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentUserId = userId ?? null;
+    activeUserIdRef.current = currentUserId;
+    pendingPatchRef.current = {};
+    persistedPrefsRef.current = currentUserId
+      ? qc.getQueryData<NotificationPrefs>(notificationPreferencesQueryKey(currentUserId)) ?? {
+          ...NOTIFICATION_PREFS_DEFAULTS,
+        }
+      : { ...NOTIFICATION_PREFS_DEFAULTS };
+    if (mountedRef.current) {
+      setSaveError(null);
+      setIsUpdating(false);
+    }
+  }, [qc, userId]);
 
   const { data: prefs, isLoading } = useQuery({
     queryKey: ['notification-preferences', userId],
@@ -97,32 +133,108 @@ export function useNotificationPreferences(userId: string | null | undefined) {
         .eq('user_id', userId)
         .maybeSingle();
       if (error) throw error;
-      return mergeRow(data as Record<string, unknown> | null);
+      const next = mergeRow(data as Record<string, unknown> | null);
+      if (activeUserIdRef.current === userId) {
+        persistedPrefsRef.current = next;
+      }
+      return next;
     },
     enabled: !!userId,
   });
 
-  const mutation = useMutation({
-    mutationFn: async ({ key, value }: { key: string; value: unknown }) => {
-      if (!userId) throw new Error('Not authenticated');
-      const { error } = await supabase
-        .from('notification_preferences')
-        .upsert({ user_id: userId, [key]: value }, { onConflict: 'user_id' });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['notification-preferences'] });
-    },
-  });
+  const flushPendingPrefs = useCallback(async (targetUserId: string) => {
+    if (flushInFlightRef.current) return;
+    if (!Object.keys(pendingPatchRef.current).length) return;
+    flushInFlightRef.current = true;
+    if (mountedRef.current) setIsUpdating(true);
 
-  const updatePref = (key: string, value: unknown) => {
-    mutation.mutate({ key, value });
-  };
+    try {
+      while (activeUserIdRef.current === targetUserId && Object.keys(pendingPatchRef.current).length) {
+        const patch = pendingPatchRef.current;
+        const patchKeys = Object.keys(patch) as Array<keyof NotificationPrefs>;
+        const queryKey = notificationPreferencesQueryKey(targetUserId);
+        const previous = persistedPrefsRef.current;
+        pendingPatchRef.current = {};
+
+        const { data, error } = await supabase
+          .from('notification_preferences')
+          .upsert({ user_id: targetUserId, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+          .select(SELECT_COLUMNS)
+          .single();
+
+        if (activeUserIdRef.current !== targetUserId) break;
+
+        if (error) {
+          if (mountedRef.current) setSaveError(error.message);
+          const pendingKeys = new Set(Object.keys(pendingPatchRef.current));
+          qc.setQueryData<NotificationPrefs>(queryKey, (current) => {
+            const rollback = patchKeys.reduce<NotificationPrefsPatch>((acc, key) => {
+              if (pendingKeys.has(key)) return acc;
+              acc[key] = previous[key] as never;
+              return acc;
+            }, {});
+            return { ...(current ?? previous), ...rollback };
+          });
+        } else {
+          if (mountedRef.current) setSaveError(null);
+          const next = mergeRow(data as Record<string, unknown> | null);
+          const pendingPatch = pendingPatchRef.current;
+          persistedPrefsRef.current = next;
+          qc.setQueryData(
+            queryKey,
+            Object.keys(pendingPatch).length ? { ...next, ...pendingPatch } : next
+          );
+        }
+      }
+    } finally {
+      flushInFlightRef.current = false;
+      const activeUserId = activeUserIdRef.current;
+      if (activeUserId && Object.keys(pendingPatchRef.current).length) {
+        void flushPendingPrefs(activeUserId);
+      } else {
+        if (mountedRef.current) setIsUpdating(false);
+      }
+    }
+  }, [qc]);
+
+  const updatePrefs = useCallback(
+    (patch: NotificationPrefsPatch) => {
+      if (!userId) return;
+      const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+      if (!entries.length) return;
+      const nextPatch = Object.fromEntries(entries) as NotificationPrefsPatch;
+      const queryKey = notificationPreferencesQueryKey(userId);
+
+      if (mountedRef.current) {
+        setSaveError(null);
+        setIsUpdating(true);
+      }
+      pendingPatchRef.current = { ...pendingPatchRef.current, ...nextPatch };
+      qc.setQueryData<NotificationPrefs>(queryKey, (current) => ({
+        ...(current ?? NOTIFICATION_PREFS_DEFAULTS),
+        ...nextPatch,
+      }));
+
+      if (activeUserIdRef.current === userId) {
+        void flushPendingPrefs(userId);
+      }
+    },
+    [flushPendingPrefs, qc, userId]
+  );
+
+  const updatePref = useCallback(
+    <K extends keyof NotificationPrefs>(key: K, value: NotificationPrefs[K]) => {
+      updatePrefs({ [key]: value } as NotificationPrefsPatch);
+    },
+    [updatePrefs]
+  );
 
   return {
     prefs: prefs ?? NOTIFICATION_PREFS_DEFAULTS,
     isLoading,
     updatePref,
-    isUpdating: mutation.isPending,
+    updatePrefs,
+    isUpdating,
+    saveError,
   };
 }

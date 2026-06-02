@@ -225,7 +225,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     savePrefs({ push_enabled: nextEnabled });
   };
 
-  const disabled = !prefs.push_enabled || isPaused;
+  const categoryControlsBusy = isLoading || isSaving;
 
   const ToggleRow = ({
     icon: Icon,
@@ -240,7 +240,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     prefKey: keyof typeof prefs;
     iconColor?: string;
   }) => (
-    <div className={cn("flex items-center justify-between p-3 rounded-xl bg-secondary/40", disabled && "opacity-40 pointer-events-none")}>
+    <div className={cn("flex items-center justify-between p-3 rounded-xl bg-secondary/40", categoryControlsBusy && "opacity-40 pointer-events-none")}>
       <div className="flex items-center gap-3 flex-1 min-w-0">
         <Icon className={cn("w-4 h-4 shrink-0", iconColor)} />
         <div className="min-w-0">
@@ -251,7 +251,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
       <Switch
         checked={prefs[prefKey] as boolean}
         onCheckedChange={() => toggle(prefKey)}
-        disabled={disabled}
+        disabled={categoryControlsBusy}
       />
     </div>
   );
@@ -357,15 +357,15 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
               <Bell className="w-4 h-4 text-primary" />
               <div>
                 <p className="text-sm font-medium text-foreground">All Notifications</p>
-                {!prefs.push_enabled && (
-                  <p className="text-xs text-muted-foreground">Turn on to manage individual categories</p>
-                )}
+                {!prefs.push_enabled ? (
+                  <p className="text-xs text-muted-foreground">Category choices below will apply when you turn this back on</p>
+                ) : null}
               </div>
             </div>
             <Switch
               checked={prefs.push_enabled}
               onCheckedChange={(checked) => void handleMasterToggle(checked)}
-              disabled={isSaving}
+              disabled={isLoading || isSaving}
             />
           </div>
 
@@ -373,7 +373,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
             <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100">
               <p className="font-medium">Notifications are paused</p>
               <p className="mt-1 text-xs text-amber-200/90">
-                Category toggles below are disabled until you resume or the timer ends.
+                Category choices below are still saved and will apply when notifications resume.
               </p>
             </div>
           ) : null}
@@ -435,7 +435,11 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
                   )}
                 </div>
               </div>
-              <Switch checked={prefs.quiet_hours_enabled} onCheckedChange={() => toggle("quiet_hours_enabled")} />
+              <Switch
+                checked={prefs.quiet_hours_enabled}
+                onCheckedChange={() => toggle("quiet_hours_enabled")}
+                disabled={isLoading || isSaving}
+              />
             </div>
             {prefs.quiet_hours_enabled && (
               <motion.div
@@ -455,6 +459,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
                       type="time"
                       className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
                       value={dbTimeToInputValue(prefs.quiet_hours_start)}
+                      disabled={isLoading || isSaving}
                       onChange={(e) => {
                         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
                         savePrefs({
@@ -470,6 +475,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
                       type="time"
                       className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
                       value={dbTimeToInputValue(prefs.quiet_hours_end)}
+                      disabled={isLoading || isSaving}
                       onChange={(e) => {
                         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
                         savePrefs({

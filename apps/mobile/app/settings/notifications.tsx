@@ -253,7 +253,7 @@ export default function NotificationsSettingsScreen() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const { show, dialog } = useVibelyDialog();
-  const { prefs, updatePref, isLoading } = useNotificationPreferences(user?.id);
+  const { prefs, updatePref, updatePrefs, isLoading, isUpdating, saveError } = useNotificationPreferences(user?.id);
   const {
     isGranted: pushOsGranted,
     isDenied: osDeniedFromHook,
@@ -270,6 +270,7 @@ export default function NotificationsSettingsScreen() {
   const [pauseModalVisible, setPauseModalVisible] = useState(false);
   const [pauseKind, setPauseKind] = useState<PauseKind | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
+  const [masterBusy, setMasterBusy] = useState(false);
   const [remainingTick, setRemainingTick] = useState(0);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
@@ -291,6 +292,19 @@ export default function NotificationsSettingsScreen() {
 
   const isPaused = Boolean(prefs.paused_until && new Date(prefs.paused_until) > new Date());
   const osDenied = osDeniedFromHook;
+  const preferencesBusy = isLoading || isUpdating;
+  const providerControlsBusy = preferencesBusy || masterBusy;
+  const categoryControlsBusy = preferencesBusy;
+
+  useEffect(() => {
+    if (!saveError) return;
+    show({
+      title: 'Couldn’t save',
+      message: saveError,
+      variant: 'warning',
+      primaryAction: { label: 'OK', onPress: () => {} },
+    });
+  }, [saveError, show]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -303,25 +317,33 @@ export default function NotificationsSettingsScreen() {
   useEffect(() => {
     if (!user?.id) return;
     const userId = user.id;
+    let cancelled = false;
     async function syncPauseState() {
       const { data, error } = await supabase
         .from('notification_preferences')
         .select('paused_until')
         .eq('user_id', userId)
         .maybeSingle();
+      if (cancelled) return;
       if (error || !data) return;
       const pu = data.paused_until as string | null;
       if (pu && new Date(pu) > new Date()) {
         await AsyncStorage.setItem(PAUSED_UNTIL_KEY, pu);
         const { disablePush } = await import('@/lib/onesignal');
+        if (cancelled) return;
         disablePush(true);
       } else if (pu) {
         const { resumeNotifications } = await import('@/lib/notificationPause');
+        if (cancelled) return;
         await resumeNotifications(userId);
+        if (cancelled) return;
         await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
       }
     }
     void syncPauseState();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id, qc]);
 
   useEffect(() => {
@@ -352,7 +374,7 @@ export default function NotificationsSettingsScreen() {
   }, [isPaused, activePauseKind, remainingShort]);
 
   const handleEnablePush = async () => {
-    if (!user?.id) return;
+    if (!user?.id || providerControlsBusy) return;
     if (pushDeliveryHealth.status === 'needs_sync' || pushDeliveryHealth.status === 'allowed_finishing_setup') {
       await retryPushSync();
       await refreshPushDeliveryHealth();
@@ -373,7 +395,7 @@ export default function NotificationsSettingsScreen() {
 
   const handleSelectPauseDuration = useCallback(
     async (kind: PauseKind) => {
-      if (!user?.id) return;
+      if (!user?.id || preferencesBusy) return;
       setPauseBusy(true);
       try {
         await applyPause(kind, user.id);
@@ -392,11 +414,11 @@ export default function NotificationsSettingsScreen() {
         setPauseBusy(false);
       }
     },
-    [user?.id, qc, show]
+    [user?.id, preferencesBusy, qc, show]
   );
 
   const handleResume = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || preferencesBusy) return;
     setPauseBusy(true);
     try {
       await applyResume(user.id);
@@ -414,11 +436,12 @@ export default function NotificationsSettingsScreen() {
     } finally {
       setPauseBusy(false);
     }
-  }, [user?.id, qc, show]);
+  }, [user?.id, preferencesBusy, qc, show]);
 
   const handleMasterSwitch = useCallback(
     async (val: boolean) => {
-      if (!user?.id) return;
+      if (!user?.id || providerControlsBusy) return;
+      setMasterBusy(true);
       try {
         await applyMasterPushEnabled(user.id, val);
         await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
@@ -430,59 +453,51 @@ export default function NotificationsSettingsScreen() {
           variant: 'warning',
           primaryAction: { label: 'OK', onPress: () => {} },
         });
+      } finally {
+        setMasterBusy(false);
       }
     },
-    [user?.id, qc, show]
+    [user?.id, providerControlsBusy, qc, show]
   );
 
   const saveQuietHoursPatch = useCallback(
-    async (patch: Record<string, unknown>) => {
+    (patch: Partial<NotificationPrefs>) => {
       if (!user?.id) return;
-      const { error } = await supabase
-        .from('notification_preferences')
-        .upsert({ user_id: user.id, ...patch }, { onConflict: 'user_id' });
-      if (error) {
-        show({
-          title: 'Couldn’t save',
-          message: error.message,
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
-      await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+      updatePrefs(patch);
     },
-    [user?.id, qc, show]
+    [user?.id, updatePrefs]
   );
 
   const handleQuietHoursToggle = useCallback(
-    async (val: boolean) => {
-      if (!user?.id) return;
+    (val: boolean) => {
+      if (!user?.id || preferencesBusy) return;
       const tz = getCalendars()[0]?.timeZone ?? 'UTC';
       if (val) {
-        await saveQuietHoursPatch({
+        saveQuietHoursPatch({
           quiet_hours_enabled: true,
           quiet_hours_timezone: tz,
           quiet_hours_start: prefs.quiet_hours_start ?? '22:00:00',
           quiet_hours_end: prefs.quiet_hours_end ?? '08:00:00',
         });
       } else {
-        await saveQuietHoursPatch({ quiet_hours_enabled: false });
+        saveQuietHoursPatch({ quiet_hours_enabled: false });
       }
     },
-    [user?.id, prefs.quiet_hours_start, prefs.quiet_hours_end, saveQuietHoursPatch]
+    [user?.id, preferencesBusy, prefs.quiet_hours_start, prefs.quiet_hours_end, saveQuietHoursPatch]
   );
 
   const onStartTimeChange = (event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === 'android') setShowStartPicker(false);
     if (Platform.OS === 'android' && event.type === 'dismissed') return;
-    if (date) void saveQuietHoursPatch({ quiet_hours_start: dateToTimeString(date) });
+    if (Platform.OS !== 'ios' && preferencesBusy) return;
+    if (date) saveQuietHoursPatch({ quiet_hours_start: dateToTimeString(date) });
   };
 
   const onEndTimeChange = (event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === 'android') setShowEndPicker(false);
     if (Platform.OS === 'android' && event.type === 'dismissed') return;
-    if (date) void saveQuietHoursPatch({ quiet_hours_end: dateToTimeString(date) });
+    if (Platform.OS !== 'ios' && preferencesBusy) return;
+    if (date) saveQuietHoursPatch({ quiet_hours_end: dateToTimeString(date) });
   };
 
   const tzLabel = useMemo(
@@ -511,7 +526,7 @@ export default function NotificationsSettingsScreen() {
           <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
             Your preferences are saved. Push will resume automatically.
           </Text>
-          <Pressable onPress={handleResume} disabled={pauseBusy} style={{ marginTop: 10 }}>
+          <Pressable onPress={handleResume} disabled={pauseBusy || preferencesBusy} style={{ marginTop: 10 }}>
             <Text style={{ color: AMBER, fontWeight: '600', fontSize: 13 }}>Resume now</Text>
           </Pressable>
         </View>
@@ -527,7 +542,7 @@ export default function NotificationsSettingsScreen() {
           <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
           <Text style={{ fontSize: 17, fontWeight: '700', color: theme.mutedForeground }}>Disabled</Text>
           <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
-            Turn on All Notifications below to receive any push alerts.
+            Category choices below are still saved and will apply when you turn this back on.
           </Text>
         </View>
       );
@@ -546,7 +561,7 @@ export default function NotificationsSettingsScreen() {
             {pushDeliveryHealth.description}
           </Text>
           {pushDeliveryHealth.canRetrySync ? (
-            <Pressable onPress={handleEnablePush} disabled={pushSyncing} style={{ marginTop: 10 }}>
+            <Pressable onPress={handleEnablePush} disabled={pushSyncing || providerControlsBusy} style={{ marginTop: 10 }}>
               <Text style={{ color: AMBER, fontWeight: '600', fontSize: 13 }}>{pushSyncing ? 'Retrying...' : 'Retry setup'}</Text>
             </Pressable>
           ) : null}
@@ -664,7 +679,7 @@ export default function NotificationsSettingsScreen() {
               </Text>
             </View>
             {pushDeliveryHealth.status !== 'unsupported' ? (
-              <Pressable onPress={handleEnablePush} disabled={pushSyncing} style={styles.enableBtn}>
+              <Pressable onPress={handleEnablePush} disabled={pushSyncing || providerControlsBusy} style={styles.enableBtn}>
                 <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>
                   {pushOsGranted ? 'Retry Setup' : 'Enable Push Notifications'}
                 </Text>
@@ -679,8 +694,10 @@ export default function NotificationsSettingsScreen() {
 
         <Pressable
           onPress={() => setPauseModalVisible(true)}
+          disabled={preferencesBusy || pauseBusy}
           style={[
             styles.row,
+            (preferencesBusy || pauseBusy) && styles.disabledRow,
             {
               backgroundColor: theme.glassSurface,
               borderColor: isPaused ? withAlpha(AMBER, 0.35) : theme.glassBorder,
@@ -718,7 +735,7 @@ export default function NotificationsSettingsScreen() {
           <Switch
             value={prefs.push_enabled}
             onValueChange={(val) => void handleMasterSwitch(val)}
-            disabled={isLoading}
+            disabled={providerControlsBusy}
             trackColor={{ false: theme.muted, true: theme.tint }}
           />
         </View>
@@ -738,8 +755,7 @@ export default function NotificationsSettingsScreen() {
                 >
                   <Ionicons name="information-circle-outline" size={16} color={AMBER} style={{ marginTop: 1 }} />
                   <Text style={[styles.pauseInfoText, { color: AMBER }]}>
-                    Paused until {formatUntilClock(prefs.paused_until)} — your preferences below are saved and will apply
-                    when notifications resume.
+                    Category choices below are still saved and will apply when notifications resume.
                   </Text>
                 </View>
               ) : null}
@@ -750,6 +766,7 @@ export default function NotificationsSettingsScreen() {
                     key={item.key}
                     style={[
                       styles.toggleRow,
+                      categoryControlsBusy && styles.disabledRow,
                       idx < section.items.length - 1 && {
                         borderBottomWidth: StyleSheet.hairlineWidth,
                         borderBottomColor: withAlpha(theme.border, 0.35),
@@ -766,7 +783,8 @@ export default function NotificationsSettingsScreen() {
                     ) : (
                       <Switch
                         value={Boolean(prefs[item.key as keyof NotificationPrefs])}
-                        onValueChange={(val) => updatePref(item.key, val)}
+                        onValueChange={(val) => updatePref(item.key as keyof NotificationPrefs, val)}
+                        disabled={categoryControlsBusy}
                         trackColor={{ false: theme.muted, true: theme.tint }}
                       />
                     )}
@@ -786,6 +804,7 @@ export default function NotificationsSettingsScreen() {
                     key={item.key}
                     style={[
                       styles.toggleRow,
+                      categoryControlsBusy && styles.disabledRow,
                       idx < section.items.length - 1 && {
                         borderBottomWidth: StyleSheet.hairlineWidth,
                         borderBottomColor: withAlpha(theme.border, 0.35),
@@ -800,6 +819,7 @@ export default function NotificationsSettingsScreen() {
                     <Switch
                       value={prefs.sound_enabled}
                       onValueChange={(val) => updatePref('sound_enabled', val)}
+                      disabled={categoryControlsBusy}
                       trackColor={{ false: theme.muted, true: theme.tint }}
                     />
                   </View>
@@ -820,7 +840,8 @@ export default function NotificationsSettingsScreen() {
                 </View>
                 <Switch
                   value={prefs.quiet_hours_enabled}
-                  onValueChange={(val) => void handleQuietHoursToggle(val)}
+                  onValueChange={(val) => handleQuietHoursToggle(val)}
+                  disabled={preferencesBusy}
                   trackColor={{ false: theme.muted, true: theme.tint }}
                 />
               </View>
@@ -828,11 +849,16 @@ export default function NotificationsSettingsScreen() {
                 <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 10 }}>
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <Pressable
+                      disabled={preferencesBusy}
                       onPress={() => {
                         setShowEndPicker(false);
                         setShowStartPicker(true);
                       }}
-                      style={[styles.timeChip, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+                      style={[
+                        styles.timeChip,
+                        preferencesBusy && styles.disabledRow,
+                        { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+                      ]}
                     >
                       <Text style={{ fontSize: 12, color: theme.mutedForeground }}>Starts</Text>
                       <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>
@@ -843,11 +869,16 @@ export default function NotificationsSettingsScreen() {
                       </Text>
                     </Pressable>
                     <Pressable
+                      disabled={preferencesBusy}
                       onPress={() => {
                         setShowStartPicker(false);
                         setShowEndPicker(true);
                       }}
-                      style={[styles.timeChip, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+                      style={[
+                        styles.timeChip,
+                        preferencesBusy && styles.disabledRow,
+                        { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+                      ]}
                     >
                       <Text style={{ fontSize: 12, color: theme.mutedForeground }}>Ends</Text>
                       <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>
@@ -901,6 +932,7 @@ export default function NotificationsSettingsScreen() {
                 <Switch
                   value={prefs.message_bundle_enabled}
                   onValueChange={(val) => updatePref('message_bundle_enabled', val)}
+                  disabled={categoryControlsBusy}
                   trackColor={{ false: theme.muted, true: theme.tint }}
                 />
               </View>
@@ -911,11 +943,11 @@ export default function NotificationsSettingsScreen() {
 
       <PauseNotificationsModal
         visible={pauseModalVisible}
-        onClose={() => !pauseBusy && setPauseModalVisible(false)}
+        onClose={() => !(pauseBusy || preferencesBusy) && setPauseModalVisible(false)}
         theme={theme}
         activePauseKind={activePauseKind}
         isPaused={isPaused}
-        busy={pauseBusy}
+        busy={pauseBusy || preferencesBusy}
         onSelectDuration={handleSelectPauseDuration}
         onResume={handleResume}
       />
@@ -992,6 +1024,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     borderWidth: 1,
+  },
+  disabledRow: {
+    opacity: 0.45,
   },
   rowLabel: { fontSize: 15, fontWeight: '500' },
   chip: {
