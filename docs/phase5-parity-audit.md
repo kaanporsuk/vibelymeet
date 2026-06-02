@@ -15,7 +15,7 @@
 | Attendee / guest sections | `GuestListTeaser` (pre-reg: mystery cards, count, lock), `GuestListRoster` (post-reg: avatars, names, ticket CTA) | None |
 | Event lobby | `src/pages/EventLobby.tsx`, `LobbyProfileCard`, `LobbyEmptyState`, `ReadyGateOverlay` | `apps/mobile/app/event/[eventId]/lobby.tsx` (inline LobbyProfileCard), `ReadyGateOverlay.tsx` |
 | Swipe / discovery deck | `EventLobby`: SwipeableCard, LobbyProfileCard stack, Pass / Super Vibe / Vibe buttons | `lobby.tsx`: stack of LobbyProfileCard, Pass / Super Vibe / Vibe (order fixed in Phase 5) |
-| Ready Gate | `src/components/lobby/ReadyGateOverlay.tsx` (timer, partner photo, Ready/Snooze/Skip, useReadyGate) | `apps/mobile/components/lobby/ReadyGateOverlay.tsx` (modal, partner name + optional image, Ready/Skip) |
+| Ready Gate | `src/components/lobby/ReadyGateOverlay.tsx` (timer, partner photo, shared vibes, Ready/Snooze/Skip, useReadyGate) | `apps/mobile/components/lobby/ReadyGateOverlay.tsx` and `apps/mobile/app/ready/[id].tsx` (timer, partner photo, shared vibes, Ready/Snooze/Skip, useReadyGate) |
 | Daily Drop | `src/components/matches/DropsTabContent.tsx`, `useDailyDrop` | Matches tab: "Daily Drop" tab with CTA "Open Daily Drop on web" (no in-app deck) |
 | Loading / empty / error (events) | Events: FeaturedEventSkeleton + 3× EventsRailSkeleton; filter empty: "No events found" + copy; EventDetails: Loader2 full screen; error: "Event not found" + Back | Native: EventsSkeleton (hero + 1 rail); EmptyState for filter empty; event detail: LoadingState / ErrorState |
 | Loading / empty / error (lobby) | EventLobby: spinner; empty: LobbyEmptyState ("You've seen everyone…", Refresh) | lobby.tsx: LoadingState "Loading deck…"; empty: EmptyState "No one to show…", Refresh |
@@ -110,7 +110,7 @@
 | Element | Web | Native | Gap |
 |--------|-----|--------|-----|
 | Backdrop | Dark overlay | Modal, dark backdrop | **Aligned.** |
-| Content | useReadyGate: timer, partner photo, shared vibes, Ready / Snooze / Skip | Title, "You matched with {name}!", partner image or placeholder, Ready, Skip | **Medium:** No timer, no snooze, no shared vibes. |
+| Content | useReadyGate: timer, partner photo, shared vibes, Ready / Snooze / Skip | useReadyGate: timer, partner photo or placeholder, shared vibes, Ready / Snooze / Skip | **Aligned.** |
 | Partner photo | Fetched from session | Passed from lobby on match (Phase 5) | **Aligned.** |
 
 ---
@@ -131,7 +131,7 @@
 | Events list | FeaturedEventSkeleton + 3 rails; filter empty: icon + "No events found" + copy; refetch via data | EventsSkeleton (1 hero + 1 rail); EmptyState; RefreshControl | **Low:** Extra rail skeletons; empty copy. |
 | Event detail | Loader2; "Event not found" + Back | LoadingState; ErrorState + Back to events | **Aligned.** |
 | Lobby | Spinner; LobbyEmptyState + Refresh | LoadingState; EmptyState + Refresh | **Aligned.** |
-| Ready Gate | (Inside overlay) | Modal with Ready/Skip | **Aligned.** |
+| Ready Gate | (Inside overlay) | Modal/standalone route with timer, Ready/Snooze/Skip, shared vibes, diagnostics | **Aligned.** |
 
 ---
 
@@ -149,7 +149,7 @@
 5. **Event detail — Share button** in header.  
 6. **Event detail — Sticky pricing/capacity bar** when not registered (needs price/capacity from API).  
 7. **Lobby — LobbyProfileCard:** Super Vibe badge, Premium, "In a date" (needs data).  
-8. **Ready Gate:** Timer, snooze (needs useReadyGate-style backend).
+8. **Ready Gate:** Remaining scope is visual/design polish only; timer, snooze, shared vibes, diagnostics, and backend-owned transitions are present on native.
 
 **Low / deferred**  
 9. Events list: location prompt behavior, interest filters, hero countdown.  

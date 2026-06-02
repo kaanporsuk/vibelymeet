@@ -74,6 +74,7 @@ import { READY_GATE_REALTIME_RECOVERY_STABLE_MS } from "@clientShared/matching/r
 import {
   resolveReadyGateDiagnosticChecklist,
   resolveReadyGatePrepareEntryFailureCopy,
+  resolveReadyGateTransitionFailureCopy,
   type ReadyGateDiagnosticCopy,
   type ReadyGateDiagnosticStatus,
 } from "@clientShared/matching/readyGateDiagnosticCopy";
@@ -1597,10 +1598,20 @@ const ReadyGateOverlay = ({
         dismiss_variant: dismissVariant,
       });
       manualExitRequestedRef.current = true;
+      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
       try {
         const result = await skip();
-        if (!result.ok) {
-          throw new Error("ready_gate_forfeit_failed");
+        if (result.ok === false) {
+          transitionFailure = resolveReadyGateTransitionFailureCopy({
+            action: "forfeit",
+            code: result.code,
+            errorCode: result.errorCode,
+            reason: result.reason,
+            error: result.error,
+            status: result.status,
+            platform: "web",
+          });
+          throw new Error(transitionFailure.message);
         }
         if (result.status === "both_ready") {
           manualExitRequestedRef.current = false;
@@ -1623,7 +1634,15 @@ const ReadyGateOverlay = ({
           result.status === "forfeited" ||
           result.status === "expired";
         if (!terminal) {
-          throw new Error("ready_gate_forfeit_not_terminal");
+          transitionFailure = resolveReadyGateTransitionFailureCopy({
+            action: "forfeit",
+            code: result.code,
+            errorCode: result.errorCode,
+            reason: result.reason ?? "ready_gate_forfeit_not_terminal",
+            status: result.status,
+            platform: "web",
+          });
+          throw new Error(transitionFailure.message);
         }
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
         trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
@@ -1647,7 +1666,12 @@ const ReadyGateOverlay = ({
         terminalActionInFlightRef.current = false;
         manualExitRequestedRef.current = false;
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
-        const message = "We couldn't step away. Check your connection and try again.";
+        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
+          action: "forfeit",
+          error: error instanceof Error ? error.message : String(error),
+          platform: "web",
+        });
+        const message = fallback.message;
         setTerminalActionPending(false);
         setTerminalActionError(message);
         readyGateDebug("terminal ready-gate action failed", {
@@ -1662,16 +1686,18 @@ const ReadyGateOverlay = ({
           source_surface: "ready_gate_overlay",
           source_action: dismissVariant,
           outcome: "failure",
-          reason_code: "ready_gate_forfeit_failed",
-          retryable: true,
+          reason_code: fallback.reasonCode,
+          retryable: fallback.retryable,
           error_name: error instanceof Error ? error.name : "unknown",
+          multi_device_conflict: fallback.staleOrConflict,
         });
         trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
           action: "forfeit",
           source_action: dismissVariant,
-          reason: "ready_gate_forfeit_failed",
-          error_code: "ready_gate_forfeit_failed",
+          reason: fallback.reasonCode,
+          error_code: fallback.code ?? fallback.reasonCode,
           terminal: false,
+          multi_device_conflict: fallback.staleOrConflict,
         });
         toast.error(message, { duration: 3200 });
       }
@@ -2179,15 +2205,25 @@ const ReadyGateOverlay = ({
 
   // Fetch partner photo + shared vibes
   useEffect(() => {
-    if (!sessionId || !user?.id) return;
+    if (!sessionId || !user?.id) {
+      setPartnerPhotos(null);
+      setPartnerAvatarUrl(null);
+      setSharedVibes([]);
+      return;
+    }
 
-    (async () => {
+    let cancelled = false;
+    setPartnerPhotos(null);
+    setPartnerAvatarUrl(null);
+    setSharedVibes([]);
+
+    void (async () => {
       const { data: session } = await supabase
         .from("video_sessions")
         .select("participant_1_id, participant_2_id")
         .eq("id", sessionId)
         .maybeSingle();
-      if (!session) return;
+      if (cancelled || !session) return;
 
       const isParticipant =
         session.participant_1_id === user.id || session.participant_2_id === user.id;
@@ -2202,11 +2238,16 @@ const ReadyGateOverlay = ({
       const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
         p_target_id: partnerId,
       });
+      if (cancelled) return;
 
-      const partnerProfile = profile as { avatar_url?: string | null; photos?: string[] | null; vibes?: string[] | null } | null;
+      const partnerProfile = profile as { avatar_url?: unknown; photos?: unknown; vibes?: unknown } | null;
       if (partnerProfile) {
-        setPartnerPhotos(partnerProfile.photos || null);
-        setPartnerAvatarUrl(partnerProfile.avatar_url || null);
+        const photos = Array.isArray(partnerProfile.photos)
+          ? partnerProfile.photos.filter((photo): photo is string => typeof photo === "string" && photo.trim().length > 0)
+          : null;
+        const avatarUrl = typeof partnerProfile.avatar_url === "string" ? partnerProfile.avatar_url.trim() : "";
+        setPartnerPhotos(photos?.length ? photos : null);
+        setPartnerAvatarUrl(avatarUrl || null);
       }
 
       // Shared vibes
@@ -2215,20 +2256,34 @@ const ReadyGateOverlay = ({
         .select("vibe_tags(label, emoji)")
         .eq("profile_id", user.id);
 
-      if (myVibes && partnerProfile?.vibes) {
+      if (cancelled) return;
+
+      if (myVibes && Array.isArray(partnerProfile?.vibes)) {
         const myLabels = new Set(
           myVibes
             .map((v) => {
-              const raw = v.vibe_tags as { label: string } | { label: string }[] | null;
+              const raw = v.vibe_tags as { label?: unknown } | Array<{ label?: unknown }> | null;
               const tag = Array.isArray(raw) ? raw[0] : raw;
-              return tag?.label;
+              return typeof tag?.label === "string" ? tag.label.trim().toLowerCase() : null;
             })
-            .filter(Boolean)
+            .filter((label): label is string => Boolean(label))
         );
-        const shared = partnerProfile.vibes.filter((label) => myLabels.has(label));
+        const seen = new Set<string>();
+        const shared = partnerProfile.vibes.flatMap((label) => {
+          if (typeof label !== "string") return [];
+          const trimmed = label.trim();
+          const key = trimmed.toLowerCase();
+          if (!trimmed || !myLabels.has(key) || seen.has(key)) return [];
+          seen.add(key);
+          return [trimmed];
+        });
         setSharedVibes(shared);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, user?.id]);
 
   // Countdown timer (only when user hasn't pressed ready yet)
@@ -2622,6 +2677,7 @@ const ReadyGateOverlay = ({
                     });
                     setMarkingReady(true);
                     void (async () => {
+                      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
                       try {
                         setTerminalActionError(null);
                         const permissionReady = await runPermissionPrewarm("ready_tap");
@@ -2641,12 +2697,26 @@ const ReadyGateOverlay = ({
                           return;
                         }
                         const result = await markReady();
-                        if (!result.ok) {
-                          throw new Error("ready_gate_mark_ready_failed");
+                        if (result.ok === false) {
+                          transitionFailure = resolveReadyGateTransitionFailureCopy({
+                            action: "mark_ready",
+                            code: result.code,
+                            errorCode: result.errorCode,
+                            reason: result.reason,
+                            error: result.error,
+                            status: result.status,
+                            platform: "web",
+                          });
+                          throw new Error(transitionFailure.message);
                         }
                         startRoomWarmupAfterReady("ready_tap_mark_ready_success", result.status ?? null);
                       } catch (error) {
-                        const message = "We couldn't mark you ready. Check your connection and try again.";
+                        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
+                          action: "mark_ready",
+                          error: error instanceof Error ? error.message : String(error),
+                          platform: "web",
+                        });
+                        const message = fallback.message;
                         setTerminalActionError(message);
                         readyGateDebug("mark ready failed", {
                           sessionId,
@@ -2655,9 +2725,10 @@ const ReadyGateOverlay = ({
                         trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
                           action: "mark_ready",
                           source_action: "ready_tap",
-                          reason: "ready_gate_mark_ready_failed",
-                          error_code: "ready_gate_mark_ready_failed",
+                          reason: fallback.reasonCode,
+                          error_code: fallback.code ?? fallback.reasonCode,
                           terminal: false,
+                          multi_device_conflict: fallback.staleOrConflict,
                         });
                         toast.error(message, { duration: 3200 });
                       } finally {
@@ -2725,14 +2796,29 @@ const ReadyGateOverlay = ({
                     });
                     setRequestingSnooze(true);
                     void (async () => {
+                      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
                       try {
                         setTerminalActionError(null);
                         const result = await snooze();
-                        if (!result.ok) {
-                          throw new Error("ready_gate_snooze_failed");
+                        if (result.ok === false) {
+                          transitionFailure = resolveReadyGateTransitionFailureCopy({
+                            action: "snooze",
+                            code: result.code,
+                            errorCode: result.errorCode,
+                            reason: result.reason,
+                            error: result.error,
+                            status: result.status,
+                            platform: "web",
+                          });
+                          throw new Error(transitionFailure.message);
                         }
                       } catch (error) {
-                        const message = "We couldn't snooze this match. Check your connection and try again.";
+                        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
+                          action: "snooze",
+                          error: error instanceof Error ? error.message : String(error),
+                          platform: "web",
+                        });
+                        const message = fallback.message;
                         setTerminalActionError(message);
                         readyGateDebug("snooze failed", {
                           sessionId,
@@ -2741,9 +2827,10 @@ const ReadyGateOverlay = ({
                         trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
                           action: "snooze",
                           source_action: "snooze_tap",
-                          reason: "ready_gate_snooze_failed",
-                          error_code: "ready_gate_snooze_failed",
+                          reason: fallback.reasonCode,
+                          error_code: fallback.code ?? fallback.reasonCode,
                           terminal: false,
+                          multi_device_conflict: fallback.staleOrConflict,
                         });
                         toast.error(message, { duration: 3200 });
                       } finally {

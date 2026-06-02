@@ -49,6 +49,18 @@ export type ReadyGatePrepareEntryFailureCopy = {
   terminal: boolean;
 };
 
+export type ReadyGateTransitionFailureAction = "mark_ready" | "snooze" | "forfeit";
+
+export type ReadyGateTransitionFailureCopy = {
+  action: ReadyGateTransitionFailureAction;
+  code: string | null;
+  reasonCode: string;
+  title: string;
+  message: string;
+  retryable: boolean;
+  staleOrConflict: boolean;
+};
+
 export type ReadyGateDiagnosticChecklistInput = {
   platform?: ReadyGatePlatform;
   partnerName?: string | null;
@@ -77,10 +89,105 @@ const DIAGNOSTIC_LABELS: Record<ReadyGateDiagnosticKey, string> = {
   partner_readiness: "Match readiness",
 };
 
+const READY_GATE_TRANSITION_STALE_OR_CONFLICT_SIGNALS = new Set([
+  "surface_claim_conflict",
+  "stale_transition",
+  "guarded_update_zero_rows",
+  "session_no_longer_ready_gate_mutable",
+  "session_missing",
+  "session_ended",
+  "session_not_ready_gate_eligible",
+  "ready_gate_not_ready",
+  "event_not_active",
+  "expired",
+  "forfeited",
+  "terminal",
+  "conflict",
+  "not_session_participant",
+]);
+
 function normalizeCode(code: string | null | undefined): string | null {
   if (typeof code !== "string") return null;
   const trimmed = code.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeSignal(value: string | null | undefined): string | null {
+  const code = normalizeCode(value);
+  return code ? code.toLowerCase() : null;
+}
+
+function defaultReadyGateTransitionFailureCopy(action: ReadyGateTransitionFailureAction): {
+  title: string;
+  message: string;
+  reasonCode: string;
+} {
+  switch (action) {
+    case "mark_ready":
+      return {
+        title: "Could not mark you ready",
+        message: "We couldn't mark you ready. Check your connection and try again.",
+        reasonCode: "ready_gate_mark_ready_failed",
+      };
+    case "snooze":
+      return {
+        title: "Could not snooze",
+        message: "We couldn't snooze this match. Check your connection and try again.",
+        reasonCode: "ready_gate_snooze_failed",
+      };
+    case "forfeit":
+      return {
+        title: "Could not step away",
+        message: "We couldn't step away. Check your connection and try again.",
+        reasonCode: "ready_gate_forfeit_failed",
+      };
+  }
+}
+
+export function resolveReadyGateTransitionFailureCopy(input: {
+  action: ReadyGateTransitionFailureAction;
+  code?: string | null;
+  errorCode?: string | null;
+  reason?: string | null;
+  error?: string | null;
+  status?: string | null;
+  platform?: ReadyGatePlatform;
+}): ReadyGateTransitionFailureCopy {
+  const primaryCode = normalizeCode(input.code) ?? normalizeCode(input.errorCode) ?? null;
+  const signals = [
+    input.code,
+    input.errorCode,
+    input.reason,
+    input.error,
+    input.status,
+  ]
+    .map(normalizeSignal)
+    .filter((value): value is string => Boolean(value));
+  const staleOrConflict = signals.some((signal) => READY_GATE_TRANSITION_STALE_OR_CONFLICT_SIGNALS.has(signal));
+
+  if (staleOrConflict) {
+    const surface = input.platform === "native" ? "device" : "device or tab";
+    return {
+      action: input.action,
+      code: primaryCode,
+      reasonCode: "ready_gate_transition_conflict",
+      title: "Ready Gate changed",
+      message: `Another ${surface} already changed this Ready Gate. We are syncing the latest state.`,
+      retryable: true,
+      staleOrConflict: true,
+    };
+  }
+
+  const fallback = defaultReadyGateTransitionFailureCopy(input.action);
+  return {
+    action: input.action,
+    code: primaryCode,
+    reasonCode: fallback.reasonCode,
+    title: fallback.title,
+    message: fallback.message,
+    retryable: true,
+    staleOrConflict: false,
+  };
 }
 
 function severityForStatus(status: ReadyGateDiagnosticStatus): ReadyGateDiagnosticSeverity {

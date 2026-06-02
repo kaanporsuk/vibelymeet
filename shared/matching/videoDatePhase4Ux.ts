@@ -167,8 +167,8 @@ export function resolveVideoDateQueueCopy(
       compactLabel,
       title: isNext ? "You're next" : "Holding your place",
       message: isNext
-        ? "Keep this room open. Ready Gate will open the moment your match is ready."
-        : "You are in the matching queue. Keep browsing while we hold your spot.",
+        ? "Keep this lobby open so we can confirm presence. Ready Gate opens when your match is ready."
+        : "You are in the matching queue. Keep the lobby open while we hold your spot.",
       positionLabel,
       etaLabel,
       reliefLabel,
@@ -180,7 +180,7 @@ export function resolveVideoDateQueueCopy(
   return {
     compactLabel,
     title: "Holding your place",
-    message: "Keep browsing. Ready Gate opens automatically when a match is available.",
+    message: "Keep browsing with the lobby open. Ready Gate opens automatically when a match is available.",
     positionLabel: null,
     etaLabel: null,
     reliefLabel: null,
