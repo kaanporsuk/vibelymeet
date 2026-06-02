@@ -158,7 +158,7 @@ export function classifyPushDeepLink(raw: unknown): {
     return {
       deeplink_url_present: true,
       deeplink_url_kind: 'external_url',
-      deeplink_route_class: routeClassForPath(url.pathname),
+      deeplink_route_class: 'unknown',
       canonical_origin_valid: false,
     };
   } catch {

@@ -199,6 +199,8 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
     assert.match(source, /value\.startsWith\(["']\/\/["']\) \|\| value\.includes/);
     assert.match(source, /normalizeNotificationAppPath/);
     assert.match(source, /return normalizePushAppPath\(value\)/);
+    assert.match(source, /deeplink_url_kind: ['"]external_url['"][\s\S]*deeplink_route_class: ['"]unknown['"]/);
+    assert.doesNotMatch(source, /deeplink_route_class: routeClassForPath\(url\.pathname\)/);
     assert.doesNotMatch(source, /if \(value\.startsWith\(["']\/["']\)\) return value/);
     assert.match(source, /return null/);
   }
