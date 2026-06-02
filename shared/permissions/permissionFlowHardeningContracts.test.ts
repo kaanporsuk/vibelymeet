@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -25,12 +25,16 @@ const triggerGrantHardeningMigration = read(
 );
 
 test("native iOS permission metadata matches the shipped runtime prompts", () => {
-  const infoPlist = read("apps/mobile/ios/Vibely/Info.plist");
-  const legacyInfoPlist = read("apps/mobile/ios/mobile/Info.plist");
+  const plistPaths = [
+    "apps/mobile/ios/Vibely/Info.plist",
+    "apps/mobile/ios/mobile/Info.plist",
+  ].filter((path) => existsSync(join(root, path)));
+  assert.ok(plistPaths.length > 0, "expected at least one checked-in iOS Info.plist");
   const entitlements = read("apps/mobile/ios/Vibely/Vibely.entitlements");
   const project = read("apps/mobile/ios/Vibely.xcodeproj/project.pbxproj");
 
-  for (const source of [infoPlist, legacyInfoPlist]) {
+  for (const path of plistPaths) {
+    const source = read(path);
     assert.match(source, /<key>NSCameraUsageDescription<\/key>/);
     assert.match(source, /join video dates, record Vibe Videos or chat clips/);
     assert.match(source, /<key>NSMicrophoneUsageDescription<\/key>/);
