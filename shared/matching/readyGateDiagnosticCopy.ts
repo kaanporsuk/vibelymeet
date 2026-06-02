@@ -106,6 +106,16 @@ const READY_GATE_TRANSITION_STALE_OR_CONFLICT_SIGNALS = new Set([
   "not_session_participant",
 ]);
 
+const READY_GATE_TRANSITION_TIMEOUT_SIGNALS = new Set([
+  "57014",
+  "ready_gate_transition_timeout",
+  "mark_ready_timeout",
+  "statement_timeout",
+  "statement timeout",
+  "query_canceled",
+  "query canceled",
+]);
+
 function normalizeCode(code: string | null | undefined): string | null {
   if (typeof code !== "string") return null;
   const trimmed = code.trim();
@@ -164,6 +174,24 @@ export function resolveReadyGateTransitionFailureCopy(input: {
     .map(normalizeSignal)
     .filter((value): value is string => Boolean(value));
   const staleOrConflict = signals.some((signal) => READY_GATE_TRANSITION_STALE_OR_CONFLICT_SIGNALS.has(signal));
+  const timedOut = signals.some((signal) =>
+    READY_GATE_TRANSITION_TIMEOUT_SIGNALS.has(signal) ||
+    signal.includes("57014") ||
+    signal.includes("statement timeout") ||
+    signal.includes("canceling statement due to statement timeout"),
+  );
+
+  if (timedOut) {
+    return {
+      action: input.action,
+      code: primaryCode,
+      reasonCode: "ready_gate_transition_timeout",
+      title: "Status sync delayed",
+      message: "Status sync is delayed. Retrying with the latest session status.",
+      retryable: true,
+      staleOrConflict: false,
+    };
+  }
 
   if (staleOrConflict) {
     const surface = input.platform === "native" ? "device" : "device or tab";

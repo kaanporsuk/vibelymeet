@@ -11,7 +11,9 @@ test("classifies Daily auth failures as non-retryable provider auth failures", a
   const failure = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
     data: { code: "DAILY_AUTH_FAILED" },
-    response: new Response(JSON.stringify({ code: "DAILY_AUTH_FAILED" }), { status: 502 }),
+    response: new Response(JSON.stringify({ code: "DAILY_AUTH_FAILED" }), {
+      status: 502,
+    }),
   });
 
   assert.equal(failure.kind, "DAILY_AUTH_FAILED");
@@ -24,23 +26,46 @@ test("classifies Daily rate limits as retryable", async () => {
   const failure = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
     data: { code: "DAILY_RATE_LIMIT", retry_after_seconds: 7 },
-    response: new Response(JSON.stringify({ code: "DAILY_RATE_LIMIT", retry_after_seconds: 7 }), {
-      status: 429,
-      headers: { "Retry-After": "7" },
-    }),
+    response: new Response(
+      JSON.stringify({ code: "DAILY_RATE_LIMIT", retry_after_seconds: 7 }),
+      {
+        status: 429,
+        headers: { "Retry-After": "7" },
+      },
+    ),
   });
 
   assert.equal(failure.kind, "DAILY_RATE_LIMIT");
   assert.equal(failure.httpStatus, 429);
   assert.equal(failure.retryable, true);
+  assert.equal(failure.retryAfterSeconds, 7);
+  assert.equal(failure.retryAfterMs, 7000);
   assert.equal(isRetryableDailyRoomFailure("DAILY_RATE_LIMIT"), true);
+});
+
+test("classifies Retry-After headers when body retry metadata is absent", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    response: new Response(JSON.stringify({ code: "DAILY_PROVIDER_ERROR" }), {
+      status: 503,
+      headers: { "Retry-After": "4" },
+    }),
+  });
+
+  assert.equal(failure.kind, "DAILY_PROVIDER_ERROR");
+  assert.equal(failure.retryable, true);
+  assert.equal(failure.retryAfterSeconds, 4);
+  assert.equal(failure.retryAfterMs, 4000);
 });
 
 test("classifies Daily provider unavailable responses as retryable", async () => {
   const failure = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
     data: { code: "DAILY_PROVIDER_UNAVAILABLE" },
-    response: new Response(JSON.stringify({ code: "DAILY_PROVIDER_UNAVAILABLE" }), { status: 503 }),
+    response: new Response(
+      JSON.stringify({ code: "DAILY_PROVIDER_UNAVAILABLE" }),
+      { status: 503 },
+    ),
   });
 
   assert.equal(failure.kind, "DAILY_PROVIDER_UNAVAILABLE");
@@ -52,7 +77,9 @@ test("classifies provider rejected Daily requests as non-retryable", async () =>
   const failure = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
     data: { code: "DAILY_REQUEST_REJECTED" },
-    response: new Response(JSON.stringify({ code: "DAILY_REQUEST_REJECTED" }), { status: 502 }),
+    response: new Response(JSON.stringify({ code: "DAILY_REQUEST_REJECTED" }), {
+      status: 502,
+    }),
   });
 
   assert.equal(failure.kind, "DAILY_REQUEST_REJECTED");
@@ -68,12 +95,15 @@ test("classifies event-inactive prepare-entry blockers as non-retryable stale ha
       reason: "event_not_active",
       inactive_reason: "event_ended",
     },
-    response: new Response(JSON.stringify({
-      code: "READY_GATE_NOT_READY",
-      error_code: "EVENT_NOT_ACTIVE",
-      reason: "event_not_active",
-      inactive_reason: "event_ended",
-    }), { status: 403 }),
+    response: new Response(
+      JSON.stringify({
+        code: "READY_GATE_NOT_READY",
+        error_code: "EVENT_NOT_ACTIVE",
+        reason: "event_not_active",
+        inactive_reason: "event_ended",
+      }),
+      { status: 403 },
+    ),
   });
 
   assert.equal(failure.kind, "EVENT_NOT_ACTIVE");
@@ -86,7 +116,9 @@ test("classifies provider-atomic persistence failures as retryable", async () =>
   const roomPersist = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
     data: { code: "DB_ROOM_PERSIST_FAILED" },
-    response: new Response(JSON.stringify({ code: "DB_ROOM_PERSIST_FAILED" }), { status: 503 }),
+    response: new Response(JSON.stringify({ code: "DB_ROOM_PERSIST_FAILED" }), {
+      status: 503,
+    }),
   });
   assert.equal(roomPersist.kind, "DB_ROOM_PERSIST_FAILED");
   assert.equal(roomPersist.retryable, true);
@@ -94,17 +126,35 @@ test("classifies provider-atomic persistence failures as retryable", async () =>
   const registrationPersist = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
     data: { code: "REGISTRATION_PERSIST_FAILED" },
-    response: new Response(JSON.stringify({ code: "REGISTRATION_PERSIST_FAILED" }), { status: 503 }),
+    response: new Response(
+      JSON.stringify({ code: "REGISTRATION_PERSIST_FAILED" }),
+      { status: 503 },
+    ),
   });
   assert.equal(registrationPersist.kind, "REGISTRATION_PERSIST_FAILED");
   assert.equal(registrationPersist.retryable, true);
 });
 
 test("maps token failure kinds into shared analytics classes", () => {
-  assert.equal(classifyDailyRoomTokenFailureClass("DAILY_AUTH_FAILED"), "auth_expired");
+  assert.equal(
+    classifyDailyRoomTokenFailureClass("DAILY_AUTH_FAILED"),
+    "auth_expired",
+  );
   assert.equal(classifyDailyRoomTokenFailureClass("network"), "network");
-  assert.equal(classifyDailyRoomTokenFailureClass("SESSION_ENDED"), "session_ended");
-  assert.equal(classifyDailyRoomTokenFailureClass("EVENT_NOT_ACTIVE"), "session_ended");
-  assert.equal(classifyDailyRoomTokenFailureClass("ROOM_NOT_FOUND"), "room_missing");
-  assert.equal(classifyDailyRoomTokenFailureClass("DAILY_REQUEST_REJECTED"), "unknown");
+  assert.equal(
+    classifyDailyRoomTokenFailureClass("SESSION_ENDED"),
+    "session_ended",
+  );
+  assert.equal(
+    classifyDailyRoomTokenFailureClass("EVENT_NOT_ACTIVE"),
+    "session_ended",
+  );
+  assert.equal(
+    classifyDailyRoomTokenFailureClass("ROOM_NOT_FOUND"),
+    "room_missing",
+  );
+  assert.equal(
+    classifyDailyRoomTokenFailureClass("DAILY_REQUEST_REJECTED"),
+    "unknown",
+  );
 });

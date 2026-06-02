@@ -1023,7 +1023,10 @@ test("native ready-gate paths are success-gated with no timer fallback route", (
 
 test("web and native ready-gate handoff use shared retry policy", () => {
   assert.match(sharedVideoDateEntryRetryPolicy, /VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS = 3_000/);
-  assert.match(sharedVideoDateEntryRetryPolicy, /VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS = \[1_000, 2_000, 4_000, 8_000\]/);
+  assert.match(
+    sharedVideoDateEntryRetryPolicy,
+    /VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS = \[[\s\S]*1_000, 2_000, 4_000, 8_000/,
+  );
   assert.match(sharedVideoDateEntryRetryPolicy, /VIDEO_DATE_ENTRY_HANDOFF_STATUS_COPY/);
   assert.match(sharedVideoDateEntryRetryPolicy, /Joining your date/);
   assert.match(sharedVideoDateEntryRetryPolicy, /Holding your date/);
@@ -1071,7 +1074,10 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
   assert.match(nativeReadyGateApi, /p_action: 'sync' satisfies ReadyGateTransitionAction/);
   assert.match(nativeReadyGateApi, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status:[\s\S]*payload\.ready_gate_status[\s\S]*payload\.result_status/s);
   assert.match(nativeReadyGateApi, /ok: false[\s\S]*ok: true/);
-  assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'skip' = 'skip'\) =>/);
+  assert.match(
+    nativeReadyGateOverlay,
+    /const handleSkip = useCallback\(\s*async \(reason: 'skip' = 'skip'\) =>/,
+  );
   assert.match(nativeReadyGateOverlay, /const result = await forfeit\(\)/);
   assert.match(nativeReadyGateOverlay, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'forfeit'/s);
   assert.match(nativeReadyGateOverlay, /result\.status === 'both_ready'/);
@@ -1116,7 +1122,10 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(nativeReadyGateOverlay, /reason: fallback\.reasonCode/);
   assert.match(nativeReadyGateOverlay, /multi_device_conflict: fallback\.staleOrConflict/);
   assert.match(nativeReadyGateOverlay, /EXPIRY_SYNC_RETRY_DELAY_MS/);
-  assert.match(nativeReadyGateOverlay, /void syncSession\(\)[\s\S]*countdown_expiry_sync_deferred/s);
+  assert.match(
+    nativeReadyGateOverlay,
+    /void guardedSyncSession\('countdown_expired'\)[\s\S]*countdown_expiry_sync_deferred/s,
+  );
   assert.doesNotMatch(nativeReadyGateOverlay, /TIMEOUT_FORFEIT|timeoutForfeit|timeout_auto_forfeit|handleSkip\('timeout'\)/);
 
   assert.match(nativeReadyRoute, /const runReadyGateForfeit = useCallback\(/);
@@ -1128,7 +1137,10 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(nativeReadyRoute, /const result = await syncSession\(\)/);
   assert.match(nativeReadyRoute, /standalone_countdown_expiry_sync_deferred/);
   assert.doesNotMatch(nativeReadyRoute, /TIMEOUT_FORFEIT|timeoutForfeit|runReadyGateForfeit\('timeout'\)/);
-  assert.match(nativeReadyRoute, /primaryAction: \{ label: 'Step away', onPress: \(\) => \{ void runReadyGateForfeit\('skip'\); \} \}/);
+  assert.match(
+    nativeReadyRoute,
+    /primaryAction:[\s\S]{0,160}label: 'Step away'[\s\S]{0,120}onPress: \(\) => \{[\s\S]{0,80}void runReadyGateForfeit\('skip'\);/,
+  );
   assert.doesNotMatch(nativeReadyRoute, /forfeit\(\);\s*return 0/);
   assert.match(nativeReadyRoute, /const result = await markReady\(\)/);
   assert.match(nativeReadyRoute, /if \(result\.ok === false\) \{[\s\S]*resolveReadyGateTransitionFailureCopy[\s\S]*action: 'mark_ready'/s);
@@ -1151,8 +1163,14 @@ test("ready-gate mark_ready both_ready uses RPC short-circuit telemetry", () => 
 
   assert.match(webReadyGateHook, /bothReadySourceAction:[\s\S]*action === "mark_ready"[\s\S]*ReadyGateStatus\.BothReady[\s\S]*both_ready_observed_via_rpc_short_circuit/s);
   assert.match(nativeReadyGateApi, /bothReadySourceAction:[\s\S]*action === 'mark_ready'[\s\S]*payloadStatus === BOTH_READY[\s\S]*both_ready_observed_via_rpc_short_circuit/s);
-  assert.match(readyGateOverlay, /sourceAction: "both_ready_observed" \| "both_ready_observed_via_rpc_short_circuit"/);
-  assert.match(nativeReadyGateOverlay, /sourceAction: 'both_ready_observed' \| 'both_ready_observed_via_rpc_short_circuit'/);
+  assert.match(
+    readyGateOverlay,
+    /sourceAction:[\s\S]{0,120}"both_ready_observed"[\s\S]{0,80}"both_ready_observed_via_rpc_short_circuit"/,
+  );
+  assert.match(
+    nativeReadyGateOverlay,
+    /sourceAction:[\s\S]{0,120}'both_ready_observed'[\s\S]{0,80}'both_ready_observed_via_rpc_short_circuit'/,
+  );
   assert.match(launchLatencyCheckpointObservability, /both_ready_observed_via_rpc_short_circuit/);
   assert.match(videoDateOperatorMetrics, /both_ready_observed_via_rpc_short_circuit/);
 });
@@ -1522,7 +1540,10 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("permission_handoff_media_failed"\)/);
   assert.match(webVideoCallHook, /mediaPermissionFailureSourceAction = "permission_handoff_media_failed"/);
   assert.match(webVideoCallHook, /source_action: mediaPermissionFailureSourceAction/);
-  assert.match(readyGateOverlay, /classifyMediaPermissionErrorWithBrowserState\(error, "camera_microphone"\)/);
+  assert.match(
+    readyGateOverlay,
+    /classifyMediaPermissionErrorWithBrowserState\([\s\S]{0,80}error,[\s\S]{0,80}"camera_microphone"/,
+  );
   assert.match(readyGateOverlay, /permission_status: permissionResult\.status/);
   assert.match(readyGateOverlay, /permission_state: permissionResult\.permissionState/);
   assert.match(readyGateOverlay, /recovery_action: permissionResult\.recoveryAction/);
@@ -2808,7 +2829,10 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   for (const prepareEntrySource of [webPrepareEntry, nativePrepareEntry]) {
     assert.equal(prepareEntrySource.match(/\bprepareBackendTimingExtra\b/g)?.length, 2);
     assert.match(prepareEntrySource, /const providerVerifyExtra = \{[\s\S]*provider_verify_reason/);
-    assert.match(prepareEntrySource, /const prepareEntrySuccessExtra = result\.cached \? providerVerifyExtra : prepareBackendTimingExtra/);
+    assert.match(
+      prepareEntrySource,
+      /const prepareEntrySuccessExtra = result\.cached[\s\S]{0,80}\? providerVerifyExtra[\s\S]{0,80}: prepareBackendTimingExtra/,
+    );
     assert.match(prepareEntrySource, /['"]prepare_entry_success['"][\s\S]*prepareEntrySuccessExtra/);
     assert.doesNotMatch(prepareEntrySource, /trackLatencyCheckpoint\(\s*providerVerifyCheckpoint[\s\S]*?prepareBackendTimingExtra/);
     assert.doesNotMatch(prepareEntrySource, /['"]enter_handshake_success['"][\s\S]{0,250}prepareBackendTimingExtra/);
@@ -2907,12 +2931,18 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObjectGuarded\(captureProfile/);
   assert.match(nativeDailyPrewarm, /failOnExternalCall:\s*true/);
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
-  assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);
+  assert.match(
+    readyGateOverlay,
+    /startRoomWarmupAfterReady\([\s\S]{0,80}"ready_tap_mark_ready_success"/,
+  );
   assert.match(readyGateOverlay, /WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100/);
   assert.match(readyGateOverlay, /permission_check_skipped/);
   assert.match(readyGateOverlay, /skipped_no_permissions_api/);
   assert.match(readyGateOverlay, /const \[cameraStatus, microphoneStatus\]/);
-  assert.match(readyGateOverlay, /cameraStatus\.state !== "granted" \|\| microphoneStatus\.state !== "granted"/);
+  assert.match(
+    readyGateOverlay,
+    /cameraStatus\.state !== "granted"[\s\S]{0,80}microphoneStatus\.state !== "granted"/,
+  );
   assert.match(readyGateOverlay, /hasPriorGrantedVideoDateDeviceLabels/);
   assert.match(readyGateOverlay, /enumerateDevices/);
   assert.match(readyGateOverlay, /permission_prewarm_silent_no_permissions_api/);
@@ -2929,7 +2959,10 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(nativeReadyGateOverlay, /router\.prefetch\(`\/date\/\$\{sessionId\}` as Href\)/);
   assert.match(readyGateOverlay, /destroyWebVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
-  assert.match(nativeReadyGateOverlay, /startRoomWarmupAfterReady\('ready_tap_mark_ready_success'/);
+  assert.match(
+    nativeReadyGateOverlay,
+    /startRoomWarmupAfterReady\([\s\S]{0,80}'ready_tap_mark_ready_success'/,
+  );
   assert.match(nativeReadyGateOverlay, /preAuthNativeVideoDateDailyPrewarm/);
   // Native ReadyGate parity: prewarm camera + preauth, never join Daily / solo prejoin.
   assert.doesNotMatch(nativeReadyGateOverlay, /joinNativeVideoDateDailyPrewarm/);
@@ -2963,7 +2996,10 @@ test("video date trace id is propagated through prepare entry analytics and Dail
     assert.match(source, /video_date_trace_id: videoDateTraceId/);
     assert.match(source, /videoDateTraceId/);
     assert.match(source, /video_date_trace_id: attemptId/);
-    assert.match(source, /result\.data\.video_date_trace_id \?\? result\.data\.entry_attempt_id \?\? videoDateTraceId/);
+    assert.match(
+      source,
+      /result\.data\.video_date_trace_id[\s\S]{0,80}result\.data\.entry_attempt_id[\s\S]{0,80}videoDateTraceId/,
+    );
   }
 
   assert.match(dailyRoomFunction, /function readVideoDateTraceContext/);

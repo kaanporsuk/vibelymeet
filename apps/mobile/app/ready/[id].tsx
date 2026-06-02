@@ -1,5 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  Pressable,
+  Image,
+  ScrollView,
+  ActivityIndicator,
+  AppState,
+  type AppStateStatus,
+} from 'react-native';
 import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +18,12 @@ import { useReadyGate } from '@/lib/readyGateApi';
 import { avatarUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
-import { GlassHeaderBar, Card, VibelyButton, ErrorState } from '@/components/ui';
+import {
+  GlassHeaderBar,
+  Card,
+  VibelyButton,
+  ErrorState,
+} from '@/components/ui';
 import { ReadyGateDiagnosticChecklist } from '@/components/lobby/ReadyGateDiagnosticChecklist';
 import { spacing, radius, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
@@ -36,18 +51,17 @@ import {
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
-import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
-import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
-  READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
-} from '@shared/matching/videoSessionFlow';
+  markNativeVideoDateLaunchIntent,
+  videoDateLaunchBreadcrumb,
+} from '@/lib/videoDateLaunchTrace';
+import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
+import { READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import {
   getReadyGateCountdownFromServerClock,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
-import {
-  isReadyGatePrepareEntryNonRetryable,
-} from '@clientShared/matching/readyGateTerminalRecovery';
+import { isReadyGatePrepareEntryNonRetryable } from '@clientShared/matching/readyGateTerminalRecovery';
 import {
   adviseVideoDateSnapshotRecovery,
   adviseVideoSessionTruthRecovery,
@@ -64,12 +78,43 @@ import {
   resolveReadyGateTransitionFailureCopy,
   type ReadyGateDiagnosticCopy,
 } from '@clientShared/matching/readyGateDiagnosticCopy';
-import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
+import {
+  openPermissionSettings,
+  useSettingsReturnRefresh,
+} from '@/lib/permissionSettings';
 import { fetchReadyGateSharedVibes } from '@/lib/readyGateSharedVibes';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
+const READY_GATE_SYNC_TIMEOUT_COOLDOWN_MS = 3_000;
+
+function isReadyGateTransitionTimeoutSignal(input: {
+  code?: string | null;
+  errorCode?: string | null;
+  reason?: string | null;
+  error?: string | null;
+}): boolean {
+  const text = [input.code, input.errorCode, input.reason, input.error]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return (
+    text.includes('57014') ||
+    text.includes('statement timeout') ||
+    text.includes('canceling statement') ||
+    text.includes('cancelled on user request')
+  );
+}
+
+function isReadyGateReadyProgressStatus(status?: string | null): boolean {
+  return (
+    status === 'ready' ||
+    status === 'ready_a' ||
+    status === 'ready_b' ||
+    status === 'both_ready'
+  );
+}
 
 export default function ReadyGateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -116,18 +161,27 @@ export default function ReadyGateScreen() {
   const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [sessionLookupDone, setSessionLookupDone] = useState(false);
-  const [permissionRequestEligible, setPermissionRequestEligible] = useState(false);
+  const [permissionRequestEligible, setPermissionRequestEligible] =
+    useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
-  const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
-  const [terminalActionPending, setTerminalActionPending] = useState(false);
-  const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
-  const [sharedVibes, setSharedVibes] = useState<string[]>([]);
-  const [prepareEntryFailureCode, setPrepareEntryFailureCode] = useState<string | null>(null);
-  const [prepareEntryFailureRetryable, setPrepareEntryFailureRetryable] = useState(false);
-  const [nativeMediaDiagnostics, setNativeMediaDiagnostics] = useState(defaultNativeReadyGateMediaDiagnostics);
-  const [nativePermissionDiagnostics, setNativePermissionDiagnostics] = useState(
-    defaultNativeReadyGatePermissionDiagnostics,
+  const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(
+    null,
   );
+  const [terminalActionPending, setTerminalActionPending] = useState(false);
+  const [terminalActionError, setTerminalActionError] = useState<string | null>(
+    null,
+  );
+  const [sharedVibes, setSharedVibes] = useState<string[]>([]);
+  const [prepareEntryFailureCode, setPrepareEntryFailureCode] = useState<
+    string | null
+  >(null);
+  const [prepareEntryFailureRetryable, setPrepareEntryFailureRetryable] =
+    useState(false);
+  const [nativeMediaDiagnostics, setNativeMediaDiagnostics] = useState(
+    defaultNativeReadyGateMediaDiagnostics,
+  );
+  const [nativePermissionDiagnostics, setNativePermissionDiagnostics] =
+    useState(defaultNativeReadyGatePermissionDiagnostics);
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
@@ -137,38 +191,109 @@ export default function ReadyGateScreen() {
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const readyGateOpenedAtMsRef = useRef(Date.now());
-  const activeSessionIdRef = useRef<string | null>(sessionId ? String(sessionId) : null);
+  const activeSessionIdRef = useRef<string | null>(
+    sessionId ? String(sessionId) : null,
+  );
+  const readyActionInFlightRef = useRef(false);
+  const guardedSyncInFlightRef = useRef(false);
+  const guardedSyncCooldownUntilMsRef = useRef(0);
   const permissionSettingsOpenedRef = useRef(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
-  const refreshNativeMediaDiagnostics = useCallback(async (permission: boolean | null = hasMediaPermission) => {
-    const activeSessionId = activeSessionIdRef.current;
-    setNativeMediaDiagnostics((current) => ({
-      ...current,
-      cameraDeviceStatus: permission ? 'checking' : current.cameraDeviceStatus,
-      microphoneDeviceStatus: permission ? 'checking' : current.microphoneDeviceStatus,
-    }));
-    const next = await inspectNativeReadyGateMediaDevices(permission);
-    if (activeSessionIdRef.current !== activeSessionId) return;
-    setNativeMediaDiagnostics(next);
-  }, [hasMediaPermission]);
+  const guardedSyncSession = useCallback(
+    async (
+      source: string,
+      options: { allowWhileMarking?: boolean } = {},
+    ) => {
+      if (!options.allowWhileMarking && readyActionInFlightRef.current) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_sync_suppressed_mark_ready_in_flight', {
+          session_id: sessionId,
+          event_id: eventId,
+          source,
+        });
+        return null;
+      }
+      const nowMs = Date.now();
+      if (guardedSyncCooldownUntilMsRef.current > nowMs) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_sync_suppressed_cooldown', {
+          session_id: sessionId,
+          event_id: eventId,
+          source,
+          retry_at_ms: guardedSyncCooldownUntilMsRef.current,
+        });
+        return null;
+      }
+      if (guardedSyncInFlightRef.current) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_sync_coalesced', {
+          session_id: sessionId,
+          event_id: eventId,
+          source,
+        });
+        return null;
+      }
+      guardedSyncInFlightRef.current = true;
+      try {
+        const result = await syncSession();
+        if (result.ok === false && isReadyGateTransitionTimeoutSignal(result)) {
+          guardedSyncCooldownUntilMsRef.current =
+            Date.now() + READY_GATE_SYNC_TIMEOUT_COOLDOWN_MS;
+        } else if (result?.ok === true) {
+          guardedSyncCooldownUntilMsRef.current = 0;
+        }
+        return result;
+      } finally {
+        guardedSyncInFlightRef.current = false;
+      }
+    },
+    [eventId, sessionId, syncSession],
+  );
 
-  const applyMediaPermissionResult = useCallback((result: Awaited<ReturnType<typeof requestNativeCameraMicrophonePermissions>>) => {
-    setHasMediaPermission(result.ok);
-    setPermissionsResolved(true);
-    setNativePermissionDiagnostics((current) => ({
-      cameraPermissionStatus:
-        !result.ok && current.cameraPermissionStatus === 'blocked' && result.cameraStatus !== 'granted'
-          ? 'blocked'
-          : result.permissions.cameraPermissionStatus,
-      microphonePermissionStatus:
-        !result.ok && current.microphonePermissionStatus === 'blocked' && result.microphoneStatus !== 'granted'
-          ? 'blocked'
-          : result.permissions.microphonePermissionStatus,
-    }));
-    void refreshNativeMediaDiagnostics(result.ok);
-    return result.ok;
-  }, [refreshNativeMediaDiagnostics]);
+  const refreshNativeMediaDiagnostics = useCallback(
+    async (permission: boolean | null = hasMediaPermission) => {
+      const activeSessionId = activeSessionIdRef.current;
+      setNativeMediaDiagnostics((current) => ({
+        ...current,
+        cameraDeviceStatus: permission
+          ? 'checking'
+          : current.cameraDeviceStatus,
+        microphoneDeviceStatus: permission
+          ? 'checking'
+          : current.microphoneDeviceStatus,
+      }));
+      const next = await inspectNativeReadyGateMediaDevices(permission);
+      if (activeSessionIdRef.current !== activeSessionId) return;
+      setNativeMediaDiagnostics(next);
+    },
+    [hasMediaPermission],
+  );
+
+  const applyMediaPermissionResult = useCallback(
+    (
+      result: Awaited<
+        ReturnType<typeof requestNativeCameraMicrophonePermissions>
+      >,
+    ) => {
+      setHasMediaPermission(result.ok);
+      setPermissionsResolved(true);
+      setNativePermissionDiagnostics((current) => ({
+        cameraPermissionStatus:
+          !result.ok &&
+          current.cameraPermissionStatus === 'blocked' &&
+          result.cameraStatus !== 'granted'
+            ? 'blocked'
+            : result.permissions.cameraPermissionStatus,
+        microphonePermissionStatus:
+          !result.ok &&
+          current.microphonePermissionStatus === 'blocked' &&
+          result.microphoneStatus !== 'granted'
+            ? 'blocked'
+            : result.permissions.microphonePermissionStatus,
+      }));
+      void refreshNativeMediaDiagnostics(result.ok);
+      return result.ok;
+    },
+    [refreshNativeMediaDiagnostics],
+  );
 
   const checkMediaPermissions = useCallback(async (): Promise<boolean> => {
     const result = await checkNativeCameraMicrophonePermissions({
@@ -215,6 +340,7 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     activeSessionIdRef.current = sessionId ? String(sessionId) : null;
+    readyActionInFlightRef.current = false;
   }, [sessionId]);
 
   const reconcileFromCanonicalTruth = useCallback(
@@ -258,16 +384,23 @@ export default function ReadyGateScreen() {
         vs_phase: vs?.phase ?? null,
         handshake_started_at: Boolean(vs?.handshake_started_at),
         ready_gate_status: vs?.ready_gate_status ?? null,
-        ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+        ready_gate_expires_at:
+          vs?.ready_gate_expires_at == null
+            ? null
+            : String(vs.ready_gate_expires_at),
       });
 
       if (startable.ok) {
         if (dateNavigationStartedRef.current) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_duplicate_date_nav_suppressed', {
-            session_id: sid,
-            source,
-            startable_reason: startable.reason,
-          });
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_duplicate_date_nav_suppressed',
+            {
+              session_id: sid,
+              source,
+              startable_reason: startable.reason,
+            },
+          );
           return true;
         }
         dateNavigationStartedRef.current = true;
@@ -284,18 +417,24 @@ export default function ReadyGateScreen() {
           clearDateEntryTransition(sid);
           setPrepareEntryFailureCode(prepared.code);
           setPrepareEntryFailureRetryable(prepared.retryable);
-          setTerminalActionError(resolveReadyGatePrepareEntryFailureCopy({
-            code: prepared.code,
-            platform: 'native',
-          }).message);
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_prepare_entry_failed_before_date_nav', {
-            session_id: sid,
-            user_id: user.id,
-            event_id: eventId,
-            source,
-            code: prepared.code,
-            retryable: prepared.retryable,
-          });
+          setTerminalActionError(
+            resolveReadyGatePrepareEntryFailureCopy({
+              code: prepared.code,
+              platform: 'native',
+            }).message,
+          );
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_prepare_entry_failed_before_date_nav',
+            {
+              session_id: sid,
+              user_id: user.id,
+              event_id: eventId,
+              source,
+              code: prepared.code,
+              retryable: prepared.retryable,
+            },
+          );
           if (
             isReadyGatePrepareEntryNonRetryable({
               code: prepared.code,
@@ -314,36 +453,45 @@ export default function ReadyGateScreen() {
           roomName: prepared.data.room_name,
           roomUrl: prepared.data.room_url,
           source: `ready_standalone_${source}`,
-        }).then((prewarm) => {
-          if (prewarm.ok) {
-            // Pre-authenticate only — do NOT join Daily from the ready route. The
-            // real join (which starts the backend handshake clock) is owned by
-            // /date (useVideoCall.startCall) so the warm-up window starts there.
-            void preAuthNativeVideoDateDailyPrewarm({
-              sessionId: sid,
-              userId: user.id,
-              eventId: eventId ?? null,
-              roomName: prepared.data.room_name,
-              roomUrl: prepared.data.room_url,
-              token: prepared.data.token,
-              source: `ready_standalone_${source}`,
-            });
-          }
-        }).catch((error) => {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_daily_prewarm_failed_before_date_nav', {
-            session_id: sid,
-            user_id: user.id,
-            event_id: eventId,
-            source,
-            error: error instanceof Error ? error.message : String(error),
+        })
+          .then((prewarm) => {
+            if (prewarm.ok) {
+              // Pre-authenticate only — do NOT join Daily from the ready route. The
+              // real join (which starts the backend handshake clock) is owned by
+              // /date (useVideoCall.startCall) so the warm-up window starts there.
+              void preAuthNativeVideoDateDailyPrewarm({
+                sessionId: sid,
+                userId: user.id,
+                eventId: eventId ?? null,
+                roomName: prepared.data.room_name,
+                roomUrl: prepared.data.room_url,
+                token: prepared.data.token,
+                source: `ready_standalone_${source}`,
+              });
+            }
+          })
+          .catch((error) => {
+            rcBreadcrumb(
+              RC_CATEGORY.readyGate,
+              'standalone_daily_prewarm_failed_before_date_nav',
+              {
+                session_id: sid,
+                user_id: user.id,
+                event_id: eventId,
+                source,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
           });
-        });
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
           session_id: sid,
           source,
           startable_reason: startable.reason,
           ready_gate_status: vs?.ready_gate_status ?? null,
-          ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+          ready_gate_expires_at:
+            vs?.ready_gate_expires_at == null
+              ? null
+              : String(vs.ready_gate_expires_at),
         });
         setTransitioning(true);
         const navigated = navigateToDateSessionGuarded({
@@ -351,12 +499,16 @@ export default function ReadyGateScreen() {
           pathname,
           mode: 'replace',
           onSuppressed: ({ reason: suppressReason, target }) => {
-            rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date_suppressed', {
-              session_id: sid,
-              reason: suppressReason,
-              target: String(target),
-              source,
-            });
+            rcBreadcrumb(
+              RC_CATEGORY.readyGate,
+              'standalone_navigate_to_date_suppressed',
+              {
+                session_id: sid,
+                reason: suppressReason,
+                target: String(target),
+                source,
+              },
+            );
           },
         });
         if (!navigated) {
@@ -392,7 +544,7 @@ export default function ReadyGateScreen() {
       router.replace(startable.recommendHref);
       return true;
     },
-    [eventId, pathname, sessionId, user?.id]
+    [eventId, pathname, sessionId, user?.id],
   );
 
   useEffect(() => {
@@ -424,7 +576,9 @@ export default function ReadyGateScreen() {
     setPrepareEntryFailureCode(null);
     setPrepareEntryFailureRetryable(false);
     setNativeMediaDiagnostics(defaultNativeReadyGateMediaDiagnostics());
-    setNativePermissionDiagnostics(defaultNativeReadyGatePermissionDiagnostics());
+    setNativePermissionDiagnostics(
+      defaultNativeReadyGatePermissionDiagnostics(),
+    );
   }, [sessionId, user?.id]);
 
   useEffect(() => {
@@ -434,25 +588,40 @@ export default function ReadyGateScreen() {
     void (async () => {
       const ok = await checkMediaPermissions();
       if (cancelled || ok) return;
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_permissions_denied', { session_id: sessionId });
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_permissions_denied', {
+        session_id: sessionId,
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [checkMediaPermissions, permissionRequestEligible, permissionsResolved, sessionId, user?.id]);
+  }, [
+    checkMediaPermissions,
+    permissionRequestEligible,
+    permissionsResolved,
+    sessionId,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !sessionLookupDone) return;
     const handleAppState = (state: AppStateStatus) => {
       if (state !== 'active') return;
-      void syncSession();
+      void guardedSyncSession('app_foreground');
       void reconcileFromCanonicalTruth('app_foreground');
       void retryBroadcastGapRecovery('app_foreground');
     };
     handleAppState(AppState.currentState);
     const sub = AppState.addEventListener('change', handleAppState);
     return () => sub.remove();
-  }, [reconcileFromCanonicalTruth, retryBroadcastGapRecovery, sessionId, sessionLookupDone, syncSession, user?.id]);
+  }, [
+    reconcileFromCanonicalTruth,
+    retryBroadcastGapRecovery,
+    sessionId,
+    sessionLookupDone,
+    guardedSyncSession,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -463,7 +632,10 @@ export default function ReadyGateScreen() {
         title: 'Link unavailable',
         message: READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
         variant: 'info',
-        primaryAction: { label: 'Continue', onPress: () => router.replace(tabsRootHref()) },
+        primaryAction: {
+          label: 'Continue',
+          onPress: () => router.replace(tabsRootHref()),
+        },
       });
     };
     const load = async () => {
@@ -471,21 +643,29 @@ export default function ReadyGateScreen() {
       setPermissionRequestEligible(false);
       try {
         if (snapshotV2.enabled) {
-          const snapshot = await fetchVideoDateSnapshot(String(sessionId), { includeToken: false });
+          const snapshot = await fetchVideoDateSnapshot(String(sessionId), {
+            includeToken: false,
+          });
           const recovery = adviseVideoDateSnapshotRecovery(snapshot, {
             expectedSessionId: String(sessionId),
             platform: 'native',
             surface: 'ready_redirect',
           });
           if (snapshot.ok === true) {
-            rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_loaded', {
-              session_id: sessionId,
-              event_id: snapshot.eventId,
-              phase: snapshot.phase,
-              room_present: Boolean(snapshot.room?.url),
-            });
+            rcBreadcrumb(
+              RC_CATEGORY.readyGate,
+              'standalone_snapshot_v2_loaded',
+              {
+                session_id: sessionId,
+                event_id: snapshot.eventId,
+                phase: snapshot.phase,
+                room_present: Boolean(snapshot.room?.url),
+              },
+            );
             if (recovery.action === 'go_date') {
-              await reconcileFromCanonicalTruth(`initial_snapshot_${recovery.reason}`);
+              await reconcileFromCanonicalTruth(
+                `initial_snapshot_${recovery.reason}`,
+              );
               return;
             }
             if (recovery.action === 'go_survey') {
@@ -495,41 +675,64 @@ export default function ReadyGateScreen() {
                 pathname,
                 mode: 'replace',
                 onSuppressed: ({ reason: suppressReason, target }) => {
-                  rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_survey_nav_suppressed', {
-                    session_id: recovery.sessionId,
-                    reason: suppressReason,
-                    target: String(target),
-                  });
+                  rcBreadcrumb(
+                    RC_CATEGORY.readyGate,
+                    'standalone_snapshot_survey_nav_suppressed',
+                    {
+                      session_id: recovery.sessionId,
+                      reason: suppressReason,
+                      target: String(target),
+                    },
+                  );
                 },
               });
               if (!navigated) {
                 setTransitioning(false);
                 revealReadyUi = true;
-                const recovered = await reconcileFromCanonicalTruth(`initial_snapshot_${recovery.reason}_nav_suppressed`);
+                const recovered = await reconcileFromCanonicalTruth(
+                  `initial_snapshot_${recovery.reason}_nav_suppressed`,
+                );
                 if (recovered) return;
               }
               if (navigated) return;
             }
-            if (recovery.action === 'go_home' && recovery.reason === 'missing_event') {
+            if (
+              recovery.action === 'go_home' &&
+              recovery.reason === 'missing_event'
+            ) {
               explainInvalidToTabs();
               return;
             }
-            if (recovery.action === 'go_lobby' && recovery.reason !== 'not_date_ready') {
+            if (
+              recovery.action === 'go_lobby' &&
+              recovery.reason !== 'not_date_ready'
+            ) {
               router.replace(eventLobbyHref(recovery.eventId));
               return;
             }
-            if (recovery.action === 'go_lobby' && recovery.reason === 'not_date_ready') {
-              rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_lobby_deferred_to_truth', {
-                session_id: sessionId,
-                event_id: recovery.eventId,
-                phase: snapshot.phase,
-              });
+            if (
+              recovery.action === 'go_lobby' &&
+              recovery.reason === 'not_date_ready'
+            ) {
+              rcBreadcrumb(
+                RC_CATEGORY.readyGate,
+                'standalone_snapshot_lobby_deferred_to_truth',
+                {
+                  session_id: sessionId,
+                  event_id: recovery.eventId,
+                  phase: snapshot.phase,
+                },
+              );
             }
           } else if (recovery.action === 'invalid') {
-            rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_rejected', {
-              session_id: sessionId,
-              error: recovery.reason,
-            });
+            rcBreadcrumb(
+              RC_CATEGORY.readyGate,
+              'standalone_snapshot_v2_rejected',
+              {
+                session_id: sessionId,
+                error: recovery.reason,
+              },
+            );
             explainInvalidToTabs();
             return;
           }
@@ -542,21 +745,30 @@ export default function ReadyGateScreen() {
           .maybeSingle();
 
         if (!session) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_row_missing', { session_id: sessionId });
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_session_row_missing',
+            { session_id: sessionId },
+          );
           explainInvalidToTabs();
           return;
         }
 
         const isParticipant =
-          session.participant_1_id === user.id || session.participant_2_id === user.id;
+          session.participant_1_id === user.id ||
+          session.participant_2_id === user.id;
         if (!isParticipant) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_not_participant', { session_id: sessionId });
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_not_participant', {
+            session_id: sessionId,
+          });
           explainInvalidToTabs();
           return;
         }
 
         if (session.ended_at) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_ended', { session_id: sessionId });
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_ended', {
+            session_id: sessionId,
+          });
           await reconcileFromCanonicalTruth('initial_session_ended');
           return;
         }
@@ -566,16 +778,21 @@ export default function ReadyGateScreen() {
           return;
         }
 
-        const initialTruth = await fetchVideoSessionDateEntryTruthCoalesced(String(sessionId));
+        const initialTruth = await fetchVideoSessionDateEntryTruthCoalesced(
+          String(sessionId),
+        );
         const initialCanonicalRoute = decideCanonicalVideoDateRoute({
           sessionId: String(sessionId),
           eventId: session.event_id,
           truth: initialTruth,
         });
-        const initialCanonicalLog = canonicalVideoDateRouteLogDetail(initialCanonicalRoute, {
-          sourceSurface: 'ready_redirect',
-          sourceAction: 'standalone_initial_truth',
-        });
+        const initialCanonicalLog = canonicalVideoDateRouteLogDetail(
+          initialCanonicalRoute,
+          {
+            sourceSurface: 'ready_redirect',
+            sourceAction: 'standalone_initial_truth',
+          },
+        );
         const initialRecovery = adviseVideoSessionTruthRecovery({
           sessionId: String(sessionId),
           eventId: session.event_id,
@@ -585,11 +802,15 @@ export default function ReadyGateScreen() {
         });
         const initialDecision = initialRecovery.routeDecision;
         if (initialRecovery.action !== 'go_ready_gate') {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_initial_truth_canonical_recheck', {
-            session_id: sessionId,
-            event_id: session.event_id,
-            ...initialCanonicalLog,
-          });
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_initial_truth_canonical_recheck',
+            {
+              session_id: sessionId,
+              event_id: session.event_id,
+              ...initialCanonicalLog,
+            },
+          );
           if (initialRecovery.action === 'go_date') {
             revealReadyUi = true;
           }
@@ -617,9 +838,16 @@ export default function ReadyGateScreen() {
         setPermissionRequestEligible(true);
         revealReadyUi = true;
         const partnerId =
-          session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
-        const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
-        const partnerProfile = profile as { avatar_url?: unknown; photos?: unknown } | null;
+          session.participant_1_id === user.id
+            ? session.participant_2_id
+            : session.participant_1_id;
+        const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+          p_target_id: partnerId,
+        });
+        const partnerProfile = profile as {
+          avatar_url?: unknown;
+          photos?: unknown;
+        } | null;
         if (partnerProfile) {
           const photo = resolvePrimaryProfilePhotoPath({
             photos: partnerProfile.photos,
@@ -632,7 +860,14 @@ export default function ReadyGateScreen() {
       }
     };
     void load();
-  }, [pathname, reconcileFromCanonicalTruth, sessionId, showDialog, snapshotV2.enabled, user?.id]);
+  }, [
+    pathname,
+    reconcileFromCanonicalTruth,
+    sessionId,
+    showDialog,
+    snapshotV2.enabled,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (!sessionLookupDone || !sessionId || !user?.id) {
@@ -642,7 +877,10 @@ export default function ReadyGateScreen() {
 
     let cancelled = false;
     setSharedVibes([]);
-    void fetchReadyGateSharedVibes({ sessionId: String(sessionId), userId: user.id })
+    void fetchReadyGateSharedVibes({
+      sessionId: String(sessionId),
+      userId: user.id,
+    })
       .then((labels) => {
         if (!cancelled) setSharedVibes(labels);
       })
@@ -657,7 +895,9 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     if (isBothReady && sessionId) {
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', { session_id: sessionId });
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', {
+        session_id: sessionId,
+      });
     }
   }, [isBothReady, sessionId]);
 
@@ -676,7 +916,15 @@ export default function ReadyGateScreen() {
     }, READY_GATE_TRUTH_RECONCILE_MS);
 
     return () => clearTimeout(timer);
-  }, [iAmReady, isBothReady, isForfeited, reconcileFromCanonicalTruth, sessionId, transitioning, user?.id]);
+  }, [
+    iAmReady,
+    isBothReady,
+    isForfeited,
+    reconcileFromCanonicalTruth,
+    sessionId,
+    transitioning,
+    user?.id,
+  ]);
 
   useEffect(() => {
     if (isForfeited) {
@@ -715,10 +963,23 @@ export default function ReadyGateScreen() {
         },
       });
     }
-  }, [errorCode, eventId, inactiveReason, isForfeited, reason, sessionId, showDialog, status, terminal]);
+  }, [
+    errorCode,
+    eventId,
+    inactiveReason,
+    isForfeited,
+    reason,
+    sessionId,
+    showDialog,
+    status,
+    terminal,
+  ]);
 
   useEffect(() => {
-    if (iAmReady) setMarkingReady(false);
+    if (iAmReady) {
+      readyActionInFlightRef.current = false;
+      setMarkingReady(false);
+    }
   }, [iAmReady]);
 
   useEffect(() => {
@@ -730,7 +991,9 @@ export default function ReadyGateScreen() {
       if (terminalActionPending) return;
       setTerminalActionPending(true);
       setTerminalActionError(null);
-      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
+      let transitionFailure: ReturnType<
+        typeof resolveReadyGateTransitionFailureCopy
+      > | null = null;
       try {
         const result = await forfeit();
         if (result.ok === false) {
@@ -773,22 +1036,29 @@ export default function ReadyGateScreen() {
         if (eventId) router.replace(eventLobbyHref(eventId));
         else if (sessionLookupDone) router.replace(tabsRootHref());
       } catch (e) {
-        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
-          action: 'forfeit',
-          error: e instanceof Error ? e.message : String(e),
-          platform: 'native',
-        });
+        const fallback =
+          transitionFailure ??
+          resolveReadyGateTransitionFailureCopy({
+            action: 'forfeit',
+            error: e instanceof Error ? e.message : String(e),
+            platform: 'native',
+          });
         setTerminalActionError(fallback.message);
         setTerminalActionPending(false);
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeit_failed_kept_open', {
-          session_id: sessionId ?? null,
-          event_id: eventId,
-          reason,
-          reason_code: fallback.reasonCode,
-          error_code: fallback.code ?? fallback.reasonCode,
-          multi_device_conflict: fallback.staleOrConflict,
-          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
-        });
+        rcBreadcrumb(
+          RC_CATEGORY.readyGate,
+          'standalone_forfeit_failed_kept_open',
+          {
+            session_id: sessionId ?? null,
+            event_id: eventId,
+            reason,
+            reason_code: fallback.reasonCode,
+            error_code: fallback.code ?? fallback.reasonCode,
+            multi_device_conflict: fallback.staleOrConflict,
+            message_snippet:
+              e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+          },
+        );
       }
     },
     [eventId, forfeit, sessionId, sessionLookupDone, terminalActionPending],
@@ -798,52 +1068,81 @@ export default function ReadyGateScreen() {
     async (source: string) => {
       if (!sessionId || !user?.id) return;
       const now = Date.now();
-      if (expirySyncInFlightRef.current || expirySyncRetryAtMsRef.current > now) return;
+      if (expirySyncInFlightRef.current || expirySyncRetryAtMsRef.current > now)
+        return;
 
       expirySyncInFlightRef.current = true;
       expirySyncRetryAtMsRef.current = now + EXPIRY_SYNC_RETRY_DELAY_MS;
       try {
-        const result = await syncSession();
-        if (result.ok === true && result.expiresAt) {
+        const result = await guardedSyncSession(source);
+        if (result?.ok === true && result.expiresAt) {
           setTimeLeft(
             getReadyGateCountdownFromServerClock({
-              expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? result.expiresAt : result.expiresAt,
+              expiresAt: readyGateClockEnabled
+                ? (phaseDeadlineAtMs ?? result.expiresAt)
+                : result.expiresAt,
               serverNowMs: readyGateClockEnabled ? serverNowMs : null,
               clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
-              fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
+              fallbackDeadlineMs:
+                readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
               fallbackSeconds: GATE_TIMEOUT_SEC,
             }).remainingSeconds,
           );
           return;
         }
-        if (result.ok === false) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_countdown_expiry_sync_deferred', {
-            session_id: sessionId,
-            source,
-            error: result.error,
-          });
+        if (result?.ok === false) {
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_countdown_expiry_sync_deferred',
+            {
+              session_id: sessionId,
+              source,
+              error: result.error,
+            },
+          );
         }
       } finally {
         expirySyncInFlightRef.current = false;
       }
     },
-    [clientSyncedAtMs, phaseDeadlineAtMs, readyGateClockEnabled, serverNowMs, sessionId, syncSession, user?.id],
+    [
+      clientSyncedAtMs,
+      phaseDeadlineAtMs,
+      readyGateClockEnabled,
+      serverNowMs,
+      sessionId,
+      guardedSyncSession,
+      user?.id,
+    ],
   );
 
   useEffect(() => {
-    if (transitioning || iAmReady || markingReady || requestingSnooze || terminalActionPending) return;
+    if (
+      transitioning ||
+      iAmReady ||
+      markingReady ||
+      requestingSnooze ||
+      terminalActionPending
+    )
+      return;
     if (isSnoozed && snoozeExpiresAt) {
-      const remaining = Math.max(0, Math.floor((new Date(snoozeExpiresAt).getTime() - Date.now()) / 1000));
+      const remaining = Math.max(
+        0,
+        Math.floor((new Date(snoozeExpiresAt).getTime() - Date.now()) / 1000),
+      );
       setSnoozeTimeLeft(remaining);
       return;
     }
     const t = setInterval(() => {
       setTimeLeft(() => {
         const next = getReadyGateCountdownFromServerClock({
-          expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? expiresAt : expiresAt,
+          expiresAt: readyGateClockEnabled
+            ? (phaseDeadlineAtMs ?? expiresAt)
+            : expiresAt,
           serverNowMs: readyGateClockEnabled ? serverNowMs : null,
           clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
-          fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
+          fallbackDeadlineMs:
+            readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
           fallbackSeconds: GATE_TIMEOUT_SEC,
         }).remainingSeconds;
         if (next <= 0) {
@@ -888,9 +1187,15 @@ export default function ReadyGateScreen() {
     if (terminalActionPending) return;
     showDialog({
       title: 'Step away from this match?',
-      message: "You'll return to the lobby. Your match can keep going with others.",
+      message:
+        "You'll return to the lobby. Your match can keep going with others.",
       variant: 'destructive',
-      primaryAction: { label: 'Step away', onPress: () => { void runReadyGateForfeit('skip'); } },
+      primaryAction: {
+        label: 'Step away',
+        onPress: () => {
+          void runReadyGateForfeit('skip');
+        },
+      },
       secondaryAction: { label: 'Stay', onPress: () => {} },
     });
   };
@@ -914,7 +1219,9 @@ export default function ReadyGateScreen() {
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         {dialogEl}
         <ActivityIndicator size="large" color={theme.tint} />
-        <Text style={[styles.loadingHint, { color: theme.textSecondary }]}>Opening Ready Gate…</Text>
+        <Text style={[styles.loadingHint, { color: theme.textSecondary }]}>
+          Opening Ready Gate…
+        </Text>
       </View>
     );
   }
@@ -927,7 +1234,8 @@ export default function ReadyGateScreen() {
     markingReady,
     partnerName: partnerName ?? 'Your match',
   });
-  const showConnectingReadinessCopy = readyGateReadinessCopy.key === 'both_ready_connecting';
+  const showConnectingReadinessCopy =
+    readyGateReadinessCopy.key === 'both_ready_connecting';
   const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
   const readinessStatusIcon = showConnectingReadinessCopy
     ? 'sparkles'
@@ -955,13 +1263,17 @@ export default function ReadyGateScreen() {
       : transitioning || isBothReady
         ? 'checking'
         : 'waiting',
-    realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
-    partnerReadinessStatus: isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
+    realtimeSyncStatus:
+      realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
+    partnerReadinessStatus:
+      isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
   });
   const mediaPermissionNeedsSettings =
     nativePermissionDiagnostics.cameraPermissionStatus === 'blocked' ||
     nativePermissionDiagnostics.microphonePermissionStatus === 'blocked';
-  const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings ? 'Open Settings' : 'Allow camera & mic';
+  const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings
+    ? 'Open Settings'
+    : 'Allow camera & mic';
   const handleMediaPermissionPrimaryAction = () => {
     if (mediaPermissionNeedsSettings) {
       void openMediaPermissionSettings();
@@ -986,7 +1298,7 @@ export default function ReadyGateScreen() {
         void refreshNativeMediaDiagnostics();
         return;
       case 'check_connection':
-        void syncSession();
+        void guardedSyncSession('diagnostic_retry');
         void retryBroadcastGapRecovery('diagnostic_retry');
         void reconcileFromCanonicalTruth('diagnostic_retry');
         return;
@@ -1000,8 +1312,19 @@ export default function ReadyGateScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         {dialogEl}
-        <Ionicons name="videocam-off-outline" size={34} color={theme.textSecondary} />
-        <Text style={[styles.transitioningTitle, { color: theme.text, marginTop: spacing.md }]}>Camera and mic required</Text>
+        <Ionicons
+          name="videocam-off-outline"
+          size={34}
+          color={theme.textSecondary}
+        />
+        <Text
+          style={[
+            styles.transitioningTitle,
+            { color: theme.text, marginTop: spacing.md },
+          ]}
+        >
+          Camera and mic required
+        </Text>
         <Text style={[styles.transitioningSub, { color: theme.textSecondary }]}>
           Allow camera and microphone access to join this date.
         </Text>
@@ -1011,7 +1334,12 @@ export default function ReadyGateScreen() {
           actionDisabled={terminalActionPending}
           onAction={handleDiagnosticAction}
         />
-        <VibelyButton label={mediaPermissionPrimaryLabel} onPress={handleMediaPermissionPrimaryAction} variant="primary" size="lg" />
+        <VibelyButton
+          label={mediaPermissionPrimaryLabel}
+          onPress={handleMediaPermissionPrimaryAction}
+          variant="primary"
+          size="lg"
+        />
         <Pressable
           onPress={() => {
             if (eventId) router.replace(eventLobbyHref(eventId));
@@ -1021,7 +1349,9 @@ export default function ReadyGateScreen() {
           accessibilityLabel="Back to lobby"
           style={styles.ghostBtn}
         >
-          <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Back to lobby</Text>
+          <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
+            Back to lobby
+          </Text>
         </Pressable>
       </View>
     );
@@ -1029,12 +1359,24 @@ export default function ReadyGateScreen() {
 
   if (transitioning) {
     return (
-      <View style={[styles.transitioningWrap, { backgroundColor: theme.background }]}>
+      <View
+        style={[
+          styles.transitioningWrap,
+          { backgroundColor: theme.background },
+        ]}
+      >
         {dialogEl}
-        <View style={[styles.transitioningIconWrap, { backgroundColor: theme.tintSoft }]}>
+        <View
+          style={[
+            styles.transitioningIconWrap,
+            { backgroundColor: theme.tintSoft },
+          ]}
+        >
           <Ionicons name="sparkles" size={40} color={theme.tint} />
         </View>
-        <Text style={[styles.transitioningTitle, { color: theme.text }]}>Joining your date...</Text>
+        <Text style={[styles.transitioningTitle, { color: theme.text }]}>
+          Joining your date...
+        </Text>
       </View>
     );
   }
@@ -1051,34 +1393,70 @@ export default function ReadyGateScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>Ready to vibe?</Text>
+        <Text
+          style={[styles.headerTitle, { color: theme.text }]}
+          numberOfLines={1}
+        >
+          Ready to vibe?
+        </Text>
       </GlassHeaderBar>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
-          <Text style={[styles.partnerLabel, { color: theme.textSecondary }]}>Your match</Text>
-          <View style={[styles.avatarWrap, { backgroundColor: theme.surfaceSubtle, borderColor: withAlpha(theme.tint, 0.25) }]}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Card
+          variant="glass"
+          style={[styles.card, { borderColor: theme.glassBorder }]}
+        >
+          <Text style={[styles.partnerLabel, { color: theme.textSecondary }]}>
+            Your match
+          </Text>
+          <View
+            style={[
+              styles.avatarWrap,
+              {
+                backgroundColor: theme.surfaceSubtle,
+                borderColor: withAlpha(theme.tint, 0.25),
+              },
+            ]}
+          >
             {partnerAvatar ? (
-              <Image source={{ uri: avatarUrl(partnerAvatar) }} style={styles.avatarImg} />
+              <Image
+                source={{ uri: avatarUrl(partnerAvatar) }}
+                style={styles.avatarImg}
+              />
             ) : (
               <Ionicons name="person" size={48} color={theme.textSecondary} />
             )}
           </View>
-          <Text style={[styles.partnerName, { color: theme.text }]} numberOfLines={2}>
+          <Text
+            style={[styles.partnerName, { color: theme.text }]}
+            numberOfLines={2}
+          >
             {partnerName ?? 'Your match'}
           </Text>
 
           {sharedVibes.length > 0 ? (
-            <View style={styles.sharedVibesWrap} accessibilityLabel="Shared vibes">
+            <View
+              style={styles.sharedVibesWrap}
+              accessibilityLabel="Shared vibes"
+            >
               {sharedVibes.map((vibe) => (
                 <View
                   key={vibe}
                   style={[
                     styles.sharedVibeChip,
-                    { borderColor: withAlpha(theme.tint, 0.28), backgroundColor: withAlpha(theme.tint, 0.12) },
+                    {
+                      borderColor: withAlpha(theme.tint, 0.28),
+                      backgroundColor: withAlpha(theme.tint, 0.12),
+                    },
                   ]}
                 >
-                  <Text style={[styles.sharedVibeText, { color: theme.text }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.sharedVibeText, { color: theme.text }]}
+                    numberOfLines={1}
+                  >
                     {vibe}
                   </Text>
                 </View>
@@ -1086,27 +1464,68 @@ export default function ReadyGateScreen() {
             </View>
           ) : null}
 
-          <View style={[styles.statusPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Ionicons name="time-outline" size={16} color={theme.textSecondary} />
-            <Text style={[styles.statusText, { color: theme.text }]}>{statusLine}</Text>
+          <View
+            style={[
+              styles.statusPill,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <Ionicons
+              name="time-outline"
+              size={16}
+              color={theme.textSecondary}
+            />
+            <Text style={[styles.statusText, { color: theme.text }]}>
+              {statusLine}
+            </Text>
           </View>
 
           {partnerReady && !iAmReady && (
-            <View style={[styles.readyCue, { backgroundColor: theme.successSoft ?? theme.tintSoft, borderColor: theme.success ?? withAlpha(theme.tint, 0.31) }]}>
-              <Ionicons name="checkmark-circle" size={20} color={theme.success || theme.tint} />
-              <Text style={[styles.readyCueText, { color: theme.text }]}>{partnerName ?? 'Partner'} is ready and waiting!</Text>
+            <View
+              style={[
+                styles.readyCue,
+                {
+                  backgroundColor: theme.successSoft ?? theme.tintSoft,
+                  borderColor: theme.success ?? withAlpha(theme.tint, 0.31),
+                },
+              ]}
+            >
+              <Ionicons
+                name="checkmark-circle"
+                size={20}
+                color={theme.success || theme.tint}
+              />
+              <Text style={[styles.readyCueText, { color: theme.text }]}>
+                {partnerName ?? 'Partner'} is ready and waiting!
+              </Text>
             </View>
           )}
 
           {snoozedByPartner && (
-            <View style={[styles.snoozeCue, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Ionicons name="time-outline" size={20} color={theme.textSecondary} />
-              <Text style={[styles.snoozeCueText, { color: theme.textSecondary }]}>{partnerName ?? 'Partner'} needs a moment — they'll be right back!</Text>
+            <View
+              style={[
+                styles.snoozeCue,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+              ]}
+            >
+              <Ionicons
+                name="time-outline"
+                size={20}
+                color={theme.textSecondary}
+              />
+              <Text
+                style={[styles.snoozeCueText, { color: theme.textSecondary }]}
+              >
+                {partnerName ?? 'Partner'} needs a moment — they'll be right
+                back!
+              </Text>
             </View>
           )}
 
           {terminalActionError ? (
-            <Text style={[styles.actionError, { color: theme.danger }]}>{terminalActionError}</Text>
+            <Text style={[styles.actionError, { color: theme.danger }]}>
+              {terminalActionError}
+            </Text>
           ) : null}
 
           <ReadyGateDiagnosticChecklist
@@ -1123,75 +1542,61 @@ export default function ReadyGateScreen() {
               <VibelyButton
                 label={markingReady ? 'Marking...' : "I'm Ready"}
                 onPress={() => {
-                  if (markingReady || requestingSnooze || terminalActionPending) return;
+                  if (
+                    readyActionInFlightRef.current ||
+                    markingReady ||
+                    requestingSnooze ||
+                    terminalActionPending
+                  ) {
+                    return;
+                  }
+                  readyActionInFlightRef.current = true;
                   setMarkingReady(true);
                   void (async () => {
-                    let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
+                    let transitionFailure: ReturnType<
+                      typeof resolveReadyGateTransitionFailureCopy
+                    > | null = null;
                     try {
                       setTerminalActionError(null);
                       const permissionReady = await requestMediaPermissions();
                       if (!permissionReady) {
-                        setTerminalActionError('Allow camera and microphone access to join this date.');
-                        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_mark_ready_blocked_permission', {
-                          session_id: sessionId,
-                          event_id: eventId,
-                        });
+                        setTerminalActionError(
+                          'Allow camera and microphone access to join this date.',
+                        );
+                        rcBreadcrumb(
+                          RC_CATEGORY.readyGate,
+                          'standalone_mark_ready_blocked_permission',
+                          {
+                            session_id: sessionId,
+                            event_id: eventId,
+                          },
+                        );
                         return;
                       }
                       const result = await markReady();
                       if (result.ok === false) {
-                        transitionFailure = resolveReadyGateTransitionFailureCopy({
-                          action: 'mark_ready',
-                          code: result.code,
-                          errorCode: result.errorCode,
-                          reason: result.reason,
-                          error: result.error,
-                          status: result.status,
-                          platform: 'native',
-                        });
-                        throw new Error(transitionFailure.message);
-                      }
-                    } catch (e) {
-                      const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
-                        action: 'mark_ready',
-                        error: e instanceof Error ? e.message : String(e),
-                        platform: 'native',
-                      });
-                      setTerminalActionError(fallback.message);
-                      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_mark_ready_failed_kept_open', {
-                        session_id: sessionId,
-                        event_id: eventId,
-                        reason_code: fallback.reasonCode,
-                        error_code: fallback.code ?? fallback.reasonCode,
-                        multi_device_conflict: fallback.staleOrConflict,
-                        message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
-                      });
-                    } finally {
-                      setMarkingReady(false);
-                    }
-                  })();
-                }}
-                variant="primary"
-                size="lg"
-                style={styles.primaryBtn}
-                disabled={markingReady || requestingSnooze || terminalActionPending}
-              />
-              <Text style={[styles.helperText, { color: theme.textSecondary }]}>
-                Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
-              </Text>
-              <View style={styles.secondaryRow}>
-                <Pressable
-                  onPress={() => {
-                    if (requestingSnooze || markingReady || terminalActionPending) return;
-                    setRequestingSnooze(true);
-                    void (async () => {
-                      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
-                      try {
-                        setTerminalActionError(null);
-                        const result = await snooze();
-                        if (result.ok === false) {
-                          transitionFailure = resolveReadyGateTransitionFailureCopy({
-                            action: 'snooze',
+                        if (isReadyGateTransitionTimeoutSignal(result)) {
+                          const syncResult = await guardedSyncSession(
+                            'mark_ready_timeout_recovery',
+                            { allowWhileMarking: true },
+                          );
+                          if (
+                            syncResult?.ok === true &&
+                            isReadyGateReadyProgressStatus(syncResult.status)
+                          ) {
+                            setTerminalActionError(null);
+                            if (syncResult.status === 'both_ready') {
+                              setTransitioning(true);
+                              await reconcileFromCanonicalTruth(
+                                'mark_ready_timeout_sync_both_ready',
+                              );
+                            }
+                            return;
+                          }
+                        }
+                        transitionFailure =
+                          resolveReadyGateTransitionFailureCopy({
+                            action: 'mark_ready',
                             code: result.code,
                             errorCode: result.errorCode,
                             reason: result.reason,
@@ -1199,54 +1604,156 @@ export default function ReadyGateScreen() {
                             status: result.status,
                             platform: 'native',
                           });
-                          throw new Error(transitionFailure.message);
-                        }
-                      } catch (e) {
-                        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
-                          action: 'snooze',
+                        throw new Error(transitionFailure.message);
+                      }
+                    } catch (e) {
+                      const fallback =
+                        transitionFailure ??
+                        resolveReadyGateTransitionFailureCopy({
+                          action: 'mark_ready',
                           error: e instanceof Error ? e.message : String(e),
                           platform: 'native',
                         });
-                        setTerminalActionError(fallback.message);
-                        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snooze_failed_kept_open', {
+                      setTerminalActionError(fallback.message);
+                      rcBreadcrumb(
+                        RC_CATEGORY.readyGate,
+                        'standalone_mark_ready_failed_kept_open',
+                        {
                           session_id: sessionId,
                           event_id: eventId,
                           reason_code: fallback.reasonCode,
                           error_code: fallback.code ?? fallback.reasonCode,
                           multi_device_conflict: fallback.staleOrConflict,
-                          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
-                        });
+                          message_snippet:
+                            e instanceof Error
+                              ? e.message.slice(0, 120)
+                              : 'unknown',
+                        },
+                      );
+                    } finally {
+                      readyActionInFlightRef.current = false;
+                      setMarkingReady(false);
+                    }
+                  })();
+                }}
+                variant="primary"
+                size="lg"
+                style={styles.primaryBtn}
+                disabled={
+                  markingReady || requestingSnooze || terminalActionPending
+                }
+              />
+              <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+                Snooze gives you up to 2 extra minutes. Step away exits this
+                match attempt.
+              </Text>
+              <View style={styles.secondaryRow}>
+                <Pressable
+                  onPress={() => {
+                    if (
+                      requestingSnooze ||
+                      markingReady ||
+                      terminalActionPending
+                    )
+                      return;
+                    setRequestingSnooze(true);
+                    void (async () => {
+                      let transitionFailure: ReturnType<
+                        typeof resolveReadyGateTransitionFailureCopy
+                      > | null = null;
+                      try {
+                        setTerminalActionError(null);
+                        const result = await snooze();
+                        if (result.ok === false) {
+                          transitionFailure =
+                            resolveReadyGateTransitionFailureCopy({
+                              action: 'snooze',
+                              code: result.code,
+                              errorCode: result.errorCode,
+                              reason: result.reason,
+                              error: result.error,
+                              status: result.status,
+                              platform: 'native',
+                            });
+                          throw new Error(transitionFailure.message);
+                        }
+                      } catch (e) {
+                        const fallback =
+                          transitionFailure ??
+                          resolveReadyGateTransitionFailureCopy({
+                            action: 'snooze',
+                            error: e instanceof Error ? e.message : String(e),
+                            platform: 'native',
+                          });
+                        setTerminalActionError(fallback.message);
+                        rcBreadcrumb(
+                          RC_CATEGORY.readyGate,
+                          'standalone_snooze_failed_kept_open',
+                          {
+                            session_id: sessionId,
+                            event_id: eventId,
+                            reason_code: fallback.reasonCode,
+                            error_code: fallback.code ?? fallback.reasonCode,
+                            multi_device_conflict: fallback.staleOrConflict,
+                            message_snippet:
+                              e instanceof Error
+                                ? e.message.slice(0, 120)
+                                : 'unknown',
+                          },
+                        );
                       } finally {
                         setRequestingSnooze(false);
                       }
                     })();
                   }}
-                  disabled={requestingSnooze || markingReady || terminalActionPending}
+                  disabled={
+                    requestingSnooze || markingReady || terminalActionPending
+                  }
                   accessibilityRole="button"
                   accessibilityLabel="Snooze this Ready Gate for two minutes"
                   style={({ pressed }) => [
                     styles.ghostBtn,
-                    (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
+                    (requestingSnooze ||
+                      markingReady ||
+                      terminalActionPending) && { opacity: 0.5 },
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
-                    {requestingSnooze ? 'Snoozing...' : 'Snooze — give me 2 min'}
+                  <Text
+                    style={[
+                      styles.ghostBtnText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
+                    {requestingSnooze
+                      ? 'Snoozing...'
+                      : 'Snooze — give me 2 min'}
                   </Text>
                 </Pressable>
-                <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
+                <Text style={[styles.dot, { color: theme.textSecondary }]}>
+                  ·
+                </Text>
                 <Pressable
                   onPress={handleSkip}
-                  disabled={requestingSnooze || markingReady || terminalActionPending}
+                  disabled={
+                    requestingSnooze || markingReady || terminalActionPending
+                  }
                   accessibilityRole="button"
                   accessibilityLabel="Step away from this Ready Gate"
                   style={({ pressed }) => [
                     styles.ghostBtn,
-                    (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
+                    (requestingSnooze ||
+                      markingReady ||
+                      terminalActionPending) && { opacity: 0.5 },
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
+                  <Text
+                    style={[
+                      styles.ghostBtnText,
+                      { color: theme.textSecondary },
+                    ]}
+                  >
                     {terminalActionPending ? 'Leaving...' : 'Step away'}
                   </Text>
                 </Pressable>
@@ -1254,22 +1761,38 @@ export default function ReadyGateScreen() {
             </>
           ) : (
             <>
-              <View style={[styles.waitingPill, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
+              <View
+                style={[
+                  styles.waitingPill,
+                  {
+                    backgroundColor: theme.tintSoft,
+                    borderColor: withAlpha(theme.tint, 0.31),
+                  },
+                ]}
+              >
                 <Ionicons
                   name={readinessStatusIcon}
                   size={22}
                   color={theme.tint}
                 />
-                <Text style={[styles.waitingText, { color: theme.text }]}>{readyGateReadinessCopy.text}</Text>
+                <Text style={[styles.waitingText, { color: theme.text }]}>
+                  {readyGateReadinessCopy.text}
+                </Text>
               </View>
               <Pressable
                 onPress={handleSkip}
                 disabled={terminalActionPending}
                 accessibilityRole="button"
                 accessibilityLabel="Step away while waiting for your match"
-                style={({ pressed }) => [styles.ghostBtn, terminalActionPending && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [
+                  styles.ghostBtn,
+                  terminalActionPending && { opacity: 0.5 },
+                  pressed && { opacity: 0.8 },
+                ]}
               >
-                <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
+                <Text
+                  style={[styles.ghostBtnText, { color: theme.textSecondary }]}
+                >
                   {terminalActionPending ? 'Leaving...' : 'Step away'}
                 </Text>
               </Pressable>
@@ -1283,14 +1806,24 @@ export default function ReadyGateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
   loadingHint: { marginTop: spacing.md, fontSize: 15, textAlign: 'center' },
   headerBar: { marginBottom: 0 },
   backBtn: { padding: spacing.xs },
   headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
   scrollContent: { padding: spacing.lg, paddingBottom: spacing.xl * 2 },
   card: { padding: spacing.xl, alignItems: 'center', marginBottom: spacing.xl },
-  partnerLabel: { fontSize: 12, marginBottom: spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5 },
+  partnerLabel: {
+    fontSize: 12,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   avatarWrap: {
     width: 120,
     height: 120,
@@ -1302,7 +1835,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   avatarImg: { width: '100%', height: '100%' },
-  partnerName: { ...typography.titleLG, marginBottom: spacing.md, textAlign: 'center', flexShrink: 1 },
+  partnerName: {
+    ...typography.titleLG,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
   sharedVibesWrap: {
     width: '100%',
     flexDirection: 'row',
@@ -1364,7 +1902,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   secondaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  ghostBtn: { minHeight: 44, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, justifyContent: 'center' },
+  ghostBtn: {
+    minHeight: 44,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
+  },
   ghostBtnText: { fontSize: 13 },
   dot: { fontSize: 14 },
   waitingPill: {
@@ -1392,6 +1935,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: spacing.lg,
   },
-  transitioningTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.xs },
+  transitioningTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
   transitioningSub: { fontSize: 14 },
 });

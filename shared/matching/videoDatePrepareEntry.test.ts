@@ -18,7 +18,8 @@ function successPayload() {
   return {
     success: true as const,
     room_name: "date-11111111111141118111111111111111",
-    room_url: "https://vibelyapp.daily.co/date-11111111111141118111111111111111",
+    room_url:
+      "https://vibelyapp.daily.co/date-11111111111141118111111111111111",
     token: "short-lived-client-token",
     token_expires_at: "2099-04-24T00:48:01.000Z",
     session_state: "handshake",
@@ -74,7 +75,10 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
   assert.equal(cached.ok && cached.data.entry_attempt_id, "attempt-cache-1");
   assert.equal(cached.ok && cached.data.video_date_trace_id, "attempt-cache-1");
   assert.equal(calls, 1);
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 2000)?.value.token, "short-lived-client-token");
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 2000)?.value.token,
+    "short-lived-client-token",
+  );
 });
 
 test("prepared entry handoff is session/user scoped and consumed once", async () => {
@@ -97,11 +101,24 @@ test("prepared entry handoff is session/user scoped and consumed once", async ()
   assert.equal(peeked.ok && peeked.envelope.readyGateStatus, "both_ready");
   assert.equal(peeked.ok && peeked.envelope.phase, "handshake");
 
-  const consumed = consumePreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  const consumed = consumePreparedVideoDateEntryHandoff(
+    SESSION_ID,
+    USER_ID,
+    1200,
+  );
   assert.equal(consumed.ok, true);
-  assert.equal(consumed.ok && consumed.envelope.token, "short-lived-client-token");
-  assert.equal(consumePreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200).ok, false);
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200)?.value.token, "short-lived-client-token");
+  assert.equal(
+    consumed.ok && consumed.envelope.token,
+    "short-lived-client-token",
+  );
+  assert.equal(
+    consumePreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200).ok,
+    false,
+  );
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200)?.value.token,
+    "short-lived-client-token",
+  );
 });
 
 test("prepared entry handoff rejects stale or unsafe envelopes", async () => {
@@ -121,12 +138,18 @@ test("prepared entry handoff rejects stale or unsafe envelopes", async () => {
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_INVALID_READY_GATE");
+  assert.equal(
+    result.ok === false && result.code,
+    "PREPARE_ENTRY_INVALID_READY_GATE",
+  );
   assert.equal(result.ok === false && result.retryable, true);
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
   assert.equal(rejected.ok === false && rejected.reason, "missing");
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200),
+    null,
+  );
 });
 
 test("prepared entry handoff rejects terminal state even when ready gate metadata looks reusable", async () => {
@@ -146,11 +169,17 @@ test("prepared entry handoff rejects terminal state even when ready gate metadat
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_INVALID_STATE");
+  assert.equal(
+    result.ok === false && result.code,
+    "PREPARE_ENTRY_INVALID_STATE",
+  );
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
   assert.equal(rejected.ok === false && rejected.reason, "missing");
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200),
+    null,
+  );
 });
 
 test("prepared entry handoff rejects missing phase proof", async () => {
@@ -170,11 +199,17 @@ test("prepared entry handoff rejects missing phase proof", async () => {
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_INVALID_PHASE");
+  assert.equal(
+    result.ok === false && result.code,
+    "PREPARE_ENTRY_INVALID_PHASE",
+  );
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
   assert.equal(rejected.ok === false && rejected.reason, "missing");
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200),
+    null,
+  );
 });
 
 test("prepareVideoDateEntryWithClient rejects room URL and room-name mismatches before caching", async () => {
@@ -194,8 +229,14 @@ test("prepareVideoDateEntryWithClient rejects room URL and room-name mismatches 
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_ROOM_MISMATCH");
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+  assert.equal(
+    result.ok === false && result.code,
+    "PREPARE_ENTRY_ROOM_MISMATCH",
+  );
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200),
+    null,
+  );
 });
 
 test("prepared entry handoff rejects missing token expiry proof", async () => {
@@ -217,7 +258,10 @@ test("prepared entry handoff rejects missing token expiry proof", async () => {
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
   assert.equal(rejected.ok === false && rejected.reason, "token_expired");
-  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+  assert.equal(
+    getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200),
+    null,
+  );
 });
 
 test("prepareVideoDateEntryWithClient preserves server trace ids when returned", async () => {
@@ -239,9 +283,15 @@ test("prepareVideoDateEntryWithClient preserves server trace ids when returned",
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.ok && result.data.entry_attempt_id, "server-entry-attempt-1");
+  assert.equal(
+    result.ok && result.data.entry_attempt_id,
+    "server-entry-attempt-1",
+  );
   assert.equal(result.ok && result.data.video_date_trace_id, "server-trace-1");
-  assert.equal(result.ok && result.cacheEntry.value.video_date_trace_id, "server-trace-1");
+  assert.equal(
+    result.ok && result.cacheEntry.value.video_date_trace_id,
+    "server-trace-1",
+  );
 });
 
 test("prepareVideoDateEntryWithClient falls back when cache is stale or rejected", async () => {
@@ -277,7 +327,11 @@ test("prepareVideoDateEntryWithClient falls back when cache is stale or rejected
 
   const cachedEntry = getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID);
   assert.ok(cachedEntry);
-  const stale = getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, cachedEntry.expiresAtMs + 1);
+  const stale = getCachedPreparedVideoDateEntry(
+    SESSION_ID,
+    USER_ID,
+    cachedEntry.expiresAtMs + 1,
+  );
   assert.equal(stale, null);
 
   const afterStale = await prepareVideoDateEntryWithClient({
@@ -322,7 +376,9 @@ test("prepareVideoDateEntryWithClient dedupes concurrent double prepare for one 
     nowMs: 1001,
     invoke: async () => {
       calls += 1;
-      return { data: { ...successPayload(), token: "unexpected-second-token" } };
+      return {
+        data: { ...successPayload(), token: "unexpected-second-token" },
+      };
     },
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
   });
@@ -335,6 +391,12 @@ test("prepareVideoDateEntryWithClient dedupes concurrent double prepare for one 
   assert.equal(secondResult.ok, true);
   assert.equal(firstResult.ok && firstResult.data.token, "deduped-token");
   assert.equal(secondResult.ok && secondResult.data.token, "deduped-token");
+  assert.equal(firstResult.ok && firstResult.coalesced === true, false);
+  assert.equal(secondResult.ok && secondResult.coalesced, true);
+  assert.equal(
+    secondResult.ok && secondResult.ownerEntryAttemptId,
+    firstResult.ok && firstResult.ownerEntryAttemptId,
+  );
   assert.equal(calls, 1);
 });
 
@@ -365,7 +427,9 @@ test("prepareVideoDateEntryWithClient force bypasses cache but not an active inf
     force: true,
     invoke: async () => {
       calls += 1;
-      return { data: { ...successPayload(), token: "unexpected-forced-token" } };
+      return {
+        data: { ...successPayload(), token: "unexpected-forced-token" },
+      };
     },
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
   });
@@ -377,7 +441,11 @@ test("prepareVideoDateEntryWithClient force bypasses cache but not an active inf
   assert.equal(firstResult.ok, true);
   assert.equal(forcedResult.ok, true);
   assert.equal(firstResult.ok && firstResult.data.token, "force-deduped-token");
-  assert.equal(forcedResult.ok && forcedResult.data.token, "force-deduped-token");
+  assert.equal(
+    forcedResult.ok && forcedResult.data.token,
+    "force-deduped-token",
+  );
+  assert.equal(forcedResult.ok && forcedResult.coalesced, true);
   assert.equal(calls, 1);
 
   const afterInflight = await prepareVideoDateEntryWithClient({
@@ -393,8 +461,80 @@ test("prepareVideoDateEntryWithClient force bypasses cache but not an active inf
   });
 
   assert.equal(afterInflight.ok, true);
-  assert.equal(afterInflight.ok && afterInflight.data.token, "forced-after-inflight");
+  assert.equal(
+    afterInflight.ok && afterInflight.data.token,
+    "forced-after-inflight",
+  );
   assert.equal(calls, 2);
+});
+
+test("prepareVideoDateEntryWithClient force respects retry-after cooldowns after provider failures", async () => {
+  clearPreparedVideoDateEntryCache();
+  let calls = 0;
+  const startedAt = Date.now();
+
+  const first = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: startedAt,
+    entryAttemptId: "cooldown-owner",
+    invoke: async () => {
+      calls += 1;
+      return {
+        data: {
+          success: false,
+          code: "DAILY_RATE_LIMIT",
+          retry_after_seconds: 3,
+        },
+        response: new Response(
+          JSON.stringify({ code: "DAILY_RATE_LIMIT", retry_after_seconds: 3 }),
+          { status: 429 },
+        ),
+      };
+    },
+    classifyFailure: async () => ({
+      kind: "DAILY_RATE_LIMIT",
+      serverCode: "DAILY_RATE_LIMIT",
+      httpStatus: 429,
+      retryable: true,
+      retryAfterSeconds: 3,
+      retryAfterMs: 3000,
+    }),
+  });
+
+  assert.equal(first.ok, false);
+  assert.equal(first.ok === false && first.retryAfterMs, 3000);
+  assert.equal(calls, 1);
+
+  const forcedDuringCooldown = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: Date.now() + 500,
+    force: true,
+    entryAttemptId: "cooldown-joined",
+    invoke: async () => {
+      calls += 1;
+      return { data: successPayload() };
+    },
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  assert.equal(forcedDuringCooldown.ok, false);
+  assert.equal(
+    forcedDuringCooldown.ok === false && forcedDuringCooldown.coalesced,
+    true,
+  );
+  assert.equal(
+    forcedDuringCooldown.ok === false &&
+      forcedDuringCooldown.ownerEntryAttemptId,
+    "cooldown-owner",
+  );
+  assert.equal(
+    forcedDuringCooldown.ok === false &&
+      (forcedDuringCooldown.retryAfterMs ?? 0) > 0,
+    true,
+  );
+  assert.equal(calls, 1);
 });
 
 test("prepareVideoDateEntryWithClient uses short TTL and refreshes after join-failure rejection", async () => {
@@ -415,7 +555,10 @@ test("prepareVideoDateEntryWithClient uses short TTL and refreshes after join-fa
   assert.equal(prepared.ok, true);
   const entry = getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 10_000);
   assert.ok(entry);
-  assert.equal(entry.expiresAtMs - entry.cachedAtMs, PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS);
+  assert.equal(
+    entry.expiresAtMs - entry.cachedAtMs,
+    PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS,
+  );
 
   assert.equal(rejectCachedPreparedVideoDateEntry(SESSION_ID, USER_ID), true);
 
@@ -425,14 +568,19 @@ test("prepareVideoDateEntryWithClient uses short TTL and refreshes after join-fa
     nowMs: 11_000,
     invoke: async () => {
       calls += 1;
-      return { data: { ...successPayload(), token: "fresh-after-join-failure" } };
+      return {
+        data: { ...successPayload(), token: "fresh-after-join-failure" },
+      };
     },
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
   });
 
   assert.equal(afterJoinFailure.ok, true);
   assert.equal(afterJoinFailure.ok && afterJoinFailure.cached, false);
-  assert.equal(afterJoinFailure.ok && afterJoinFailure.data.token, "fresh-after-join-failure");
+  assert.equal(
+    afterJoinFailure.ok && afterJoinFailure.data.token,
+    "fresh-after-join-failure",
+  );
   assert.equal(calls, 2);
 });
 
@@ -447,8 +595,15 @@ test("prepareVideoDateEntryWithClient generates and returns an entry attempt id 
     invoke: async ({ entryAttemptId }) => {
       sentAttemptId = entryAttemptId;
       return {
-        data: { success: false, code: "DB_ROOM_PERSIST_FAILED", error: "persist failed" },
-        response: new Response(JSON.stringify({ code: "DB_ROOM_PERSIST_FAILED" }), { status: 503 }),
+        data: {
+          success: false,
+          code: "DB_ROOM_PERSIST_FAILED",
+          error: "persist failed",
+        },
+        response: new Response(
+          JSON.stringify({ code: "DB_ROOM_PERSIST_FAILED" }),
+          { status: 503 },
+        ),
       };
     },
     classifyFailure: async () => ({

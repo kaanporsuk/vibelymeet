@@ -402,6 +402,8 @@ export default function EventLobbyScreen() {
     id,
     readinessV2.enabled && lobbySideEffectsEnabled,
   );
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const readyGatePressureActive = Boolean(activeSessionId);
 
   useEffect(() => {
     if (!eventDateValue) return;
@@ -444,7 +446,8 @@ export default function EventLobbyScreen() {
       !isEventArchived &&
       !isEventDraft &&
       !isEventEndedByTruth &&
-      resolvedEventLifecycle?.isLive
+      resolvedEventLifecycle?.isLive &&
+      !readyGatePressureActive
   );
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({ queuedCount: 0, visibleCount: 0 });
   const deckAdaptiveRefetchIntervalMs = useMemo(
@@ -546,7 +549,7 @@ export default function EventLobbyScreen() {
   }, [lobbyClockMs, profiles]);
 
   useEffect(() => {
-    if (deckPrefetchPolishEnabled) return;
+    if (deckPrefetchPolishEnabled || readyGatePressureActive) return;
     for (const profile of sortedProfiles.slice(0, 3)) {
       const src = deckCardUrl(
         profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url,
@@ -554,7 +557,7 @@ export default function EventLobbyScreen() {
       );
       if (src) void prefetchNativeDeckImage(src);
     }
-  }, [deckPrefetchPolishEnabled, sortedProfiles]);
+  }, [deckPrefetchPolishEnabled, readyGatePressureActive, sortedProfiles]);
 
   const deckPrefetchItems = useMemo(
     () =>
@@ -565,7 +568,7 @@ export default function EventLobbyScreen() {
   );
 
   useEffect(() => {
-    if (!deckPrefetchPolishEnabled) return;
+    if (!deckPrefetchPolishEnabled || readyGatePressureActive) return;
     for (const item of deckPrefetchItems) {
       const src = item.url;
       if (!src) continue;
@@ -625,11 +628,10 @@ export default function EventLobbyScreen() {
           });
         });
     }
-  }, [deckPrefetchItems, deckPrefetchPolishEnabled, id]);
+  }, [deckPrefetchItems, deckPrefetchPolishEnabled, id, readyGatePressureActive]);
 
   const [pendingSwipeTargetIds, setPendingSwipeTargetIds] = useState<Set<string>>(() => new Set());
   const [swipeRateLimitUntilMs, setSwipeRateLimitUntilMs] = useState<number | null>(null);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPartnerName, setActiveSessionPartnerName] = useState<string | null>(null);
   const [activeSessionPartnerImage, setActiveSessionPartnerImage] = useState<string | null>(null);
   const [queuedMatchCount, setQueuedMatchCount] = useState(0);
@@ -1238,6 +1240,10 @@ export default function EventLobbyScreen() {
   const scheduleDeckRefresh = useCallback(
     (source: string, delayMs = 180) => {
       if (!id || !user?.id) return;
+      if (readyGatePressureActive) {
+        vdbg('lobby_deck_refresh_suppressed_ready_gate', { eventId: id, source });
+        return;
+      }
       if (deckRefreshBurstTimerRef.current) {
         vdbg('lobby_deck_refresh_coalesced', { eventId: id, source });
         return;
@@ -1247,7 +1253,7 @@ export default function EventLobbyScreen() {
         void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
       }, delayMs);
     },
-    [id, queryClient, user?.id],
+    [id, queryClient, readyGatePressureActive, user?.id],
   );
 
   const advanceDeckAfterSwipe = useCallback(
@@ -1305,12 +1311,12 @@ export default function EventLobbyScreen() {
           });
         }
       }
-      if (shouldTopUp) {
+      if (shouldTopUp && !readyGatePressureActive) {
         void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
       }
       return remainingVisible;
     },
-    [deckPrefetchPolishEnabled, id, profiles, queryClient, user?.id],
+    [deckPrefetchPolishEnabled, id, profiles, queryClient, readyGatePressureActive, user?.id],
   );
 
   const removeDeckProfileAfterTerminalVisibleMark = useCallback(

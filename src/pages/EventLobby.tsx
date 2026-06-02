@@ -298,17 +298,52 @@ const EventLobby = () => {
   const deckEnabled = lobbyGate.canFetchDeck;
   const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
   const lobbyActionsEnabled = lobbyGate.canUseLobbyActions && !showEventEndedModal;
+
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Ready Gate overlay state (server-backed; optimistic updates via refetch)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
+  const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] = useState(false);
+  const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
+  const singleOwnerActiveSessionEnabled = isActiveSessionSingleOwnerEnabled();
+  const providerScopedHydration = useEventActiveSession(eventId);
+  const legacyScopedHydration = useActiveSession(user?.id, {
+    eventId,
+    enabled: !singleOwnerActiveSessionEnabled,
+  });
+  const {
+    activeSession: scopedSession,
+    hydrated: sessionHydrated,
+    refetch: refetchScopedSession,
+  } = singleOwnerActiveSessionEnabled ? providerScopedHydration : legacyScopedHydration;
+  const sameEventScopedSession = useMemo(() => {
+    if (!sessionHydrated || !eventId || !scopedSession || scopedSession.eventId !== eventId) {
+      return null;
+    }
+    return scopedSession;
+  }, [sessionHydrated, eventId, scopedSession]);
+  const scopedSessionId = sameEventScopedSession?.sessionId ?? null;
+  const scopedSessionKind = sameEventScopedSession?.kind ?? null;
+  const scopedSessionQueueStatus = sameEventScopedSession?.queueStatus ?? null;
+  const hasScopedSession = scopedSessionId !== null;
+  const readyGatePressureActive = Boolean(
+    activeSessionId ||
+      dateNavigationSessionId ||
+      (sameEventScopedSession?.kind === "ready_gate" && sameEventScopedSession.sessionId)
+  );
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({ queuedCount: 0, visibleCount: 0 });
+  const deckFetchEnabled = deckEnabled && !readyGatePressureActive;
   const deckAdaptiveRefetchIntervalMs = useMemo(
     () =>
       getVideoDateDeckAdaptiveRefetchIntervalMs({
-        enabled: deckEnabled,
+        enabled: deckFetchEnabled,
         eventEndAtMs: eventEndTimeMs,
         nowMs: lobbyClockMs,
         queuedCount: deckAdaptiveInputs.queuedCount,
         visibleCount: deckAdaptiveInputs.visibleCount,
       }),
-    [deckAdaptiveInputs.queuedCount, deckAdaptiveInputs.visibleCount, deckEnabled, eventEndTimeMs, lobbyClockMs],
+    [deckAdaptiveInputs.queuedCount, deckAdaptiveInputs.visibleCount, deckFetchEnabled, eventEndTimeMs, lobbyClockMs],
   );
   const {
     profiles,
@@ -319,7 +354,7 @@ const EventLobby = () => {
     refetch: refetchDeck,
   } = useEventDeck({
     eventId: eventId || "",
-    enabled: deckEnabled,
+    enabled: deckFetchEnabled,
     refetchIntervalMs: deckAdaptiveRefetchIntervalMs,
   });
   const serverInactiveDeckGate = useMemo(
@@ -358,35 +393,7 @@ const EventLobby = () => {
     readinessV2.enabled && lobbySideEffectsEnabled,
   );
 
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  // Ready Gate overlay state (server-backed; optimistic updates via refetch)
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
-  const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] = useState(false);
-  const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
-  const singleOwnerActiveSessionEnabled = isActiveSessionSingleOwnerEnabled();
-  const providerScopedHydration = useEventActiveSession(eventId);
-  const legacyScopedHydration = useActiveSession(user?.id, {
-    eventId,
-    enabled: !singleOwnerActiveSessionEnabled,
-  });
-  const {
-    activeSession: scopedSession,
-    hydrated: sessionHydrated,
-    refetch: refetchScopedSession,
-  } = singleOwnerActiveSessionEnabled ? providerScopedHydration : legacyScopedHydration;
-  const sameEventScopedSession = useMemo(() => {
-    if (!sessionHydrated || !eventId || !scopedSession || scopedSession.eventId !== eventId) {
-      return null;
-    }
-    return scopedSession;
-  }, [sessionHydrated, eventId, scopedSession]);
-  const scopedSessionId = sameEventScopedSession?.sessionId ?? null;
-  const scopedSessionKind = sameEventScopedSession?.kind ?? null;
-  const scopedSessionQueueStatus = sameEventScopedSession?.queueStatus ?? null;
   const lobbyBroadcastSessionId = scopedSessionId ?? activeSessionId;
-  const hasScopedSession = scopedSessionId !== null;
   const activeSessionIdRef = useRef<string | null>(null);
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
@@ -957,7 +964,7 @@ const EventLobby = () => {
 
   // Super vibes left this event (same rule as handle_swipe: max 3 per event). Non-fatal: lobby must mount if this fails.
   useEffect(() => {
-    if (!user?.id || !eventId || !deckEnabled) return;
+    if (!user?.id || !eventId || !deckFetchEnabled) return;
     const diagKey = `${eventId}:${user.id}`;
     let cancelled = false;
     void (async () => {
@@ -1007,7 +1014,7 @@ const EventLobby = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, eventId, deckEnabled, scopedSessionKind, scopedSessionId]);
+  }, [user?.id, eventId, deckFetchEnabled, scopedSessionKind, scopedSessionId]);
 
   // Lobby presence only when no backend-owned active session is in flight.
   useEffect(() => {
@@ -1247,7 +1254,7 @@ const EventLobby = () => {
       if (!isParticipant) return;
       const sessionId = typeof session.id === "string" ? session.id : null;
       if (!sessionId) return;
-      if (deckPrefetchPolishEnabled) {
+      if (deckPrefetchPolishEnabled && !readyGatePressureActive) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
       }
 
@@ -1328,6 +1335,7 @@ const EventLobby = () => {
     lobbyBroadcastSessionId,
     lobbyTimelineV2.enabled,
     queryClient,
+    readyGatePressureActive,
   ]);
 
   const reconcileLobbyBroadcastEvent = useCallback(
@@ -1338,7 +1346,7 @@ const EventLobby = () => {
       if (decision.action === "invalid" || decision.action === "duplicate") return;
       lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
       scheduleLobbyConvergenceRefresh(event.sessionId, `broadcast_${event.kind}`);
-      if (deckPrefetchPolishEnabled) {
+      if (deckPrefetchPolishEnabled && !readyGatePressureActive) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
       }
       if (event.kind === "ready_gate_both_ready") {
@@ -1351,6 +1359,7 @@ const EventLobby = () => {
       lobbyBroadcastSessionId,
       prepareAndNavigateToDateSession,
       queryClient,
+      readyGatePressureActive,
       scheduleLobbyConvergenceRefresh,
       user?.id,
     ],
@@ -1450,7 +1459,7 @@ const EventLobby = () => {
   }, [queuedCount, sortedProfiles.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || deckPrefetchPolishEnabled) return;
+    if (typeof window === "undefined" || deckPrefetchPolishEnabled || readyGatePressureActive) return;
     for (const profile of sortedProfiles.slice(0, 3)) {
       const src = deckCardUrl(
         profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url,
@@ -1461,7 +1470,7 @@ const EventLobby = () => {
       image.decoding = "async";
       image.src = src;
     }
-  }, [deckPrefetchPolishEnabled, sortedProfiles]);
+  }, [deckPrefetchPolishEnabled, readyGatePressureActive, sortedProfiles]);
 
   const deckPrefetchItems = useMemo(
     () =>
@@ -1473,7 +1482,7 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    if (!deckPrefetchPolishEnabled || typeof window === "undefined") return;
+    if (!deckPrefetchPolishEnabled || readyGatePressureActive || typeof window === "undefined") return;
     for (const item of deckPrefetchItems) {
       const src = item.url;
       if (!src) continue;
@@ -1543,7 +1552,7 @@ const EventLobby = () => {
       };
       image.src = src;
     }
-  }, [deckPrefetchItems, deckPrefetchPolishEnabled, eventId]);
+  }, [deckPrefetchItems, deckPrefetchPolishEnabled, eventId, readyGatePressureActive]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
@@ -1622,7 +1631,7 @@ const EventLobby = () => {
 
   // Track deck loaded / exhausted
   useEffect(() => {
-    if (!eventId || !deckEnabled || deckLoading || deckError) return;
+    if (!eventId || !deckFetchEnabled || deckLoading || deckError) return;
     const key = `${eventId}:${profiles.length}:${sortedProfiles.length}`;
     if (deckLoadedTrackedRef.current === key) return;
     deckLoadedTrackedRef.current = key;
@@ -1632,10 +1641,10 @@ const EventLobby = () => {
       deck_count_bucket: bucketEventLobbyCount(profiles.length),
       visible_count_bucket: bucketEventLobbyCount(sortedProfiles.length),
     });
-  }, [deckEnabled, deckError, deckLoading, eventId, profiles.length, sortedProfiles.length]);
+  }, [deckFetchEnabled, deckError, deckLoading, eventId, profiles.length, sortedProfiles.length]);
 
   useEffect(() => {
-    if (!eventId || !deckError || !deckEnabled) return;
+    if (!eventId || !deckError || !deckFetchEnabled) return;
     const key = `${eventId}:${deckEmptyReason}`;
     if (deckErrorTrackedRef.current === key) return;
     deckErrorTrackedRef.current = key;
@@ -1654,7 +1663,7 @@ const EventLobby = () => {
         gate_kind: lobbyGate.kind,
       },
     });
-  }, [deckEmptyReason, deckEnabled, deckError, eventId, lobbyGate.kind]);
+  }, [deckEmptyReason, deckFetchEnabled, deckError, eventId, lobbyGate.kind]);
 
   useEffect(() => {
     if (sortedProfiles.length > 0) {
@@ -1758,11 +1767,11 @@ const EventLobby = () => {
           });
         }
       }
-      if (shouldTopUp) {
+      if (shouldTopUp && !readyGatePressureActive) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
       }
     },
-    [deckPrefetchPolishEnabled, eventId, profiles, queryClient, user?.id]
+    [deckPrefetchPolishEnabled, eventId, profiles, queryClient, readyGatePressureActive, user?.id]
   );
 
   const removeDeckProfileAfterTerminalVisibleMark = useCallback(
@@ -1809,11 +1818,15 @@ const EventLobby = () => {
         skip_reason: skipReason,
         deck_token_present: Boolean(expectedDeckToken),
       });
-      if (removed && shouldTopUpVideoDateDeck(remainingVisible)) {
+      if (
+        removed &&
+        shouldTopUpVideoDateDeck(remainingVisible) &&
+        !readyGatePressureActive
+      ) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
       }
     },
-    [eventId, queryClient, user?.id],
+    [eventId, queryClient, readyGatePressureActive, user?.id],
   );
 
   const restoreDeckProfileAfterOptimisticSwipe = useCallback(
@@ -2183,7 +2196,7 @@ const EventLobby = () => {
     const viewerIsPaused = Boolean(user?.isPaused);
     if (!eventId || !viewerId || !currentProfile?.id) return;
     const targetId = currentProfile.id;
-    if (!deckEnabled || deckLoading || deckError || viewerIsPaused) return;
+    if (!deckFetchEnabled || deckLoading || deckError || viewerIsPaused) return;
     if (lobbyGate.kind !== "live" || suppressDeckUiForConvergence) return;
 
     const deckToken = currentProfile.deck_token ?? null;
@@ -2303,7 +2316,7 @@ const EventLobby = () => {
   }, [
     currentProfile?.id,
     currentProfile?.deck_token,
-    deckEnabled,
+    deckFetchEnabled,
     deckError,
     deckLoading,
     eventId,

@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import * as Sentry from "@sentry/react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
@@ -22,6 +28,7 @@ import {
   ensureVideoDateRoomWarmup,
   videoDateRoomWarmupAfterReadyEnabled,
 } from "@/lib/videoDateRoomWarmup";
+import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateSessionTruth";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
@@ -54,6 +61,7 @@ import {
 import {
   VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS,
   VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+  getVideoDateEntryHandoffRetryDelayMs,
   getVideoDateEntryHandoffStatusCopy,
   shouldRetryVideoDateEntryHandoffFailure,
   type VideoDateEntryHandoffStatus,
@@ -91,6 +99,8 @@ const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
+const READY_GATE_DEGRADED_SYNC_POLL_MS = 2_500;
+const READY_GATE_RECONCILE_TIMEOUT_COOLDOWN_MS = 3_000;
 
 type PrepareEntryStatus = VideoDateEntryHandoffStatus;
 type ReadyGateTerminalAction =
@@ -137,21 +147,35 @@ function stopMediaStreamTracks(stream: MediaStream | null) {
   }
 }
 
-function hasLabeledDevice(devices: MediaDeviceInfo[], kind: MediaDeviceKind): boolean {
-  return devices.some((device) => device.kind === kind && device.label.trim().length > 0);
+function hasLabeledDevice(
+  devices: MediaDeviceInfo[],
+  kind: MediaDeviceKind,
+): boolean {
+  return devices.some(
+    (device) => device.kind === kind && device.label.trim().length > 0,
+  );
 }
 
 async function hasPriorGrantedVideoDateDeviceLabels(): Promise<boolean> {
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return false;
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices?.enumerateDevices
+  )
+    return false;
   const devices = await navigator.mediaDevices.enumerateDevices();
-  return hasLabeledDevice(devices, "videoinput") && hasLabeledDevice(devices, "audioinput");
+  return (
+    hasLabeledDevice(devices, "videoinput") &&
+    hasLabeledDevice(devices, "audioinput")
+  );
 }
 
 async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissionPrewarmMedia> {
   let lastConstraintError: unknown = null;
   for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints(profile));
+      const stream = await navigator.mediaDevices.getUserMedia(
+        videoDateWebMediaStreamConstraints(profile),
+      );
       return {
         stream,
         captureProfile: profile,
@@ -159,11 +183,15 @@ async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissio
         source: "ready_gate_permission_prewarm",
       };
     } catch (error) {
-      if (!isVideoDateCameraConstraintError(error) || profile === "fallback") throw error;
+      if (!isVideoDateCameraConstraintError(error) || profile === "fallback")
+        throw error;
       lastConstraintError = error;
     }
   }
-  throw lastConstraintError ?? new Error("No Video Date media capture profile available");
+  throw (
+    lastConstraintError ??
+    new Error("No Video Date media capture profile available")
+  );
 }
 
 function waitForMediaStreamWithTimeout(
@@ -197,16 +225,23 @@ function waitForMediaStreamWithTimeout(
   });
 }
 
-function permissionStateToDiagnosticStatus(state: PermissionState | null): ReadyGateDiagnosticStatus {
+function permissionStateToDiagnosticStatus(
+  state: PermissionState | null,
+): ReadyGateDiagnosticStatus {
   if (state === "granted") return "ok";
   if (state === "denied") return "blocked";
   return "unknown";
 }
 
-async function queryWebMediaPermissionState(name: "camera" | "microphone"): Promise<PermissionState | null> {
-  if (typeof navigator === "undefined" || !navigator.permissions?.query) return null;
+async function queryWebMediaPermissionState(
+  name: "camera" | "microphone",
+): Promise<PermissionState | null> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query)
+    return null;
   try {
-    const status = await navigator.permissions.query({ name: name as PermissionName });
+    const status = await navigator.permissions.query({
+      name: name as PermissionName,
+    });
     return status.state;
   } catch {
     return null;
@@ -220,19 +255,34 @@ async function inspectWebReadyGateMediaDiagnostics(): Promise<ReadyGateMediaDiag
   ]);
   const next: ReadyGateMediaDiagnosticState = {
     cameraPermissionStatus: permissionStateToDiagnosticStatus(cameraPermission),
-    microphonePermissionStatus: permissionStateToDiagnosticStatus(microphonePermission),
+    microphonePermissionStatus:
+      permissionStateToDiagnosticStatus(microphonePermission),
     cameraDeviceStatus: "unknown",
     microphoneDeviceStatus: "unknown",
   };
 
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return next;
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices?.enumerateDevices
+  )
+    return next;
 
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const hasCamera = devices.some((device) => device.kind === "videoinput");
-    const hasMicrophone = devices.some((device) => device.kind === "audioinput");
-    next.cameraDeviceStatus = hasCamera ? "ok" : cameraPermission === "granted" ? "failed" : "unknown";
-    next.microphoneDeviceStatus = hasMicrophone ? "ok" : microphonePermission === "granted" ? "failed" : "unknown";
+    const hasMicrophone = devices.some(
+      (device) => device.kind === "audioinput",
+    );
+    next.cameraDeviceStatus = hasCamera
+      ? "ok"
+      : cameraPermission === "granted"
+        ? "failed"
+        : "unknown";
+    next.microphoneDeviceStatus = hasMicrophone
+      ? "ok"
+      : microphonePermission === "granted"
+        ? "failed"
+        : "unknown";
   } catch {
     next.cameraDeviceStatus = "unknown";
     next.microphoneDeviceStatus = "unknown";
@@ -241,8 +291,13 @@ async function inspectWebReadyGateMediaDiagnostics(): Promise<ReadyGateMediaDiag
   return next;
 }
 
-async function mediaDiagnosticFromPrewarmError(error: unknown): Promise<Partial<ReadyGateMediaDiagnosticState>> {
-  const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera_microphone");
+async function mediaDiagnosticFromPrewarmError(
+  error: unknown,
+): Promise<Partial<ReadyGateMediaDiagnosticState>> {
+  const permissionResult = await classifyMediaPermissionErrorWithBrowserState(
+    error,
+    "camera_microphone",
+  );
   if (permissionResult.status === "denied") {
     return {
       cameraPermissionStatus: "blocked",
@@ -255,7 +310,10 @@ async function mediaDiagnosticFromPrewarmError(error: unknown): Promise<Partial<
       microphoneDeviceStatus: "failed",
     };
   }
-  if (permissionResult.status === "constraint_failed" || isVideoDateCameraConstraintError(error)) {
+  if (
+    permissionResult.status === "constraint_failed" ||
+    isVideoDateCameraConstraintError(error)
+  ) {
     return {
       cameraDeviceStatus: "failed",
     };
@@ -270,7 +328,9 @@ function mergeInspectedDiagnosticStatus(
   inspectedStatus: ReadyGateDiagnosticStatus,
   fallbackStatus: ReadyGateDiagnosticStatus | undefined,
 ): ReadyGateDiagnosticStatus {
-  return inspectedStatus === "unknown" && fallbackStatus ? fallbackStatus : inspectedStatus;
+  return inspectedStatus === "unknown" && fallbackStatus
+    ? fallbackStatus
+    : inspectedStatus;
 }
 
 function mergeRefreshedDiagnosticStatus(
@@ -282,7 +342,9 @@ function mergeRefreshedDiagnosticStatus(
   return currentStatus;
 }
 
-async function resolveMediaDiagnosticsAfterPrewarmError(error: unknown): Promise<ReadyGateMediaDiagnosticState> {
+async function resolveMediaDiagnosticsAfterPrewarmError(
+  error: unknown,
+): Promise<ReadyGateMediaDiagnosticState> {
   const [fallback, inspected] = await Promise.all([
     mediaDiagnosticFromPrewarmError(error),
     inspectWebReadyGateMediaDiagnostics(),
@@ -296,7 +358,10 @@ async function resolveMediaDiagnosticsAfterPrewarmError(error: unknown): Promise
       inspected.microphonePermissionStatus,
       fallback.microphonePermissionStatus,
     ),
-    cameraDeviceStatus: mergeInspectedDiagnosticStatus(inspected.cameraDeviceStatus, fallback.cameraDeviceStatus),
+    cameraDeviceStatus: mergeInspectedDiagnosticStatus(
+      inspected.cameraDeviceStatus,
+      fallback.cameraDeviceStatus,
+    ),
     microphoneDeviceStatus: mergeInspectedDiagnosticStatus(
       inspected.microphoneDeviceStatus,
       fallback.microphoneDeviceStatus,
@@ -323,11 +388,66 @@ function sleep(ms: number) {
 }
 
 function prepareEntryFailureMessage(code?: string): string {
-  return resolveReadyGatePrepareEntryFailureCopy({ code, platform: "web" }).message;
+  return resolveReadyGatePrepareEntryFailureCopy({ code, platform: "web" })
+    .message;
 }
 
-function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: PrepareEntryFailureState) {
+function prepareEntryTransitionCopy(
+  status: PrepareEntryStatus,
+  failure: PrepareEntryFailureState,
+) {
   return getVideoDateEntryHandoffStatusCopy(status, failure?.message);
+}
+
+type VideoSessionDateEntryTruth = Awaited<
+  ReturnType<typeof fetchVideoSessionDateEntryTruthCoalesced>
+>;
+
+function isTerminalReadyGateTruth(truth: VideoSessionDateEntryTruth): boolean {
+  if (truth === undefined) return false;
+  if (truth === null) return true;
+  if (truth.ended_at) return true;
+  if (truth.state === "ended" || truth.phase === "ended") return true;
+  return (
+    truth.ready_gate_status === "expired" ||
+    truth.ready_gate_status === "forfeited" ||
+    truth.ready_gate_status === "cancelled" ||
+    truth.ready_gate_status === "skipped"
+  );
+}
+
+function isReadyGateTransitionTimeoutSignal(input: {
+  code?: string | null;
+  errorCode?: string | null;
+  reason?: string | null;
+  error?: string | null;
+  details?: string | null;
+}): boolean {
+  const text = [
+    input.code,
+    input.errorCode,
+    input.reason,
+    input.error,
+    input.details,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    text.includes("57014") ||
+    text.includes("statement timeout") ||
+    text.includes("canceling statement") ||
+    text.includes("cancelled on user request")
+  );
+}
+
+function isReadyGateReadyProgressStatus(status?: string | null): boolean {
+  return (
+    status === "ready" ||
+    status === "ready_a" ||
+    status === "ready_b" ||
+    status === "both_ready"
+  );
 }
 
 const ReadyGateOverlay = ({
@@ -347,15 +467,21 @@ const ReadyGateOverlay = ({
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
-  const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>("idle");
-  const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailureState>(null);
-  const [mediaDiagnostics, setMediaDiagnostics] = useState<ReadyGateMediaDiagnosticState>(
-    READY_GATE_MEDIA_DIAGNOSTICS_CHECKING,
-  );
-  const [showRealtimeFallbackCopy, setShowRealtimeFallbackCopy] = useState(false);
+  const [prepareEntryStatus, setPrepareEntryStatus] =
+    useState<PrepareEntryStatus>("idle");
+  const [prepareEntryFailure, setPrepareEntryFailure] =
+    useState<PrepareEntryFailureState>(null);
+  const [mediaDiagnostics, setMediaDiagnostics] =
+    useState<ReadyGateMediaDiagnosticState>(
+      READY_GATE_MEDIA_DIAGNOSTICS_CHECKING,
+    );
+  const [showRealtimeFallbackCopy, setShowRealtimeFallbackCopy] =
+    useState(false);
   const [realtimeDegraded, setRealtimeDegraded] = useState(false);
   const [terminalActionPending, setTerminalActionPending] = useState(false);
-  const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
+  const [terminalActionError, setTerminalActionError] = useState<string | null>(
+    null,
+  );
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -371,9 +497,12 @@ const ReadyGateOverlay = ({
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
   const permissionPrewarmStartedRef = useRef(false);
-  const permissionPrewarmMediaRef = useRef<ReadyGatePermissionPrewarmMedia | null>(null);
+  const permissionPrewarmMediaRef =
+    useRef<ReadyGatePermissionPrewarmMedia | null>(null);
   const permissionPrewarmMediaHandoffStoredRef = useRef(false);
-  const permissionPrewarmMediaReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const permissionPrewarmMediaReleaseTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const permissionPrewarmSkipLoggedRef = useRef(false);
   const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
@@ -381,9 +510,16 @@ const ReadyGateOverlay = ({
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
   const overlayRealtimeDegradedRef = useRef(false);
   const orchestratorRealtimeDegradedRef = useRef(false);
-  const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const overlayRealtimeRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeFallbackCopyTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const overlayRealtimeRecoveryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const terminalActionInFlightRef = useRef(false);
+  const readyActionInFlightRef = useRef(false);
+  const reconcileSessionInFlightRef = useRef(false);
+  const reconcileSessionCooldownUntilMsRef = useRef(0);
   const manualExitRequestedRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const duplicateNavSuppressionKeysRef = useRef<Set<string>>(new Set());
@@ -430,7 +566,11 @@ const ReadyGateOverlay = ({
   }, []);
 
   const clearRealtimeDegradedWhenHealthy = useCallback(() => {
-    if (overlayRealtimeDegradedRef.current || orchestratorRealtimeDegradedRef.current) return;
+    if (
+      overlayRealtimeDegradedRef.current ||
+      orchestratorRealtimeDegradedRef.current
+    )
+      return;
     setRealtimeDegraded(false);
     clearRealtimeFallbackCopy();
   }, [clearRealtimeFallbackCopy]);
@@ -444,25 +584,28 @@ const ReadyGateOverlay = ({
     }, READY_GATE_REALTIME_RECOVERY_STABLE_MS);
   }, [clearOverlayRealtimeRecoveryTimer, clearRealtimeDegradedWhenHealthy]);
 
-  const releasePermissionPrewarmMedia = useCallback((reason: string) => {
-    const media = permissionPrewarmMediaRef.current;
-    clearPermissionPrewarmMediaReleaseTimer();
-    if (!media) return;
-    permissionPrewarmMediaRef.current = null;
-    if (user?.id) {
-      clearWebVideoDateMediaHandoff(sessionId, user.id);
-    }
-    permissionPrewarmMediaHandoffStoredRef.current = false;
-    stopMediaStreamTracks(media.stream);
-    vdbg("ready_gate_permission_prewarm_media_released", {
-      sessionId,
-      eventId,
-      captureProfile: media.captureProfile,
-      source: media.source,
-      reason,
-      ageMs: Math.max(0, Date.now() - media.acquiredAtMs),
-    });
-  }, [clearPermissionPrewarmMediaReleaseTimer, eventId, sessionId, user?.id]);
+  const releasePermissionPrewarmMedia = useCallback(
+    (reason: string) => {
+      const media = permissionPrewarmMediaRef.current;
+      clearPermissionPrewarmMediaReleaseTimer();
+      if (!media) return;
+      permissionPrewarmMediaRef.current = null;
+      if (user?.id) {
+        clearWebVideoDateMediaHandoff(sessionId, user.id);
+      }
+      permissionPrewarmMediaHandoffStoredRef.current = false;
+      stopMediaStreamTracks(media.stream);
+      vdbg("ready_gate_permission_prewarm_media_released", {
+        sessionId,
+        eventId,
+        captureProfile: media.captureProfile,
+        source: media.source,
+        reason,
+        ageMs: Math.max(0, Date.now() - media.acquiredAtMs),
+      });
+    },
+    [clearPermissionPrewarmMediaReleaseTimer, eventId, sessionId, user?.id],
+  );
 
   useLayoutEffect(() => {
     activeReadyGateKeyRef.current = activeReadyGateKey;
@@ -497,33 +640,43 @@ const ReadyGateOverlay = ({
       const key = `${sessionId}:${source}`;
       if (duplicateNavSuppressionKeysRef.current.has(key)) return;
       duplicateNavSuppressionKeysRef.current.add(key);
-      trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_DUPLICATE_NAV_SUPPRESSED, {
+      trackReadyGateClientEvent(
+        LobbyPostDateEvents.READY_GATE_CLIENT_DUPLICATE_NAV_SUPPRESSED,
+        {
+          source,
+          source_action: source,
+          ready_gate_status: "both_ready",
+          reason: "navigation_already_started",
+          terminal: false,
+        },
+      );
+      addReadyGateBreadcrumb("duplicate_date_navigation_suppressed", {
         source,
-        source_action: source,
-        ready_gate_status: "both_ready",
-        reason: "navigation_already_started",
-        terminal: false,
       });
-      addReadyGateBreadcrumb("duplicate_date_navigation_suppressed", { source });
     },
     [addReadyGateBreadcrumb, sessionId, trackReadyGateClientEvent],
   );
 
   const suppressDuplicateTerminal = useCallback(
     (source: string, recoveryInput?: ReadyGateTerminalRecoveryInput) => {
-      const recovery = resolveReadyGateTerminalRecovery(recoveryInput ?? { reason: source });
+      const recovery = resolveReadyGateTerminalRecovery(
+        recoveryInput ?? { reason: source },
+      );
       const key = `${sessionId}:${source}:${recovery.category}`;
       if (duplicateTerminalSuppressionKeysRef.current.has(key)) return;
       duplicateTerminalSuppressionKeysRef.current.add(key);
-      trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_DUPLICATE_TERMINAL_SUPPRESSED, {
-        source,
-        source_action: source,
-        reason: recoveryInput?.reason ?? source,
-        error_code: recoveryInput?.errorCode ?? recoveryInput?.code ?? null,
-        inactive_reason: recoveryInput?.inactiveReason ?? null,
-        terminal: true,
-        terminal_category: recovery.category,
-      });
+      trackReadyGateClientEvent(
+        LobbyPostDateEvents.READY_GATE_CLIENT_DUPLICATE_TERMINAL_SUPPRESSED,
+        {
+          source,
+          source_action: source,
+          reason: recoveryInput?.reason ?? source,
+          error_code: recoveryInput?.errorCode ?? recoveryInput?.code ?? null,
+          inactive_reason: recoveryInput?.inactiveReason ?? null,
+          terminal: true,
+          terminal_category: recovery.category,
+        },
+      );
       addReadyGateBreadcrumb("duplicate_terminal_recovery_suppressed", {
         source,
         terminalCategory: recovery.category,
@@ -589,7 +742,13 @@ const ReadyGateOverlay = ({
       });
       onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
     },
-    [sessionId, eventId, onNavigateToDate, suppressDuplicateNav, addReadyGateBreadcrumb]
+    [
+      sessionId,
+      eventId,
+      onNavigateToDate,
+      suppressDuplicateNav,
+      addReadyGateBreadcrumb,
+    ],
   );
 
   const navigateToDateForSurveyRecovery = useCallback(
@@ -610,7 +769,13 @@ const ReadyGateOverlay = ({
       });
       onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
     },
-    [addReadyGateBreadcrumb, eventId, onNavigateToDate, sessionId, suppressDuplicateNav],
+    [
+      addReadyGateBreadcrumb,
+      eventId,
+      onNavigateToDate,
+      sessionId,
+      suppressDuplicateNav,
+    ],
   );
 
   const preloadVideoDateRoute = useCallback(
@@ -650,7 +815,11 @@ const ReadyGateOverlay = ({
               outcome: "success",
             }),
           );
-          vdbg("video_date_route_preloaded", { sessionId, eventId, sourceAction });
+          vdbg("video_date_route_preloaded", {
+            sessionId,
+            eventId,
+            sourceAction,
+          });
         })
         .catch(() => undefined);
     },
@@ -658,7 +827,13 @@ const ReadyGateOverlay = ({
   );
 
   const markRealtimeDegraded = useCallback(
-    (reason: "channel_error" | "channel_closed" | "channel_timed_out" | "missed_progress_detection") => {
+    (
+      reason:
+        | "channel_error"
+        | "channel_closed"
+        | "channel_timed_out"
+        | "missed_progress_detection",
+    ) => {
       clearOverlayRealtimeRecoveryTimer();
       overlayRealtimeDegradedRef.current = true;
       setRealtimeDegraded(true);
@@ -683,7 +858,9 @@ const ReadyGateOverlay = ({
       cameraPermissionStatus:
         current.cameraPermissionStatus === "blocked" ? "blocked" : "checking",
       microphonePermissionStatus:
-        current.microphonePermissionStatus === "blocked" ? "blocked" : "checking",
+        current.microphonePermissionStatus === "blocked"
+          ? "blocked"
+          : "checking",
     }));
     const next = await inspectWebReadyGateMediaDiagnostics();
     if (activeReadyGateKeyRef.current !== readyGateKey) return;
@@ -696,7 +873,10 @@ const ReadyGateOverlay = ({
         next.microphonePermissionStatus,
         current.microphonePermissionStatus,
       ),
-      cameraDeviceStatus: mergeRefreshedDiagnosticStatus(next.cameraDeviceStatus, current.cameraDeviceStatus),
+      cameraDeviceStatus: mergeRefreshedDiagnosticStatus(
+        next.cameraDeviceStatus,
+        current.cameraDeviceStatus,
+      ),
       microphoneDeviceStatus: mergeRefreshedDiagnosticStatus(
         next.microphoneDeviceStatus,
         current.microphoneDeviceStatus,
@@ -726,7 +906,11 @@ const ReadyGateOverlay = ({
       if (closedRef.current || dateNavigationStartedRef.current) return false;
       const userId = user?.id;
       if (!userId) return false;
-      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return false;
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.mediaDevices?.getUserMedia
+      )
+        return false;
       const readyGateKey = activeReadyGateKey;
 
       if (
@@ -738,7 +922,9 @@ const ReadyGateOverlay = ({
       }
 
       let sourceAction =
-        source === "ready_gate_open" ? "permission_prewarm_silent" : "permission_prewarm_gesture";
+        source === "ready_gate_open"
+          ? "permission_prewarm_silent"
+          : "permission_prewarm_gesture";
       let silentFallbackWaitMs: number | null = null;
 
       if (source === "ready_gate_open") {
@@ -754,7 +940,11 @@ const ReadyGateOverlay = ({
             }),
           ]);
           if (activeReadyGateKeyRef.current !== readyGateKey) return false;
-          if (cameraStatus.state !== "granted" || microphoneStatus.state !== "granted") return false;
+          if (
+            cameraStatus.state !== "granted" ||
+            microphoneStatus.state !== "granted"
+          )
+            return false;
         } catch {
           if (activeReadyGateKeyRef.current !== readyGateKey) return false;
           if (!permissionPrewarmSkipLoggedRef.current) {
@@ -787,7 +977,8 @@ const ReadyGateOverlay = ({
           if (activeReadyGateKeyRef.current !== readyGateKey) return false;
           if (!priorGrantEvidence) return false;
           sourceAction = "permission_prewarm_silent_no_permissions_api";
-          silentFallbackWaitMs = WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS;
+          silentFallbackWaitMs =
+            WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS;
         }
       }
 
@@ -821,9 +1012,13 @@ const ReadyGateOverlay = ({
       let media: ReadyGatePermissionPrewarmMedia | null = null;
       try {
         const streamPromise = getVideoDatePermissionPrewarmStream();
-        media = silentFallbackWaitMs == null
-          ? await streamPromise
-          : await waitForMediaStreamWithTimeout(streamPromise, silentFallbackWaitMs);
+        media =
+          silentFallbackWaitMs == null
+            ? await streamPromise
+            : await waitForMediaStreamWithTimeout(
+                streamPromise,
+                silentFallbackWaitMs,
+              );
         if (!media) {
           permissionPrewarmStartedRef.current = false;
           vdbg("ready_gate_permission_prewarm_silent_fallback_timed_out", {
@@ -849,10 +1044,12 @@ const ReadyGateOverlay = ({
         permissionPrewarmMediaRef.current = media;
         media = null;
         clearPermissionPrewarmMediaReleaseTimer();
-        const permissionPrewarmReleaseDelayMs = getReadyGatePermissionPrewarmReleaseDelayMs({
-          prewarmCompletedAtMs: permissionPrewarmMediaRef.current.acquiredAtMs,
-          nowMs: Date.now(),
-        });
+        const permissionPrewarmReleaseDelayMs =
+          getReadyGatePermissionPrewarmReleaseDelayMs({
+            prewarmCompletedAtMs:
+              permissionPrewarmMediaRef.current.acquiredAtMs,
+            nowMs: Date.now(),
+          });
         permissionPrewarmMediaReleaseTimerRef.current = setTimeout(() => {
           releasePermissionPrewarmMedia("permission_prewarm_media_ttl_expired");
         }, permissionPrewarmReleaseDelayMs);
@@ -861,7 +1058,8 @@ const ReadyGateOverlay = ({
           sessionId,
           userId,
           platform: "web",
-          captureProfile: permissionPrewarmMediaRef.current?.captureProfile ?? null,
+          captureProfile:
+            permissionPrewarmMediaRef.current?.captureProfile ?? null,
           source: "web_ready_gate",
         });
         const mediaHandoff = setWebVideoDateMediaHandoff({
@@ -928,15 +1126,21 @@ const ReadyGateOverlay = ({
         return true;
       } catch (error) {
         stopMediaStreamTracks(media?.stream ?? null);
-        const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera_microphone");
-        const isActiveReadyGate = activeReadyGateKeyRef.current === readyGateKey;
+        const permissionResult =
+          await classifyMediaPermissionErrorWithBrowserState(
+            error,
+            "camera_microphone",
+          );
+        const isActiveReadyGate =
+          activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
           if (isActiveReadyGate) {
             permissionPrewarmStartedRef.current = false;
           }
         }
         if (!isActiveReadyGate) return false;
-        const nextMediaDiagnostics = await resolveMediaDiagnosticsAfterPrewarmError(error);
+        const nextMediaDiagnostics =
+          await resolveMediaDiagnosticsAfterPrewarmError(error);
         if (activeReadyGateKeyRef.current !== readyGateKey) return false;
         setMediaDiagnostics(nextMediaDiagnostics);
         if (sourceAction === "permission_prewarm_silent_no_permissions_api") {
@@ -973,7 +1177,8 @@ const ReadyGateOverlay = ({
           eventId,
           userId,
           source,
-          error_cause: permissionResult.rawErrorName ?? "permission_prewarm_failed",
+          error_cause:
+            permissionResult.rawErrorName ?? "permission_prewarm_failed",
           permissionStatus: permissionResult.status,
           permissionState: permissionResult.permissionState,
           recoveryAction: permissionResult.recoveryAction,
@@ -999,7 +1204,8 @@ const ReadyGateOverlay = ({
   const canStartDailyPrewarmAfterWarmup = useCallback(
     async (userId: string): Promise<boolean> => {
       if (getVideoDatePermissionHandoff(sessionId, userId)) return true;
-      if (typeof navigator === "undefined" || !navigator.permissions?.query) return false;
+      if (typeof navigator === "undefined" || !navigator.permissions?.query)
+        return false;
       try {
         const [camera, microphone] = await Promise.all([
           navigator.permissions.query({ name: "camera" as PermissionName }),
@@ -1016,7 +1222,12 @@ const ReadyGateOverlay = ({
   const startRoomWarmupAfterReady = useCallback(
     (source: string, readyGateStatus?: string | null) => {
       if (!videoDateRoomWarmupAfterReadyEnabled()) return;
-      if (roomWarmupStartedRef.current || dateNavigationStartedRef.current || closedRef.current) return;
+      if (
+        roomWarmupStartedRef.current ||
+        dateNavigationStartedRef.current ||
+        closedRef.current
+      )
+        return;
       // 'ready' is the freshly-minted mutual-swipe state. Pre-creating the
       // room here (item #1 of the latency punch list) shaves the
       // room_create_or_verify roundtrip off the post-ready-tap path.
@@ -1026,7 +1237,11 @@ const ReadyGateOverlay = ({
       ) {
         return;
       }
-      if (readyGateStatus === "both_ready" && prepareEntryHandoffStartedRef.current) return;
+      if (
+        readyGateStatus === "both_ready" &&
+        prepareEntryHandoffStartedRef.current
+      )
+        return;
       const userId = user?.id;
       if (!userId) return;
 
@@ -1054,13 +1269,22 @@ const ReadyGateOverlay = ({
 
         const canPrewarmDaily = await canStartDailyPrewarmAfterWarmup(userId);
         if (activeReadyGateKeyRef.current !== readyGateKey) return;
-        if (!canPrewarmDaily || dateNavigationStartedRef.current || closedRef.current) {
+        if (
+          !canPrewarmDaily ||
+          prepareEntryHandoffStartedRef.current ||
+          dateNavigationStartedRef.current ||
+          closedRef.current
+        ) {
           vdbg("ready_gate_daily_prewarm_after_room_warmup_skipped", {
             sessionId,
             eventId,
             userId,
             source,
-            reason: canPrewarmDaily ? "closed_or_navigating" : "permission_not_proven",
+            reason: canPrewarmDaily
+              ? prepareEntryHandoffStartedRef.current
+                ? "prepare_entry_in_progress"
+                : "closed_or_navigating"
+              : "permission_not_proven",
           });
           return;
         }
@@ -1094,7 +1318,10 @@ const ReadyGateOverlay = ({
           roomName: result.data.room_name,
           ok: prewarm.ok,
           reason: prewarm.ok === true ? null : prewarm.reason,
-          appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
+          appAcquiredMedia:
+            prewarm.ok === true
+              ? Boolean(prewarm.entry.appAcquiredMedia)
+              : false,
         });
         // The ReadyGate warms camera/token/preauth only; it must never perform a
         // real Daily join. A lobby-side join would start the backend handshake/
@@ -1114,321 +1341,447 @@ const ReadyGateOverlay = ({
     ],
   );
 
-  const handleBothReady = useCallback((
-    sourceAction: "both_ready_observed" | "both_ready_observed_via_rpc_short_circuit" = "both_ready_observed",
-  ) => {
-    if (closedRef.current && !dateNavigationStartedRef.current) return;
-    if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) {
-      suppressDuplicateNav(prepareEntryHandoffStartedRef.current ? "prepare_entry_inflight" : "date_navigation_inflight");
-      return;
-    }
-    prepareEntryHandoffStartedRef.current = true;
-    recordUserAction("ready_gate_handoff_started", {
-      surface: "ready_gate_overlay",
-      session_id: sessionId,
-      event_id: eventId,
-    });
-    const runId = prepareEntryRunIdRef.current + 1;
-    prepareEntryRunIdRef.current = runId;
-    const isCurrentPrepareRun = () =>
-      mountedRef.current &&
-      prepareEntryRunIdRef.current === runId &&
-      !closedRef.current &&
-      !dateNavigationStartedRef.current;
-    const observedAtMs = Date.now();
-    const observedSource = sourceAction === "both_ready_observed_via_rpc_short_circuit"
-      ? "mark_ready_rpc"
-      : "both_ready";
-    bothReadyObservedAtMsRef.current = observedAtMs;
-    preloadVideoDateRoute(sourceAction);
-    setIsTransitioning(true);
-    setPrepareEntryStatus("preparing");
-    setPrepareEntryFailure(null);
-    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
-      sessionId,
-      platform: "web",
-      eventId,
-      sourceSurface: "ready_gate_overlay",
-      checkpoint: sourceAction,
-      nowMs: observedAtMs,
-    });
-    trackEvent(
-      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-      buildReadyGateToDateLatencyPayload({
-        context: latencyContext,
+  const handleBothReady = useCallback(
+    (
+      sourceAction:
+        | "both_ready_observed"
+        | "both_ready_observed_via_rpc_short_circuit" = "both_ready_observed",
+    ) => {
+      if (closedRef.current && !dateNavigationStartedRef.current) return;
+      if (
+        prepareEntryHandoffStartedRef.current ||
+        dateNavigationStartedRef.current
+      ) {
+        suppressDuplicateNav(
+          prepareEntryHandoffStartedRef.current
+            ? "prepare_entry_inflight"
+            : "date_navigation_inflight",
+        );
+        return;
+      }
+      prepareEntryHandoffStartedRef.current = true;
+      recordUserAction("ready_gate_handoff_started", {
+        surface: "ready_gate_overlay",
+        session_id: sessionId,
+        event_id: eventId,
+      });
+      const runId = prepareEntryRunIdRef.current + 1;
+      prepareEntryRunIdRef.current = runId;
+      const isCurrentPrepareRun = () =>
+        mountedRef.current &&
+        prepareEntryRunIdRef.current === runId &&
+        !closedRef.current &&
+        !dateNavigationStartedRef.current;
+      const observedAtMs = Date.now();
+      const observedSource =
+        sourceAction === "both_ready_observed_via_rpc_short_circuit"
+          ? "mark_ready_rpc"
+          : "both_ready";
+      bothReadyObservedAtMsRef.current = observedAtMs;
+      preloadVideoDateRoute(sourceAction);
+      setIsTransitioning(true);
+      setPrepareEntryStatus("preparing");
+      setPrepareEntryFailure(null);
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId,
+        sourceSurface: "ready_gate_overlay",
         checkpoint: sourceAction,
-        sourceAction,
-        outcome: "success",
-      }),
-    );
-    trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
-      platform: "web",
-      session_id: sessionId,
-      event_id: eventId,
-      source: observedSource,
-      source_surface: "ready_gate_overlay",
-      source_action: sourceAction,
-    });
-    vdbg("ready_gate_both_ready_observed", {
-      sessionId,
-      eventId,
-      source: observedSource,
-      sourceAction,
-    });
-
-    const slowWaitTimer = window.setTimeout(() => {
-      if (!isCurrentPrepareRun()) return;
-      setPrepareEntryStatus("slow");
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT, {
+        nowMs: observedAtMs,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: sourceAction,
+          sourceAction,
+          outcome: "success",
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
+        source: observedSource,
         source_surface: "ready_gate_overlay",
-        source_action: "prepare_entry_slow_wait",
-        elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+        source_action: sourceAction,
       });
-      vdbg("ready_gate_prepare_entry_slow_wait", {
+      vdbg("ready_gate_both_ready_observed", {
         sessionId,
         eventId,
-        elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+        source: observedSource,
+        sourceAction,
       });
-      void emitWebVideoDateClientStuckState({
-        sessionId,
-        eventName: "ready_gate_handoff_slow",
-        latencyMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
-        payload: {
+
+      const slowWaitTimer = window.setTimeout(() => {
+        if (!isCurrentPrepareRun()) return;
+        setPrepareEntryStatus("slow");
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
           source_surface: "ready_gate_overlay",
           source_action: "prepare_entry_slow_wait",
           elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
-        },
-      });
-    }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
+        });
+        vdbg("ready_gate_prepare_entry_slow_wait", {
+          sessionId,
+          eventId,
+          elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+        });
+        void emitWebVideoDateClientStuckState({
+          sessionId,
+          eventName: "ready_gate_handoff_slow",
+          latencyMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+          payload: {
+            source_surface: "ready_gate_overlay",
+            source_action: "prepare_entry_slow_wait",
+            elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+          },
+        });
+      }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
 
-    void (async () => {
-      try {
-        for (let attempt = 0; attempt <= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length; attempt += 1) {
-          if (!isCurrentPrepareRun()) return;
-          setPrepareEntryStatus(attempt === 0 ? "preparing" : "retrying");
-          const result = await prepareVideoDateEntry(sessionId, {
-            eventId,
-            userId: user?.id ?? null,
-            source: attempt === 0 ? "ready_gate_both_ready" : "ready_gate_both_ready_retry",
-            force: attempt > 0,
-            bothReadyObservedAtMs: observedAtMs,
-          });
-          if (!isCurrentPrepareRun()) return;
-          if (result.ok === true) {
-            if (user?.id) {
-              const prewarmUserId = user.id;
-              const prewarmMedia = permissionPrewarmMediaRef.current;
-              void startWebVideoDateDailyPrewarm({
-                sessionId,
-                userId: prewarmUserId,
-                eventId,
-                roomName: result.data.room_name,
-                roomUrl: result.data.room_url,
-                captureProfile: prewarmMedia?.captureProfile,
-                appAcquiredMedia: prewarmMedia,
-                source: "ready_gate_prepare_success",
-              }).then((prewarm) => {
-                if (
-                  prewarm.ok === true &&
-                  prewarmMedia &&
-                  prewarm.entry.appAcquiredMedia?.stream === prewarmMedia.stream
-                ) {
-                  permissionPrewarmMediaRef.current = null;
-                  clearPermissionPrewarmMediaReleaseTimer();
-                  clearWebVideoDateMediaHandoff(sessionId, prewarmUserId);
-                  permissionPrewarmMediaHandoffStoredRef.current = false;
-                }
-                vdbg("ready_gate_daily_prewarm_prepare_success", {
-                  sessionId,
-                  eventId,
-                  userId: prewarmUserId,
-                  roomName: result.data.room_name,
-                  ok: prewarm.ok,
-                  reason: prewarm.ok === true ? null : prewarm.reason,
-                  appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
-                });
-                if (prewarm.ok === true) {
-                  // Pre-authenticate only — do NOT join Daily from the lobby. The
-                  // real join (which starts the backend handshake clock) is owned by
-                  // /date (useVideoCall.startCall), so the full warm-up window only
-                  // begins once the user is on the stable date route.
-                  void preAuthWebVideoDateDailyPrewarm({
-                    sessionId,
-                    userId: prewarmUserId,
-                    eventId,
-                    roomName: result.data.room_name,
-                    roomUrl: result.data.room_url,
-                    token: result.data.token,
-                    source: "ready_gate_prepare_success",
-                  });
-                }
-              }).catch((error) => {
-                vdbg("ready_gate_daily_prewarm_prepare_success_failed", {
-                  sessionId,
-                  eventId,
-                  userId: prewarmUserId,
-                  roomName: result.data.room_name,
-                  error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-                });
-              });
-            }
+      void (async () => {
+        try {
+          for (
+            let attempt = 0;
+            attempt <= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
+            attempt += 1
+          ) {
             if (!isCurrentPrepareRun()) return;
-            window.clearTimeout(slowWaitTimer);
-            setPrepareEntryStatus("idle");
-            navigateToDate("both_ready_prepare_success");
-            return;
-          }
+            setPrepareEntryStatus(attempt === 0 ? "preparing" : "retrying");
+            const result = await prepareVideoDateEntry(sessionId, {
+              eventId,
+              userId: user?.id ?? null,
+              source:
+                attempt === 0
+                  ? "ready_gate_both_ready"
+                  : "ready_gate_both_ready_retry",
+              force: attempt > 0,
+              bothReadyObservedAtMs: observedAtMs,
+            });
+            if (!isCurrentPrepareRun()) return;
+            if (result.ok === true) {
+              if (user?.id) {
+                const prewarmUserId = user.id;
+                const prewarmMedia = permissionPrewarmMediaRef.current;
+                void startWebVideoDateDailyPrewarm({
+                  sessionId,
+                  userId: prewarmUserId,
+                  eventId,
+                  roomName: result.data.room_name,
+                  roomUrl: result.data.room_url,
+                  captureProfile: prewarmMedia?.captureProfile,
+                  appAcquiredMedia: prewarmMedia,
+                  source: "ready_gate_prepare_success",
+                })
+                  .then((prewarm) => {
+                    if (
+                      prewarm.ok === true &&
+                      prewarmMedia &&
+                      prewarm.entry.appAcquiredMedia?.stream ===
+                        prewarmMedia.stream
+                    ) {
+                      permissionPrewarmMediaRef.current = null;
+                      clearPermissionPrewarmMediaReleaseTimer();
+                      clearWebVideoDateMediaHandoff(sessionId, prewarmUserId);
+                      permissionPrewarmMediaHandoffStoredRef.current = false;
+                    }
+                    vdbg("ready_gate_daily_prewarm_prepare_success", {
+                      sessionId,
+                      eventId,
+                      userId: prewarmUserId,
+                      roomName: result.data.room_name,
+                      ok: prewarm.ok,
+                      reason: prewarm.ok === true ? null : prewarm.reason,
+                      appAcquiredMedia:
+                        prewarm.ok === true
+                          ? Boolean(prewarm.entry.appAcquiredMedia)
+                          : false,
+                    });
+                    if (prewarm.ok === true) {
+                      // Pre-authenticate only — do NOT join Daily from the lobby. The
+                      // real join (which starts the backend handshake clock) is owned by
+                      // /date (useVideoCall.startCall), so the full warm-up window only
+                      // begins once the user is on the stable date route.
+                      void preAuthWebVideoDateDailyPrewarm({
+                        sessionId,
+                        userId: prewarmUserId,
+                        eventId,
+                        roomName: result.data.room_name,
+                        roomUrl: result.data.room_url,
+                        token: result.data.token,
+                        source: "ready_gate_prepare_success",
+                      });
+                    }
+                  })
+                  .catch((error) => {
+                    vdbg("ready_gate_daily_prewarm_prepare_success_failed", {
+                      sessionId,
+                      eventId,
+                      userId: prewarmUserId,
+                      roomName: result.data.room_name,
+                      error:
+                        error instanceof Error
+                          ? { name: error.name, message: error.message }
+                          : String(error),
+                    });
+                  });
+              }
+              if (!isCurrentPrepareRun()) return;
+              window.clearTimeout(slowWaitTimer);
+              setPrepareEntryStatus("idle");
+              navigateToDate("both_ready_prepare_success");
+              return;
+            }
 
-          const recoveryInput: ReadyGateTerminalRecoveryInput = {
-            code: result.code,
-            errorCode: result.code,
-            reason: result.message ?? null,
-            source: "prepare_entry",
-          };
-          const inactivePrepareBlocker = isReadyGatePrepareEntryNonRetryable(recoveryInput);
-          const retryable = !inactivePrepareBlocker && shouldRetryVideoDateEntryHandoffFailure(result);
-          const exhausted = !retryable || attempt >= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
-          trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE, {
-            source_action: "prepare_entry_failed_no_nav",
-            code: result.code,
-            error_code: result.code,
-            reason: result.message ?? null,
-            httpStatus: result.httpStatus ?? null,
-            retryable,
-            terminal: !retryable,
-            attempt: attempt + 1,
-            attempt_count: attempt + 1,
-            latency_ms: Math.max(0, Date.now() - observedAtMs),
-          });
-          if (inactivePrepareBlocker) {
-            const inactiveKey = `${sessionId}:${result.code}:prepare_entry`;
-            if (nonRetryablePrepareFailureRef.current !== inactiveKey) {
-              nonRetryablePrepareFailureRef.current = inactiveKey;
-              trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_EVENT_INACTIVE, {
-                source_action: "prepare_entry_event_inactive",
+            const recoveryInput: ReadyGateTerminalRecoveryInput = {
+              code: result.code,
+              errorCode: result.code,
+              reason: result.message ?? null,
+              source: "prepare_entry",
+            };
+            const inactivePrepareBlocker =
+              isReadyGatePrepareEntryNonRetryable(recoveryInput);
+            const retryable =
+              !inactivePrepareBlocker &&
+              shouldRetryVideoDateEntryHandoffFailure(result);
+            const exhausted =
+              !retryable ||
+              attempt >= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
+            trackReadyGateClientEvent(
+              LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE,
+              {
+                source_action: "prepare_entry_failed_no_nav",
                 code: result.code,
                 error_code: result.code,
                 reason: result.message ?? null,
-                retryable: false,
-                terminal: true,
+                httpStatus: result.httpStatus ?? null,
+                retry_after_ms: result.retryAfterMs ?? null,
+                retryable,
+                terminal: !retryable,
                 attempt: attempt + 1,
+                attempt_count: attempt + 1,
                 latency_ms: Math.max(0, Date.now() - observedAtMs),
-              });
-              addReadyGateBreadcrumb("prepare_entry_event_inactive", {
-                code: result.code,
-                attempt: attempt + 1,
-              });
+              },
+            );
+            if (inactivePrepareBlocker) {
+              const inactiveKey = `${sessionId}:${result.code}:prepare_entry`;
+              if (nonRetryablePrepareFailureRef.current !== inactiveKey) {
+                nonRetryablePrepareFailureRef.current = inactiveKey;
+                trackReadyGateClientEvent(
+                  LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_EVENT_INACTIVE,
+                  {
+                    source_action: "prepare_entry_event_inactive",
+                    code: result.code,
+                    error_code: result.code,
+                    reason: result.message ?? null,
+                    retryable: false,
+                    terminal: true,
+                    attempt: attempt + 1,
+                    latency_ms: Math.max(0, Date.now() - observedAtMs),
+                  },
+                );
+                addReadyGateBreadcrumb("prepare_entry_event_inactive", {
+                  code: result.code,
+                  attempt: attempt + 1,
+                });
+              }
             }
-          }
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            source_surface: "ready_gate_overlay",
-            source_action: "prepare_entry_failed_no_nav",
-            code: result.code,
-            reason_code: result.code,
-            httpStatus: result.httpStatus ?? null,
-            retryable,
-            attempt: attempt + 1,
-            attempt_count: attempt + 1,
-            exhausted,
-          });
-          vdbg("ready_gate_prepare_entry_failed_no_nav", {
-            sessionId,
-            eventId,
-            code: result.code,
-            httpStatus: result.httpStatus ?? null,
-            retryable,
-            attempt: attempt + 1,
-            exhausted,
-          });
-
-          if (exhausted) {
-            window.clearTimeout(slowWaitTimer);
-            if (!dateNavigationStartedRef.current) {
-              prepareEntryHandoffStartedRef.current = false;
-            }
-            void emitWebVideoDateClientStuckState({
-              sessionId,
-              eventName: "prepare_date_entry_failed",
-              payload: {
+            trackEvent(
+              LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,
+              {
+                platform: "web",
+                session_id: sessionId,
+                event_id: eventId,
                 source_surface: "ready_gate_overlay",
                 source_action: "prepare_entry_failed_no_nav",
-                reason_code: result.code,
                 code: result.code,
-                http_status: result.httpStatus ?? undefined,
+                reason_code: result.code,
+                httpStatus: result.httpStatus ?? null,
+                retry_after_ms: result.retryAfterMs ?? null,
                 retryable,
                 attempt: attempt + 1,
                 attempt_count: attempt + 1,
                 exhausted,
-                entry_attempt_id: result.entryAttemptId ?? undefined,
-                video_date_trace_id: result.entryAttemptId ?? undefined,
               },
-            });
-            setIsTransitioning(false);
-            setPrepareEntryStatus("failed");
-            setPrepareEntryFailure({
+            );
+            vdbg("ready_gate_prepare_entry_failed_no_nav", {
+              sessionId,
+              eventId,
               code: result.code,
-              message: prepareEntryFailureMessage(result.code),
+              httpStatus: result.httpStatus ?? null,
+              retryAfterMs: result.retryAfterMs ?? null,
               retryable,
-              httpStatus: result.httpStatus,
+              attempt: attempt + 1,
+              exhausted,
             });
-            return;
-          }
 
-          setPrepareEntryStatus("retrying");
-          await sleep(VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt]);
-        }
-      } catch (error) {
-        window.clearTimeout(slowWaitTimer);
-        if (!dateNavigationStartedRef.current) {
-          prepareEntryHandoffStartedRef.current = false;
-        }
-        Sentry.captureException(error, {
-          tags: {
-            surface: "ready_gate_overlay",
-            action: "prepare_entry_handoff",
-          },
-          extra: {
+            const latestTruth = retryable
+              ? await fetchVideoSessionDateEntryTruthCoalesced(sessionId)
+              : null;
+            if (retryable && isTerminalReadyGateTruth(latestTruth)) {
+              window.clearTimeout(slowWaitTimer);
+              trackReadyGateClientEvent(
+                LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE,
+                {
+                  source_action: "prepare_entry_retry_cancelled_terminal",
+                  code: "SESSION_ENDED",
+                  error_code: "SESSION_ENDED",
+                  reason: "canonical_truth_terminal",
+                  httpStatus: null,
+                  retryable: false,
+                  terminal: true,
+                  attempt: attempt + 1,
+                  attempt_count: attempt + 1,
+                  latency_ms: Math.max(0, Date.now() - observedAtMs),
+                  ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                  vs_state: latestTruth?.state ?? null,
+                  vs_phase: latestTruth?.phase ?? null,
+                },
+              );
+              addReadyGateBreadcrumb("prepare_entry_retry_cancelled_terminal", {
+                attempt: attempt + 1,
+                ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                vs_state: latestTruth?.state ?? null,
+                vs_phase: latestTruth?.phase ?? null,
+              });
+              setIsTransitioning(false);
+              setPrepareEntryStatus("failed");
+              setPrepareEntryFailure({
+                code: "SESSION_ENDED",
+                message: prepareEntryFailureMessage("SESSION_ENDED"),
+                retryable: false,
+              });
+              prepareEntryHandoffStartedRef.current = true;
+              closedRef.current = true;
+              toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, {
+                duration: 3600,
+              });
+              onClose();
+              return;
+            }
+
+            if (inactivePrepareBlocker) {
+              window.clearTimeout(slowWaitTimer);
+              setIsTransitioning(false);
+              setPrepareEntryStatus("failed");
+              setPrepareEntryFailure({
+                code: result.code,
+                message: prepareEntryFailureMessage(result.code),
+                retryable: false,
+                httpStatus: result.httpStatus,
+              });
+              prepareEntryHandoffStartedRef.current = true;
+              closedRef.current = true;
+              toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, {
+                duration: 3600,
+              });
+              onClose();
+              return;
+            }
+
+            if (exhausted) {
+              window.clearTimeout(slowWaitTimer);
+              if (!dateNavigationStartedRef.current) {
+                prepareEntryHandoffStartedRef.current = false;
+              }
+              void emitWebVideoDateClientStuckState({
+                sessionId,
+                eventName: "prepare_date_entry_failed",
+                payload: {
+                  source_surface: "ready_gate_overlay",
+                  source_action: "prepare_entry_failed_no_nav",
+                  reason_code: result.code,
+                  code: result.code,
+                  http_status: result.httpStatus ?? undefined,
+                  retry_after_ms: result.retryAfterMs ?? undefined,
+                  retryable,
+                  attempt: attempt + 1,
+                  attempt_count: attempt + 1,
+                  exhausted,
+                  entry_attempt_id: result.entryAttemptId ?? undefined,
+                  video_date_trace_id: result.entryAttemptId ?? undefined,
+                },
+              });
+              setIsTransitioning(false);
+              setPrepareEntryStatus("failed");
+              setPrepareEntryFailure({
+                code: result.code,
+                message: prepareEntryFailureMessage(result.code),
+                retryable,
+                httpStatus: result.httpStatus,
+              });
+              return;
+            }
+
+            setPrepareEntryStatus("retrying");
+            await sleep(
+              getVideoDateEntryHandoffRetryDelayMs(
+                result,
+                VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt],
+              ),
+            );
+          }
+        } catch (error) {
+          window.clearTimeout(slowWaitTimer);
+          if (!dateNavigationStartedRef.current) {
+            prepareEntryHandoffStartedRef.current = false;
+          }
+          Sentry.captureException(error, {
+            tags: {
+              surface: "ready_gate_overlay",
+              action: "prepare_entry_handoff",
+            },
+            extra: {
+              sessionId,
+              eventId,
+              sourceAction,
+            },
+          });
+          vdbg("ready_gate_prepare_entry_exception_no_nav", {
             sessionId,
             eventId,
             sourceAction,
-          },
-        });
-        vdbg("ready_gate_prepare_entry_exception_no_nav", {
-          sessionId,
-          eventId,
-          sourceAction,
-          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-        });
-        if (mountedRef.current && !closedRef.current && !dateNavigationStartedRef.current) {
-          setIsTransitioning(false);
-          setPrepareEntryStatus("failed");
-          setPrepareEntryFailure({
-            code: "PREPARE_ENTRY_CLIENT_EXCEPTION",
-            message: prepareEntryFailureMessage("PREPARE_ENTRY_CLIENT_EXCEPTION"),
-            retryable: true,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : String(error),
           });
+          if (
+            mountedRef.current &&
+            !closedRef.current &&
+            !dateNavigationStartedRef.current
+          ) {
+            setIsTransitioning(false);
+            setPrepareEntryStatus("failed");
+            setPrepareEntryFailure({
+              code: "PREPARE_ENTRY_CLIENT_EXCEPTION",
+              message: prepareEntryFailureMessage(
+                "PREPARE_ENTRY_CLIENT_EXCEPTION",
+              ),
+              retryable: true,
+            });
+          }
+        } finally {
+          window.clearTimeout(slowWaitTimer);
         }
-      } finally {
-        window.clearTimeout(slowWaitTimer);
-      }
-    })();
-  }, [
-    addReadyGateBreadcrumb,
-    clearPermissionPrewarmMediaReleaseTimer,
-    eventId,
-    navigateToDate,
-    preloadVideoDateRoute,
-    sessionId,
-    suppressDuplicateNav,
-    trackReadyGateClientEvent,
-    user?.id,
-  ]);
+      })();
+    },
+    [
+      addReadyGateBreadcrumb,
+      clearPermissionPrewarmMediaReleaseTimer,
+      eventId,
+      navigateToDate,
+      onClose,
+      preloadVideoDateRoute,
+      sessionId,
+      suppressDuplicateNav,
+      trackReadyGateClientEvent,
+      user?.id,
+    ],
+  );
 
   const retryPrepareEntry = useCallback(() => {
     if (dateNavigationStartedRef.current) return;
@@ -1441,8 +1794,11 @@ const ReadyGateOverlay = ({
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip", detail?: ReadyGateTerminalDetail) => {
       const recoveryInput: ReadyGateTerminalRecoveryInput = {
-        status: detail?.status ?? (reason === "timeout" ? "expired" : "forfeited"),
-        reason: detail?.reason ?? (reason === "timeout" ? "ready_gate_expired" : "ready_gate_forfeit"),
+        status:
+          detail?.status ?? (reason === "timeout" ? "expired" : "forfeited"),
+        reason:
+          detail?.reason ??
+          (reason === "timeout" ? "ready_gate_expired" : "ready_gate_forfeit"),
         errorCode: detail?.errorCode ?? null,
         code: detail?.code ?? null,
         inactiveReason: detail?.inactiveReason ?? null,
@@ -1458,27 +1814,40 @@ const ReadyGateOverlay = ({
       terminalActionInFlightRef.current = false;
       setTerminalActionPending(false);
       setTerminalActionError(null);
-      readyGateDebug("terminal ready-gate close", { sessionId, reason, terminalCategory: recovery.category });
+      readyGateDebug("terminal ready-gate close", {
+        sessionId,
+        reason,
+        terminalCategory: recovery.category,
+      });
       if (!terminalOutcomeRef.current) {
         terminalOutcomeRef.current = true;
-        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TERMINAL, {
-          source_action: "ready_gate_terminal",
-          ready_gate_status: recoveryInput.status ?? null,
-          reason: recoveryInput.reason ?? reason,
-          error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
-          inactive_reason: recoveryInput.inactiveReason ?? null,
-          terminal: true,
-          terminal_category: recovery.category,
-          retryable: recovery.retryable,
-          elapsed_ms: Math.max(0, Date.now() - readyGateOpenedAtMsRef.current),
-        });
+        trackReadyGateClientEvent(
+          LobbyPostDateEvents.READY_GATE_CLIENT_TERMINAL,
+          {
+            source_action: "ready_gate_terminal",
+            ready_gate_status: recoveryInput.status ?? null,
+            reason: recoveryInput.reason ?? reason,
+            error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
+            inactive_reason: recoveryInput.inactiveReason ?? null,
+            terminal: true,
+            terminal_category: recovery.category,
+            retryable: recovery.retryable,
+            elapsed_ms: Math.max(
+              0,
+              Date.now() - readyGateOpenedAtMsRef.current,
+            ),
+          },
+        );
         trackEvent(LobbyPostDateEvents.READY_GATE_TIMEOUT, {
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
           reason,
           elapsed_ms: Math.max(0, Date.now() - readyGateOpenedAtMsRef.current),
-          age_seconds: Math.max(0, Math.floor((Date.now() - readyGateOpenedAtMsRef.current) / 1000)),
+          age_seconds: Math.max(
+            0,
+            Math.floor((Date.now() - readyGateOpenedAtMsRef.current) / 1000),
+          ),
           realtime_healthy: !realtimeDegraded,
         });
       }
@@ -1499,7 +1868,7 @@ const ReadyGateOverlay = ({
       realtimeDegraded,
       trackReadyGateClientEvent,
       suppressDuplicateTerminal,
-    ]
+    ],
   );
 
   const closeAsStale = useCallback(
@@ -1507,10 +1876,15 @@ const ReadyGateOverlay = ({
       const recoveryInput: ReadyGateTerminalRecoveryInput = {
         status: typeof detail?.status === "string" ? detail.status : null,
         reason: typeof detail?.reason === "string" ? detail.reason : source,
-        errorCode: typeof detail?.errorCode === "string" ? detail.errorCode : null,
+        errorCode:
+          typeof detail?.errorCode === "string" ? detail.errorCode : null,
         code: typeof detail?.code === "string" ? detail.code : null,
-        inactiveReason: typeof detail?.inactiveReason === "string" ? detail.inactiveReason : null,
-        terminal: typeof detail?.terminal === "boolean" ? detail.terminal : true,
+        inactiveReason:
+          typeof detail?.inactiveReason === "string"
+            ? detail.inactiveReason
+            : null,
+        terminal:
+          typeof detail?.terminal === "boolean" ? detail.terminal : true,
         source,
       };
       const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
@@ -1519,33 +1893,53 @@ const ReadyGateOverlay = ({
         return;
       }
       closedRef.current = true;
-      readyGateDebug("stale ready-gate close", { sessionId, source, ...(detail ?? {}) });
-      trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TERMINAL, {
+      readyGateDebug("stale ready-gate close", {
+        sessionId,
         source,
-        source_action: source,
-        ready_gate_status: recoveryInput.status ?? null,
-        reason: recoveryInput.reason ?? source,
-        error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
-        inactive_reason: recoveryInput.inactiveReason ?? null,
-        terminal: true,
-        terminal_category: recovery.category,
-        retryable: recovery.retryable,
+        ...(detail ?? {}),
       });
+      trackReadyGateClientEvent(
+        LobbyPostDateEvents.READY_GATE_CLIENT_TERMINAL,
+        {
+          source,
+          source_action: source,
+          ready_gate_status: recoveryInput.status ?? null,
+          reason: recoveryInput.reason ?? source,
+          error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
+          inactive_reason: recoveryInput.inactiveReason ?? null,
+          terminal: true,
+          terminal_category: recovery.category,
+          retryable: recovery.retryable,
+        },
+      );
       trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
-        reason: String((detail as { reason?: unknown } | undefined)?.reason ?? source),
+        reason: String(
+          (detail as { reason?: unknown } | undefined)?.reason ?? source,
+        ),
       });
       const toastKey = `${sessionId}:${recovery.category}:${recoveryInput.reason ?? source}`;
-      if (!invalidCloseToastRef.current && terminalToastKeyRef.current !== toastKey) {
+      if (
+        !invalidCloseToastRef.current &&
+        terminalToastKeyRef.current !== toastKey
+      ) {
         invalidCloseToastRef.current = true;
         terminalToastKeyRef.current = toastKey;
-        toast.info(recovery.toast || READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
+        toast.info(recovery.toast || READY_GATE_STALE_OR_ENDED_USER_MESSAGE, {
+          duration: 3600,
+        });
       }
       onClose();
     },
-    [onClose, sessionId, eventId, trackReadyGateClientEvent, suppressDuplicateTerminal]
+    [
+      onClose,
+      sessionId,
+      eventId,
+      trackReadyGateClientEvent,
+      suppressDuplicateTerminal,
+    ],
   );
 
   const {
@@ -1587,7 +1981,12 @@ const ReadyGateOverlay = ({
 
   const runTerminalAction = useCallback(
     async (dismissVariant: ReadyGateTerminalAction) => {
-      if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;
+      if (
+        dateNavigationStartedRef.current ||
+        closedRef.current ||
+        terminalActionInFlightRef.current
+      )
+        return;
       terminalActionInFlightRef.current = true;
       setTerminalActionPending(true);
       setTerminalActionError(null);
@@ -1598,7 +1997,9 @@ const ReadyGateOverlay = ({
         dismiss_variant: dismissVariant,
       });
       manualExitRequestedRef.current = true;
-      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
+      let transitionFailure: ReturnType<
+        typeof resolveReadyGateTransitionFailureCopy
+      > | null = null;
       try {
         const result = await skip();
         if (result.ok === false) {
@@ -1666,11 +2067,13 @@ const ReadyGateOverlay = ({
         terminalActionInFlightRef.current = false;
         manualExitRequestedRef.current = false;
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
-        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
-          action: "forfeit",
-          error: error instanceof Error ? error.message : String(error),
-          platform: "web",
-        });
+        const fallback =
+          transitionFailure ??
+          resolveReadyGateTransitionFailureCopy({
+            action: "forfeit",
+            error: error instanceof Error ? error.message : String(error),
+            platform: "web",
+          });
         const message = fallback.message;
         setTerminalActionPending(false);
         setTerminalActionError(message);
@@ -1691,14 +2094,17 @@ const ReadyGateOverlay = ({
           error_name: error instanceof Error ? error.name : "unknown",
           multi_device_conflict: fallback.staleOrConflict,
         });
-        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
-          action: "forfeit",
-          source_action: dismissVariant,
-          reason: fallback.reasonCode,
-          error_code: fallback.code ?? fallback.reasonCode,
-          terminal: false,
-          multi_device_conflict: fallback.staleOrConflict,
-        });
+        trackReadyGateClientEvent(
+          LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE,
+          {
+            action: "forfeit",
+            source_action: dismissVariant,
+            reason: fallback.reasonCode,
+            error_code: fallback.code ?? fallback.reasonCode,
+            terminal: false,
+            multi_device_conflict: fallback.staleOrConflict,
+          },
+        );
         toast.error(message, { duration: 3200 });
       }
     },
@@ -1707,12 +2113,74 @@ const ReadyGateOverlay = ({
 
   const reconcileSession = useCallback(
     async (source: string) => {
-      if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
+      if (
+        !sessionId ||
+        !eventId ||
+        !user?.id ||
+        dateNavigationStartedRef.current
+      )
+        return;
 
+      if (
+        (source === "initial" || source === "poll") &&
+        isBothReady &&
+        prepareEntryHandoffStartedRef.current
+      ) {
+        readyGateDebug(
+          "session reconciliation suppressed during prepare handoff",
+          {
+            sessionId,
+            source,
+          },
+        );
+        return;
+      }
+
+      if (source === "poll" && readyActionInFlightRef.current) {
+        readyGateDebug(
+          "poll reconciliation suppressed while mark-ready is in flight",
+          {
+            sessionId,
+            source,
+          },
+        );
+        return;
+      }
+
+      const nowMs = Date.now();
+      if (
+        source === "poll" &&
+        reconcileSessionCooldownUntilMsRef.current > nowMs
+      ) {
+        readyGateDebug(
+          "poll reconciliation cooling down after transient sync pressure",
+          {
+            sessionId,
+            retryAtMs: reconcileSessionCooldownUntilMsRef.current,
+          },
+        );
+        return;
+      }
+
+      if (reconcileSessionInFlightRef.current) {
+        readyGateDebug("session reconciliation coalesced", {
+          sessionId,
+          source,
+        });
+        return;
+      }
+
+      reconcileSessionInFlightRef.current = true;
+
+      try {
       if (source === "initial" || source === "poll") {
         const syncResult = await syncSession();
         if (dateNavigationStartedRef.current || closedRef.current) return;
         if (syncResult.ok === false) {
+          if (isReadyGateTransitionTimeoutSignal(syncResult)) {
+            reconcileSessionCooldownUntilMsRef.current =
+              Date.now() + READY_GATE_RECONCILE_TIMEOUT_COOLDOWN_MS;
+          }
           readyGateDebug("session reconciliation continuing after sync error", {
             sessionId,
             source,
@@ -1730,22 +2198,27 @@ const ReadyGateOverlay = ({
             closeAsStale(source, recoveryInput);
             return;
           }
+        } else {
+          reconcileSessionCooldownUntilMsRef.current = 0;
         }
       }
 
-      const [{ data: reg, error: regError }, { data: vs, error: vsError }] = await Promise.all([
-        supabase
-          .from("event_registrations")
-          .select("queue_status, current_room_id")
-          .eq("event_id", eventId)
-          .eq("profile_id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("video_sessions")
-          .select("participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at, daily_room_name, daily_room_url")
-          .eq("id", sessionId)
-          .maybeSingle(),
-      ]);
+      const [{ data: reg, error: regError }, { data: vs, error: vsError }] =
+        await Promise.all([
+          supabase
+            .from("event_registrations")
+            .select("queue_status, current_room_id")
+            .eq("event_id", eventId)
+            .eq("profile_id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("video_sessions")
+            .select(
+              "participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at, daily_room_name, daily_room_url",
+            )
+            .eq("id", sessionId)
+            .maybeSingle(),
+        ]);
 
       if (dateNavigationStartedRef.current) return;
 
@@ -1761,8 +2234,10 @@ const ReadyGateOverlay = ({
 
       const sameRoom = reg?.current_room_id === sessionId;
       const queueStatus = reg?.queue_status ?? null;
-      const readyGateStatus = (vs?.ready_gate_status as string | null | undefined) ?? null;
-      const isParticipant = vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
+      const readyGateStatus =
+        (vs?.ready_gate_status as string | null | undefined) ?? null;
+      const isParticipant =
+        vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
 
       // Item #1 of the latency punch list: pre-create the Daily room as
       // soon as we observe a freshly-minted mutual swipe (status='ready'),
@@ -1793,9 +2268,9 @@ const ReadyGateOverlay = ({
           ? "date"
           : recovery.action === "go_survey"
             ? "survey"
-          : recovery.action === "go_ready_gate"
-            ? "ready"
-            : "lobby";
+            : recovery.action === "go_ready_gate"
+              ? "ready"
+              : "lobby";
 
       readyGateDebug("session reconciliation", {
         sessionId,
@@ -1854,7 +2329,10 @@ const ReadyGateOverlay = ({
 
       if (decision !== "navigate_ready") {
         closeAsStale(source, {
-          reason: decision === "ended" ? "session_ended" : "session_not_ready_gate_eligible",
+          reason:
+            decision === "ended"
+              ? "session_ended"
+              : "session_not_ready_gate_eligible",
           queueStatus,
           currentRoomId: reg?.current_room_id ?? null,
         });
@@ -1862,11 +2340,15 @@ const ReadyGateOverlay = ({
       }
 
       void refetchSession();
+      } finally {
+        reconcileSessionInFlightRef.current = false;
+      }
     },
     [
       sessionId,
       eventId,
       user?.id,
+      isBothReady,
       handleBothReady,
       closeAsStale,
       refetchSession,
@@ -1874,7 +2356,7 @@ const ReadyGateOverlay = ({
       markRealtimeDegraded,
       startRoomWarmupAfterReady,
       navigateToDateForSurveyRecovery,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -1883,14 +2365,16 @@ const ReadyGateOverlay = ({
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
-    if (typeof document === "undefined" || typeof window === "undefined") return;
+    if (typeof document === "undefined" || typeof window === "undefined")
+      return;
 
     const retryOnForeground = (source: string) => {
       if (dateNavigationStartedRef.current || closedRef.current) return;
       void retryBroadcastGapRecovery(source);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") retryOnForeground("visibility_resume");
+      if (document.visibilityState === "visible")
+        retryOnForeground("visibility_resume");
     };
     const handleFocus = () => retryOnForeground("window_focus");
     const handleOnline = () => retryOnForeground("network_online");
@@ -1922,16 +2406,22 @@ const ReadyGateOverlay = ({
           if (row.event_id !== eventId) return;
           const queueStatus = row.queue_status;
           const currentRoomId = row.current_room_id;
-          if (currentRoomId === sessionId && ACTIVE_DATE_QUEUE_STATUSES.has(String(queueStatus))) {
-            readyGateDebug("same-session active date detected from registration realtime", {
-              sessionId,
-              queueStatus,
-            });
+          if (
+            currentRoomId === sessionId &&
+            ACTIVE_DATE_QUEUE_STATUSES.has(String(queueStatus))
+          ) {
+            readyGateDebug(
+              "same-session active date detected from registration realtime",
+              {
+                sessionId,
+                queueStatus,
+              },
+            );
             handleBothReady();
             return;
           }
           void reconcileSession("registration_realtime");
-        }
+        },
       )
       .on(
         "postgres_changes",
@@ -1951,18 +2441,21 @@ const ReadyGateOverlay = ({
             surface: "ready_gate",
           });
           if (recovery.action === "go_date") {
-            readyGateDebug("same-session active date detected from video session realtime", {
-              sessionId,
-              state: row.state,
-              phase: row.phase,
-              readyGateStatus: row.ready_gate_status,
-              readyGateExpiresAt: row.ready_gate_expires_at,
-            });
+            readyGateDebug(
+              "same-session active date detected from video session realtime",
+              {
+                sessionId,
+                state: row.state,
+                phase: row.phase,
+                readyGateStatus: row.ready_gate_status,
+                readyGateExpiresAt: row.ready_gate_expires_at,
+              },
+            );
             handleBothReady();
             return;
           }
           void reconcileSession("video_session_realtime");
-        }
+        },
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
@@ -1997,10 +2490,11 @@ const ReadyGateOverlay = ({
   ]);
 
   useEffect(() => {
-    if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
+    if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current)
+      return;
     const pollFallbackActive = realtimeDegraded || sequenceGapUnresolved;
     if (!pollFallbackActive) return;
-    const intervalMs = 1_000;
+    const intervalMs = READY_GATE_DEGRADED_SYNC_POLL_MS;
     const intervalId = setInterval(() => {
       if (realtimeDegraded && !realtimeFallbackLoggedRef.current) {
         realtimeFallbackLoggedRef.current = true;
@@ -2030,10 +2524,20 @@ const ReadyGateOverlay = ({
         realtimeFallbackCopyTimerRef.current = null;
       }
     };
-  }, [sessionId, eventId, user?.id, realtimeDegraded, sequenceGapUnresolved, reconcileSession]);
+  }, [
+    sessionId,
+    eventId,
+    user?.id,
+    realtimeDegraded,
+    sequenceGapUnresolved,
+    reconcileSession,
+  ]);
 
   useEffect(() => {
-    if (iAmReady) setMarkingReady(false);
+    if (iAmReady) {
+      readyActionInFlightRef.current = false;
+      setMarkingReady(false);
+    }
   }, [iAmReady]);
 
   useEffect(() => {
@@ -2052,6 +2556,7 @@ const ReadyGateOverlay = ({
     overlayRealtimeDegradedRef.current = false;
     orchestratorRealtimeDegradedRef.current = false;
     terminalActionInFlightRef.current = false;
+    readyActionInFlightRef.current = false;
     manualExitRequestedRef.current = false;
     duplicateNavSuppressionKeysRef.current = new Set();
     duplicateTerminalSuppressionKeysRef.current = new Set();
@@ -2134,7 +2639,13 @@ const ReadyGateOverlay = ({
     if (!sessionId || !eventId || !user?.id) return;
     void refreshMediaDiagnostics();
     void runPermissionPrewarm("ready_gate_open");
-  }, [eventId, refreshMediaDiagnostics, runPermissionPrewarm, sessionId, user?.id]);
+  }, [
+    eventId,
+    refreshMediaDiagnostics,
+    runPermissionPrewarm,
+    sessionId,
+    user?.id,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2168,7 +2679,10 @@ const ReadyGateOverlay = ({
           Boolean(latestContext.userId) &&
           permissionPrewarmMediaHandoffStoredRef.current;
         if (latestContext.userId && !keepMediaHandoffForDate) {
-          clearWebVideoDateMediaHandoff(latestContext.sessionId, latestContext.userId);
+          clearWebVideoDateMediaHandoff(
+            latestContext.sessionId,
+            latestContext.userId,
+          );
         }
         if (!keepMediaHandoffForDate) {
           permissionPrewarmMediaHandoffStoredRef.current = false;
@@ -2181,7 +2695,9 @@ const ReadyGateOverlay = ({
           eventId: latestContext.eventId,
           captureProfile: media.captureProfile,
           source: media.source,
-          reason: keepMediaHandoffForDate ? "ready_gate_unmount_handoff_kept_for_date" : "ready_gate_unmount",
+          reason: keepMediaHandoffForDate
+            ? "ready_gate_unmount_handoff_kept_for_date"
+            : "ready_gate_unmount",
           ageMs: Math.max(0, Date.now() - media.acquiredAtMs),
         });
       }
@@ -2193,7 +2709,15 @@ const ReadyGateOverlay = ({
   }, [sessionId]);
 
   useEffect(() => {
-    if (isTransitioning || isBothReady || !iAmReady || !partnerReadyKnown || partnerReady || snoozedByPartner) return;
+    if (
+      isTransitioning ||
+      isBothReady ||
+      !iAmReady ||
+      !partnerReadyKnown ||
+      partnerReady ||
+      snoozedByPartner
+    )
+      return;
     if (openingWaitImpressionRef.current) return;
     openingWaitImpressionRef.current = true;
     trackEvent(LobbyPostDateEvents.READY_GATE_OPENING_WAIT_IMPRESSION, {
@@ -2201,7 +2725,16 @@ const ReadyGateOverlay = ({
       session_id: sessionId,
       event_id: eventId,
     });
-  }, [eventId, iAmReady, isBothReady, isTransitioning, partnerReady, partnerReadyKnown, sessionId, snoozedByPartner]);
+  }, [
+    eventId,
+    iAmReady,
+    isBothReady,
+    isTransitioning,
+    partnerReady,
+    partnerReadyKnown,
+    sessionId,
+    snoozedByPartner,
+  ]);
 
   // Fetch partner photo + shared vibes
   useEffect(() => {
@@ -2226,7 +2759,8 @@ const ReadyGateOverlay = ({
       if (cancelled || !session) return;
 
       const isParticipant =
-        session.participant_1_id === user.id || session.participant_2_id === user.id;
+        session.participant_1_id === user.id ||
+        session.participant_2_id === user.id;
       if (!isParticipant) return;
 
       const partnerId =
@@ -2240,12 +2774,22 @@ const ReadyGateOverlay = ({
       });
       if (cancelled) return;
 
-      const partnerProfile = profile as { avatar_url?: unknown; photos?: unknown; vibes?: unknown } | null;
+      const partnerProfile = profile as {
+        avatar_url?: unknown;
+        photos?: unknown;
+        vibes?: unknown;
+      } | null;
       if (partnerProfile) {
         const photos = Array.isArray(partnerProfile.photos)
-          ? partnerProfile.photos.filter((photo): photo is string => typeof photo === "string" && photo.trim().length > 0)
+          ? partnerProfile.photos.filter(
+              (photo): photo is string =>
+                typeof photo === "string" && photo.trim().length > 0,
+            )
           : null;
-        const avatarUrl = typeof partnerProfile.avatar_url === "string" ? partnerProfile.avatar_url.trim() : "";
+        const avatarUrl =
+          typeof partnerProfile.avatar_url === "string"
+            ? partnerProfile.avatar_url.trim()
+            : "";
         setPartnerPhotos(photos?.length ? photos : null);
         setPartnerAvatarUrl(avatarUrl || null);
       }
@@ -2262,11 +2806,16 @@ const ReadyGateOverlay = ({
         const myLabels = new Set(
           myVibes
             .map((v) => {
-              const raw = v.vibe_tags as { label?: unknown } | Array<{ label?: unknown }> | null;
+              const raw = v.vibe_tags as
+                | { label?: unknown }
+                | Array<{ label?: unknown }>
+                | null;
               const tag = Array.isArray(raw) ? raw[0] : raw;
-              return typeof tag?.label === "string" ? tag.label.trim().toLowerCase() : null;
+              return typeof tag?.label === "string"
+                ? tag.label.trim().toLowerCase()
+                : null;
             })
-            .filter((label): label is string => Boolean(label))
+            .filter((label): label is string => Boolean(label)),
         );
         const seen = new Set<string>();
         const shared = partnerProfile.vibes.flatMap((label) => {
@@ -2288,21 +2837,34 @@ const ReadyGateOverlay = ({
 
   // Countdown timer (only when user hasn't pressed ready yet)
   useEffect(() => {
-    if (isTransitioning || iAmReady || snoozedByPartner || terminalActionPending) return;
+    if (
+      isTransitioning ||
+      iAmReady ||
+      markingReady ||
+      snoozedByPartner ||
+      terminalActionPending
+    )
+      return;
 
     const tick = () => {
       const countdown = getReadyGateCountdownFromServerClock({
-        expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? expiresAt : expiresAt,
+        expiresAt: readyGateClockEnabled
+          ? (phaseDeadlineAtMs ?? expiresAt)
+          : expiresAt,
         serverNowMs: readyGateClockEnabled ? serverNowMs : null,
         clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
-        fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT * 1000,
+        fallbackDeadlineMs:
+          readyGateOpenedAtMsRef.current + GATE_TIMEOUT * 1000,
         fallbackSeconds: GATE_TIMEOUT,
       });
       const next = countdown.remainingSeconds;
       setTimeLeft(next);
       if (next <= 0) {
         const now = Date.now();
-        if (expirySyncInFlightRef.current || expirySyncRetryAtMsRef.current > now) {
+        if (
+          expirySyncInFlightRef.current ||
+          expirySyncRetryAtMsRef.current > now
+        ) {
           return;
         }
         expirySyncInFlightRef.current = true;
@@ -2329,6 +2891,7 @@ const ReadyGateOverlay = ({
   }, [
     isTransitioning,
     iAmReady,
+    markingReady,
     snoozedByPartner,
     terminalActionPending,
     expiresAt,
@@ -2346,7 +2909,10 @@ const ReadyGateOverlay = ({
   const radius = (ringSize - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - progress);
-  const transitionCopy = prepareEntryTransitionCopy(prepareEntryStatus, prepareEntryFailure);
+  const transitionCopy = prepareEntryTransitionCopy(
+    prepareEntryStatus,
+    prepareEntryFailure,
+  );
   const readyGateReadinessCopy = getReadyGateReadinessStatusCopy({
     iAmReady,
     partnerReady,
@@ -2355,7 +2921,8 @@ const ReadyGateOverlay = ({
     markingReady,
     partnerName,
   });
-  const showConnectingReadinessCopy = readyGateReadinessCopy.key === "both_ready_connecting";
+  const showConnectingReadinessCopy =
+    readyGateReadinessCopy.key === "both_ready_connecting";
   const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
   const diagnosticChecklist = resolveReadyGateDiagnosticChecklist({
     platform: "web",
@@ -2370,9 +2937,16 @@ const ReadyGateOverlay = ({
         : prepareEntryStatus !== "idle"
           ? "checking"
           : "waiting",
-    realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? "warning" : "ok",
-    partnerReadinessStatus: isBothReady || partnerReady ? "ok" : iAmReady ? "warning" : "checking",
+    realtimeSyncStatus:
+      realtimeDegraded || sequenceGapUnresolved ? "warning" : "ok",
+    partnerReadinessStatus:
+      isBothReady || partnerReady ? "ok" : iAmReady ? "warning" : "checking",
   });
+  const mediaDiagnosticsAreGreen =
+    mediaDiagnostics.cameraPermissionStatus === "ok" &&
+    mediaDiagnostics.microphonePermissionStatus === "ok" &&
+    mediaDiagnostics.cameraDeviceStatus === "ok" &&
+    mediaDiagnostics.microphoneDeviceStatus === "ok";
   const handleDiagnosticAction = (row: ReadyGateDiagnosticCopy) => {
     if (terminalActionPending) return;
     switch (row.actionKind) {
@@ -2417,7 +2991,10 @@ const ReadyGateOverlay = ({
       }}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => {}} />
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={() => {}}
+      />
 
       {/* Transitioning to video */}
       <AnimatePresence>
@@ -2427,10 +3004,21 @@ const ReadyGateOverlay = ({
             animate={{ opacity: 1, scale: 1 }}
             className="absolute inset-0 z-10 bg-background flex items-center justify-center"
           >
-            <div className="px-6 text-center space-y-4" role="status" aria-live="polite" aria-atomic="true">
+            <div
+              className="px-6 text-center space-y-4"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
               <motion.div
-                animate={prefersReducedMotion ? undefined : { scale: [1, 1.2, 1] }}
-                transition={prefersReducedMotion ? undefined : { duration: 1.5, repeat: Infinity }}
+                animate={
+                  prefersReducedMotion ? undefined : { scale: [1, 1.2, 1] }
+                }
+                transition={
+                  prefersReducedMotion
+                    ? undefined
+                    : { duration: 1.5, repeat: Infinity }
+                }
                 aria-hidden="true"
               >
                 {prepareEntryStatus === "failed" ? (
@@ -2442,7 +3030,9 @@ const ReadyGateOverlay = ({
               <p className="text-lg font-display font-semibold text-foreground break-words">
                 {transitionCopy.title}
               </p>
-              <p className="text-sm text-muted-foreground max-w-xs mx-auto break-words">{transitionCopy.body}</p>
+              <p className="text-sm text-muted-foreground max-w-xs mx-auto break-words">
+                {transitionCopy.body}
+              </p>
               {prepareEntryStatus === "failed" && (
                 <div className="flex items-center justify-center gap-3 pt-2">
                   {prepareEntryFailure?.retryable && (
@@ -2471,7 +3061,9 @@ const ReadyGateOverlay = ({
                 </div>
               )}
               {terminalActionError && (
-                <p className="text-xs text-destructive max-w-xs mx-auto">{terminalActionError}</p>
+                <p className="text-xs text-destructive max-w-xs mx-auto">
+                  {terminalActionError}
+                </p>
               )}
             </div>
           </motion.div>
@@ -2482,10 +3074,24 @@ const ReadyGateOverlay = ({
       <motion.div
         ref={dialogRef}
         tabIndex={-1}
-        initial={prefersReducedMotion ? { opacity: 0 } : { y: 100, scale: 0.95, opacity: 0 }}
-        animate={prefersReducedMotion ? { opacity: 1 } : { y: 0, scale: 1, opacity: 1 }}
-        exit={prefersReducedMotion ? { opacity: 0 } : { y: 100, scale: 0.95, opacity: 0 }}
-        transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 28 }}
+        initial={
+          prefersReducedMotion
+            ? { opacity: 0 }
+            : { y: 100, scale: 0.95, opacity: 0 }
+        }
+        animate={
+          prefersReducedMotion ? { opacity: 1 } : { y: 0, scale: 1, opacity: 1 }
+        }
+        exit={
+          prefersReducedMotion
+            ? { opacity: 0 }
+            : { y: 100, scale: 0.95, opacity: 0 }
+        }
+        transition={
+          prefersReducedMotion
+            ? { duration: 0.12 }
+            : { type: "spring", stiffness: 300, damping: 28 }
+        }
         className="relative z-10 max-h-full min-h-[min(30rem,calc(100dvh-2rem))] w-full max-w-sm overflow-y-auto rounded-3xl border border-white/10 overscroll-contain sm:min-h-[min(34rem,calc(100dvh-2rem))]"
         style={{
           background:
@@ -2496,10 +3102,16 @@ const ReadyGateOverlay = ({
         <div className="p-6 space-y-5">
           {/* Heading */}
           <div className="text-center space-y-1">
-            <h2 id="ready-gate-title" className="text-xl font-display font-bold text-foreground break-words">
+            <h2
+              id="ready-gate-title"
+              className="text-xl font-display font-bold text-foreground break-words"
+            >
               Ready to vibe?
             </h2>
-            <p id="ready-gate-description" className="text-sm text-muted-foreground break-words">
+            <p
+              id="ready-gate-description"
+              className="text-sm text-muted-foreground break-words"
+            >
               You matched with {partnerName || "someone"}.
             </p>
           </div>
@@ -2567,7 +3179,10 @@ const ReadyGateOverlay = ({
                 aria-live="polite"
                 className="flex items-center justify-center gap-2 py-2"
               >
-                <Clock className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <Clock
+                  className="w-4 h-4 text-muted-foreground"
+                  aria-hidden="true"
+                />
                 <span className="text-sm text-muted-foreground">
                   {partnerName} needs a moment...
                 </span>
@@ -2591,16 +3206,28 @@ const ReadyGateOverlay = ({
                       ? "text-amber-300 bg-amber-300/10"
                       : "text-muted-foreground bg-white/5";
               const Icon = row.status === "ok" ? Check : isError ? X : Clock;
-              const showAction = row.actionLabel && row.actionKind !== "none" && row.actionKind !== "wait";
+              const showAction =
+                row.actionLabel &&
+                row.actionKind !== "none" &&
+                row.actionKind !== "wait";
               return (
-                <div key={row.key} className="flex min-h-10 items-center gap-2 text-left">
-                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${accentClass}`}>
+                <div
+                  key={row.key}
+                  className="flex min-h-10 items-center gap-2 text-left"
+                >
+                  <span
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${accentClass}`}
+                  >
                     <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-foreground">{row.label}</span>
+                    <span className="block truncate text-xs font-semibold text-foreground">
+                      {row.label}
+                    </span>
                     {row.status !== "ok" && (
-                      <span className="block break-words text-[11px] leading-4 text-muted-foreground">{row.title}</span>
+                      <span className="block break-words text-[11px] leading-4 text-muted-foreground">
+                        {row.title}
+                      </span>
                     )}
                   </span>
                   {showAction && (
@@ -2620,12 +3247,19 @@ const ReadyGateOverlay = ({
 
           {/* Action area */}
           {showRealtimeFallbackCopy && !isTransitioning && (
-            <p className="text-center text-xs text-muted-foreground break-words" role="status" aria-live="polite">
+            <p
+              className="text-center text-xs text-muted-foreground break-words"
+              role="status"
+              aria-live="polite"
+            >
               Syncing your date status...
             </p>
           )}
           {terminalActionError && !isTransitioning && (
-            <p className="text-center text-xs text-destructive break-words" role="alert">
+            <p
+              className="text-center text-xs text-destructive break-words"
+              role="alert"
+            >
               {terminalActionError}
             </p>
           )}
@@ -2639,19 +3273,28 @@ const ReadyGateOverlay = ({
                   type="button"
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
                   onClick={() => {
-                    if (markingReady || requestingSnooze || terminalActionPending) return;
+                    if (
+                      readyActionInFlightRef.current ||
+                      markingReady ||
+                      requestingSnooze ||
+                      terminalActionPending
+                    ) {
+                      return;
+                    }
+                    readyActionInFlightRef.current = true;
                     recordUserAction("ready_gate_ready_clicked", {
                       surface: "ready_gate_overlay",
                       session_id: sessionId,
                       event_id: eventId,
                     });
-                    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
-                      sessionId,
-                      platform: "web",
-                      eventId,
-                      sourceSurface: "ready_gate_overlay",
-                      checkpoint: "ready_tap",
-                    });
+                    const latencyContext =
+                      recordReadyGateToDateLatencyCheckpoint({
+                        sessionId,
+                        platform: "web",
+                        eventId,
+                        sourceSurface: "ready_gate_overlay",
+                        checkpoint: "ready_tap",
+                      });
                     trackEvent(
                       LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
                       buildReadyGateToDateLatencyPayload({
@@ -2668,76 +3311,150 @@ const ReadyGateOverlay = ({
                       source_surface: "ready_gate_overlay",
                       source_action: "ready_tap",
                     });
-                    trackEvent(LobbyPostDateEvents.VIDEO_DATE_READY_GATE_READY, {
-                      platform: "web",
-                      session_id: sessionId,
-                      event_id: eventId,
-                      source_surface: "ready_gate_overlay",
-                      source_action: "ready_tap",
-                    });
+                    trackEvent(
+                      LobbyPostDateEvents.VIDEO_DATE_READY_GATE_READY,
+                      {
+                        platform: "web",
+                        session_id: sessionId,
+                        event_id: eventId,
+                        source_surface: "ready_gate_overlay",
+                        source_action: "ready_tap",
+                      },
+                    );
                     setMarkingReady(true);
                     void (async () => {
-                      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
+                      let transitionFailure: ReturnType<
+                        typeof resolveReadyGateTransitionFailureCopy
+                      > | null = null;
                       try {
                         setTerminalActionError(null);
-                        const permissionReady = await runPermissionPrewarm("ready_tap");
-                        if (!permissionReady) {
-                          setTerminalActionError("Allow camera and microphone access to join this date.");
-                          trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
-                            platform: "web",
-                            session_id: sessionId,
-                            event_id: eventId,
-                            reason: "ready_tap_permission_not_ready",
-                            permission_status: "unknown",
-                            recovery_action: "request_permission",
-                            settings_deep_link: "browser_site_settings",
-                            source_surface: "ready_gate_overlay",
-                            source_action: "ready_tap",
-                          });
+                        const permissionReady =
+                          await runPermissionPrewarm("ready_tap");
+                        if (!permissionReady && !mediaDiagnosticsAreGreen) {
+                          setTerminalActionError(
+                            "Allow camera and microphone access to join this date.",
+                          );
+                          trackEvent(
+                            LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED,
+                            {
+                              platform: "web",
+                              session_id: sessionId,
+                              event_id: eventId,
+                              reason: "ready_tap_permission_not_ready",
+                              permission_status: "unknown",
+                              recovery_action: "request_permission",
+                              settings_deep_link: "browser_site_settings",
+                              source_surface: "ready_gate_overlay",
+                              source_action: "ready_tap",
+                            },
+                          );
                           return;
+                        }
+                        if (!permissionReady && mediaDiagnosticsAreGreen) {
+                          trackReadyGateClientEvent(
+                            LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE,
+                            {
+                              action: "mark_ready",
+                              source_action: "ready_tap",
+                              reason:
+                                "permission_prewarm_failed_diagnostics_ok",
+                              error_code:
+                                "permission_prewarm_failed_diagnostics_ok",
+                              terminal: false,
+                              retryable: true,
+                            },
+                          );
                         }
                         const result = await markReady();
                         if (result.ok === false) {
-                          transitionFailure = resolveReadyGateTransitionFailureCopy({
-                            action: "mark_ready",
-                            code: result.code,
-                            errorCode: result.errorCode,
-                            reason: result.reason,
-                            error: result.error,
-                            status: result.status,
-                            platform: "web",
-                          });
+                          if (isReadyGateTransitionTimeoutSignal(result)) {
+                            const syncResult = await syncSession();
+                            if (
+                              syncResult.ok === true &&
+                              isReadyGateReadyProgressStatus(syncResult.status)
+                            ) {
+                              setTerminalActionError(null);
+                              if (syncResult.status === "both_ready") {
+                                handleBothReady(
+                                  "both_ready_observed_via_rpc_short_circuit",
+                                );
+                              } else {
+                                startRoomWarmupAfterReady(
+                                  "ready_tap_mark_ready_timeout_sync_success",
+                                  syncResult.status,
+                                );
+                              }
+                              return;
+                            }
+                          }
+                          transitionFailure =
+                            resolveReadyGateTransitionFailureCopy({
+                              action: "mark_ready",
+                              code: result.code,
+                              errorCode: result.errorCode,
+                              reason: result.reason,
+                              error: result.error,
+                              status: result.status,
+                              platform: "web",
+                            });
                           throw new Error(transitionFailure.message);
                         }
-                        startRoomWarmupAfterReady("ready_tap_mark_ready_success", result.status ?? null);
+                        if (result.status === "both_ready") {
+                          handleBothReady(
+                            "both_ready_observed_via_rpc_short_circuit",
+                          );
+                        } else {
+                          startRoomWarmupAfterReady(
+                            "ready_tap_mark_ready_success",
+                            result.status ?? null,
+                          );
+                        }
                       } catch (error) {
-                        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
-                          action: "mark_ready",
-                          error: error instanceof Error ? error.message : String(error),
-                          platform: "web",
-                        });
+                        const fallback =
+                          transitionFailure ??
+                          resolveReadyGateTransitionFailureCopy({
+                            action: "mark_ready",
+                            error:
+                              error instanceof Error
+                                ? error.message
+                                : String(error),
+                            platform: "web",
+                          });
                         const message = fallback.message;
                         setTerminalActionError(message);
                         readyGateDebug("mark ready failed", {
                           sessionId,
-                          message: error instanceof Error ? error.message : String(error),
+                          message:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
                         });
-                        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
-                          action: "mark_ready",
-                          source_action: "ready_tap",
-                          reason: fallback.reasonCode,
-                          error_code: fallback.code ?? fallback.reasonCode,
-                          terminal: false,
-                          multi_device_conflict: fallback.staleOrConflict,
-                        });
+                        trackReadyGateClientEvent(
+                          LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE,
+                          {
+                            action: "mark_ready",
+                            source_action: "ready_tap",
+                            reason: fallback.reasonCode,
+                            error_code: fallback.code ?? fallback.reasonCode,
+                            terminal: false,
+                            multi_device_conflict: fallback.staleOrConflict,
+                          },
+                        );
                         toast.error(message, { duration: 3200 });
                       } finally {
+                        readyActionInFlightRef.current = false;
                         setMarkingReady(false);
                       }
                     })();
                   }}
-                  disabled={markingReady || requestingSnooze || terminalActionPending}
-                  aria-label={markingReady ? "Marking you ready" : `Mark ready, ${timeLeft} seconds left`}
+                  disabled={
+                    markingReady || requestingSnooze || terminalActionPending
+                  }
+                  aria-label={
+                    markingReady
+                      ? "Marking you ready"
+                      : `Mark ready, ${timeLeft} seconds left`
+                  }
                   aria-busy={markingReady}
                   className="relative"
                 >
@@ -2778,17 +3495,25 @@ const ReadyGateOverlay = ({
                 </motion.button>
               </div>
               <p className="sr-only">
-                {timeLeft > 0 ? `${timeLeft} seconds left in this Ready Gate.` : "Ready Gate countdown ended."}
+                {timeLeft > 0
+                  ? `${timeLeft} seconds left in this Ready Gate.`
+                  : "Ready Gate countdown ended."}
               </p>
               <p className="text-center text-xs text-muted-foreground break-words">
-                Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
+                Snooze gives you up to 2 extra minutes. Step away exits this
+                match attempt.
               </p>
 
               <div className="flex items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    if (requestingSnooze || markingReady || terminalActionPending) return;
+                    if (
+                      requestingSnooze ||
+                      markingReady ||
+                      terminalActionPending
+                    )
+                      return;
                     trackEvent(LobbyPostDateEvents.READY_GATE_SNOOZE_TAP, {
                       platform: "web",
                       session_id: sessionId,
@@ -2796,49 +3521,65 @@ const ReadyGateOverlay = ({
                     });
                     setRequestingSnooze(true);
                     void (async () => {
-                      let transitionFailure: ReturnType<typeof resolveReadyGateTransitionFailureCopy> | null = null;
+                      let transitionFailure: ReturnType<
+                        typeof resolveReadyGateTransitionFailureCopy
+                      > | null = null;
                       try {
                         setTerminalActionError(null);
                         const result = await snooze();
                         if (result.ok === false) {
-                          transitionFailure = resolveReadyGateTransitionFailureCopy({
-                            action: "snooze",
-                            code: result.code,
-                            errorCode: result.errorCode,
-                            reason: result.reason,
-                            error: result.error,
-                            status: result.status,
-                            platform: "web",
-                          });
+                          transitionFailure =
+                            resolveReadyGateTransitionFailureCopy({
+                              action: "snooze",
+                              code: result.code,
+                              errorCode: result.errorCode,
+                              reason: result.reason,
+                              error: result.error,
+                              status: result.status,
+                              platform: "web",
+                            });
                           throw new Error(transitionFailure.message);
                         }
                       } catch (error) {
-                        const fallback = transitionFailure ?? resolveReadyGateTransitionFailureCopy({
-                          action: "snooze",
-                          error: error instanceof Error ? error.message : String(error),
-                          platform: "web",
-                        });
+                        const fallback =
+                          transitionFailure ??
+                          resolveReadyGateTransitionFailureCopy({
+                            action: "snooze",
+                            error:
+                              error instanceof Error
+                                ? error.message
+                                : String(error),
+                            platform: "web",
+                          });
                         const message = fallback.message;
                         setTerminalActionError(message);
                         readyGateDebug("snooze failed", {
                           sessionId,
-                          message: error instanceof Error ? error.message : String(error),
+                          message:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
                         });
-                        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
-                          action: "snooze",
-                          source_action: "snooze_tap",
-                          reason: fallback.reasonCode,
-                          error_code: fallback.code ?? fallback.reasonCode,
-                          terminal: false,
-                          multi_device_conflict: fallback.staleOrConflict,
-                        });
+                        trackReadyGateClientEvent(
+                          LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE,
+                          {
+                            action: "snooze",
+                            source_action: "snooze_tap",
+                            reason: fallback.reasonCode,
+                            error_code: fallback.code ?? fallback.reasonCode,
+                            terminal: false,
+                            multi_device_conflict: fallback.staleOrConflict,
+                          },
+                        );
                         toast.error(message, { duration: 3200 });
                       } finally {
                         setRequestingSnooze(false);
                       }
                     })();
                   }}
-                  disabled={requestingSnooze || markingReady || terminalActionPending}
+                  disabled={
+                    requestingSnooze || markingReady || terminalActionPending
+                  }
                   aria-label="Snooze this Ready Gate for two minutes"
                   aria-busy={requestingSnooze}
                   className="min-h-10 rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
@@ -2851,7 +3592,9 @@ const ReadyGateOverlay = ({
                   onClick={() => {
                     void runTerminalAction("skip_this_one");
                   }}
-                  disabled={markingReady || requestingSnooze || terminalActionPending}
+                  disabled={
+                    markingReady || requestingSnooze || terminalActionPending
+                  }
                   aria-label="Step away from this Ready Gate"
                   aria-busy={terminalActionPending}
                   className="min-h-10 rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
@@ -2863,14 +3606,23 @@ const ReadyGateOverlay = ({
           ) : (
             <div className="text-center space-y-3">
               <motion.div
-                animate={prefersReducedMotion ? undefined : { scale: [1, 1.05, 1] }}
-                transition={prefersReducedMotion ? undefined : { duration: 2, repeat: Infinity }}
+                animate={
+                  prefersReducedMotion ? undefined : { scale: [1, 1.05, 1] }
+                }
+                transition={
+                  prefersReducedMotion
+                    ? undefined
+                    : { duration: 2, repeat: Infinity }
+                }
                 role="status"
                 aria-live="polite"
                 className="inline-flex min-h-10 items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/20"
               >
                 {showConnectingReadinessCopy ? (
-                  <Sparkles className="w-4 h-4 text-primary" aria-hidden="true" />
+                  <Sparkles
+                    className="w-4 h-4 text-primary"
+                    aria-hidden="true"
+                  />
                 ) : readyGateReadinessCopy.key === "syncing" ? (
                   <Clock className="w-4 h-4 text-primary" aria-hidden="true" />
                 ) : (
@@ -2885,7 +3637,9 @@ const ReadyGateOverlay = ({
                 onClick={() => {
                   void runTerminalAction("cancel_go_back");
                 }}
-                disabled={requestingSnooze || markingReady || terminalActionPending}
+                disabled={
+                  requestingSnooze || markingReady || terminalActionPending
+                }
                 aria-label="Step away while waiting for your match"
                 aria-busy={terminalActionPending}
                 className="block min-h-10 mx-auto rounded-full px-5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
