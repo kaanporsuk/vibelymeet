@@ -1900,6 +1900,9 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.match(nativeVideoDateRoute, /if \(recoveredPartnerId\) setPartnerId\(recoveredPartnerId\)/);
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('ended_route_guard', vs\)/);
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('terminal_session_recovery', session\)/);
+  assert.match(nativeVideoDateRoute, /const openNativePostDateSurvey = useCallback/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_SURVEY_OPENED/);
+  assert.match(nativeVideoDateRoute, /room_name: surveyRoomName/);
   assert.match(nativeVideoDateRoute, /surveyOpenedRef\.current = true;\s*setShowFeedback\(true\);/);
   assert.doesNotMatch(nativeVideoDateRoute, /if \(!sessionId \|\| !user\?\.id \|\| showFeedback\) return false/);
   assert.match(nativeVideoDateRoute, /if \(showFeedback && sessionId && user\?\.id\) \{/);
@@ -2130,6 +2133,7 @@ test("video date button escape contracts keep web and native users routable", ()
   assert.match(webVideoDatePage, /const handlePreDateExit = useCallback/);
   assert.match(webVideoDatePage, /runVideoDateManualExitStep\("daily_cleanup"[\s\S]*endCall\(source\)/);
   assert.match(webVideoDatePage, /runVideoDateManualExitStep\("server_end"[\s\S]*signalPreDateManualEnd\(reason\)/);
+  assert.match(webVideoDatePage, /signalPreDateManualEnd\(reason\)/);
   assert.match(webVideoDatePage, /suppressDateNavigationAfterManualExit\(id\)/);
   assert.match(webVideoDatePage, /clearDateEntryTransition\(id\)/);
   assert.match(webVideoDatePage, /navigate\(target, \{ replace: true \}\)/);
@@ -2143,6 +2147,24 @@ test("video date button escape contracts keep web and native users routable", ()
   assert.match(webDateNavigationGuard, /recent_manual_exit/);
   assert.match(webDateNavigationGuard, /sessionStorage/);
   assert.match(webActiveSessionHook, /isDateNavigationSuppressedAfterManualExit\(next\.sessionId\)/);
+  assert.match(nativeDateNavigationGuard, /recent_manual_exit/);
+  assert.match(nativeDateNavigationGuard, /suppressDateNavigationAfterManualExit/);
+  assert.match(nativeDateNavigationGuard, /isDateNavigationSuppressedAfterManualExit\(sessionId\)/);
+  assert.match(nativeVideoDateRoute, /suppressDateNavigationAfterManualExit\(sessionId\)/);
+  assert.match(nativeActiveSessionHook, /isDateNavigationSuppressedAfterManualExit\(reg\.current_room_id as string\)/);
+  assert.match(nativeActiveSessionHook, /manual_date_exit_suppressed_after_preconnect/);
+  const nativeLobbyDateNavIndex = nativeEventLobby.indexOf("const navigateToDateSession = useCallback");
+  const nativeLobbyManualExitSuppressionIndex = nativeEventLobby.indexOf(
+    "isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)",
+    nativeLobbyDateNavIndex,
+  );
+  const nativeLobbyStartableCheckIndex = nativeEventLobby.indexOf(
+    "ensureVideoDateStartableBeforeNavigation",
+    nativeLobbyDateNavIndex,
+  );
+  assert.ok(nativeLobbyManualExitSuppressionIndex > nativeLobbyDateNavIndex);
+  assert.ok(nativeLobbyStartableCheckIndex > nativeLobbyManualExitSuppressionIndex);
+  assert.match(nativeEventLobby, /date_nav_suppressed_before_prepare/);
   assert.match(webConnectionOverlay, /disabled=\{isLeaving\}/);
   assert.match(webConnectionOverlay, /onClick=\{onLeave\}/);
   assert.match(webVideoDatePage, /isLeaving=\{isLeavingVideoDate\}/);
@@ -2150,6 +2172,10 @@ test("video date button escape contracts keep web and native users routable", ()
   assert.match(nativeVideoDateRoute, /const handleAbortConnection = useCallback/);
   assert.match(nativeVideoDateRoute, /abortConnectionInFlightRef/);
   assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'ended_from_client'\)/);
+  assert.match(nativeVideoDateRoute, /shouldTerminalizeNativePeerMissingAbort\(truth\)/);
+  assert.match(nativeVideoDateRoute, /fetchVideoSessionDateEntryTruth\(sessionId\)/);
+  assert.match(nativeVideoDateRoute, /reason_code: 'pre_date_manual_end'/);
+  assert.match(nativeVideoDateRoute, /server_end_attempted: true/);
   assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'partial_join_peer_timeout'\)/);
   assert.match(nativeVideoDateRoute, /router\.replace\(target\)/);
   assert.match(nativeVideoDateRoute, /isLeaving=\{isAbortingConnection\}/);
@@ -2242,6 +2268,9 @@ test("post-date survey retries verdicts and exposes half-verdict pending state o
   assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_PENDING_PARTNER/);
   assert.match(nativePostDateSurvey, /POST_DATE_HALF_VERDICT_SAVED/);
   assert.match(nativePostDateSurvey, /POST_DATE_PENDING_VERDICT_COMPLETED/);
+  assert.match(nativePostDateSurvey, /surveyLifecycleRef/);
+  assert.match(nativePostDateSurvey, /VIDEO_DATE_SURVEY_ABANDONED/);
+  assert.match(nativePostDateSurvey, /VIDEO_DATE_SURVEY_SUBMITTED/);
   assert.match(nativePostDateSurvey, /lastVerdictAttempt/);
   assert.match(nativePostDateSurvey, /Try again/);
   assert.match(nativePostDateSurvey, /Awaiting your match&apos;s verdict/);
@@ -2328,6 +2357,14 @@ test("active-session resolvers emit canonical stale-session analytics for stale 
     assert.match(source, /pending_survey_recovery_stale/);
     assert.match(source, /direct_video_session_fallback_stale/);
   }
+});
+
+test("active-session poll budgets are explicit and platform-scoped", () => {
+  assert.match(webActiveSessionHook, /const ACTIVE_SESSION_POLL_MS = 30_000/);
+  assert.match(webActiveSessionHook, /visible-tab realtime is the primary path/);
+  assert.match(nativeActiveSessionHook, /const NATIVE_ACTIVE_SESSION_POLL_MS = 8_000/);
+  assert.match(nativeActiveSessionHook, /AppState pauses realtime sooner on device/);
+  assert.match(nativeActiveSessionHook, /NATIVE_ACTIVE_SESSION_POLL_MS/);
 });
 
 test("duplicate active-session conflicts use the canonical audit event on web and native", () => {
@@ -2509,6 +2546,8 @@ test("peer-missing user exit preserves the canonical partial-join terminal reaso
     webVideoDatePage,
     /handlePreDateExit\(\{ reason: "partial_join_peer_timeout", source: "peer_missing_back_to_lobby" \}\)/,
   );
+  assert.match(nativeVideoDateRoute, /function shouldTerminalizeNativePeerMissingAbort/);
+  assert.match(nativeVideoDateRoute, /Boolean\(truth\.participant_1_joined_at\) !== Boolean\(truth\.participant_2_joined_at\)/);
   assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'partial_join_peer_timeout'\)/);
 });
 
@@ -3032,6 +3071,7 @@ test("Sprint 1H journey trace map covers critical Video Date release signals", (
     "remote_participant_seen",
     "survey_shown",
     "survey_recovered",
+    "survey_abandoned",
     "verdict_submitted",
     "mutual_result",
     "cleanup_deferred_or_deleted",
@@ -3052,6 +3092,7 @@ test("Sprint 1H journey trace map covers critical Video Date release signals", (
     "VIDEO_DATE_REMOTE_SEEN",
     "VIDEO_DATE_SURVEY_OPENED",
     "VIDEO_DATE_SURVEY_RECOVERED",
+    "VIDEO_DATE_SURVEY_ABANDONED",
     "VIDEO_DATE_SURVEY_SUBMITTED",
     "MUTUAL_VIBE_OUTCOME",
     "CLEANUP_DEFERRED_ACTIVE_PARTICIPANTS",

@@ -114,13 +114,23 @@ const ReadyRedirect = () => {
           return;
         }
 
-        if (recovery.action === "go_lobby") {
+        if (recovery.action === "go_lobby" && recovery.reason !== "not_date_ready") {
           if (recovery.reason === "ended") {
             notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
           }
           setRouteState({ kind: "redirecting" });
           navigateToEventLobby(snapshotEventId ?? recovery.eventId);
           return;
+        }
+
+        if (recovery.action === "go_lobby" && recovery.reason === "not_date_ready") {
+          if (import.meta.env.DEV) {
+            console.debug("[ReadyRedirect] ready_redirect_snapshot_lobby_deferred_to_truth", {
+              candidate,
+              eventId: snapshotEventId ?? recovery.eventId,
+              reason: recovery.reason,
+            });
+          }
         }
 
         if (recovery.action === "go_home" && recovery.reason === "missing_event") {

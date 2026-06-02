@@ -15,6 +15,7 @@ export type VideoDateJourneyTraceStage =
   | "remote_participant_seen"
   | "survey_shown"
   | "survey_recovered"
+  | "survey_abandoned"
   | "verdict_submitted"
   | "mutual_result"
   | "cleanup_deferred_or_deleted";
@@ -125,6 +126,12 @@ export const VIDEO_DATE_JOURNEY_TRACE_MAP: readonly VideoDateJourneyTracePoint[]
     primarySignals: [LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, "journey_survey_recovered"],
     correlationKeys: [...basePayloadKeys, "reason_code"],
     notes: "A pending survey was recovered after refresh, close, or route hydration.",
+  },
+  {
+    stage: "survey_abandoned",
+    primarySignals: [LobbyPostDateEvents.VIDEO_DATE_SURVEY_ABANDONED],
+    correlationKeys: [...basePayloadKeys, "reason_code", "step"],
+    notes: "Survey was opened but unmounted before a verdict was submitted or the survey completed.",
   },
   {
     stage: "verdict_submitted",

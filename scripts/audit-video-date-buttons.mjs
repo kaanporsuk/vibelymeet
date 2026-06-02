@@ -19,6 +19,8 @@ const files = {
   webReadyGate: "src/components/lobby/ReadyGateOverlay.tsx",
   webEventLobby: "src/pages/EventLobby.tsx",
   nativeDate: "apps/mobile/app/date/[id].tsx",
+  nativeDateNavigationGuard: "apps/mobile/lib/dateNavigationGuard.ts",
+  nativeActiveSession: "apps/mobile/lib/useActiveSession.ts",
   nativeReadyGate: "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
   nativeEventLobby: "apps/mobile/app/event/[eventId]/lobby.tsx",
   nativeStandaloneReady: "apps/mobile/app/ready/[id].tsx",
@@ -99,6 +101,18 @@ mustInclude(
   "isDateNavigationSuppressedAfterManualExit(next.sessionId)",
   "active-session hydration must not bounce a manual-exited user back into the same date",
 );
+mustInclude("nativeDateNavigationGuard", "recent_manual_exit", "native date navigation guard must know manual exit suppression");
+mustInclude("nativeDateNavigationGuard", "suppressDateNavigationAfterManualExit", "native date navigation guard must expose manual exit suppression");
+mustInclude(
+  "nativeActiveSession",
+  "isDateNavigationSuppressedAfterManualExit(reg.current_room_id as string)",
+  "native active-session hydration must not resurrect a manually exited pre-connect date",
+);
+mustInclude(
+  "nativeActiveSession",
+  "manual_date_exit_suppressed_after_preconnect",
+  "native active-session suppression must emit a durable reason code",
+);
 
 mustInclude("webConnectionOverlay", "onRetryRemotePlayback", "web playback resume button must stay wired");
 mustInclude("webConnectionOverlay", "onRetryPeerMissing", "web peer-missing retry button must stay wired");
@@ -130,7 +144,12 @@ mustInclude("webEventLobby", "onManualExitConfirmed={suppressReadyGateSessionAft
 
 mustInclude("nativeDate", "const handleAbortConnection = useCallback", "native must keep a dedicated connection abort path");
 mustInclude("nativeDate", "abortConnectionInFlightRef", "native connection abort must dedupe repeated taps");
-mustInclude("nativeDate", "endVideoDate(sessionId, 'ended_from_client')", "native generic connection abort must signal server end");
+mustInclude("nativeDate", "endVideoDate(sessionId, 'ended_from_client')", "native generic connection abort must use server pre-date cleanup to avoid ghost active sessions");
+mustInclude("nativeDate", "fetchVideoSessionDateEntryTruth(sessionId)", "native peer-missing abort must reconcile server truth before terminalizing");
+mustInclude("nativeDate", "shouldTerminalizeNativePeerMissingAbort(truth)", "native peer-missing abort must gate terminalization on partial-join evidence");
+mustInclude("nativeDate", "reason_code: 'pre_date_manual_end'", "native generic connection abort must emit server pre-date cleanup telemetry");
+mustInclude("nativeDate", "server_end_attempted: true", "native pre-date abort telemetry must prove server cleanup was attempted");
+mustInclude("nativeDate", "suppressDateNavigationAfterManualExit(sessionId)", "native connection abort must suppress immediate lobby bounce-back");
 mustInclude("nativeDate", "endVideoDate(sessionId, 'partial_join_peer_timeout')", "native peer-missing abort must preserve canonical server reason");
 mustInclude("nativeDate", "router.replace(target)", "native connection abort must route out");
 mustInclude("nativeDate", "isLeaving={isAbortingConnection}", "native connection overlay must expose in-flight disabled state");
@@ -155,6 +174,8 @@ mustInclude("nativeReadyGate", "onManualExitConfirmed?.(sessionId)", "native Rea
 mustInclude("nativeEventLobby", "READY_GATE_MANUAL_EXIT_SUPPRESS_MS", "native lobby must suppress reopening a manually exited Ready Gate");
 mustInclude("nativeEventLobby", "isReadyGateManualExitSuppressed(sessionId)", "native lobby must check Ready Gate manual-exit suppression before opening");
 mustInclude("nativeEventLobby", "onManualExitConfirmed={suppressReadyGateAfterManualExit}", "native Ready Gate overlay must wire manual-exit suppression");
+mustInclude("nativeEventLobby", "isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)", "native lobby must suppress date re-entry after a local pre-connect exit");
+mustInclude("nativeEventLobby", "date_nav_suppressed_before_prepare", "native lobby must record manual date re-entry suppression before preparing provider entry");
 mustInclude("nativeStandaloneReady", "const result = await forfeit()", "standalone native Ready Gate Step away must await server forfeit truth");
 mustInclude("nativeStandaloneReady", "if (!result.ok) throw new Error('ready_gate_forfeit_failed')", "standalone native Ready Gate must keep retryable forfeit failure handling");
 
@@ -164,6 +185,13 @@ mustOrderAfter(
   "suppressDateNavigationAfterManualExit(id)",
   "navigate(target, { replace: true })",
   "manual exit suppression must be installed before routing to the lobby",
+);
+mustOrderAfter(
+  "nativeEventLobby",
+  "const navigateToDateSession = useCallback",
+  "isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)",
+  "ensureVideoDateStartableBeforeNavigation",
+  "native manual date-exit suppression must run before provider/startability preparation",
 );
 
 console.log("Video Date button contract audit passed.");

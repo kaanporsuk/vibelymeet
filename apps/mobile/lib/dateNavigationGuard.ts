@@ -4,16 +4,44 @@ import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatc
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 type DateNavMode = 'replace' | 'push';
-type DateNavReason = 'already_on_same_date_route' | 'recent_duplicate_navigation';
+type DateNavReason =
+  | 'already_on_same_date_route'
+  | 'recent_duplicate_navigation'
+  | 'recent_manual_exit';
 
 let lastDateNav: { sessionId: string; ts: number; routerReplaceInvoked: boolean } | null = null;
+const manualExitSuppressions = new Map<string, number>();
 // Realtime delivers the same ready/date convergence from registration + video_sessions
 // within a burst. Extend the window to cover the full Daily join pipeline (~30 s typical).
 const DUPLICATE_BURST_MS = 30_000;
+const MANUAL_EXIT_SUPPRESSION_MS = 5 * 60_000;
 
 function activeDateSessionIdFromPath(pathname: string | null | undefined): string | null {
   const m = pathname?.match(/^\/date\/([^/]+)/);
   return m?.[1] ?? null;
+}
+
+function pruneManualExitSuppressions(now = Date.now()) {
+  for (const [sessionId, expiresAt] of manualExitSuppressions) {
+    if (expiresAt <= now) manualExitSuppressions.delete(sessionId);
+  }
+}
+
+export function suppressDateNavigationAfterManualExit(
+  sessionId: string,
+  ttlMs: number = MANUAL_EXIT_SUPPRESSION_MS,
+) {
+  if (!sessionId) return;
+  pruneManualExitSuppressions();
+  manualExitSuppressions.set(sessionId, Date.now() + Math.max(5_000, ttlMs));
+}
+
+export function isDateNavigationSuppressedAfterManualExit(sessionId: string): boolean {
+  if (!sessionId) return false;
+  const now = Date.now();
+  pruneManualExitSuppressions(now);
+  const expiresAt = manualExitSuppressions.get(sessionId);
+  return Boolean(expiresAt && expiresAt > now);
 }
 
 export function navigateToDateSessionGuarded(params: {
@@ -49,8 +77,20 @@ export function navigateToDateSessionGuarded(params: {
     return false;
   }
 
-  // Deduplicate burst navigations (multiple realtime events firing within DUPLICATE_BURST_MS).
   const now = Date.now();
+
+  if (isDateNavigationSuppressedAfterManualExit(sessionId)) {
+    onSuppressed?.({ reason: 'recent_manual_exit', target });
+    rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_nav_suppressed', {
+      session_id: sessionId,
+      reason: 'recent_manual_exit',
+      pathname: pathname ?? null,
+      target_href: String(target),
+    });
+    return false;
+  }
+
+  // Deduplicate burst navigations (multiple realtime events firing within DUPLICATE_BURST_MS).
   if (
     lastDateNav?.sessionId === sessionId &&
     now - lastDateNav.ts < DUPLICATE_BURST_MS

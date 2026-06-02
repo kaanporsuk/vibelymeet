@@ -86,6 +86,10 @@ Safe `lobby_deck_empty.reason` values: `event_not_active`, `user_not_eligible`, 
 
 | Event | When | Props |
 |-------|------|-------|
+| `video_date_survey_opened` | Video Date route opens the post-date survey from canonical terminal truth. | `platform`, `session_id`, `event_id`, `source_surface`, `source_action`, optional `room_name` |
+| `video_date_survey_recovered` | Pending survey recovered after refresh, reconnect, route hydration, or terminal truth repair. | `platform`, `session_id`, `event_id`, `source_surface`, `source_action`, `outcome`, `reason_code` |
+| `video_date_survey_abandoned` | Survey unmounted before a verdict was submitted or the survey completed. | `platform`, `session_id`, `event_id`, `source_surface`, `source_action`, `reason_code`, `step` |
+| `video_date_survey_submitted` | Required verdict was successfully submitted, including report-before-verdict pass submissions. | `platform`, `session_id`, `event_id`, `verdict`, optional `source` |
 | `post_date_survey_impression` | Survey modal opens. | `platform`, `session_id`, `event_id` |
 | `keep_the_vibe_impression` | Verdict step (yes/no vibe) first shown. | `platform`, `session_id`, `event_id` |
 | `keep_the_vibe_yes_tap` | User taps Vibe on verdict. | `platform`, `session_id`, `event_id` |

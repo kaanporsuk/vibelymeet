@@ -13,6 +13,8 @@ const snapshotFunction = readFileSync("supabase/functions/video-date-snapshot/in
 const tokenRefreshFunction = readFileSync("supabase/functions/video-date-token-refresh/index.ts", "utf8");
 const dailyRoomFunction = readFileSync("supabase/functions/daily-room/index.ts", "utf8");
 const sendNotificationFunction = readFileSync("supabase/functions/send-notification/index.ts", "utf8");
+const swipeActionsFunction = readFileSync("supabase/functions/swipe-actions/index.ts", "utf8");
+const postDateVerdictFunction = readFileSync("supabase/functions/post-date-verdict/index.ts", "utf8");
 const webLobby = readFileSync("src/pages/EventLobby.tsx", "utf8");
 const webSwipeAction = readFileSync("src/hooks/useSwipeAction.ts", "utf8");
 const nativeLobby = readFileSync("apps/mobile/app/event/[eventId]/lobby.tsx", "utf8");
@@ -157,10 +159,17 @@ test("required runtime RLS command is explicit and fails fast when env is missin
 });
 
 test("video-date browser Edge functions reject unapproved origins through shared CORS helpers", () => {
-  for (const source of [snapshotFunction, tokenRefreshFunction, sendNotificationFunction]) {
+  for (const source of [
+    snapshotFunction,
+    tokenRefreshFunction,
+    sendNotificationFunction,
+    swipeActionsFunction,
+    postDateVerdictFunction,
+  ]) {
     assert.match(source, /from ['"]\.\.\/_shared\/cors\.ts['"]/);
     assert.match(source, /preflightResponse\(req\)/);
     assert.match(source, /isBrowserOriginRejected\(req\)/);
+    assert.match(source, /origin_not_allowed|ORIGIN_NOT_ALLOWED/);
     assert.doesNotMatch(source, /Access-Control-Allow-Origin['"]:\s*['"]\*/);
   }
   assert.match(dailyRoomFunction, /from "\.\.\/_shared\/cors\.ts"/);

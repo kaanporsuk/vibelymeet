@@ -71,7 +71,10 @@ import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
-import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
+import {
+  isDateNavigationSuppressedAfterManualExit,
+  navigateToDateSessionGuarded,
+} from '@/lib/dateNavigationGuard';
 import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
@@ -739,6 +742,21 @@ export default function EventLobbyScreen() {
 
   const navigateToDateSession = useCallback(
     (sessionIdToOpen: string, trigger: string, mode: 'replace' | 'push' = 'replace') => {
+      if (isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)) {
+        vdbg('lobby_navigate_to_date_suppressed', {
+          trigger,
+          eventId: id,
+          sessionId: sessionIdToOpen,
+          reason: 'recent_manual_exit',
+        });
+        rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_nav_suppressed_before_prepare', {
+          session_id: sessionIdToOpen,
+          event_id: id,
+          trigger,
+          reason: 'recent_manual_exit',
+        });
+        return;
+      }
       void (async () => {
         const [startable, regRes] = await Promise.all([
           ensureVideoDateStartableBeforeNavigation({
