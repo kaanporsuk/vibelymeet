@@ -43,7 +43,7 @@ module.exports = () => {
   ensurePlugin(plugins, [
     'expo-speech-recognition',
     {
-      microphonePermission: 'Vibely uses your microphone when you choose optional speech captions while recording clips.',
+      microphonePermission: 'Vibely uses your microphone when you choose to join video dates, record Vibe Videos or chat clips, and send voice messages.',
       speechRecognitionPermission: 'Vibely uses speech recognition only when you choose optional captions for clips.',
       androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
     },

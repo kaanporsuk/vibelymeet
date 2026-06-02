@@ -93,8 +93,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Vibely only uses the photos and videos you choose for profile photos, saved-video uploads, and chat media.",
-          "cameraPermission": "Vibely uses your camera when you choose to take profile photos, chat photos, and verification selfies."
+          "photosPermission": "Vibely uses your photo library only when you choose photos or videos for profile photos, saved-video uploads, and chat media.",
+          "cameraPermission": "Vibely uses your camera when you choose to join video dates, record Vibe Videos or chat clips, take profile photos, or submit verification selfies."
         }
       ],
       "expo-apple-authentication"

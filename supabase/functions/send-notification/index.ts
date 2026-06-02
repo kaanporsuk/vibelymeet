@@ -33,7 +33,7 @@ function configuredAppOrigin(): string {
 
 function normalizePushDeepLinkPath(raw: unknown): string | null {
   const value = typeof raw === 'string' ? raw.trim() : ''
-  if (!value || value.startsWith('//')) return null
+  if (!value || value.startsWith('//') || value.includes('\\')) return null
   if (value.startsWith('/')) return value
 
   try {
@@ -963,7 +963,7 @@ function classifyDeepLink(raw: unknown): {
     }
   }
 
-  if (value.startsWith('//')) {
+  if (value.startsWith('//') || value.includes('\\')) {
     return {
       deeplink_url_present: true,
       deeplink_url_kind: 'invalid_url',

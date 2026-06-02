@@ -23,6 +23,9 @@ const permissionHardeningMigration = read(
 const triggerGrantHardeningMigration = read(
   "supabase/migrations/20260602021000_permission_flow_trigger_function_grants.sql",
 );
+const pushSubscriptionGrantHardeningMigration = read(
+  "supabase/migrations/20260602022000_push_subscription_table_grants_hardening.sql",
+);
 
 test("native iOS permission metadata matches the shipped runtime prompts", () => {
   const appConfig = read("apps/mobile/app.base.json");
@@ -57,6 +60,14 @@ test("native iOS permission metadata matches the shipped runtime prompts", () =>
   assert.match(appConfig, /NSSpeechRecognitionUsageDescription/);
   assert.doesNotMatch(appConfig, /NSLocationAlways(?:AndWhenInUse)?UsageDescription/);
   assert.match(appConfig, /com\.apple\.security\.application-groups/);
+  assert.match(appConfig, /"photosPermission": "Vibely uses your photo library only when you choose photos or videos/);
+  assert.match(appConfig, /"cameraPermission": "Vibely uses your camera when you choose to join video dates/);
+  assert.doesNotMatch(appConfig, /Vibely only uses the photos and videos/);
+  assert.doesNotMatch(appConfig, /take profile photos, chat photos, and verification selfies/);
+
+  const appConfigJs = read("apps/mobile/app.config.js");
+  assert.match(appConfigJs, /microphonePermission: 'Vibely uses your microphone when you choose to join video dates/);
+  assert.doesNotMatch(appConfigJs, /microphonePermission: 'Vibely uses your microphone when you choose optional speech captions/);
 
   const generatedEntitlementsPath = "apps/mobile/ios/Vibely/Vibely.entitlements";
   if (existsSync(join(root, generatedEntitlementsPath))) {
@@ -111,6 +122,7 @@ test("native push and match-call permission recovery survives interrupted or ret
 
 test("web push uses subscription RPCs only and never sends users to fake browser settings", () => {
   const helper = read("src/lib/requestWebPushPermission.ts");
+  const prefsHook = read("src/hooks/useNotificationPreferences.ts");
   const prompt = read("src/components/PushPermissionPrompt.tsx");
   const drawer = read("src/components/settings/NotificationsDrawer.tsx");
   const pushTypes = read("shared/pushDeliveryHealth.ts");
@@ -122,6 +134,7 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.doesNotMatch(helper, /\.from\("notification_preferences"\)/);
   assert.match(helper, /syncResult\("unsupported_browser"\)/);
   assert.match(helper, /prompt_unavailable/);
+  assert.doesNotMatch(prefsHook, /onesignal_player_id|onesignal_subscribed/);
 
   assert.match(pushTypes, /unsupported_browser/);
   assert.match(pushTypes, /prompt_unavailable/);
@@ -146,7 +159,7 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
 
   assert.match(sendNotification, /normalizePushDeepLinkPath\(eventLink\)/);
   assert.match(sendNotification, /normalizePushDeepLinkPath\(data\?\.url\)/);
-  assert.match(sendNotification, /if \(!value \|\| value\.startsWith\('\/\/'\)\) return null/);
+  assert.match(sendNotification, /value\.startsWith\('\/\/'\) \|\| value\.includes/);
   assert.match(sendNotification, /provider_response_body_snippet: null/);
   assert.match(sendNotification, /title: `\[\$\{category\}\]`/);
   assert.match(sendNotification, /body: delivered \? '\[delivered\]' : '\[suppressed\]'/);
@@ -156,7 +169,7 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
 
   for (const source of [webTelemetry, nativeTelemetry]) {
     assert.match(source, /normalizePushDeepLinkHref/);
-    assert.match(source, /value\.startsWith\(["']\/\/["']\)/);
+    assert.match(source, /value\.startsWith\(["']\/\/["']\) \|\| value\.includes/);
     assert.match(source, /return null/);
   }
   assert.match(webOneSignal, /normalizePushDeepLinkHref\(url\)/);
@@ -196,4 +209,12 @@ test("trigger-only permission helpers are not exposed as callable RPCs", () => {
   assert.match(triggerGrantHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.normalize_event_runtime_readiness_for_pairing\(\)[\s\S]+TO service_role/);
   assert.match(triggerGrantHardeningMigration, /REVOKE ALL ON FUNCTION public\.prevent_direct_onesignal_legacy_mirror_write\(\)[\s\S]+FROM PUBLIC, anon, authenticated/);
   assert.match(triggerGrantHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.prevent_direct_onesignal_legacy_mirror_write\(\)[\s\S]+TO service_role/);
+});
+
+test("push subscription table grants keep ownership mutations behind RPCs", () => {
+  assert.match(pushSubscriptionGrantHardeningMigration, /ALTER TABLE public\.push_subscriptions ENABLE ROW LEVEL SECURITY/);
+  assert.match(pushSubscriptionGrantHardeningMigration, /REVOKE ALL ON TABLE public\.push_subscriptions[\s\S]+FROM anon/);
+  assert.match(pushSubscriptionGrantHardeningMigration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER[\s\S]+FROM authenticated/);
+  assert.match(pushSubscriptionGrantHardeningMigration, /GRANT SELECT ON TABLE public\.push_subscriptions[\s\S]+TO authenticated/);
+  assert.match(pushSubscriptionGrantHardeningMigration, /GRANT ALL ON TABLE public\.push_subscriptions[\s\S]+TO service_role/);
 });

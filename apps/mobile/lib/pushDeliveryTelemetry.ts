@@ -87,7 +87,7 @@ export function classifyPushDeepLink(raw: unknown): {
     };
   }
 
-  if (value.startsWith('//')) {
+  if (value.startsWith('//') || value.includes('\\')) {
     return {
       deeplink_url_present: true,
       deeplink_url_kind: 'invalid_url',
@@ -141,7 +141,7 @@ export function classifyPushDeepLink(raw: unknown): {
 
 export function normalizePushDeepLinkHref(raw: unknown): string | null {
   const value = typeof raw === 'string' ? raw.trim() : '';
-  if (!value || value.startsWith('//')) return null;
+  if (!value || value.startsWith('//') || value.includes('\\')) return null;
   if (value.startsWith('/')) return value;
 
   try {
