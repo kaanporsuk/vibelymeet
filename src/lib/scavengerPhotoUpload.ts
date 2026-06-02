@@ -2,6 +2,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { uploadImageWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { imageMimeTypeForUpload } from "@/lib/webUploadMime";
 
+function privateScavengerPhotoPath(path: string, matchId: string): string | null {
+  const trimmed = path.trim();
+  if (
+    !trimmed ||
+    /^https?:\/\//i.test(trimmed) ||
+    trimmed.includes("\\") ||
+    trimmed.includes("?") ||
+    trimmed.includes("#") ||
+    trimmed.includes("..") ||
+    trimmed.includes("//")
+  ) {
+    return null;
+  }
+  const expectedPrefix = `photos/match-${matchId}/`;
+  return trimmed.startsWith(expectedPrefix) ? trimmed : null;
+}
+
 export async function uploadWebScavengerPhoto(file: File, matchId: string | null | undefined): Promise<string> {
   const cleanMatchId = matchId?.trim();
   if (!cleanMatchId) throw new Error("No active conversation found.");
@@ -24,5 +41,9 @@ export async function uploadWebScavengerPhoto(file: File, matchId: string | null
   if (!path?.trim()) {
     throw new Error("Photo upload completed without a private media reference.");
   }
-  return path.trim();
+  const privatePath = privateScavengerPhotoPath(path, cleanMatchId);
+  if (!privatePath) {
+    throw new Error("Photo upload completed without a chat-private media reference.");
+  }
+  return privatePath;
 }

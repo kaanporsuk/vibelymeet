@@ -238,10 +238,13 @@ test("web Scavenger uses real media selection and upload instead of mock remote 
   assert.match(helper, /context: "chat"/);
   assert.match(helper, /matchId: cleanMatchId/);
   assert.match(helper, /const \{ path \} = await uploadImageWithMediaSdk/);
-  assert.match(helper, /return path/);
+  assert.match(helper, /function privateScavengerPhotoPath/);
+  assert.match(helper, /expectedPrefix = `photos\/match-\$\{matchId\}\/`/);
+  assert.match(helper, /return privatePath/);
   assert.doesNotMatch(helper, /const \{ url \} = await uploadImageWithMediaSdk/);
   assert.doesNotMatch(helper, /return url/);
   assert.match(helper, /private media reference/);
+  assert.match(helper, /chat-private media reference/);
   assert.match(sendGameEvent, /function normalizeScavengerPhotoRef/);
   assert.match(sendGameEvent, /photos\/match-\$\{matchId\}\/\$\{actorId\}\//);
   assert.match(sendGameEvent, /url\.protocol !== "https:"/);

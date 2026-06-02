@@ -165,7 +165,10 @@ test("upload-image reserves before PUT, sends Bunny Checksum, and registers uplo
   assert.match(uploadImage, /assetId,/);
   assert.match(uploadImage, /receiptId,/);
   assert.match(uploadImage, /sessionId,/);
-  assert.match(uploadImage, /url: bunnyCdnUrl/);
+  assert.match(uploadImage, /function publicUrlForUploadContext/);
+  assert.match(uploadImage, /context === "chat" \? null : bunnyCdnUrl\(storagePath\)/);
+  assert.match(uploadImage, /url: publicUrlForUploadContext\(reservedPath, context\)/);
+  assert.match(uploadImage, /url: publicUrlForUploadContext\(uploadPath, context\)/);
   assert.match(uploadImage, /captureReceiptTransition/);
   assert.match(mediaUploadTelemetry, /media_upload_receipt_transition/);
 });
