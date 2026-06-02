@@ -225,7 +225,7 @@ export function resolveNotificationActionToWebRoute(actionInput: unknown): strin
     case 'open_verification':
       return '/profile';
     case 'open_notification_settings':
-      return '/settings';
+      return '/settings?drawer=notifications';
     case 'none':
       return null;
   }

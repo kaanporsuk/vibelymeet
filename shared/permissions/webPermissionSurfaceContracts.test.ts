@@ -16,6 +16,16 @@ test("web onboarding notification denial stays on recoverable UI instead of auto
   assert.match(source, /Notification\.permission === "denied"/);
   assert.match(source, /Use your browser site settings/);
   assert.match(source, /Continue without notifications/);
+  assert.match(source, /activeUserIdRef/);
+  assert.match(source, /mountedRef/);
+  assert.match(source, /nextTimerRef/);
+  assert.match(source, /window\.clearTimeout\(nextTimerRef\.current\)/);
+  assert.match(source, /const promptUserId = userId/);
+  assert.match(source, /requestWebPushPermissionAndSync\(promptUserId\)/);
+  assert.match(source, /if \(result\.code === "stale_identity"\) return/);
+  assert.match(source, /isActivePromptUser\(promptUserId\)/);
+  assert.match(source, /continueForActiveUser\(promptUserId\)/);
+  assert.doesNotMatch(source, /setTimeout\(onNext/);
   assert.doesNotMatch(source, /else\s*\{\s*onNext\(\);\s*\}/);
 });
 
@@ -62,6 +72,15 @@ test("web push request helper does not re-prompt when browser permission is alre
     /const result = syncResult\(initialPermissionState === "unsupported" \? "unsupported_browser" : "permission_denied"\)/,
   );
   assert.match(requestBody, /const result = await syncWebPushRegistrationToBackend\(userId\)/);
+  assert.match(source, /async function isActiveAuthUserForWebPush\(userId: string, context: string\)/);
+  assert.match(source, /request_start/);
+  assert.match(source, /request_before_prompt/);
+  assert.match(source, /request_after_prompt/);
+  assert.match(source, /sync_before_register/);
+  assert.match(source, /sync_before_cached_result/);
+  assert.match(source, /forgetBackendSyncCacheForUser\(userId\)/);
+  assert.match(source, /p_expected_user_id: userId/);
+  assert.match(source, /finally \{[\s\S]*forgetRememberedWebPushSubscriptionId\(userId\);[\s\S]*forgetBackendSyncCacheForUser\(userId\);[\s\S]*syncInFlightByUser\.delete\(userId\);[\s\S]*\}/);
 });
 
 test("web event location failures render persistent retry recovery", () => {
@@ -104,6 +123,8 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   assert.match(hook, /navigator\.mediaDevices\.getUserMedia/);
   assert.match(hook, /start_call_media_preflight_blocked/);
   assert.match(hook, /answer_call_media_preflight_blocked/);
+  assert.match(hook, /active_rejoin_media_preflight_blocked/);
+  assert.match(hook, /kind: "active_rejoin"/);
   assert.match(hook, /data-testid="match-call-preflight-permission-recovery"/);
   const startCallIndex = hook.indexOf("const startCall = useCallback");
   const preflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(type)", startCallIndex);
@@ -111,6 +132,13 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   assert.ok(
     startCallIndex >= 0 && preflightIndex > startCallIndex && createIndex > preflightIndex,
     "start call should preflight browser media before creating a Daily room",
+  );
+  const rejoinIndex = hook.indexOf("const joinActiveCall = useCallback");
+  const rejoinPreflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(nextCallType)", rejoinIndex);
+  const rejoinDailyIndex = hook.indexOf('supabase.functions.invoke("daily-room"', rejoinIndex);
+  assert.ok(
+    rejoinIndex >= 0 && rejoinPreflightIndex > rejoinIndex && rejoinDailyIndex > rejoinPreflightIndex,
+    "active web rejoin should preflight browser media before requesting a Daily token",
   );
   assert.match(hook, /audioState === "blocked"[\s\S]*setLocalAudio\(true\)/);
   assert.match(hook, /videoState === "blocked"[\s\S]*setLocalVideo\(true\)/);

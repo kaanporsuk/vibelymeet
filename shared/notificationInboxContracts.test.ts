@@ -40,6 +40,11 @@ test("notification inbox migration creates durable user-owned attention center",
 });
 
 test("send-notification writes in-app notifications without weakening push gates", () => {
+  const clientEventVibeCategories =
+    sendNotification.match(/const CLIENT_EVENT_VIBE_CATEGORIES = new Set\(\[([^\]]+)\]\)/)?.[1] ?? "";
+  const nonServiceRequestBlock =
+    sendNotification.match(/if \(!isServiceRole\) \{\n      const clientValidationError[\s\S]*?\n    \}\n\n    const canBypassPreferences/)?.[0] ?? "";
+
   assert.match(sendNotification, /type NotificationChannel = 'in_app' \| 'push'/);
   assert.match(sendNotification, /const DEFAULT_CHANNELS: NotificationChannel\[\] = \['in_app', 'push'\]/);
   assert.match(sendNotification, /function normalizeChannels/);
@@ -47,11 +52,28 @@ test("send-notification writes in-app notifications without weakening push gates
   assert.match(sendNotification, /\.from\('user_notifications'\)/);
   assert.match(sendNotification, /validateClientNotificationRequest/);
   assert.match(sendNotification, /event_vibes/);
+  assert.match(sendNotification, /CLIENT_EVENT_VIBE_CATEGORIES/);
+  assert.match(clientEventVibeCategories, /'someone_vibed_you'/);
+  assert.match(clientEventVibeCategories, /'mutual_vibe'/);
+  assert.doesNotMatch(clientEventVibeCategories, /vibe_received|super_vibe/);
+  assert.match(sendNotification, /if \(category === 'mutual_vibe'\)/);
+  assert.match(sendNotification, /sanitizeClientNotificationData/);
+  assert.match(sendNotification, /clientOwnedNotificationAction/);
+  assert.match(sendNotification, /clientOwnedProviderIdempotencyKey/);
+  assert.match(sendNotification, /requestProviderIdempotencyKey = await clientOwnedProviderIdempotencyKey\(authUserId, user_id, category, data\)/);
+  assert.match(sendNotification, /vibe_received: \{ title:/);
+  assert.match(sendNotification, /super_vibe: \{ title:/);
+  assert.match(sendNotification, /canBypassPreferences/);
+  assert.match(nonServiceRequestBlock, /requestProviderIdempotencyKey = await clientOwnedProviderIdempotencyKey\(authUserId, user_id, category, data\)/);
+  assert.doesNotMatch(nonServiceRequestBlock, /validProviderIdempotencyKey/);
+  assert.match(nonServiceRequestBlock, /requestDedupeKey = null/);
+  assert.match(nonServiceRequestBlock, /requestImageUrl = null/);
   assert.match(sendNotification, /dismissed_at: null/);
   assert.match(sendNotification, /await ensureInAppNotification\(finalTitle, finalBody\)/);
   assert.match(sendNotification, /if \(!wantsPush\)/);
   assert.match(sendNotification, /push_skipped: true/);
-  assert.match(sendNotification, /if \(wantsPush && !prefs\.push_enabled && !bypass_preferences\)/);
+  assert.match(sendNotification, /if \(wantsPush && !prefs\.push_enabled && !canBypassPreferences\)/);
+  assert.doesNotMatch(sendNotification, /if \(wantsPush && !prefs\.push_enabled && !bypass_preferences\)/);
   assert.match(sendNotification, /if \(wantsPush && !skipsPerBucketPreferenceCheck\(category\)\)/);
   assert.match(sendNotification, /if \(wantsPush && prefs\.quiet_hours_enabled/);
   assert.match(sendNotification, /CATEGORY_TO_COLUMN/);
@@ -73,6 +95,8 @@ test("web and native clients share notification action normalization while keepi
   assert.match(sharedNotifications, /routeSegment\(action\.eventId\)/);
   assert.match(sharedNotifications, /case 'open_daily_drop':\s+return '\/matches'/);
   assert.match(sharedNotifications, /case 'open_daily_drop':\s+return '\/daily-drop'/);
+  assert.equal(resolveNotificationActionToWebRoute({ kind: "open_notification_settings" }), "/settings?drawer=notifications");
+  assert.equal(resolveNotificationActionToNativeRoute({ kind: "open_notification_settings" }), "/settings/notifications");
   assert.equal(exists("src/lib/notificationActions.ts"), true);
   assert.equal(exists("apps/mobile/lib/notificationActions.ts"), true);
   assert.match(mobileDeepLinkHandler, /resolveNotificationActionRoute\(additionalData\?\.action\)/);
@@ -109,6 +133,7 @@ test("notification action route builders reject dynamic segment injection", () =
     resolveNotificationActionToNativeRoute({ kind: "open_event_lobby", eventId: "22222222-2222-4222-8222-222222222222" }),
     "/event/22222222-2222-4222-8222-222222222222/lobby",
   );
+  assert.equal(resolveNotificationActionToWebRoute({ kind: "open_notification_settings" }), "/settings?drawer=notifications");
 });
 
 test("notification app path normalization strips payload query and hash state", () => {

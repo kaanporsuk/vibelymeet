@@ -13,6 +13,7 @@ import {
   verifyChatVibeClipMatch,
 } from "../_shared/chat-vibe-clips.ts";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -46,9 +47,13 @@ async function getAuthedUser(req: Request) {
 
 async function deleteCreatedVideoQuiet(libraryId: string, apiKey: string, videoId: string) {
   try {
-    await fetch(`https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`, {
+    await fetchWithProviderTimeout(`https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`, {
       method: "DELETE",
       headers: { AccessKey: apiKey },
+    }, {
+      provider: "bunny_stream",
+      operation: "video_delete",
+      timeoutMs: providerFetchTimeoutMs("bunny_stream", "video_delete", 5_000),
     });
   } catch {
     // Best-effort provider cleanup fallback should not block response.
@@ -268,14 +273,29 @@ serve(async (req) => {
       const createBody: Record<string, unknown> = { title };
       if (config.collectionId) createBody.collectionId = config.collectionId;
 
-      const bunnyCreate = await fetch(`https://video.bunnycdn.com/library/${config.libraryId}/videos`, {
-        method: "POST",
-        headers: {
-          AccessKey: config.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(createBody),
-      });
+      let bunnyCreate: Response;
+      try {
+        bunnyCreate = await fetchWithProviderTimeout(`https://video.bunnycdn.com/library/${config.libraryId}/videos`, {
+          method: "POST",
+          headers: {
+            AccessKey: config.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(createBody),
+        }, {
+          provider: "bunny_stream",
+          operation: "video_create",
+          timeoutMs: providerFetchTimeoutMs("bunny_stream", "video_create", 8_000),
+        });
+      } catch (error) {
+        logCreateTransition("bunny_video_create_fetch_failed", {
+          client_request_id: clientRequestId,
+          match_id: matchId,
+          sender_id: user.id,
+          error_type: error instanceof Error ? error.name : typeof error,
+        });
+        return jsonResponse(req, { success: false, error: "bunny_create_failed" }, { status: 502 });
+      }
       if (!bunnyCreate.ok) {
         logCreateTransition("bunny_video_create_failed", {
           client_request_id: clientRequestId,

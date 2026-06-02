@@ -416,6 +416,7 @@ export default function DashboardScreen() {
 
     osPermissionRequestInFlightRef.current = isDashboardPushOsPermissionRequestInFlight();
     const promptContext = {
+      userId: user?.id ?? null,
       permissionStateHydrated: pushPermissionStateHydrated,
       osStatus: pushOsStatus,
       promptVisible: prepromptVisibleRef.current || showPushPermissionPrompt,

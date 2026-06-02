@@ -21,8 +21,12 @@ import { trackEvent } from "@/lib/analytics";
 import { vibelyOneSignalDebugEnabled, vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 
-const PROMPTED_KEY = "vibely_push_prompted";
+const PROMPTED_KEY_PREFIX = "vibely_push_prompted:";
 const RE_PROMPT_DAYS = 7;
+
+function promptedKeyForUser(userId: string): string {
+  return `${PROMPTED_KEY_PREFIX}${userId}`;
+}
 
 type PushPermissionRecovery = {
   title: string;
@@ -39,6 +43,8 @@ export function PushPermissionPrompt() {
     matchCount: null,
     regCount: null,
   });
+  const activeUserIdRef = useRef<string | null>(null);
+  activeUserIdRef.current = user?.id ?? null;
 
   const resetPromptState = () => {
     setBusy(false);
@@ -46,8 +52,18 @@ export function PushPermissionPrompt() {
   };
 
   useEffect(() => {
+    setOpen(false);
+    setBusy(false);
+    setRecovery(null);
+    lastEligibilityCountsRef.current = { matchCount: null, regCount: null };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user?.id) return;
     if (!("Notification" in window)) return;
+
+    let cancelled = false;
+    let promptTimer: number | null = null;
 
     const checkEligibility = async () => {
       if (!isOneSignalWebOriginAllowed()) {
@@ -72,7 +88,8 @@ export function PushPermissionPrompt() {
 
       if (Notification.permission === "denied") return;
 
-      const prompted = localStorage.getItem(PROMPTED_KEY);
+      const promptKey = promptedKeyForUser(user.id);
+      const prompted = localStorage.getItem(promptKey);
       if (prompted) {
         const ts = parseInt(prompted, 10);
         if (Date.now() - ts < RE_PROMPT_DAYS * 86400000) return;
@@ -114,23 +131,34 @@ export function PushPermissionPrompt() {
         regCountError ? lastEligibilityCountsRef.current.regCount : regCount ?? 0;
       if ((effectiveMatchCount ?? 0) === 0 && (effectiveRegCount ?? 0) === 0) return;
 
-      setTimeout(() => setOpen(true), 5000);
+      if (cancelled) return;
+      promptTimer = window.setTimeout(() => {
+        if (!cancelled) setOpen(true);
+      }, 5000);
     };
 
     void checkEligibility();
+
+    return () => {
+      cancelled = true;
+      if (promptTimer != null) window.clearTimeout(promptTimer);
+    };
   }, [user?.id]);
 
   const handleEnable = async () => {
     if (!user?.id || busy) return;
+    const promptUserId = user.id;
+    const stillActiveUser = () => activeUserIdRef.current === promptUserId;
     setBusy(true);
     setRecovery(null);
     let shouldClose = false;
     try {
-      localStorage.setItem(PROMPTED_KEY, Date.now().toString());
+      localStorage.setItem(promptedKeyForUser(promptUserId), Date.now().toString());
       vibelyOsLog("PushPermissionPrompt:handleEnable", { origin: window.location.origin });
       recordUserAction("push_prompt_enable_clicked", { surface: "push_permission_prompt" });
 
       const { sdkUsable } = await waitForOneSignalInitResult();
+      if (!stillActiveUser()) return;
       if (!sdkUsable) {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",
@@ -144,7 +172,8 @@ export function PushPermissionPrompt() {
         return;
       }
 
-      const result = await requestWebPushPermissionAndSync(user.id);
+      const result = await requestWebPushPermissionAndSync(promptUserId);
+      if (!stillActiveUser()) return;
       vibelyOsLog("PushPermissionPrompt:requestWebPushPermissionAndSync", { code: result.code, synced: result.synced });
 
       if (result.synced) {
@@ -153,7 +182,7 @@ export function PushPermissionPrompt() {
         trackEvent("push_permission_granted");
         toast.success("Notifications enabled! 🔔");
         sendNotification({
-          user_id: user.id,
+          user_id: promptUserId,
           category: "safety_alerts",
           title: "Notifications are on! 🔔",
           body: "You can customize what you receive anytime in Settings → Notifications",
@@ -161,6 +190,10 @@ export function PushPermissionPrompt() {
           bypass_preferences: true,
         });
         shouldClose = true;
+      } else if (result.code === "stale_identity") {
+        localStorage.removeItem(promptedKeyForUser(promptUserId));
+        recordUserAction("push_prompt_enable_stale_identity", { surface: "push_permission_prompt" });
+        return;
       } else if (typeof Notification !== "undefined" && Notification.permission === "denied") {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",
@@ -213,6 +246,7 @@ export function PushPermissionPrompt() {
         });
       }
     } catch (err) {
+      if (!stillActiveUser()) return;
       recordUserAction("push_prompt_enable_failed", {
         surface: "push_permission_prompt",
         reason: "exception",
@@ -224,16 +258,20 @@ export function PushPermissionPrompt() {
         primaryLabel: "Try again",
       });
     } finally {
-      setBusy(false);
-      if (shouldClose) {
-        resetPromptState();
-        setOpen(false);
+      if (stillActiveUser()) {
+        setBusy(false);
+        if (shouldClose) {
+          resetPromptState();
+          setOpen(false);
+        }
       }
     }
   };
 
   const handleDismiss = () => {
-    localStorage.setItem(PROMPTED_KEY, Date.now().toString());
+    if (user?.id) {
+      localStorage.setItem(promptedKeyForUser(user.id), Date.now().toString());
+    }
     recordUserAction("push_prompt_dismissed", { surface: "push_permission_prompt" });
     trackEvent("push_permission_deferred");
     resetPromptState();

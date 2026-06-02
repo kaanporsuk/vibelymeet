@@ -330,6 +330,20 @@ function pushSyncDevLog(message: string, extra?: Record<string, unknown>): void 
   else console.log(`[Vibely][push][sync] ${message}`);
 }
 
+async function isActiveSupabaseUserForPushSync(userId: string, context: string): Promise<boolean> {
+  const { data, error } = await supabase.auth.getSession();
+  const currentUserId = data.session?.user?.id ?? null;
+  const isActive = !error && currentUserId === userId;
+  if (!isActive) {
+    pushSyncDevLog('pushSubscriptionToBackend:stale_identity', {
+      context,
+      hasCurrentUser: Boolean(currentUserId),
+      authReadFailed: Boolean(error),
+    });
+  }
+  return isActive;
+}
+
 export function initOneSignal(options: { forceRetry?: boolean } = {}): void {
   if (isOneSignalInitialized() || !APP_ID || (!options.forceRetry && runtimeState.initAttemptedAppId === APP_ID)) {
     if (isOneSignalInitialized()) registerOneSignalRuntimeEventListeners();
@@ -394,6 +408,7 @@ export function bindOneSignalExternalUser(userId: string): number {
 }
 
 async function registerStoredPushSubscription(
+  userId: string,
   subscriptionId: string,
   subscribed: boolean,
 ): Promise<string | null> {
@@ -401,18 +416,20 @@ async function registerStoredPushSubscription(
     p_subscription_id: subscriptionId,
     p_platform: nativePushPlatform(),
     p_subscribed: subscribed,
+    p_expected_user_id: userId,
   });
 
   return error?.message ?? null;
 }
 
 async function unregisterStoredPushSubscription(
-  _userId: string,
+  userId: string,
   subscriptionId: string | null,
 ): Promise<string | null> {
   const { error } = await supabase.rpc('unregister_onesignal_push_subscription', {
     p_subscription_id: subscriptionId,
     p_platform: nativePushPlatform(),
+    p_expected_user_id: userId,
   });
 
   return error?.message ?? null;
@@ -422,6 +439,9 @@ async function unregisterStoredPushSubscription(
 async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult> {
   pushSyncDevLog('pushSubscriptionToBackend:start', { userId });
   if (!APP_ID) return syncResult('app_id_missing');
+  if (!(await isActiveSupabaseUserForPushSync(userId, 'push_subscription_sync_start'))) {
+    return syncResult('stale_identity');
+  }
   if (!ensureOneSignalInitialized()) return syncResult('init_failed');
   const generation = bindOneSignalExternalUser(userId);
 
@@ -440,8 +460,11 @@ async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult
   if (!isCurrentOneSignalIdentity(userId, generation)) {
     return syncResult('stale_identity', subscriptionId);
   }
+  if (!(await isActiveSupabaseUserForPushSync(userId, 'push_subscription_sync_before_register'))) {
+    return syncResult('stale_identity', subscriptionId);
+  }
 
-  const saveError = await registerStoredPushSubscription(subscriptionId, subscribed === true);
+  const saveError = await registerStoredPushSubscription(userId, subscriptionId, subscribed === true);
   if (saveError) {
     console.warn('[Vibely] Failed to save mobile push id:', saveError);
     return syncResult('upsert_failed', subscriptionId, saveError);

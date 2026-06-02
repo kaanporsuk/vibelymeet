@@ -234,7 +234,8 @@ type StartCallParams = {
 
 type MatchCallPermissionRecovery =
   | { kind: "start"; params: StartCallParams; result: MediaPermissionResult }
-  | { kind: "answer"; callId: string; callType: MatchCallType; result: MediaPermissionResult };
+  | { kind: "answer"; callId: string; callType: MatchCallType; result: MediaPermissionResult }
+  | { kind: "active_rejoin"; row: MatchCallRow; callType: MatchCallType; result: MediaPermissionResult };
 
 type MatchCallContextValue = {
   isInCall: boolean;
@@ -1891,21 +1892,6 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  const retryPermissionRecovery = useCallback(() => {
-    const recovery = permissionRecovery;
-    if (!recovery) return;
-    setPermissionRecovery(null);
-    if (recovery.kind === "answer") {
-      if (incomingCallRef.current?.callId !== recovery.callId) {
-        toast.error("That call is no longer available");
-        return;
-      }
-      void answerCall();
-      return;
-    }
-    void startCall(recovery.params);
-  }, [answerCall, incomingCallRef, permissionRecovery, startCall]);
-
   /**
    * Toggle local audio. Source-of-truth: reads the current track state from Daily,
    * sets a pending flag, calls Daily's setLocalAudio, then waits for the
@@ -2170,9 +2156,28 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const nextCallType = normalizeCallType(row.call_type);
+      if (!callObjectRef.current) {
+        const mediaPermission = await requestWebMatchCallMediaPermission(nextCallType);
+        if (mediaPermission) {
+          logMatchCallDiag("active_rejoin_media_preflight_blocked", {
+            call_id: row.id,
+            call_type: nextCallType,
+            permission_status: mediaPermission.status,
+            recovery_action: mediaPermission.recoveryAction,
+          });
+          setPermissionRecovery({
+            kind: "active_rejoin",
+            row,
+            callType: nextCallType,
+            result: mediaPermission,
+          });
+          return;
+        }
+      }
+
       trackedCallIdRef.current = row.id;
       roomNameRef.current = row.daily_room_name ?? null;
-      const nextCallType = normalizeCallType(row.call_type);
       setCallType(nextCallType);
       setActiveMatchId(row.match_id);
       setIncomingCall(null);
@@ -2294,6 +2299,25 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       waitForProviderTeardown,
     ],
   );
+
+  const retryPermissionRecovery = useCallback(() => {
+    const recovery = permissionRecovery;
+    if (!recovery) return;
+    setPermissionRecovery(null);
+    if (recovery.kind === "answer") {
+      if (incomingCallRef.current?.callId !== recovery.callId) {
+        toast.error("That call is no longer available");
+        return;
+      }
+      void answerCall();
+      return;
+    }
+    if (recovery.kind === "active_rejoin") {
+      void joinActiveCall(recovery.row);
+      return;
+    }
+    void startCall(recovery.params);
+  }, [answerCall, incomingCallRef, joinActiveCall, permissionRecovery, startCall]);
 
   const reconcileCallRow = useCallback(
     async (row: MatchCallRow) => {

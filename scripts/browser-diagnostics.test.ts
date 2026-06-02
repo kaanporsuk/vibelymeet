@@ -11,6 +11,7 @@ import {
 } from "../src/lib/browserDiagnostics";
 
 const browserDiagnosticsSource = readFileSync(join(process.cwd(), "src/lib/browserDiagnostics.ts"), "utf8");
+const vdbgSource = readFileSync(join(process.cwd(), "src/lib/vdbg.ts"), "utf8");
 const uuid = "27b4b3bd-d441-4903-88a5-e25cf7acfa96";
 
 assert.equal(sanitizeDiagnosticUrl(`https://www.vibelymeet.com/chat/${uuid}?access_token=secret#frag`), "/chat/:uuid#[hash]");
@@ -64,6 +65,15 @@ const manyKeys = sanitizeBrowserDiagnosticPayload(
 assert.ok(Object.keys(manyKeys).length <= 30);
 
 assert.equal(recordBrowserEvent("not.allowed.event", { ok: true }), false);
+
+assert.match(vdbgSource, /import \{ sanitizeBrowserDiagnosticPayload \} from "@\/lib\/browserDiagnostics"/);
+assert.match(vdbgSource, /function sanitizeVdbgPayload\(data\?: Record<string, unknown>\): Record<string, unknown>/);
+assert.match(vdbgSource, /return sanitizeBrowserDiagnosticPayload\(\{ \.\.\.\(data \?\? \{\}\), ts \}\)/);
+assert.match(vdbgSource, /diagnostic_payload_unavailable/);
+assert.match(vdbgSource, /const payload = sanitizeVdbgPayload\(data\)/);
+assert.doesNotMatch(vdbgSource, /const payload = \{ \.\.\(data \?\? \{\}\), ts: new Date\(\)\.toISOString\(\) \}/);
+assert.match(vdbgSource, /console\.log\(`\[VDBG\] \$\{message\}`,[\s\S]*payload/);
+assert.match(vdbgSource, /Sentry\.addBreadcrumb\([\s\S]*data: payload/);
 
 assert.match(browserDiagnosticsSource, /BOOT_SUMMARY_DELAY_MS\s*=\s*12_000/);
 assert.match(browserDiagnosticsSource, /window\.__vibelyBootDiagnostics/);

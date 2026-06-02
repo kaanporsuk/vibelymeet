@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -119,8 +120,12 @@ serve(async (req) => {
       // Anti-VoIP: Twilio Lookup V2
       try {
         const lookupUrl = `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(phoneNumber)}?Fields=line_type_intelligence`;
-        const lookupRes = await fetch(lookupUrl, {
+        const lookupRes = await fetchWithProviderTimeout(lookupUrl, {
           headers: { "Authorization": `Basic ${twilioAuth}` },
+        }, {
+          provider: "twilio",
+          operation: "lookup_phone",
+          timeoutMs: providerFetchTimeoutMs("twilio", "lookup_phone", 5_000),
         });
         const lookupData = await lookupRes.json();
         const lineType = lookupData?.line_type_intelligence?.type;
@@ -166,14 +171,31 @@ serve(async (req) => {
       const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/Verifications`;
       logInfo("twilio_send_start", { requestId, phone: loggedPhone });
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Authorization": `Basic ${twilioAuth}`,
-        },
-        body: new URLSearchParams({ To: phoneNumber, Channel: "sms" }).toString(),
-      });
+      let res: Response;
+      try {
+        res = await fetchWithProviderTimeout(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": `Basic ${twilioAuth}`,
+          },
+          body: new URLSearchParams({ To: phoneNumber, Channel: "sms" }).toString(),
+        }, {
+          provider: "twilio",
+          operation: "verify_send",
+          timeoutMs: providerFetchTimeoutMs("twilio", "verify_send", 8_000),
+        });
+      } catch (error) {
+        logWarn("twilio_send_fetch_failed", {
+          requestId,
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+        return jsonResponse({
+          success: false,
+          error: "SMS service is temporarily unavailable. Please try again later.",
+          errorType: "provider_unavailable",
+        });
+      }
 
       const data = await res.json();
       logInfo("twilio_send_response", {
@@ -219,14 +241,31 @@ serve(async (req) => {
       const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/VerificationCheck`;
       logInfo("twilio_verify_start", { requestId, phone: loggedPhone });
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Authorization": `Basic ${twilioAuth}`,
-        },
-        body: new URLSearchParams({ To: phoneNumber, Code: code }).toString(),
-      });
+      let res: Response;
+      try {
+        res = await fetchWithProviderTimeout(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": `Basic ${twilioAuth}`,
+          },
+          body: new URLSearchParams({ To: phoneNumber, Code: code }).toString(),
+        }, {
+          provider: "twilio",
+          operation: "verify_check",
+          timeoutMs: providerFetchTimeoutMs("twilio", "verify_check", 8_000),
+        });
+      } catch (error) {
+        logWarn("twilio_verify_fetch_failed", {
+          requestId,
+          errorType: error instanceof Error ? error.name : typeof error,
+        });
+        return jsonResponse({
+          success: false,
+          error: "Verification service is temporarily unavailable. Please try again later.",
+          errorType: "provider_unavailable",
+        });
+      }
 
       const data = await res.json();
       logInfo("twilio_verify_response", {

@@ -451,8 +451,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshEntryState]);
 
   const markSessionExpired = useCallback(() => {
+    const uid = currentUserId;
+    void disconnectOneSignalForLogout(uid ?? null).catch((error) => {
+      if (__DEV__) console.warn('[markSessionExpired] onesignal.logout_clear:', error);
+    });
+    void clearRevenueCatUser();
     clearAuthState('session_expired');
-  }, [clearAuthState]);
+  }, [clearAuthState, currentUserId]);
 
   const onboardingStatus = getEntryStateOnboardingStatus(entryState);
   const profilePresence =

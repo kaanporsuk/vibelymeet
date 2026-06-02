@@ -7,6 +7,7 @@ import { signBunnyStorageUrl, signBunnyStreamDirectoryUrl } from "../_shared/bun
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 import { captureMediaTelemetry, sanitizeMediaTelemetryProperties } from "../_shared/media-telemetry.ts";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
 type MediaResolveVariant = "display" | "original";
@@ -1192,9 +1193,25 @@ async function handleProxy(req: Request): Promise<Response> {
     upstreamHeaders.Range = "bytes=0-0";
   }
 
-  const upstream = await fetch(`https://storage.bunnycdn.com/${storageConfig.zone}/${encodeStoragePathForProxy(path)}`, {
-    headers: upstreamHeaders,
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetchWithProviderTimeout(`https://storage.bunnycdn.com/${storageConfig.zone}/${encodeStoragePathForProxy(path)}`, {
+      headers: upstreamHeaders,
+    }, {
+      provider: "bunny_storage",
+      operation: "proxy_fetch",
+      timeoutMs: providerFetchTimeoutMs("bunny_storage", "proxy_fetch", 8_000),
+    });
+  } catch (error) {
+    logChatMediaUrl("error", "storage_proxy_fetch_failed", {
+      message_id: typeof claims.mid === "string" ? claims.mid : null,
+      media_kind: typeof claims.kind === "string" ? claims.kind : null,
+      requester_id: typeof claims.sub === "string" ? claims.sub : null,
+      storage_zone: storageTier,
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    return jsonResponse(req, { success: false, error: "storage_fetch_failed" }, { status: 502, headers: corsHeaders });
+  }
 
   if (!upstream.ok) {
     void upstream.body?.cancel().catch(() => {});

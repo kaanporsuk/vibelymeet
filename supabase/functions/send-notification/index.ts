@@ -182,6 +182,38 @@ function skipsPerBucketPreferenceCheck(category: string): boolean {
   return CATEGORY_PREFERENCE_BYPASS[category] === true
 }
 
+const CLIENT_EVENT_VIBE_CATEGORIES = new Set(['someone_vibed_you', 'mutual_vibe'])
+
+function isSelfAddressedClientSafetyNotification(authUserId: string | null, recipientId: string, category: string): boolean {
+  return !!authUserId && category === 'safety_alerts' && recipientId === authUserId
+}
+
+function sanitizeClientNotificationData(authUserId: string, category: string, data: any): Record<string, unknown> {
+  if (category === 'safety_alerts') {
+    return {
+      notification_kind: 'push_setup_confirmation',
+      user_id: authUserId,
+    }
+  }
+
+  const eventId = getEventId(data)
+  const sanitized: Record<string, unknown> = {
+    actor_id: authUserId,
+    sender_id: authUserId,
+    from_user_id: authUserId,
+  }
+  if (eventId) sanitized.event_id = eventId
+  return sanitized
+}
+
+function clientOwnedNotificationAction(category: string, data: any): Record<string, unknown> {
+  if (category === 'safety_alerts') return actionObject('open_notification_settings')
+  if (CLIENT_EVENT_VIBE_CATEGORIES.has(category) && getEventId(data)) {
+    return actionObject('open_event_lobby', { eventId: getEventId(data) })
+  }
+  return actionObject('none')
+}
+
 type NotificationChannel = 'in_app' | 'push'
 type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent'
 
@@ -218,6 +250,49 @@ function validProviderIdempotencyKey(value: unknown): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
     ? trimmed
     : null
+}
+
+function uuidFromHashBytes(bytes: Uint8Array): string {
+  const uuidBytes = bytes.slice(0, 16)
+  uuidBytes[6] = (uuidBytes[6] & 0x0f) | 0x50
+  uuidBytes[8] = (uuidBytes[8] & 0x3f) | 0x80
+  const hex = Array.from(uuidBytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
+async function deterministicProviderIdempotencyKey(parts: Array<string | null | undefined>): Promise<string | null> {
+  const normalizedParts = parts
+    .map((part) => typeof part === 'string' ? part.trim() : '')
+    .filter(Boolean)
+  if (normalizedParts.length === 0) return null
+
+  const input = new TextEncoder().encode(`vibely:send-notification:${normalizedParts.join('|')}`)
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', input))
+  return uuidFromHashBytes(digest)
+}
+
+async function clientOwnedProviderIdempotencyKey(
+  authUserId: string | null,
+  recipientId: string,
+  category: string,
+  data: any,
+): Promise<string | null> {
+  if (!authUserId) return null
+
+  if (isSelfAddressedClientSafetyNotification(authUserId, recipientId, category)) {
+    const notificationKind = typeof data?.notification_kind === 'string' && data.notification_kind.trim()
+      ? data.notification_kind.trim()
+      : 'push_setup_confirmation'
+    return deterministicProviderIdempotencyKey(['client_safety_alert', authUserId, notificationKind])
+  }
+
+  if (CLIENT_EVENT_VIBE_CATEGORIES.has(category)) {
+    const eventId = getEventId(data)
+    if (!eventId) return null
+    return deterministicProviderIdempotencyKey(['client_event_vibe', recipientId, category, eventId, authUserId])
+  }
+
+  return null
 }
 
 function priorityForInbox(category: string, requested: unknown): NotificationPriority {
@@ -335,6 +410,11 @@ function defaultInboxDedupeKey(category: string, data: any): string | null {
     return `message:${data.match_id}`
   }
   if ((category === 'new_match' || category === 'mutual_vibe') && data?.match_id) return `new_match:${data.match_id}`
+  if ((category === 'someone_vibed_you' || category === 'vibe_received' || category === 'super_vibe' || category === 'mutual_vibe') && getEventId(data)) {
+    const actorId = firstPayloadUuid(data, ['actor_id', 'sender_id', 'from_user_id'])
+    return actorId ? `event_vibe:${category}:${getEventId(data)}:${actorId}` : `event_vibe:${category}:${getEventId(data)}`
+  }
+  if (category === 'safety_alerts' && data?.notification_kind) return `safety_alerts:${data.notification_kind}`
   if ((category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection') && getSessionId(data)) {
     return `${normalizeInboxCategory(category)}:${getSessionId(data)}`
   }
@@ -867,16 +947,15 @@ async function validateClientNotificationRequest(
   if (!authUserId) return 'missing_auth_user'
 
   // Browser push setup sends a self-addressed confirmation after the OS/browser grant.
-  if (category === 'safety_alerts' && recipientId === authUserId) {
+  if (isSelfAddressedClientSafetyNotification(authUserId, recipientId, category)) {
     return null
   }
 
   const actorId = firstPayloadUuid(data, ['actor_id', 'sender_id', 'from_user_id'])
   if (actorId !== authUserId) return 'actor_mismatch'
 
-  const clientVibeCategories = new Set(['someone_vibed_you', 'vibe_received', 'mutual_vibe', 'super_vibe'])
   const eventId = getEventId(data)
-  if (!clientVibeCategories.has(category) || !eventId || recipientId === authUserId) {
+  if (!CLIENT_EVENT_VIBE_CATEGORIES.has(category) || !eventId || recipientId === authUserId) {
     return 'client_category_not_allowed'
   }
 
@@ -1291,9 +1370,11 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
     title: 'Event cancelled',
     body: (ctx) => `${ctx?.eventTitle ?? 'An event'} has been cancelled. Open the event page for details.`,
   },
+  someone_vibed_you: { title: 'Someone vibed you! 💜', body: () => 'Someone at your event is interested in you.' },
   vibe_received: { title: 'Someone vibed you! 💜', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a vibe at ${ctx?.eventTitle ?? 'an event'}` },
   super_vibe: { title: 'Super Vibe! ⭐', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a Super Vibe!` },
   mutual_vibe: { title: "It's a match! 🎉", body: (ctx) => `You and ${ctx?.partnerName ?? 'someone'} vibed each other` },
+  safety_alerts: { title: 'Notifications are on', body: () => 'You can customize what you receive anytime in Settings.' },
   partner_ready: { title: 'Your match is ready!', body: () => 'Tap to start your video date' },
   date_proposal_received: { title: 'Date suggestion 📅', body: (ctx) => `${ctx?.senderName ?? 'Someone'} suggested a date` },
   date_proposal_accepted: { title: 'Date accepted! 🎉', body: (ctx) => `${ctx?.partnerName ?? 'Someone'} accepted your date suggestion` },
@@ -1433,21 +1514,6 @@ function timePartsMinutes(timeStr: string): number {
   return h * 60 + m
 }
 
-/** Role claim from a JWT body (base64url). Edge `verify_jwt` already validated the signature. */
-function jwtPayloadRole(token: string): string | null {
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const mid = parts[1]
-    const b64 = mid.replace(/-/g, "+").replace(/_/g, "/")
-    const pad = (4 - (b64.length % 4)) % 4
-    const json = JSON.parse(atob(b64 + "=".repeat(pad)))
-    return typeof json?.role === "string" ? json.role : null
-  } catch {
-    return null
-  }
-}
-
 function isInQuietHours(start: string, end: string, timezone: string): boolean {
   try {
     const now = new Date()
@@ -1517,25 +1583,27 @@ Deno.serve(async (req) => {
 
     const token = authHeader.replace('Bearer ', '')
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    // String equality can fail across key rotations / API vs runtime representations; role claim is stable.
-    const isServiceRole =
-      token === serviceKey || jwtPayloadRole(token) === 'service_role'
+    const isRawServiceRoleKey = token === serviceKey
+    let isServiceRole = isRawServiceRoleKey
     let authUserId: string | null = null
 
-    if (!isServiceRole) {
-      // Validate as user JWT
+    if (!isRawServiceRoleKey) {
+      // Validate every non-service-key bearer before trusting user or service-role claims.
       const anonClient = createClient(
         Deno.env.get('SUPABASE_URL')!,
         Deno.env.get('SUPABASE_ANON_KEY')!,
         { global: { headers: { Authorization: authHeader } } }
       )
       const { data: claims, error: claimsError } = await anonClient.auth.getClaims(token)
-      if (claimsError || !claims?.claims?.sub) {
+      const role = typeof claims?.claims?.role === 'string' ? claims.claims.role : null
+      const subject = typeof claims?.claims?.sub === 'string' ? claims.claims.sub : null
+      if (claimsError || (!subject && role !== 'service_role')) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
-      authUserId = claims.claims.sub
+      isServiceRole = role === 'service_role'
+      authUserId = isServiceRole ? null : subject
     }
 
     const requestBody = await req.json()
@@ -1554,16 +1622,20 @@ Deno.serve(async (req) => {
       actor_id,
       provider_idempotency_key,
     } = requestBody
-    const data = requestBody.data && typeof requestBody.data === 'object' && !Array.isArray(requestBody.data)
+    let data = requestBody.data && typeof requestBody.data === 'object' && !Array.isArray(requestBody.data)
       ? requestBody.data
       : {}
     let { title, body } = requestBody
-    const channels = normalizeChannels(requestBody.channels)
-    const wantsInApp = channels.includes('in_app')
-    const wantsPush = channels.includes('push')
-    const requestedAction = normalizeActionFromRequest(action)
-    const requestDedupeKey = typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null
-    const requestProviderIdempotencyKey = validProviderIdempotencyKey(provider_idempotency_key)
+    let channels = normalizeChannels(requestBody.channels)
+    let wantsInApp = channels.includes('in_app')
+    let wantsPush = channels.includes('push')
+    let requestedAction = normalizeActionFromRequest(action)
+    let requestedPriority: unknown = priority
+    let requestDedupeKey = typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null
+    let requestProviderIdempotencyKey = validProviderIdempotencyKey(provider_idempotency_key)
+    let requestGroupKey = typeof group_key === 'string' && group_key.trim() ? group_key.trim() : null
+    let requestExpiresAt = typeof expires_at === 'string' && expires_at.trim() ? expires_at.trim() : null
+    let requestImageUrl = typeof image_url === 'string' ? image_url : null
     let inAppNotificationId: string | null = null
     let resolvedActorId: string | null = typeof actor_id === 'string' && actor_id.trim() ? actor_id.trim() : null
 
@@ -1596,13 +1668,29 @@ Deno.serve(async (req) => {
           { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         )
       }
+      data = sanitizeClientNotificationData(authUserId!, category, data)
+      channels = DEFAULT_CHANNELS
+      wantsInApp = true
+      wantsPush = true
+      requestedAction = clientOwnedNotificationAction(category, data)
+      requestedPriority = undefined
+      requestDedupeKey = null
+      requestProviderIdempotencyKey = await clientOwnedProviderIdempotencyKey(authUserId, user_id, category, data)
+      requestGroupKey = null
+      requestExpiresAt = null
+      requestImageUrl = null
+      resolvedActorId = authUserId
     }
+
+    const canBypassPreferences =
+      (isServiceRole && bypass_preferences === true) ||
+      (!isServiceRole && bypass_preferences === true && isSelfAddressedClientSafetyNotification(authUserId, user_id, category))
 
     // Apply templates when title or body not provided
     const template = NOTIFICATION_TEMPLATES[category]
     if (template) {
-      if (!title || typeof title !== 'string') title = template.title
-      if (!body || typeof body !== 'string') body = template.body(data || {})
+      if (!isServiceRole || !title || typeof title !== 'string') title = template.title
+      if (!isServiceRole || !body || typeof body !== 'string') body = template.body(data || {})
     }
     if (!title) title = 'Notification'
     if (!body) body = 'You have a new notification'
@@ -1648,12 +1736,12 @@ Deno.serve(async (req) => {
           body: notificationBody,
           data,
           action: notificationAction,
-          priority: priorityForInbox(category, priority),
-          imageUrl: typeof image_url === 'string' ? image_url : null,
+          priority: priorityForInbox(category, requestedPriority),
+          imageUrl: requestImageUrl,
           actorId: resolvedActorId,
           dedupeKey: requestDedupeKey,
-          groupKey: typeof group_key === 'string' && group_key.trim() ? group_key.trim() : null,
-          expiresAt: typeof expires_at === 'string' && expires_at.trim() ? expires_at.trim() : null,
+          groupKey: requestGroupKey,
+          expiresAt: requestExpiresAt,
         })
       } catch (error) {
         console.error('user_notification_upsert_failed:', error instanceof Error ? error.message : String(error))
@@ -1774,7 +1862,7 @@ Deno.serve(async (req) => {
     }
 
     // 6. Check master toggle
-    if (wantsPush && !prefs.push_enabled && !bypass_preferences) {
+    if (wantsPush && !prefs.push_enabled && !canBypassPreferences) {
       await logNotification(user_id, category, title, body, data, false, 'user_disabled', diagnostic({
         suppressionReason: 'user_disabled',
         suppressionGate: 'master_push_disabled',
@@ -2019,8 +2107,8 @@ Deno.serve(async (req) => {
       osPayload.idempotency_key = requestProviderIdempotencyKey
     }
 
-    if (image_url) {
-      osPayload.chrome_web_image = image_url
+    if (requestImageUrl) {
+      osPayload.chrome_web_image = requestImageUrl
     }
 
     let osResponse: Response

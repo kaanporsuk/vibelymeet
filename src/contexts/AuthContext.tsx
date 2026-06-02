@@ -198,10 +198,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       reason,
       error: authRefreshDebugInfo(error),
     });
+    const invalidatedUserId = authUserIdRef.current ?? sessionUserRef.current?.id ?? null;
     managedRefreshFailureCountRef.current = 0;
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
     removeAllRealtimeChannels(supabase, "auth_refresh_invalid_session");
+    if (invalidatedUserId) {
+      await withBootTimeout(
+        import("@/lib/requestWebPushPermission").then(({ disconnectWebPushForLogout }) =>
+          disconnectWebPushForLogout(invalidatedUserId),
+        ),
+        "web_push.invalid_session_clear",
+        2_500,
+      ).catch(() => undefined);
+    }
+    void import("@/lib/onesignal").then(({ removeExternalUserId }) => {
+      removeExternalUserId();
+    });
     await withBootTimeout(
       supabase.auth.signOut({ scope: "local" }),
       "auth.signOut.local",

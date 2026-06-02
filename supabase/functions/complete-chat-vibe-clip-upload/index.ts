@@ -12,6 +12,7 @@ import {
   isUuid,
   mapBunnyStatusToChatClipStatus,
 } from "../_shared/chat-vibe-clips.ts";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 const SENTRY_FLUSH_TIMEOUT_MS = 1000;
 let sentryInitialized = false;
@@ -95,8 +96,12 @@ async function getBunnyStatus(videoId: string): Promise<BunnyStatusRead> {
       providerHttpStatus: null,
     };
   }
-  const res = await fetch(`https://video.bunnycdn.com/library/${config.libraryId}/videos/${videoId}`, {
+  const res = await fetchWithProviderTimeout(`https://video.bunnycdn.com/library/${config.libraryId}/videos/${videoId}`, {
     headers: { AccessKey: config.apiKey },
+  }, {
+    provider: "bunny_stream",
+    operation: "video_status",
+    timeoutMs: providerFetchTimeoutMs("bunny_stream", "video_status", 6_000),
   }).catch(() => null);
   if (!res) {
     return {
