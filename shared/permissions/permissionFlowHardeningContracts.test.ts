@@ -26,6 +26,9 @@ const triggerGrantHardeningMigration = read(
 const pushSubscriptionGrantHardeningMigration = read(
   "supabase/migrations/20260602022000_push_subscription_table_grants_hardening.sql",
 );
+const pushSubscriptionPublicGrantHardeningMigration = read(
+  "supabase/migrations/20260602023000_push_subscription_public_grants_hardening.sql",
+);
 
 test("native iOS permission metadata matches the shipped runtime prompts", () => {
   const appConfig = read("apps/mobile/app.base.json");
@@ -108,6 +111,13 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.match(masterSwitch, /Allow notifications first, then turn on delivery/);
   assert.match(masterSwitch, /syncPushWithBackendIfPermissionGranted/);
   assert.match(masterSwitch, /!sync\.synced/);
+  assert.match(masterSwitch, /!sync\.synced[\s\S]*disablePush\(true\)[\s\S]*throw new Error/);
+  assert.match(requestPush, /const result = await syncPushSubscriptionToBackend\(userId\);[\s\S]*if \(!result\.synced\) \{[\s\S]*disablePush\(true\)[\s\S]*return result/);
+  assert.ok(
+    requestPush.indexOf("const result = await syncPushSubscriptionToBackend(userId);") <
+      requestPush.indexOf("push_enabled: true"),
+    "native push should not set push_enabled=true until the durable backend subscription sync succeeds",
+  );
 
   assert.match(matchCall, /requestNativeMatchCallMediaPermission\(nextCallType\)/);
   assert.match(matchCall, /active_rejoin_media_preflight_blocked/);
@@ -144,12 +154,15 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.doesNotMatch(prompt, /settings\?drawer=notifications/);
   assert.match(drawer, /unsupported_browser/);
   assert.match(drawer, /prompt_unavailable/);
+  assert.match(drawer, /Promise<PushSyncResult \| null>/);
+  assert.match(drawer, /const result = await handleEnablePush\(\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*toggle\("push_enabled"\)/);
 });
 
 test("push delivery sanitizes links and targets only owned subscription rows", () => {
   const sendNotification = read("supabase/functions/send-notification/index.ts");
   const webTelemetry = read("src/lib/pushDeliveryTelemetry.ts");
   const nativeTelemetry = read("apps/mobile/lib/pushDeliveryTelemetry.ts");
+  const nativeDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
   const webOneSignal = read("src/lib/onesignal.ts");
   const collectIds = extractBetween(
     sendNotification,
@@ -160,6 +173,10 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
   assert.match(sendNotification, /normalizePushDeepLinkPath\(eventLink\)/);
   assert.match(sendNotification, /normalizePushDeepLinkPath\(data\?\.url\)/);
   assert.match(sendNotification, /value\.startsWith\('\/\/'\) \|\| value\.includes/);
+  assert.match(sendNotification, /PUSH_STATIC_APP_PATHS/);
+  assert.match(sendNotification, /PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES/);
+  assert.match(sendNotification, /function isAllowedPushAppPath/);
+  assert.match(sendNotification, /return normalizePushDeepLinkPath\(action\.url\)/);
   assert.match(sendNotification, /provider_response_body_snippet: null/);
   assert.match(sendNotification, /title: `\[\$\{category\}\]`/);
   assert.match(sendNotification, /body: delivered \? '\[delivered\]' : '\[suppressed\]'/);
@@ -170,10 +187,28 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
   for (const source of [webTelemetry, nativeTelemetry]) {
     assert.match(source, /normalizePushDeepLinkHref/);
     assert.match(source, /value\.startsWith\(["']\/\/["']\) \|\| value\.includes/);
+    assert.match(source, /PUSH_STATIC_APP_PATHS/);
+    assert.match(source, /function isAllowedPushAppPath/);
+    assert.match(source, /return normalizePushAppPath\(value\)/);
+    assert.doesNotMatch(source, /if \(value\.startsWith\(["']\/["']\)\) return value/);
     assert.match(source, /return null/);
   }
   assert.match(webOneSignal, /normalizePushDeepLinkHref\(url\)/);
   assert.match(webOneSignal, /window\.location\.href = safeHref/);
+  assert.match(nativeDeepLink, /CANONICAL_NOTIFICATION_ORIGINS/);
+  assert.match(nativeDeepLink, /NATIVE_NOTIFICATION_SCHEMES/);
+  assert.match(nativeDeepLink, /!CANONICAL_NOTIFICATION_ORIGINS\.has\(u\.origin\)[\s\S]*return null/);
+  assert.match(nativeDeepLink, /!NATIVE_NOTIFICATION_SCHEMES\.has\(scheme\)[\s\S]*return null/);
+  assert.match(nativeDeepLink, /SAFE_NOTIFICATION_ROUTE_SEGMENT/);
+  assert.match(nativeDeepLink, /NOTIFICATION_STATIC_APP_PATHS/);
+  assert.match(nativeDeepLink, /NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES/);
+  assert.match(nativeDeepLink, /normalizeNotificationRouteSegment\(additionalData\?\.other_user_id\)/);
+  assert.match(nativeDeepLink, /normalizeNotificationRouteSegment\(raw\?\.sender_id\)[\s\S]*normalizeNotificationRouteSegment\(raw\?\.other_user_id\)/);
+  assert.match(nativeDeepLink, /const ticketId = normalizeNotificationRouteSegment\(data\.ticket_id\)/);
+  assert.doesNotMatch(nativeDeepLink, /`\/settings\/ticket\/\$\{data\.ticket_id\}`/);
+  assert.match(sendNotification, /safeNotificationRouteSegment\(data\.ticket_id\)/);
+  assert.match(sendNotification, /safeNotificationRouteSegment\(data\?\.sender_id\)/);
+  assert.match(sendNotification, /safeNotificationRouteSegment\(\s*typeof action\.otherUserId/);
 });
 
 test("Supabase migration enforces storage privacy, push ownership, location grants, and non-matchable warning readiness", () => {
@@ -217,4 +252,11 @@ test("push subscription table grants keep ownership mutations behind RPCs", () =
   assert.match(pushSubscriptionGrantHardeningMigration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER[\s\S]+FROM authenticated/);
   assert.match(pushSubscriptionGrantHardeningMigration, /GRANT SELECT ON TABLE public\.push_subscriptions[\s\S]+TO authenticated/);
   assert.match(pushSubscriptionGrantHardeningMigration, /GRANT ALL ON TABLE public\.push_subscriptions[\s\S]+TO service_role/);
+});
+
+test("push subscription public grants are revoked in a cloud-applicable follow-up migration", () => {
+  assert.match(pushSubscriptionPublicGrantHardeningMigration, /REVOKE ALL ON TABLE public\.push_subscriptions[\s\S]+FROM PUBLIC, anon/);
+  assert.match(pushSubscriptionPublicGrantHardeningMigration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER[\s\S]+FROM PUBLIC, anon, authenticated/);
+  assert.match(pushSubscriptionPublicGrantHardeningMigration, /GRANT SELECT ON TABLE public\.push_subscriptions[\s\S]+TO authenticated/);
+  assert.match(pushSubscriptionPublicGrantHardeningMigration, /GRANT ALL ON TABLE public\.push_subscriptions[\s\S]+TO service_role/);
 });

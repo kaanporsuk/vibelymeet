@@ -262,16 +262,27 @@ export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyn
   if (!isPaused) {
     disablePush(false);
   }
+  const result = await syncPushSubscriptionToBackend(userId);
+  if (!result.synced) {
+    if (!isPaused) {
+      disablePush(true);
+    }
+    recordNativePushSyncResult(result, 'permission_grant_sync');
+    return result;
+  }
+
   const { error } = await supabase.from('notification_preferences').upsert(
     { user_id: userId, push_enabled: true },
     { onConflict: 'user_id' }
   );
   if (error) {
+    if (!isPaused) {
+      disablePush(true);
+    }
     const result = { code: 'upsert_failed', synced: false, playerId: null, message: error.message } satisfies PushSyncResult;
     recordNativePushSyncResult(result, 'permission_grant_sync');
     return result;
   }
-  const result = await syncPushSubscriptionToBackend(userId);
   recordNativePushSyncResult(result, 'permission_grant_sync');
   return result;
 }

@@ -176,6 +176,11 @@ test("web notification master switch cannot enable app prefs while browser permi
 
   assert.match(source, /const handleMasterToggle = async/);
   assert.match(source, /health\.status === "blocked"/);
-  assert.match(source, /Notification\.permission !== "granted"/);
+  assert.match(source, /const result = await handleEnablePush\(\);/);
+  assert.match(source, /if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.ok(
+    source.indexOf("if (!result?.synced)") < source.indexOf('toggle("push_enabled")'),
+    "notification prefs must not enable push until browser permission and backend subscription sync succeed",
+  );
   assert.match(source, /onCheckedChange=\{\(checked\) => void handleMasterToggle\(checked\)\}/);
 });

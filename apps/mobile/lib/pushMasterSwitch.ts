@@ -41,6 +41,9 @@ export async function applyMasterPushEnabled(userId: string, enabled: boolean): 
   }
   const sync = await syncPushWithBackendIfPermissionGranted(userId);
   if (!sync.synced) {
+    if (!isPaused) {
+      disablePush(true);
+    }
     throw new Error(sync.message ?? 'Push registration is still finishing. Try again in a moment.');
   }
 
@@ -48,6 +51,11 @@ export async function applyMasterPushEnabled(userId: string, enabled: boolean): 
     { user_id: userId, push_enabled: true },
     { onConflict: 'user_id' }
   );
-  if (error) throw error;
+  if (error) {
+    if (!isPaused) {
+      disablePush(true);
+    }
+    throw error;
+  }
   syncPushAfterRestoringDelivery(userId);
 }

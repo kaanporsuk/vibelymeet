@@ -3,6 +3,22 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 const CANONICAL_APP_ORIGIN = 'https://www.vibelymeet.com';
 const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN.replace('://www.', '://');
+const SAFE_PUSH_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
+const PUSH_STATIC_APP_PATHS = new Set([
+  '/',
+  '/(tabs)/profile',
+  '/credits',
+  '/daily-drop',
+  '/events',
+  '/matches',
+  '/premium',
+  '/profile',
+  '/schedule',
+  '/settings',
+  '/settings/credits',
+  '/settings/notifications',
+]);
+const PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user']);
 
 type PushTelemetryValue = string | number | boolean | null | undefined;
 type PushTelemetryProperties = Record<string, PushTelemetryValue>;
@@ -71,6 +87,33 @@ function routeClassForPath(path: string): DeepLinkRouteClass {
   return 'unknown';
 }
 
+function normalizePushRouteSegment(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..') return null;
+  return SAFE_PUSH_ROUTE_SEGMENT.test(trimmed) ? encodeURIComponent(trimmed) : null;
+}
+
+function isAllowedPushAppPath(path: string): boolean {
+  if (PUSH_STATIC_APP_PATHS.has(path)) return true;
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 2 && PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
+    return normalizePushRouteSegment(segments[1]) === segments[1];
+  }
+  if (segments.length === 3 && segments[0] === 'event' && segments[2] === 'lobby') {
+    return normalizePushRouteSegment(segments[1]) === segments[1];
+  }
+  if (segments.length === 3 && segments[0] === 'settings' && segments[1] === 'ticket') {
+    return normalizePushRouteSegment(segments[2]) === segments[2];
+  }
+  return false;
+}
+
+function normalizePushAppPath(rawPath: string): string | null {
+  const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  const [cleanPath] = path.split(/[?#]/);
+  return isAllowedPushAppPath(cleanPath || '/') ? path : null;
+}
+
 export function classifyPushDeepLink(raw: unknown): {
   deeplink_url_present: boolean;
   deeplink_url_kind: DeepLinkUrlKind;
@@ -97,10 +140,19 @@ export function classifyPushDeepLink(raw: unknown): {
   }
 
   if (value.startsWith('/')) {
+    const safePath = normalizePushAppPath(value);
+    if (!safePath) {
+      return {
+        deeplink_url_present: true,
+        deeplink_url_kind: 'invalid_url',
+        deeplink_route_class: 'unknown',
+        canonical_origin_valid: false,
+      };
+    }
     return {
       deeplink_url_present: true,
       deeplink_url_kind: 'relative_app_path',
-      deeplink_route_class: routeClassForPath(value),
+      deeplink_route_class: routeClassForPath(safePath),
       canonical_origin_valid: true,
     };
   }
@@ -108,18 +160,36 @@ export function classifyPushDeepLink(raw: unknown): {
   try {
     const url = new URL(value);
     if (url.origin === CANONICAL_APP_ORIGIN) {
+      const safePath = normalizePushAppPath(`${url.pathname || '/'}${url.search}${url.hash}`);
+      if (!safePath) {
+        return {
+          deeplink_url_present: true,
+          deeplink_url_kind: 'invalid_url',
+          deeplink_route_class: 'unknown',
+          canonical_origin_valid: true,
+        };
+      }
       return {
         deeplink_url_present: true,
         deeplink_url_kind: 'canonical_www_url',
-        deeplink_route_class: routeClassForPath(url.pathname),
+        deeplink_route_class: routeClassForPath(safePath),
         canonical_origin_valid: true,
       };
     }
     if (url.origin === NON_CANONICAL_APEX_ORIGIN) {
+      const safePath = normalizePushAppPath(`${url.pathname || '/'}${url.search}${url.hash}`);
+      if (!safePath) {
+        return {
+          deeplink_url_present: true,
+          deeplink_url_kind: 'invalid_url',
+          deeplink_route_class: 'unknown',
+          canonical_origin_valid: false,
+        };
+      }
       return {
         deeplink_url_present: true,
         deeplink_url_kind: 'non_canonical_apex_url',
-        deeplink_route_class: routeClassForPath(url.pathname),
+        deeplink_route_class: routeClassForPath(safePath),
         canonical_origin_valid: false,
       };
     }
@@ -142,12 +212,12 @@ export function classifyPushDeepLink(raw: unknown): {
 export function normalizePushDeepLinkHref(raw: unknown): string | null {
   const value = typeof raw === 'string' ? raw.trim() : '';
   if (!value || value.startsWith('//') || value.includes('\\')) return null;
-  if (value.startsWith('/')) return value;
+  if (value.startsWith('/')) return normalizePushAppPath(value);
 
   try {
     const url = new URL(value);
     if (url.origin !== CANONICAL_APP_ORIGIN && url.origin !== NON_CANONICAL_APEX_ORIGIN) return null;
-    return `${url.pathname || '/'}${url.search}${url.hash}`;
+    return normalizePushAppPath(`${url.pathname || '/'}${url.search}${url.hash}`);
   } catch {
     return null;
   }

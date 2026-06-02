@@ -67,21 +67,80 @@ function isEntryReadyForNotificationDeepLink(
   return entryState.state === 'complete';
 }
 
+const CANONICAL_NOTIFICATION_ORIGINS = new Set([
+  'https://www.vibelymeet.com',
+  'https://vibelymeet.com',
+]);
+const NATIVE_NOTIFICATION_SCHEMES = new Set([
+  'com.vibelymeet.vibely',
+  'vibely',
+]);
+const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
+const NOTIFICATION_STATIC_APP_PATHS = new Set([
+  '/',
+  '/(tabs)/profile',
+  '/credits',
+  '/daily-drop',
+  '/events',
+  '/matches',
+  '/premium',
+  '/profile',
+  '/schedule',
+  '/settings',
+  '/settings/credits',
+  '/settings/notifications',
+]);
+const NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user']);
+
+function normalizeNotificationRouteSegment(value: unknown): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed || trimmed === '.' || trimmed === '..') return null;
+  return SAFE_NOTIFICATION_ROUTE_SEGMENT.test(trimmed) ? encodeURIComponent(trimmed) : null;
+}
+
+function isAllowedNotificationAppPath(path: string): boolean {
+  if (NOTIFICATION_STATIC_APP_PATHS.has(path)) return true;
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 2 && NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
+    return normalizeNotificationRouteSegment(segments[1]) === segments[1];
+  }
+  if (segments.length === 3 && segments[0] === 'event' && segments[2] === 'lobby') {
+    return normalizeNotificationRouteSegment(segments[1]) === segments[1];
+  }
+  if (segments.length === 3 && segments[0] === 'settings' && segments[1] === 'ticket') {
+    return normalizeNotificationRouteSegment(segments[2]) === segments[2];
+  }
+  return false;
+}
+
+function normalizeNotificationAppPath(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed || trimmed.startsWith('//') || trimmed.includes('\\')) return null;
+  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const [cleanPath] = path.split(/[?#]/);
+  return isAllowedNotificationAppPath(cleanPath || '/') ? path : null;
+}
+
 function pathFromUrlLike(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith('/')) return trimmed;
-  if (/^(chat|daily-drop|ready|date|event|events|settings|premium|user|matches)(\/|$)/.test(trimmed)) {
-    return `/${trimmed}`;
+  if (trimmed.startsWith('/')) return normalizeNotificationAppPath(trimmed);
+  if (/^[A-Za-z0-9_()/-]+([?#].*)?$/.test(trimmed)) {
+    return normalizeNotificationAppPath(trimmed);
   }
   try {
     const u = new URL(trimmed);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:' && u.host) {
-      const customSchemePath = `/${u.host}${u.pathname === '/' ? '' : u.pathname}`;
-      return customSchemePath.startsWith('/') ? customSchemePath : null;
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      if (!CANONICAL_NOTIFICATION_ORIGINS.has(u.origin)) return null;
+      return normalizeNotificationAppPath(`${u.pathname || '/'}${u.search}${u.hash}`);
     }
-    const path = u.pathname && u.pathname !== '/' ? u.pathname : '/';
-    return path.startsWith('/') ? path : null;
+
+    const scheme = u.protocol.replace(/:$/, '');
+    if (!NATIVE_NOTIFICATION_SCHEMES.has(scheme)) return null;
+    const customSchemePath = u.host
+      ? `/${u.host}${u.pathname === '/' ? '' : u.pathname}${u.search}${u.hash}`
+      : `${u.pathname || '/'}${u.search}${u.hash}`;
+    return normalizeNotificationAppPath(customSchemePath);
   } catch {
     return null;
   }
@@ -348,9 +407,8 @@ function resolveNotificationHref(
 ): Href | null {
   const actionRoute = resolveNotificationActionRoute(additionalData?.action);
   const peer =
-    typeof additionalData?.other_user_id === 'string' && additionalData.other_user_id.length > 0
-      ? additionalData.other_user_id
-      : null;
+    normalizeNotificationRouteSegment(additionalData?.other_user_id) ??
+    normalizeNotificationRouteSegment(additionalData?.sender_id);
   const base = hrefFromPayload(additionalData, launchURL);
   if (!base || typeof base !== 'string') return actionRoute;
   if (actionRoute && shouldPreferNativeActionRoute(additionalData, base, actionRoute)) return actionRoute;
@@ -697,7 +755,20 @@ export function NotificationDeepLinkHandler() {
           ...tapDeepLink,
         });
         if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
-          const ticketPath = `/settings/ticket/${data.ticket_id}`;
+          const ticketId = normalizeNotificationRouteSegment(data.ticket_id);
+          if (!ticketId) {
+            const snapshot = recordNotificationOpenDiagnostics(additionalData, rawHref, null);
+            if (__DEV__) {
+              console.log('[Vibely][push][deeplink] ignored invalid support notification payload', snapshot);
+            }
+            recordPushDeliveryTelemetry('push_notification_deeplink_result', {
+              platform: 'native',
+              surface: 'onesignal_click',
+              ...tapDeepLink,
+            });
+            return;
+          }
+          const ticketPath = `/settings/ticket/${ticketId}`;
           recordNotificationOpenDiagnostics(additionalData, rawHref, ticketPath);
           recordPushDeliveryTelemetry('push_notification_deeplink_result', {
             platform: 'native',
@@ -783,11 +854,8 @@ export function NotificationDeepLinkHandler() {
         raw = notification.additionalData as Record<string, unknown> | undefined;
         hasDispatchGroup = multiDeviceDedupEnabled && hasDispatchGroupPayload(raw);
         const chatPeerProfileId =
-          typeof raw?.sender_id === 'string'
-            ? raw.sender_id
-            : typeof raw?.other_user_id === 'string'
-              ? raw.other_user_id
-              : undefined;
+          normalizeNotificationRouteSegment(raw?.sender_id) ??
+          normalizeNotificationRouteSegment(raw?.other_user_id);
         const cat = typeof raw?.category === 'string' ? raw.category : undefined;
         const isDateSuggestionCat = cat?.startsWith('date_suggestion_') ?? false;
         const path = notificationRouteRef.current;

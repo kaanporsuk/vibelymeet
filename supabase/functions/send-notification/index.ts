@@ -22,6 +22,22 @@ const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY')!
 const APP_URL = Deno.env.get('APP_URL') || 'https://www.vibelymeet.com'
 const CANONICAL_APP_ORIGIN = 'https://www.vibelymeet.com'
 const NON_CANONICAL_APEX_ORIGIN = 'https://vibelymeet.com'
+const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/
+const PUSH_STATIC_APP_PATHS = new Set([
+  '/',
+  '/(tabs)/profile',
+  '/credits',
+  '/daily-drop',
+  '/events',
+  '/matches',
+  '/premium',
+  '/profile',
+  '/schedule',
+  '/settings',
+  '/settings/credits',
+  '/settings/notifications',
+])
+const PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user'])
 
 function configuredAppOrigin(): string {
   try {
@@ -31,10 +47,37 @@ function configuredAppOrigin(): string {
   }
 }
 
+function safeNotificationRouteSegment(value: unknown): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  if (!trimmed || trimmed === '.' || trimmed === '..') return null
+  return SAFE_NOTIFICATION_ROUTE_SEGMENT.test(trimmed) ? encodeURIComponent(trimmed) : null
+}
+
+function isAllowedPushAppPath(path: string): boolean {
+  if (PUSH_STATIC_APP_PATHS.has(path)) return true
+  const segments = path.split('/').filter(Boolean)
+  if (segments.length === 2 && PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
+    return safeNotificationRouteSegment(segments[1]) === segments[1]
+  }
+  if (segments.length === 3 && segments[0] === 'event' && segments[2] === 'lobby') {
+    return safeNotificationRouteSegment(segments[1]) === segments[1]
+  }
+  if (segments.length === 3 && segments[0] === 'settings' && segments[1] === 'ticket') {
+    return safeNotificationRouteSegment(segments[2]) === segments[2]
+  }
+  return false
+}
+
 function normalizePushDeepLinkPath(raw: unknown): string | null {
   const value = typeof raw === 'string' ? raw.trim() : ''
   if (!value || value.startsWith('//') || value.includes('\\')) return null
-  if (value.startsWith('/')) return value
+  const normalizePath = (pathLike: string): string | null => {
+    if (!pathLike || pathLike.startsWith('//') || pathLike.includes('\\')) return null
+    const path = pathLike.startsWith('/') ? pathLike : `/${pathLike}`
+    const [cleanPath] = path.split(/[?#]/)
+    return isAllowedPushAppPath(cleanPath || '/') ? path : null
+  }
+  if (value.startsWith('/')) return normalizePath(value)
 
   try {
     const url = new URL(value)
@@ -44,7 +87,7 @@ function normalizePushDeepLinkPath(raw: unknown): string | null {
       NON_CANONICAL_APEX_ORIGIN,
     ])
     if (!allowedOrigins.has(url.origin)) return null
-    return `${url.pathname || '/'}${url.search}${url.hash}`
+    return normalizePath(`${url.pathname || '/'}${url.search}${url.hash}`)
   } catch {
     return null
   }
@@ -226,7 +269,8 @@ function deriveNotificationAction(category: string, data: any, webPath?: string 
   }
   if (category === 'credits_subscription') return actionObject('open_credits')
   if (category === 'support_reply' && typeof data?.ticket_id === 'string') {
-    return actionObject('none', { url: `/settings/ticket/${data.ticket_id}` })
+    const ticketId = safeNotificationRouteSegment(data.ticket_id)
+    return ticketId ? actionObject('none', { url: `/settings/ticket/${ticketId}` }) : actionObject('none')
   }
   if (category === 'profile_incomplete') return actionObject('open_profile', { userId: data?.user_id })
   if (webPath && webPath.startsWith('/settings')) return actionObject('open_notification_settings')
@@ -235,23 +279,25 @@ function deriveNotificationAction(category: string, data: any, webPath?: string 
 
 function pathFromAction(action: Record<string, unknown>): string | null {
   const kind = typeof action.kind === 'string' ? action.kind : 'none'
-  const eventId = typeof action.eventId === 'string' ? action.eventId : typeof action.event_id === 'string' ? action.event_id : null
+  const eventId = safeNotificationRouteSegment(
+    typeof action.eventId === 'string' ? action.eventId : typeof action.event_id === 'string' ? action.event_id : null,
+  )
   const sessionId =
-    typeof action.sessionId === 'string'
+    safeNotificationRouteSegment(typeof action.sessionId === 'string'
       ? action.sessionId
       : typeof action.session_id === 'string'
         ? action.session_id
         : typeof action.video_session_id === 'string'
           ? action.video_session_id
-          : null
+          : null)
   const peerId =
-    typeof action.otherUserId === 'string'
+    safeNotificationRouteSegment(typeof action.otherUserId === 'string'
       ? action.otherUserId
       : typeof action.userId === 'string'
         ? action.userId
         : typeof action.matchId === 'string'
           ? action.matchId
-          : null
+          : null)
   switch (kind) {
     case 'open_chat':
       return peerId ? `/chat/${peerId}` : null
@@ -265,8 +311,10 @@ function pathFromAction(action: Record<string, unknown>): string | null {
       return sessionId ? `/date/${sessionId}` : null
     case 'open_daily_drop':
       return '/matches'
-    case 'open_profile':
-      return typeof action.userId === 'string' ? `/user/${action.userId}` : '/profile'
+    case 'open_profile': {
+      const userId = safeNotificationRouteSegment(action.userId)
+      return userId ? `/user/${userId}` : '/profile'
+    }
     case 'open_credits':
       return '/credits'
     case 'open_subscription':
@@ -276,7 +324,7 @@ function pathFromAction(action: Record<string, unknown>): string | null {
     case 'open_notification_settings':
       return '/settings'
     default:
-      return typeof action.url === 'string' && action.url.startsWith('/') ? action.url : null
+      return normalizePushDeepLinkPath(action.url)
   }
 }
 
@@ -1017,12 +1065,13 @@ function classifyDeepLink(raw: unknown): {
 
 function diagnosticDeepLinkCandidate(category: string, data: any): unknown {
   const isDateSuggestionCategory = typeof category === 'string' && category.startsWith('date_suggestion_')
+  const senderId = safeNotificationRouteSegment(data?.sender_id)
   if (
     (category === 'match_call' || category === 'messages' || isDateSuggestionCategory) &&
     data?.match_id &&
-    data?.sender_id
+    senderId
   ) {
-    return `/chat/${data.sender_id}`
+    return `/chat/${senderId}`
   }
   const eventLink = isEventLifecycleCategory(category) ? eventDeepLink(category, data) : null
   if (eventLink) return eventLink
@@ -1859,15 +1908,17 @@ Deno.serve(async (req) => {
     let osData: Record<string, unknown> = { ...(data || {}), ...phase4PushData, category }
     const baseAction = requestedAction ?? deriveNotificationAction(category, data)
     osData.action = baseAction
+    const safeSenderId = safeNotificationRouteSegment(data?.sender_id)
     if (
       category === 'match_call' &&
       data?.match_id &&
-      data?.sender_id
+      safeSenderId
     ) {
-      const chatPath = `/chat/${data.sender_id}`
+      const senderId = safeSenderId
+      const chatPath = `/chat/${senderId}`
       osData.match_id = data.match_id
-      osData.other_user_id = data.sender_id
-      osData.sender_id = data.sender_id
+      osData.other_user_id = senderId
+      osData.sender_id = senderId
       if (typeof data.call_id === 'string' && data.call_id.trim()) osData.call_id = data.call_id.trim()
       if (typeof data.call_type === 'string' && data.call_type.trim()) osData.call_type = data.call_type.trim()
       osData.url = chatPath
@@ -1876,12 +1927,13 @@ Deno.serve(async (req) => {
     } else if (
       (category === 'messages' || isDateSuggestionCategory) &&
       data?.match_id &&
-      data?.sender_id
+      safeSenderId
     ) {
-      const chatPath = `/chat/${data.sender_id}`
+      const senderId = safeSenderId
+      const chatPath = `/chat/${senderId}`
       osData.match_id = data.match_id
-      osData.other_user_id = data.sender_id
-      osData.sender_id = data.sender_id
+      osData.other_user_id = senderId
+      osData.sender_id = senderId
       osData.url = chatPath
       osData.deep_link = chatPath
       webPath = chatPath

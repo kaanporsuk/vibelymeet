@@ -41,6 +41,7 @@ import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { PushSyncResult } from "@clientShared/pushDeliveryHealth";
 
 interface NotificationsDrawerProps {
   open: boolean;
@@ -105,8 +106,8 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     [prefs.quiet_hours_start, prefs.quiet_hours_end]
   );
 
-  const handleEnablePush = async () => {
-    if (!user?.id) return;
+  const handleEnablePush = async (): Promise<PushSyncResult | null> => {
+    if (!user?.id) return null;
     recordUserAction("notification_settings_push_retry_clicked", {
       surface: "settings_notifications",
       health_status: health.status,
@@ -152,6 +153,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
         reason: result.code,
       });
     }
+    return result ?? null;
   };
 
   const handlePause = (duration: string) => {
@@ -200,9 +202,9 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
       return;
     }
     if (nextEnabled && health.status !== "enabled") {
-      await handleEnablePush();
+      const result = await handleEnablePush();
       await refreshPushHealth();
-      if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+      if (!result?.synced) {
         return;
       }
     }
