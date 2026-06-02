@@ -57,28 +57,31 @@ type NotificationPreferencesRow = Partial<Record<keyof NotificationPreferences, 
 
 function normalizeNotificationPreferencesRow(row: NotificationPreferencesRow | null | undefined): NotificationPreferences {
   if (!row) return { ...DEFAULTS };
+  const bool = (key: keyof NotificationPreferences, fallback: boolean) =>
+    typeof row[key] === "boolean" ? row[key] : fallback;
   return {
-    push_enabled: row.push_enabled ?? true,
+    push_enabled: bool("push_enabled", true),
     paused_until: (row.paused_until as string | null | undefined) ?? null,
-    notify_new_match: row.notify_new_match ?? true,
-    notify_messages: row.notify_messages ?? true,
-    notify_match_calls: row.notify_match_calls ?? row.notify_messages ?? true,
-    notify_someone_vibed_you: row.notify_someone_vibed_you ?? true,
-    notify_ready_gate: row.notify_ready_gate ?? true,
-    notify_event_live: row.notify_event_live ?? true,
-    notify_event_reminder: row.notify_event_reminder ?? true,
-    notify_date_reminder: row.notify_date_reminder ?? true,
-    notify_daily_drop: row.notify_daily_drop ?? false,
-    notify_recommendations: row.notify_recommendations ?? false,
-    notify_product_updates: row.notify_product_updates ?? false,
-    notify_credits_subscription: row.notify_credits_subscription ?? true,
-    sound_enabled: row.sound_enabled ?? true,
-    quiet_hours_enabled: row.quiet_hours_enabled ?? false,
+    notify_new_match: bool("notify_new_match", true),
+    notify_messages: bool("notify_messages", true),
+    notify_match_calls:
+      typeof row.notify_match_calls === "boolean" ? row.notify_match_calls : bool("notify_messages", true),
+    notify_someone_vibed_you: bool("notify_someone_vibed_you", true),
+    notify_ready_gate: bool("notify_ready_gate", true),
+    notify_event_live: bool("notify_event_live", true),
+    notify_event_reminder: bool("notify_event_reminder", true),
+    notify_date_reminder: bool("notify_date_reminder", true),
+    notify_daily_drop: bool("notify_daily_drop", false),
+    notify_recommendations: bool("notify_recommendations", false),
+    notify_product_updates: bool("notify_product_updates", false),
+    notify_credits_subscription: bool("notify_credits_subscription", true),
+    sound_enabled: bool("sound_enabled", true),
+    quiet_hours_enabled: bool("quiet_hours_enabled", false),
     quiet_hours_start: (row.quiet_hours_start as string | null | undefined) || "22:00:00",
     quiet_hours_end: (row.quiet_hours_end as string | null | undefined) || "08:00:00",
     quiet_hours_timezone: (row.quiet_hours_timezone as string | null | undefined) || "UTC",
-    message_bundle_enabled: row.message_bundle_enabled ?? true,
-  } as NotificationPreferences;
+    message_bundle_enabled: bool("message_bundle_enabled", true),
+  };
 }
 
 export function useNotificationPreferences() {
@@ -88,23 +91,35 @@ export function useNotificationPreferences() {
   const [isSaving, setIsSaving] = useState(false);
   const [isPushSubscribed, setIsPushSubscribed] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPatchRef = useRef<Partial<NotificationPreferences>>({});
+  const flushInFlightRef = useRef(false);
+  const activeUserIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
   const prefsRef = useRef<NotificationPreferences>(DEFAULTS);
   const persistedPrefsRef = useRef<NotificationPreferences>(DEFAULTS);
 
   const applyPrefs = useCallback((next: NotificationPreferences) => {
     prefsRef.current = next;
-    setPrefs(next);
+    if (mountedRef.current) setPrefs(next);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // Fetch on mount
   useEffect(() => {
+    let cancelled = false;
+    const currentUserId = user?.id ?? null;
+    activeUserIdRef.current = currentUserId;
     pendingPatchRef.current = {};
-    if (debounceRef.current) clearTimeout(debounceRef.current);
     setSaveError(null);
+    setIsSaving(false);
 
-    if (!user?.id) {
+    if (!currentUserId) {
       applyPrefs(DEFAULTS);
       persistedPrefsRef.current = DEFAULTS;
       setIsLoading(false);
@@ -112,13 +127,22 @@ export function useNotificationPreferences() {
       return;
     }
 
+    const loadingDefaults = {
+      ...DEFAULTS,
+      quiet_hours_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    };
+    applyPrefs(loadingDefaults);
+    persistedPrefsRef.current = loadingDefaults;
+    setIsLoading(true);
+
     const fetch = async () => {
-      setIsLoading(true);
       const { data, error } = await supabase
         .from("notification_preferences")
         .select(NOTIFICATION_PREFERENCES_SELECT)
-        .eq("user_id", user.id)
+        .eq("user_id", currentUserId)
         .maybeSingle();
+
+      if (cancelled || activeUserIdRef.current !== currentUserId) return;
 
       if (error) {
         console.error("Failed to fetch notification prefs:", error);
@@ -131,11 +155,12 @@ export function useNotificationPreferences() {
         const next = { ...DEFAULTS, quiet_hours_timezone: tz };
         const { error: insertError } = await supabase.from("notification_preferences").upsert(
           {
-            user_id: user.id,
+            user_id: currentUserId,
             quiet_hours_timezone: tz,
           },
           { onConflict: "user_id" }
         );
+        if (cancelled || activeUserIdRef.current !== currentUserId) return;
         if (insertError) {
           console.error("Failed to create notification prefs:", insertError);
           setSaveError(insertError.message);
@@ -154,75 +179,95 @@ export function useNotificationPreferences() {
     fetch();
 
     // Check push subscription
-    checkSubscribed().then(setIsPushSubscribed);
+    checkSubscribed()
+      .then((subscribed) => {
+        if (!cancelled && activeUserIdRef.current === currentUserId) setIsPushSubscribed(subscribed);
+      })
+      .catch(() => {
+        if (!cancelled && activeUserIdRef.current === currentUserId) setIsPushSubscribed(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [applyPrefs, user?.id]);
 
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
   const flushPendingPrefs = useCallback(async (userId: string) => {
-    const patch = pendingPatchRef.current;
-    const patchKeys = Object.keys(patch) as Array<keyof NotificationPreferences>;
-    if (!patchKeys.length) return;
+    if (flushInFlightRef.current) return;
+    if (!Object.keys(pendingPatchRef.current).length) return;
+    flushInFlightRef.current = true;
+    if (mountedRef.current) setIsSaving(true);
 
-    pendingPatchRef.current = {};
-    setIsSaving(true);
+    try {
+      while (activeUserIdRef.current === userId && Object.keys(pendingPatchRef.current).length) {
+        const patch = pendingPatchRef.current;
+        const patchKeys = Object.keys(patch) as Array<keyof NotificationPreferences>;
+        pendingPatchRef.current = {};
 
-    const { data, error } = await supabase
-      .from("notification_preferences")
-      .upsert(
-        {
-          user_id: userId,
-          ...patch,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      )
-      .select(NOTIFICATION_PREFERENCES_SELECT)
-      .single();
+        const { data, error } = await supabase
+          .from("notification_preferences")
+          .upsert(
+            {
+              user_id: userId,
+              ...patch,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id" }
+          )
+          .select(NOTIFICATION_PREFERENCES_SELECT)
+          .single();
 
-    if (error) {
-      console.error("Failed to save notification prefs:", error);
-      setSaveError(error.message);
-      const pendingKeys = new Set(Object.keys(pendingPatchRef.current));
-      const rollback = patchKeys.reduce<Partial<NotificationPreferences>>((acc, key) => {
-        if (pendingKeys.has(key)) return acc;
-        acc[key] = persistedPrefsRef.current[key] as never;
-        return acc;
-      }, {});
-      applyPrefs({ ...prefsRef.current, ...rollback });
-    } else {
-      const next = normalizeNotificationPreferencesRow(data as NotificationPreferencesRow);
-      const pendingPatch = pendingPatchRef.current;
-      persistedPrefsRef.current = next;
-      applyPrefs(Object.keys(pendingPatch).length ? { ...next, ...pendingPatch } : next);
-      setSaveError(null);
+        if (activeUserIdRef.current !== userId) break;
+
+        if (error) {
+          console.error("Failed to save notification prefs:", error);
+          if (mountedRef.current) setSaveError(error.message);
+          const pendingKeys = new Set(Object.keys(pendingPatchRef.current));
+          const rollback = patchKeys.reduce<Partial<NotificationPreferences>>((acc, key) => {
+            if (pendingKeys.has(key)) return acc;
+            acc[key] = persistedPrefsRef.current[key] as never;
+            return acc;
+          }, {});
+          applyPrefs({ ...prefsRef.current, ...rollback });
+        } else {
+          const next = normalizeNotificationPreferencesRow(data as NotificationPreferencesRow);
+          const pendingPatch = pendingPatchRef.current;
+          persistedPrefsRef.current = next;
+          applyPrefs(Object.keys(pendingPatch).length ? { ...next, ...pendingPatch } : next);
+          if (mountedRef.current) setSaveError(null);
+        }
+      }
+    } finally {
+      flushInFlightRef.current = false;
+      const activeUserId = activeUserIdRef.current;
+      if (activeUserId && Object.keys(pendingPatchRef.current).length) {
+        void flushPendingPrefs(activeUserId);
+      } else {
+        if (mountedRef.current) setIsSaving(false);
+      }
     }
-
-    setIsSaving(Object.keys(pendingPatchRef.current).length > 0);
   }, [applyPrefs]);
 
-  // Debounced save
   const savePrefs = useCallback(
     (updated: Partial<NotificationPreferences>) => {
       if (!user?.id) return;
       const userId = user.id;
+      const entries = Object.entries(updated).filter(([, value]) => value !== undefined);
+      if (!entries.length) return;
+      const nextPatch = Object.fromEntries(entries) as Partial<NotificationPreferences>;
 
       setSaveError(null);
-      pendingPatchRef.current = { ...pendingPatchRef.current, ...updated };
+      setIsSaving(true);
+      pendingPatchRef.current = { ...pendingPatchRef.current, ...nextPatch };
       setPrefs((prev) => {
-        const next = { ...prev, ...updated };
+        const next = { ...prev, ...nextPatch };
         prefsRef.current = next;
         return next;
       });
 
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
+      if (activeUserIdRef.current === userId) {
         void flushPendingPrefs(userId);
-      }, 500);
+      }
     },
     [flushPendingPrefs, user?.id]
   );

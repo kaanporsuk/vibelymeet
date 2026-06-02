@@ -94,6 +94,8 @@ test("native push and match-call permission recovery survives interrupted or ret
   const matchCall = read("apps/mobile/lib/useMatchCall.tsx");
   const nativeMedia = read("apps/mobile/lib/nativeMediaPermissions.ts");
   const nativeOneSignal = read("apps/mobile/lib/onesignal.ts");
+  const nativePrefsHook = read("apps/mobile/lib/useNotificationPreferences.ts");
+  const nativeSettings = read("apps/mobile/app/settings/notifications.tsx");
 
   assert.match(requestPush, /VIBELY_PUSH_PERMISSION_IN_FLIGHT_PREFIX/);
   assert.match(requestPush, /PUSH_PERMISSION_IN_FLIGHT_TTL_MS = 10 \* 60 \* 1000/);
@@ -128,6 +130,29 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.match(nativeOneSignal, /unregister_onesignal_push_subscription/);
   assert.doesNotMatch(nativeOneSignal, /isMissingPushSubscriptionRpc/);
   assert.doesNotMatch(nativeOneSignal, /\.from\('notification_preferences'\)/);
+
+  assert.match(nativePrefsHook, /pendingPatchRef/);
+  assert.match(nativePrefsHook, /activeUserIdRef/);
+  assert.match(nativePrefsHook, /mountedRef/);
+  assert.match(nativePrefsHook, /persistedPrefsRef/);
+  assert.match(nativePrefsHook, /flushInFlightRef/);
+  assert.match(nativePrefsHook, /qc\.getQueryData<NotificationPrefs>\(notificationPreferencesQueryKey\(currentUserId\)\)/);
+  assert.match(nativePrefsHook, /while \(activeUserIdRef\.current === targetUserId && Object\.keys\(pendingPatchRef\.current\)\.length\)/);
+  assert.match(nativePrefsHook, /setIsUpdating\(true\);[\s\S]*pendingPatchRef\.current =/);
+  assert.match(nativePrefsHook, /const previous = persistedPrefsRef\.current/);
+  assert.match(nativePrefsHook, /persistedPrefsRef\.current = next/);
+  assert.match(nativePrefsHook, /void flushPendingPrefs\(userId\);/);
+  assert.doesNotMatch(nativePrefsHook, /setTimeout|debounceRef/);
+  assert.match(nativePrefsHook, /updated_at: new Date\(\)\.toISOString\(\)/);
+  assert.match(nativeSettings, /const \{ prefs, updatePref, updatePrefs, isLoading, isUpdating, saveError \}/);
+  assert.match(nativeSettings, /const providerControlsBusy = preferencesBusy \|\| masterBusy/);
+  assert.match(nativeSettings, /const categoryControlsBusy = preferencesBusy/);
+  assert.doesNotMatch(nativeSettings, /categoryControls\w+ = preferencesBusy \|\| !prefs\.push_enabled \|\| isPaused/);
+  assert.match(nativeSettings, /disabled=\{providerControlsBusy\}/);
+  assert.match(nativeSettings, /const saveQuietHoursPatch = useCallback\([\s\S]*updatePrefs\(patch\)/);
+  assert.match(nativeSettings, /Category choices below are still saved and will apply when notifications resume/);
+  assert.match(nativeSettings, /Category choices below are still saved and will apply when you turn this back on/);
+  assert.doesNotMatch(nativeSettings, /\.upsert\(\{ user_id: user\.id/);
 });
 
 test("web push uses subscription RPCs only and never sends users to fake browser settings", () => {
@@ -146,8 +171,27 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(helper, /prompt_unavailable/);
   assert.doesNotMatch(prefsHook, /onesignal_player_id|onesignal_subscribed/);
   assert.match(prefsHook, /pendingPatchRef/);
+  assert.match(prefsHook, /let cancelled = false/);
+  assert.match(prefsHook, /if \(cancelled \|\| activeUserIdRef\.current !== currentUserId\) return/);
+  assert.match(prefsHook, /if \(!cancelled && activeUserIdRef\.current === currentUserId\) setIsPushSubscribed\(subscribed\)/);
+  assert.match(prefsHook, /\.catch\(\(\) => \{[\s\S]*setIsPushSubscribed\(false\)/);
+  assert.match(prefsHook, /const bool = \(key: keyof NotificationPreferences, fallback: boolean\)/);
+  assert.match(prefsHook, /mountedRef/);
+  assert.match(prefsHook, /return \(\) => \{[\s\S]*cancelled = true;[\s\S]*\}/);
+  assert.match(prefsHook, /const loadingDefaults = \{/);
+  assert.match(prefsHook, /applyPrefs\(loadingDefaults\);[\s\S]*persistedPrefsRef\.current = loadingDefaults;[\s\S]*setIsLoading\(true\);/);
+  assert.match(prefsHook, /flushInFlightRef/);
+  assert.match(prefsHook, /activeUserIdRef/);
+  assert.match(prefsHook, /if \(flushInFlightRef\.current\) return/);
+  assert.match(prefsHook, /while \(activeUserIdRef\.current === userId && Object\.keys\(pendingPatchRef\.current\)\.length\)/);
   assert.match(prefsHook, /persistedPrefsRef/);
+  assert.match(prefsHook, /message_bundle_enabled: bool\("message_bundle_enabled", true\)/);
   assert.match(prefsHook, /\.upsert\(/);
+  assert.match(prefsHook, /setIsSaving\(true\);[\s\S]*pendingPatchRef\.current =/);
+  assert.match(prefsHook, /Object\.entries\(updated\)\.filter\(\(\[, value\]\) => value !== undefined\)/);
+  assert.match(prefsHook, /void flushPendingPrefs\(userId\);/);
+  assert.match(prefsHook, /finally \{[\s\S]*flushInFlightRef\.current = false;[\s\S]*setIsSaving\(false\);[\s\S]*\}/);
+  assert.doesNotMatch(prefsHook, /setTimeout|debounceRef/);
   assert.doesNotMatch(prefsHook, /\.update\(\{ \.\.\.updated/);
 
   assert.match(pushTypes, /unsupported_browser/);
@@ -160,6 +204,12 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(drawer, /prompt_unavailable/);
   assert.match(drawer, /Promise<PushSyncResult \| null>/);
   assert.match(drawer, /const result = await handleEnablePush\(\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*savePrefs\(\{ push_enabled: nextEnabled \}\)/);
+  assert.match(drawer, /const categoryControlsBusy = isLoading \|\| isSaving/);
+  assert.doesNotMatch(drawer, /const disabled = isLoading \|\| !prefs\.push_enabled \|\| isPaused/);
+  assert.match(drawer, /Category choices below are still saved and will apply when notifications resume/);
+  assert.match(drawer, /Category choices below will apply when you turn this back on/);
+  assert.match(drawer, /disabled=\{isLoading \|\| isSaving\}/);
+  assert.match(drawer, /checked=\{prefs\.quiet_hours_enabled\}[\s\S]*disabled=\{isLoading \|\| isSaving\}/);
 });
 
 test("push delivery sanitizes links and targets only owned subscription rows", () => {
