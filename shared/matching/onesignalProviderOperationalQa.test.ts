@@ -102,6 +102,7 @@ test("web player-id and subscription sync writes through subscription RPCs only"
   assert.match(webPushSync, /const livePlayerId = await getPlayerId\(WEB_PLAYER_ID_LOGOUT_LOOKUP\)/);
   assert.doesNotMatch(webPushSync, /playerId\s*\?\s*await pushSubscriptionRpc\(\)\.rpc\(["']unregister_onesignal_push_subscription["']/);
   assert.match(webPushSync, /p_subscription_id:\s*playerId/);
+  assert.match(webPushSync, /p_expected_user_id:\s*userId/);
   assert.match(webPushSync, /isSubscribed\(\)/);
   assert.match(webPushSync, /register_onesignal_push_subscription/);
   assert.match(webPushSync, /unregister_onesignal_push_subscription/);
@@ -109,8 +110,13 @@ test("web player-id and subscription sync writes through subscription RPCs only"
   assert.doesNotMatch(webPushSync, /upsertLegacyWebPushPreference/);
   assert.doesNotMatch(webPushSync, /\.from\(["']notification_preferences["']\)/);
   assert.match(webPushHealth, /\.from\(["']push_subscriptions["']\)/);
+  assert.match(webPushHealth, /activeUserIdRef/);
+  assert.match(webPushHealth, /function isActiveHealthUser|const isActiveHealthUser/);
+  assert.match(webPushHealth, /setBackend\(EMPTY_BACKEND_ROW\);[\s\S]*setLocalPlayerId\(null\);[\s\S]*setLastSyncResultCode\(null\)/);
   assert.match(webPushHealth, /currentSubscriptionId = localId\?\.trim\(\) \|\| null/);
-  assert.match(webPushHealth, /readBackendPushSubscription\(user\.id, currentSubscriptionId\)/);
+  assert.match(webPushHealth, /readBackendPushSubscription\(targetUserId, currentSubscriptionId\)/);
+  assert.match(webPushHealth, /if \(!isActiveHealthUser\(targetUserId\)\) return/);
+  assert.match(webPushHealth, /if \(!isActiveHealthUser\(targetUserId\)\) return null;[\s\S]*setSyncInFlight\(true\)/);
   assert.doesNotMatch(webPushHealth, /legacyMatchesCurrentDevice/);
   assert.doesNotMatch(webPushHealth, /onesignal_player_id/);
   assert.doesNotMatch(webPushHealth, /onesignal_subscribed/);
@@ -141,6 +147,9 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativeOneSignal, /initAttemptedAppId/);
   assert.match(nativeOneSignal, /register_onesignal_push_subscription/);
   assert.match(nativeOneSignal, /unregister_onesignal_push_subscription/);
+  assert.match(nativeOneSignal, /function isActiveSupabaseUserForPushSync/);
+  assert.match(nativeOneSignal, /push_subscription_sync_before_register/);
+  assert.match(nativeOneSignal, /p_expected_user_id:\s*userId/);
   assert.match(nativeOneSignal, /OneSignal\.User\.pushSubscription\.optOut\(\)/);
   assert.match(nativeOneSignal, /NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY/);
   assert.match(nativeOneSignal, /rememberNativePushSubscriptionId\(userId, subscriptionId\)/);
@@ -158,7 +167,7 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   );
   assert.match(
     nativePushHealth,
-    /await syncNativePushSuppressionWithBackend\(userId\);\s*const result = await syncPushWithBackendIfPermissionGranted\(userId\);/,
+    /await syncNativePushSuppressionWithBackend\(targetUserId\);\s*const result = await syncPushWithBackendIfPermissionGranted\(targetUserId\);/,
   );
   assert.match(nativeNotificationPause, /syncPushAfterRestoringDelivery\(userId\)/);
   assert.match(nativePushMasterSwitch, /syncPushAfterRestoringDelivery\(userId\)/);
@@ -167,8 +176,13 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativePushRegistration, /bindOneSignalExternalUser\(user\.id\)/);
   assert.match(nativePushRegistration, /syncNativePushDeliveryOnForeground\(user\.id/);
   assert.match(nativePushHealth, /\.from\(['"]push_subscriptions['"]\)/);
+  assert.match(nativePushHealth, /activeUserIdRef/);
+  assert.match(nativePushHealth, /function isActiveHealthUser|const isActiveHealthUser/);
+  assert.match(nativePushHealth, /setBackend\(EMPTY_BACKEND_ROW\);[\s\S]*setLocalPlayerId\(null\);[\s\S]*setSdkSubscribed\(null\);[\s\S]*setLastSyncResultCode\(null\)/);
   assert.match(nativePushHealth, /currentSubscriptionId = localId\?\.trim\(\) \|\| null/);
-  assert.match(nativePushHealth, /readBackendPushSubscription\(userId, currentSubscriptionId\)/);
+  assert.match(nativePushHealth, /readBackendPushSubscription\(targetUserId, currentSubscriptionId\)/);
+  assert.match(nativePushHealth, /if \(!isActiveHealthUser\(targetUserId\)\) return/);
+  assert.match(nativePushHealth, /if \(!isActiveHealthUser\(targetUserId\)\) return null;[\s\S]*setSyncInFlight\(true\)/);
   assert.doesNotMatch(nativePushHealth, /legacyMatchesCurrentDevice/);
   assert.doesNotMatch(nativePushHealth, /mobile_onesignal_player_id/);
   assert.doesNotMatch(nativePushHealth, /mobile_onesignal_subscribed/);
@@ -268,6 +282,13 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.match(pushSubscriptionRpcGrantMigration, /REVOKE EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) FROM anon/);
   assert.match(pushSubscriptionRpcGrantMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription\(text, text, boolean\) TO authenticated/);
   assert.match(pushSubscriptionRpcGrantMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO authenticated/);
+  const expectedUserMigration = read("supabase/migrations/20260602120000_push_subscription_expected_user_hardening.sql");
+  assert.match(expectedUserMigration, /p_expected_user_id uuid DEFAULT NULL/);
+  assert.match(expectedUserMigration, /p_expected_user_id IS NOT NULL AND p_expected_user_id <> v_user_id/);
+  assert.match(expectedUserMigration, /REVOKE CREATE ON SCHEMA public FROM PUBLIC, anon, authenticated/);
+  assert.match(expectedUserMigration, /GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role/);
+  assert.match(expectedUserMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription\(text, text, boolean, uuid\)[\s\S]+TO authenticated, service_role/);
+  assert.match(expectedUserMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text, uuid\)[\s\S]+TO authenticated, service_role/);
 });
 
 test("notification deep-link payloads remain URL-based and native-compatible", () => {

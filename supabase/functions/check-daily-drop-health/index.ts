@@ -7,6 +7,7 @@
 // Admin JWT (with user_roles role='admin') is also accepted for manual checks.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,7 +93,7 @@ async function sendAlertEmail(reason: string, body: Json, todayUtc: string, toda
 
   const html = buildAlertBodyHtml({ reason, todayUtc, lastRun: body, todayPairs });
 
-  const res = await fetch("https://api.resend.com/emails", {
+  const res = await fetchWithProviderTimeout("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -104,6 +105,10 @@ async function sendAlertEmail(reason: string, body: Json, todayUtc: string, toda
       subject: `[Vibely Ops] Daily Drop alert: ${reason}`,
       html,
     }),
+  }, {
+    provider: "resend",
+    operation: "daily_drop_health_alert",
+    timeoutMs: providerFetchTimeoutMs("resend", "daily_drop_health_alert"),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

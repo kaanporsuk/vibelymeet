@@ -64,6 +64,10 @@ function backendSyncSignature(userId: string, playerId: string, subscribed: bool
   return `${userId}:${playerId}:${subscribed ? "subscribed" : "unsubscribed"}`;
 }
 
+function backendSyncSignatureUserPrefix(userId: string): string {
+  return `${userId}:`;
+}
+
 function readStoredBackendSyncCache(): StoredBackendSyncCache {
   if (typeof window === "undefined") return {};
   try {
@@ -90,6 +94,28 @@ function writeStoredBackendSync(signature: string, result: PushSyncResult): void
     }
     cache[signature] = { syncedAtMs: Date.now(), result };
     window.localStorage.setItem(WEB_PUSH_BACKEND_SYNC_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    /* localStorage is best-effort only */
+  }
+}
+
+function forgetBackendSyncCacheForUser(userId: string): void {
+  const prefix = backendSyncSignatureUserPrefix(userId);
+  for (const key of Array.from(lastBackendSyncBySignature.keys())) {
+    if (key.startsWith(prefix)) lastBackendSyncBySignature.delete(key);
+  }
+
+  if (typeof window === "undefined") return;
+  try {
+    const cache = readStoredBackendSyncCache();
+    let changed = false;
+    for (const key of Object.keys(cache)) {
+      if (key.startsWith(prefix)) {
+        delete cache[key];
+        changed = true;
+      }
+    }
+    if (changed) window.localStorage.setItem(WEB_PUSH_BACKEND_SYNC_CACHE_KEY, JSON.stringify(cache));
   } catch {
     /* localStorage is best-effort only */
   }
@@ -155,7 +181,22 @@ function pushSubscriptionRpc(): PushSubscriptionRpcClient {
   return supabase as unknown as PushSubscriptionRpcClient;
 }
 
+async function isActiveAuthUserForWebPush(userId: string, context: string): Promise<boolean> {
+  const { data, error } = await supabase.auth.getSession();
+  const currentUserId = data.session?.user?.id ?? null;
+  const isActive = !error && currentUserId === userId;
+  if (!isActive) {
+    vibelyOsLog("webPush:stale_identity", {
+      context,
+      hasCurrentUser: Boolean(currentUserId),
+      authReadFailed: Boolean(error),
+    });
+  }
+  return isActive;
+}
+
 async function registerStoredWebPushSubscription(
+  userId: string,
   playerId: string,
   subscribed: boolean,
 ): Promise<string | null> {
@@ -163,26 +204,35 @@ async function registerStoredWebPushSubscription(
     p_subscription_id: playerId,
     p_platform: "web",
     p_subscribed: subscribed,
+    p_expected_user_id: userId,
   });
 
   return error?.message ?? null;
 }
 
 export async function disconnectWebPushForLogout(userId: string): Promise<void> {
-  const livePlayerId = await getPlayerId(WEB_PLAYER_ID_LOGOUT_LOOKUP);
-  const playerId = livePlayerId?.trim() || readRememberedWebPushSubscriptionId(userId);
-  const { error } = await pushSubscriptionRpc().rpc("unregister_onesignal_push_subscription", {
-    p_subscription_id: playerId,
-    p_platform: "web",
-  });
-
-  if (error) {
-    throw new Error(error.message ?? "push_subscription_unregister_failed");
+  let unregisterError: string | null = null;
+  try {
+    const livePlayerId = await getPlayerId(WEB_PLAYER_ID_LOGOUT_LOOKUP);
+    const playerId = livePlayerId?.trim() || readRememberedWebPushSubscriptionId(userId);
+    const { error } = await pushSubscriptionRpc().rpc("unregister_onesignal_push_subscription", {
+      p_subscription_id: playerId,
+      p_platform: "web",
+      p_expected_user_id: userId,
+    });
+    unregisterError = error?.message ?? null;
+  } finally {
+    forgetRememberedWebPushSubscriptionId(userId);
+    forgetBackendSyncCacheForUser(userId);
+    syncInFlightByUser.delete(userId);
   }
-  forgetRememberedWebPushSubscriptionId(userId);
+  if (unregisterError) throw new Error(unregisterError);
 }
 
 async function syncWebPushRegistrationToBackendInternal(userId: string): Promise<PushSyncResult> {
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_start"))) {
+    return syncResult("stale_identity");
+  }
   if (typeof Notification === "undefined") {
     return syncResult("unsupported_browser");
   }
@@ -194,25 +244,40 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
   if (!snapshot.appIdConfigured) return syncResult("app_id_missing");
 
   initOneSignal();
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_before_identity_bind"))) {
+    return syncResult("stale_identity");
+  }
   const generation = setExternalUserId(userId);
   const init = await waitForOneSignalInitResult();
   if (init.sdkStatus === "init_failed") return syncResult("init_failed");
   if (!init.sdkUsable) return syncResult("sdk_not_ready");
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_after_init"))) {
+    return syncResult("stale_identity");
+  }
   if (!isCurrentOneSignalIdentity(userId, generation)) return syncResult("stale_identity");
 
   const playerId = await getPlayerId(WEB_PLAYER_ID_SYNC_RETRY);
   vibelyOsLog("syncWebPushRegistrationToBackend:after getPlayerId", { hasPlayerId: Boolean(playerId) });
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_after_player_id"))) {
+    return syncResult("stale_identity", playerId);
+  }
   if (!isCurrentOneSignalIdentity(userId, generation)) return syncResult("stale_identity", playerId);
   if (!playerId) {
     return syncResult("no_player_id_after_retry");
   }
 
   const subscribed = await isSubscribed();
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_after_subscription_state"))) {
+    return syncResult("stale_identity", playerId);
+  }
   if (!isCurrentOneSignalIdentity(userId, generation)) return syncResult("stale_identity", playerId);
 
   const signature = backendSyncSignature(userId, playerId, subscribed);
   const cachedResult = getFreshCachedBackendSync(signature);
   if (cachedResult) {
+    if (!(await isActiveAuthUserForWebPush(userId, "sync_before_cached_result"))) {
+      return syncResult("stale_identity", playerId);
+    }
     vibelyOsLog("syncWebPushRegistrationToBackend:skip duplicate backend sync", {
       subscribed,
       code: cachedResult.code,
@@ -221,11 +286,17 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
     return cachedResult;
   }
 
-  const registerError = await registerStoredWebPushSubscription(playerId, subscribed);
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_before_register"))) {
+    return syncResult("stale_identity", playerId);
+  }
+  const registerError = await registerStoredWebPushSubscription(userId, playerId, subscribed);
   if (registerError) {
     vibelyOsLog("syncWebPushRegistrationToBackend:upsert failed", { message: registerError });
     console.error("[requestWebPushPermission] upsert failed:", registerError);
     return syncResult("upsert_failed", playerId, registerError);
+  }
+  if (!(await isActiveAuthUserForWebPush(userId, "sync_after_register"))) {
+    return syncResult("stale_identity", playerId);
   }
 
   rememberWebPushSubscriptionId(userId, playerId);
@@ -257,6 +328,9 @@ export async function syncWebPushRegistrationToBackend(userId: string): Promise<
 export async function requestWebPushPermissionAndSync(userId: string): Promise<PushSyncResult> {
   try {
     vibelyOsLog("requestWebPushPermission:start", { userIdTail: userId.slice(-6) });
+    if (!(await isActiveAuthUserForWebPush(userId, "request_start"))) {
+      return syncResult("stale_identity");
+    }
     const initialPermissionState = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
     if (initialPermissionState === "unsupported" || initialPermissionState === "denied") {
       const result = syncResult(initialPermissionState === "unsupported" ? "unsupported_browser" : "permission_denied");
@@ -301,6 +375,9 @@ export async function requestWebPushPermissionAndSync(userId: string): Promise<P
       return result;
     }
     initOneSignal();
+    if (!(await isActiveAuthUserForWebPush(userId, "request_before_prompt"))) {
+      return syncResult("stale_identity");
+    }
     const granted = await promptForPush();
     vibelyOsLog("requestWebPushPermission:after promptForPush", { granted });
     recordPushDeliveryTelemetry("push_permission_prompt_result", {
@@ -330,6 +407,9 @@ export async function requestWebPushPermissionAndSync(userId: string): Promise<P
         backend_subscribed: false,
       });
       return result;
+    }
+    if (!(await isActiveAuthUserForWebPush(userId, "request_after_prompt"))) {
+      return syncResult("stale_identity");
     }
     const result = await syncWebPushRegistrationToBackend(userId);
     recordPushDeliveryTelemetry("push_registration_sync_result", {

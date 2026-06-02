@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/react";
+import { sanitizeBrowserDiagnosticPayload } from "@/lib/browserDiagnostics";
 
 /**
  * Video-date diagnostics helper (web): debug-only console lines and Sentry breadcrumbs.
@@ -97,9 +98,18 @@ function stringifyPayloadForDevConsole(payload: Record<string, unknown>): string
   }
 }
 
+function sanitizeVdbgPayload(data?: Record<string, unknown>): Record<string, unknown> {
+  const ts = new Date().toISOString();
+  try {
+    return sanitizeBrowserDiagnosticPayload({ ...(data ?? {}), ts });
+  } catch {
+    return { diagnostic_payload_unavailable: true, ts };
+  }
+}
+
 export function vdbg(message: string, data?: Record<string, unknown>): void {
   if (!VDBG_ENABLED) return;
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  const payload = sanitizeVdbgPayload(data);
   if (import.meta.env.DEV && devConsoleShouldJsonStringify(message)) {
     console.log(`[VDBG] ${message}`, stringifyPayloadForDevConsole(payload));
   } else {

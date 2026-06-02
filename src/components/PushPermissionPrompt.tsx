@@ -190,6 +190,10 @@ export function PushPermissionPrompt() {
           bypass_preferences: true,
         });
         shouldClose = true;
+      } else if (result.code === "stale_identity") {
+        localStorage.removeItem(promptedKeyForUser(promptUserId));
+        recordUserAction("push_prompt_enable_stale_identity", { surface: "push_permission_prompt" });
+        return;
       } else if (typeof Notification !== "undefined" && Notification.permission === "denied") {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",

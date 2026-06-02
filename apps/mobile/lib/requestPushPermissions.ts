@@ -32,19 +32,42 @@ function nativePushPermissionAskedKey(userId?: string | null): string {
   return cleanUserId ? `${VIBELY_PUSH_PERMISSION_ASKED_KEY_PREFIX}${cleanUserId}` : VIBELY_PUSH_PERMISSION_ASKED_KEY;
 }
 
+async function writePushPermissionMarker(key: string, value: string, context: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(key, value);
+  } catch (e) {
+    pushPermDevLog('push_permission_marker_write_failed', {
+      context,
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
+async function removePushPermissionMarker(key: string, context: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(key);
+  } catch (e) {
+    pushPermDevLog('push_permission_marker_remove_failed', {
+      context,
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 export async function markNativePushPermissionAsked(value: 'true' | 'skipped' = 'true', userId?: string | null): Promise<void> {
-  await AsyncStorage.setItem(nativePushPermissionAskedKey(userId), value);
+  await writePushPermissionMarker(nativePushPermissionAskedKey(userId), value, 'mark_asked');
 }
 
 export async function markNativePushPermissionRequestInFlight(userId?: string | null): Promise<void> {
-  await AsyncStorage.setItem(
+  await writePushPermissionMarker(
     nativePushPermissionAskedKey(userId),
     `${VIBELY_PUSH_PERMISSION_IN_FLIGHT_PREFIX}${Date.now()}`,
+    'mark_in_flight',
   );
 }
 
 export async function clearNativePushPermissionAskedMarker(userId?: string | null): Promise<void> {
-  await AsyncStorage.removeItem(nativePushPermissionAskedKey(userId));
+  await removePushPermissionMarker(nativePushPermissionAskedKey(userId), 'clear_marker');
 }
 
 function parsePushPermissionInFlightStartedAt(value: string): number | null {
@@ -146,7 +169,7 @@ export async function shouldOfferDashboardPushPreprompt(
     const v = await AsyncStorage.getItem(promptMarkerKey);
     const inFlightStartedAt = v ? parsePushPermissionInFlightStartedAt(v) : null;
     if (inFlightStartedAt != null && Date.now() - inFlightStartedAt >= PUSH_PERMISSION_IN_FLIGHT_TTL_MS) {
-      await AsyncStorage.removeItem(promptMarkerKey);
+      await removePushPermissionMarker(promptMarkerKey, 'recover_stale_in_flight_marker');
       logPrepromptSuppressed('stale_in_flight_marker_recovered', { storedValue: v });
     } else if (v != null && v !== '') {
       logPrepromptSuppressed('preprompt_already_answered_or_skipped', { storedValue: v });
@@ -311,7 +334,15 @@ export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyn
     recordNativePushSyncResult(result, 'permission_grant_sync');
     return result;
   }
-  const stored = await AsyncStorage.getItem(PAUSED_UNTIL_KEY);
+  let stored: string | null = null;
+  try {
+    stored = await AsyncStorage.getItem(PAUSED_UNTIL_KEY);
+  } catch (e) {
+    pushPermDevLog('local_pause_state_read_failed', {
+      context: 'permission_grant_sync',
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
   const isPaused = !!(stored && new Date(stored) > new Date());
   if (!isPaused) {
     disablePush(false);
@@ -363,8 +394,8 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
   }
   if (!os) {
     await clearNativePushPermissionAskedMarker(userId);
-    recordNativePushPromptResult('denied_after_sheet', 'unknown');
-    return { outcome: 'denied_after_sheet' };
+    recordNativePushPromptResult('request_failed', 'unknown');
+    return { outcome: 'request_failed' };
   }
   if (os === 'denied') {
     if (!(await isActiveAuthUserForPush(userId, 'request_push_permissions_after_prompt_denied'))) {
@@ -385,6 +416,9 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
     await markNativePushPermissionAsked('true', userId);
     recordNativePushPromptResult('already_granted', os);
     const sync = await syncBackendAfterPushGrant(userId);
+    if (sync.code === 'stale_identity') {
+      return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_granted_sync');
+    }
     return { outcome: 'granted', sync };
   }
 
@@ -398,6 +432,9 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
       await markNativePushPermissionAsked('true', userId);
       recordNativePushPromptResult('granted', 'granted');
       const sync = await syncBackendAfterPushGrant(userId);
+      if (sync.code === 'stale_identity') {
+        return stalePromptIdentityResult(userId, 'request_push_permissions_after_prompt_after_sheet_sync');
+      }
       return { outcome: 'granted', sync };
     }
   } catch {

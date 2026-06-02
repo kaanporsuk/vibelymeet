@@ -24,7 +24,10 @@ import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { usePushDeliveryHealth } from '@/lib/usePushDeliveryHealth';
-import { syncBackendAfterPushGrant } from '@/lib/requestPushPermissions';
+import {
+  requestPushPermissionsAfterPrompt,
+  syncBackendAfterPushGrant,
+} from '@/lib/requestPushPermissions';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences, type NotificationPrefs } from '@/lib/useNotificationPreferences';
 import {
@@ -48,6 +51,7 @@ import {
   subscribeNativeOneSignalDiagnostics,
   type NativeOneSignalDiagnostics,
 } from '@/lib/onesignal';
+import type { PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -247,6 +251,20 @@ function formatUntilClock(iso: string | null): string {
   }
 }
 
+function nativePushSetupRecoveryMessage(sync?: PushSyncResult | null): string {
+  if (!sync) return 'Notification setup did not finish. Check your connection and try again.';
+  if (sync.code === 'no_player_id_after_retry') {
+    return 'Notifications are allowed, but this device is still finishing setup. Try again in a moment.';
+  }
+  if (sync.code === 'sdk_not_ready' || sync.code === 'init_failed') {
+    return 'Notifications are allowed, but the push service is still starting. Try again in a moment.';
+  }
+  if (sync.code === 'app_id_missing') {
+    return 'Notifications are not available in this app environment.';
+  }
+  return sync.message || 'Notifications are allowed, but we could not save this device yet. Try again.';
+}
+
 export default function NotificationsSettingsScreen() {
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
@@ -257,15 +275,12 @@ export default function NotificationsSettingsScreen() {
   const {
     isGranted: pushOsGranted,
     isDenied: osDeniedFromHook,
-    requestPermission,
     refresh,
     openSettings,
   } = usePushPermission();
   const {
     health: pushDeliveryHealth,
-    sync: retryPushSync,
     refresh: refreshPushDeliveryHealth,
-    isSyncing: pushSyncing,
   } = usePushDeliveryHealth(user?.id);
   const [pauseModalVisible, setPauseModalVisible] = useState(false);
   const [pauseKind, setPauseKind] = useState<PauseKind | null>(null);
@@ -375,22 +390,41 @@ export default function NotificationsSettingsScreen() {
 
   const handleEnablePush = async () => {
     if (!user?.id || providerControlsBusy) return;
-    if (pushDeliveryHealth.status === 'needs_sync' || pushDeliveryHealth.status === 'allowed_finishing_setup') {
-      await retryPushSync();
-      await refreshPushDeliveryHealth();
-      return;
+    let recoveryMessage: string | null = null;
+    setMasterBusy(true);
+    try {
+      if (pushDeliveryHealth.status === 'needs_sync' || pushDeliveryHealth.status === 'allowed_finishing_setup') {
+        const sync = await syncBackendAfterPushGrant(user.id);
+        if (!sync.synced && sync.code !== 'stale_identity') {
+          recoveryMessage = nativePushSetupRecoveryMessage(sync);
+        }
+      } else {
+        const result = await requestPushPermissionsAfterPrompt(user.id);
+        if (result.outcome === 'granted' && !result.sync.synced) {
+          recoveryMessage = nativePushSetupRecoveryMessage(result.sync);
+        } else if (result.outcome === 'request_failed' || result.outcome === 'no_app_id') {
+          recoveryMessage = nativePushSetupRecoveryMessage();
+        } else if (result.outcome === 'already_denied' || result.outcome === 'denied_after_sheet') {
+          recoveryMessage = 'Notifications are blocked in system settings. Open settings and allow notifications first.';
+        }
+      }
+    } catch (e) {
+      recoveryMessage = e instanceof Error ? e.message : 'Notification setup did not finish. Try again.';
+    } finally {
+      await Promise.allSettled([
+        refresh(),
+        refreshPushDeliveryHealth(),
+      ]);
+      setMasterBusy(false);
     }
-    const result = await requestPermission();
-    if (result.osDenied) {
-      await refresh();
-      await refreshPushDeliveryHealth();
-      return;
+    if (recoveryMessage) {
+      show({
+        title: 'Notification setup needs a retry',
+        message: recoveryMessage,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
-    if (result.granted) {
-      await syncBackendAfterPushGrant(user.id);
-    }
-    await refresh();
-    await refreshPushDeliveryHealth();
   };
 
   const handleSelectPauseDuration = useCallback(
@@ -561,8 +595,8 @@ export default function NotificationsSettingsScreen() {
             {pushDeliveryHealth.description}
           </Text>
           {pushDeliveryHealth.canRetrySync ? (
-            <Pressable onPress={handleEnablePush} disabled={pushSyncing || providerControlsBusy} style={{ marginTop: 10 }}>
-              <Text style={{ color: AMBER, fontWeight: '600', fontSize: 13 }}>{pushSyncing ? 'Retrying...' : 'Retry setup'}</Text>
+            <Pressable onPress={handleEnablePush} disabled={providerControlsBusy} style={{ marginTop: 10 }}>
+              <Text style={{ color: AMBER, fontWeight: '600', fontSize: 13 }}>{masterBusy ? 'Retrying...' : 'Retry setup'}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -679,7 +713,7 @@ export default function NotificationsSettingsScreen() {
               </Text>
             </View>
             {pushDeliveryHealth.status !== 'unsupported' ? (
-              <Pressable onPress={handleEnablePush} disabled={pushSyncing || providerControlsBusy} style={styles.enableBtn}>
+              <Pressable onPress={handleEnablePush} disabled={providerControlsBusy} style={styles.enableBtn}>
                 <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>
                   {pushOsGranted ? 'Retry Setup' : 'Enable Push Notifications'}
                 </Text>

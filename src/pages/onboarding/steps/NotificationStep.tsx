@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Bell, Check, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -13,16 +13,56 @@ export const NotificationStep = ({ userId, onNext }: NotificationStepProps) => {
   const [granted, setGranted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [recovery, setRecovery] = useState<{ title: string; message: string; blocked: boolean } | null>(null);
+  const activeUserIdRef = useRef(userId);
+  const mountedRef = useRef(true);
+  const nextTimerRef = useRef<number | null>(null);
+
+  activeUserIdRef.current = userId;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (nextTimerRef.current) {
+        window.clearTimeout(nextTimerRef.current);
+        nextTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setGranted(false);
+    setBusy(false);
+    setRecovery(null);
+    if (nextTimerRef.current) {
+      window.clearTimeout(nextTimerRef.current);
+      nextTimerRef.current = null;
+    }
+  }, [userId]);
+
+  const isActivePromptUser = (promptUserId: string) =>
+    mountedRef.current && activeUserIdRef.current === promptUserId;
+
+  const continueForActiveUser = (promptUserId: string) => {
+    if (!isActivePromptUser(promptUserId)) return;
+    onNext();
+  };
 
   const handleEnable = async () => {
     if (busy) return;
+    const promptUserId = userId;
     setBusy(true);
     setRecovery(null);
     try {
-      const result = await requestWebPushPermissionAndSync(userId);
+      const result = await requestWebPushPermissionAndSync(promptUserId);
+      if (!isActivePromptUser(promptUserId)) return;
+      if (result.code === "stale_identity") return;
       if (result.synced) {
         setGranted(true);
-        setTimeout(onNext, 1000);
+        nextTimerRef.current = window.setTimeout(() => {
+          nextTimerRef.current = null;
+          continueForActiveUser(promptUserId);
+        }, 1000);
         return;
       }
 
@@ -42,13 +82,14 @@ export const NotificationStep = ({ userId, onNext }: NotificationStepProps) => {
         blocked,
       });
     } catch {
+      if (!isActivePromptUser(promptUserId)) return;
       setRecovery({
         title: "Notification setup failed",
         message: "Check your connection and try again, or continue without push alerts.",
         blocked: false,
       });
     } finally {
-      setBusy(false);
+      if (isActivePromptUser(promptUserId)) setBusy(false);
     }
   };
 
@@ -117,7 +158,7 @@ export const NotificationStep = ({ userId, onNext }: NotificationStepProps) => {
             )}
           </Button>
           <button
-            onClick={onNext}
+            onClick={() => continueForActiveUser(userId)}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             {recovery ? "Continue without notifications" : "Maybe later"}

@@ -1514,21 +1514,6 @@ function timePartsMinutes(timeStr: string): number {
   return h * 60 + m
 }
 
-/** Role claim from a JWT body (base64url). Edge `verify_jwt` already validated the signature. */
-function jwtPayloadRole(token: string): string | null {
-  try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return null
-    const mid = parts[1]
-    const b64 = mid.replace(/-/g, "+").replace(/_/g, "/")
-    const pad = (4 - (b64.length % 4)) % 4
-    const json = JSON.parse(atob(b64 + "=".repeat(pad)))
-    return typeof json?.role === "string" ? json.role : null
-  } catch {
-    return null
-  }
-}
-
 function isInQuietHours(start: string, end: string, timezone: string): boolean {
   try {
     const now = new Date()
@@ -1598,25 +1583,27 @@ Deno.serve(async (req) => {
 
     const token = authHeader.replace('Bearer ', '')
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    // String equality can fail across key rotations / API vs runtime representations; role claim is stable.
-    const isServiceRole =
-      token === serviceKey || jwtPayloadRole(token) === 'service_role'
+    const isRawServiceRoleKey = token === serviceKey
+    let isServiceRole = isRawServiceRoleKey
     let authUserId: string | null = null
 
-    if (!isServiceRole) {
-      // Validate as user JWT
+    if (!isRawServiceRoleKey) {
+      // Validate every non-service-key bearer before trusting user or service-role claims.
       const anonClient = createClient(
         Deno.env.get('SUPABASE_URL')!,
         Deno.env.get('SUPABASE_ANON_KEY')!,
         { global: { headers: { Authorization: authHeader } } }
       )
       const { data: claims, error: claimsError } = await anonClient.auth.getClaims(token)
-      if (claimsError || !claims?.claims?.sub) {
+      const role = typeof claims?.claims?.role === 'string' ? claims.claims.role : null
+      const subject = typeof claims?.claims?.sub === 'string' ? claims.claims.sub : null
+      if (claimsError || (!subject && role !== 'service_role')) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
-      authUserId = claims.claims.sub
+      isServiceRole = role === 'service_role'
+      authUserId = isServiceRole ? null : subject
     }
 
     const requestBody = await req.json()

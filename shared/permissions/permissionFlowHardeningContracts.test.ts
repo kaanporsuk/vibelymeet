@@ -29,6 +29,9 @@ const pushSubscriptionGrantHardeningMigration = read(
 const pushSubscriptionPublicGrantHardeningMigration = read(
   "supabase/migrations/20260602023000_push_subscription_public_grants_hardening.sql",
 );
+const pushSubscriptionExpectedUserHardeningMigration = read(
+  "supabase/migrations/20260602120000_push_subscription_expected_user_hardening.sql",
+);
 
 test("permission-adjacent provider exchanges have bounded fetch timeouts", () => {
   const providerFetch = read("supabase/functions/_shared/provider-fetch.ts");
@@ -38,11 +41,18 @@ test("permission-adjacent provider exchanges have bounded fetch timeouts", () =>
   const createChatClip = read("supabase/functions/create-chat-vibe-clip-upload/index.ts");
   const completeChatClip = read("supabase/functions/complete-chat-vibe-clip-upload/index.ts");
   const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
+  const bunnyMedia = read("supabase/functions/_shared/bunny-media.ts");
+  const syncChatClip = read("supabase/functions/sync-chat-vibe-clip-status/index.ts");
+  const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
+  const dailyDropHealth = read("supabase/functions/check-daily-drop-health/index.ts");
 
   assert.match(providerFetch, /export async function fetchWithProviderTimeout/);
   assert.match(providerFetch, /AbortController/);
   assert.match(providerFetch, /ProviderFetchTimeoutError/);
   assert.match(providerFetch, /providerFetchTimeoutMs/);
+  assert.match(providerFetch, /includeBody\?: boolean/);
+  assert.match(providerFetch, /response\.body\.getReader\(\)/);
+  assert.match(providerFetch, /new ProviderFetchTimeoutError\(options\.provider, options\.operation, timeoutMs\)/);
 
   assert.match(geocode, /fetchWithProviderTimeout/);
   assert.match(geocode, /provider: 'nominatim'/);
@@ -65,10 +75,35 @@ test("permission-adjacent provider exchanges have bounded fetch timeouts", () =>
   assert.match(completeChatClip, /operation: "video_status"/);
   assert.match(getChatMediaUrl, /provider: "bunny_storage"/);
   assert.match(getChatMediaUrl, /operation: "proxy_fetch"/);
+  assert.match(bunnyMedia, /from "\.\/provider-fetch\.ts"/);
+  assert.match(bunnyMedia, /fetchWithProviderTimeout/);
+  assert.match(bunnyMedia, /operation: "video_delete"/);
+  assert.match(bunnyMedia, /operation: "file_delete"/);
+  assert.match(bunnyMedia, /operation: "archive_read"/);
+  assert.match(bunnyMedia, /operation: "archive_write"/);
+  assert.match(bunnyMedia, /includeBody: true/);
+  assert.match(bunnyMedia, /providerFetchTimeoutMs\("bunny_storage", "archive_read", 30_000\)/);
+  assert.match(bunnyMedia, /providerFetchTimeoutMs\("bunny_storage", "archive_write", 30_000\)/);
+  assert.match(syncChatClip, /fetchWithProviderTimeout/);
+  assert.match(syncChatClip, /provider: "bunny_stream"/);
+  assert.match(syncChatClip, /operation: "video_status"/);
+  assert.match(uploadEventCover, /fetchWithProviderTimeout/);
+  assert.match(uploadEventCover, /operation: "event_cover_upload"/);
+  assert.match(dailyDropHealth, /fetchWithProviderTimeout/);
+  assert.match(dailyDropHealth, /provider: "resend"/);
+  assert.match(dailyDropHealth, /operation: "daily_drop_health_alert"/);
 });
 
-test("native iOS permission metadata matches the shipped runtime prompts", () => {
+test("native permission metadata matches the shipped runtime prompts", () => {
   const appConfig = read("apps/mobile/app.base.json");
+  const appConfigJson = JSON.parse(appConfig) as {
+    expo?: {
+      android?: {
+        permissions?: string[];
+        blockedPermissions?: string[];
+      };
+    };
+  };
   const plistPaths = [
     "apps/mobile/ios/Vibely/Info.plist",
     "apps/mobile/ios/mobile/Info.plist",
@@ -87,6 +122,34 @@ test("native iOS permission metadata matches the shipped runtime prompts", () =>
     assert.match(source, /while the app is open/);
     assert.match(source, /<key>NSSpeechRecognitionUsageDescription<\/key>/);
     assert.doesNotMatch(source, /NSLocationAlways(?:AndWhenInUse)?UsageDescription/);
+  }
+
+  const androidManifestPath = "apps/mobile/android/app/src/main/AndroidManifest.xml";
+  const androidPermissions = appConfigJson.expo?.android?.permissions ?? [];
+  const androidBlockedPermissions = appConfigJson.expo?.android?.blockedPermissions ?? [];
+  assert.equal(
+    existsSync(join(root, androidManifestPath)),
+    false,
+    "Android native manifest is not checked in; Expo config must remain the source of truth",
+  );
+  for (const permission of [
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.CAMERA",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_COARSE_LOCATION",
+  ]) {
+    assert.ok(androidPermissions.includes(permission), `missing Android runtime permission ${permission}`);
+    assert.ok(!androidBlockedPermissions.includes(permission), `runtime permission must not be blocked ${permission}`);
+  }
+  for (const permission of [
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.READ_MEDIA_IMAGES",
+    "android.permission.READ_MEDIA_VIDEO",
+    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+  ]) {
+    assert.ok(androidBlockedPermissions.includes(permission), `broad media permission must stay blocked ${permission}`);
+    assert.ok(!androidPermissions.includes(permission), `broad media permission must not be requested ${permission}`);
   }
 
   assert.match(appConfig, /NSCameraUsageDescription/);
@@ -144,25 +207,53 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.match(requestPush, /function isActiveAuthUserForPush/);
   assert.match(requestPush, /supabase\.auth\.getSession\(\)/);
   assert.match(requestPush, /code: 'stale_identity'/);
+  assert.match(requestPush, /async function writePushPermissionMarker/);
+  assert.match(requestPush, /async function removePushPermissionMarker/);
+  assert.match(requestPush, /push_permission_marker_write_failed/);
+  assert.match(requestPush, /recover_stale_in_flight_marker/);
+  assert.match(requestPush, /local_pause_state_read_failed/);
   assert.match(requestPush, /permission_grant_sync_before_preferences/);
+  assert.match(requestPush, /if \(!os\) \{[\s\S]*recordNativePushPromptResult\('request_failed', 'unknown'\)/);
   assert.match(requestPush, /stalePromptIdentityResult\(userId, 'request_push_permissions_after_prompt_after_sheet'\)/);
+  assert.match(requestPush, /stalePromptIdentityResult\(userId, 'request_push_permissions_after_prompt_granted_sync'\)/);
+  assert.match(requestPush, /stalePromptIdentityResult\(userId, 'request_push_permissions_after_prompt_after_sheet_sync'\)/);
   assert.match(requestPush, /nativePushPermissionAskedKey\(context\.userId\)/);
   assert.match(requestPush, /PUSH_PERMISSION_IN_FLIGHT_TTL_MS = 10 \* 60 \* 1000/);
   assert.match(requestPush, /stale_in_flight_marker_recovered/);
   assert.match(requestPush, /outcome: 'request_failed'/);
   assert.match(dashboardPrompt, /activeUserIdRef/);
+  assert.match(dashboardPrompt, /mountedRef/);
   assert.match(dashboardPrompt, /function isActivePromptUser|const isActivePromptUser/);
+  assert.match(dashboardPrompt, /mountedRef\.current && \(promptUserId \?\? null\) === activeUserIdRef\.current/);
   assert.match(dashboardPrompt, /const promptUserId = userId/);
+  assert.match(dashboardPrompt, /onOpenSettings=\{\(\) => \{[\s\S]*const promptUserId = userId[\s\S]*isActivePromptUser\(promptUserId\)[\s\S]*openSettings\(\)/);
   assert.match(dashboardPrompt, /grantedBaselineRef\.current = null/);
+  assert.match(dashboardPrompt, /terminalSyncAttemptKeyRef/);
+  assert.match(dashboardPrompt, /if \(isDenied\) \{[\s\S]*setPhase\('deniedRecovery'\)/);
+  assert.match(dashboardPrompt, /reason: 'permission_state_read_failed'[\s\S]*setSetupRecoveryMessage\('We could not check notification permissions/);
+  assert.match(dashboardPrompt, /function isActivePromptUser|const isActivePromptUser/);
+  assert.match(dashboardPrompt, /completeIfSynced/);
+  assert.match(dashboardPrompt, /if \(!sync\.synced\) \{[\s\S]*setSetupRecoveryMessage/);
   assert.match(dashboardPrompt, /requestPushPermissionsAfterPrompt\(promptUserId\)/);
+  assert.match(dashboardPrompt, /const result = await requestPushPermissionsAfterPrompt\(promptUserId\);[\s\S]*if \(result\.outcome === 'stale_identity'\) return;[\s\S]*if \(result\.outcome === 'granted'\) \{[\s\S]*completeIfSynced\(promptUserId, result\.sync\)/);
+  assert.match(dashboardPrompt, /const sync = await syncBackendAfterPushGrant\(promptUserId\);[\s\S]*completeIfSynced\(promptUserId, sync\)/);
   assert.match(dashboardPrompt, /markNativePushPermissionRequestInFlight\(promptUserId\)/);
   assert.match(dashboardPrompt, /markNativePushPermissionAsked\('skipped', promptUserId\)/);
   assert.match(onboardingStep, /activeUserIdRef/);
+  assert.match(onboardingStep, /mountedRef/);
+  assert.match(onboardingStep, /recoveryUserIdRef/);
+  assert.match(onboardingStep, /mountedRef\.current && activeUserIdRef\.current === promptUserId/);
   assert.match(onboardingStep, /const promptUserId = userId/);
-  assert.match(onboardingStep, /activeUserIdRef\.current !== promptUserId/);
+  assert.match(onboardingStep, /if \(!isActivePromptUser\(promptUserId\)\) return/);
+  assert.match(onboardingStep, /requestPushPermissionsAfterPrompt\(promptUserId\)/);
+  assert.doesNotMatch(onboardingStep, /const result = await requestPermission\(\)/);
   assert.match(onboardingStep, /syncBackendAfterPushGrant\(promptUserId\)/);
-  assert.match(onboardingStep, /markNativePushPermissionRequestInFlight\(promptUserId\)/);
-  assert.match(onboardingStep, /markNativePushPermissionAsked\('skipped', userId\)/);
+  assert.match(onboardingStep, /setupRecoveryMessage/);
+  assert.match(onboardingStep, /if \(sync\.code === 'stale_identity'\) return;[\s\S]*if \(!sync\.synced\) \{[\s\S]*setSetupRecoveryMessage/);
+  assert.match(onboardingStep, /result\.outcome === 'granted' && !result\.sync\.synced/);
+  assert.match(onboardingStep, /recoveryUserIdRef\.current = promptUserId/);
+  assert.match(onboardingStep, /const promptUserId = recoveryUserIdRef\.current \?\? userId/);
+  assert.match(onboardingStep, /markNativePushPermissionAsked\('skipped', promptUserId\)/);
   assert.match(onboardingStep, /onClose=\{\(\) => \{[\s\S]*onNext\(\);[\s\S]*\}\}/);
 
   assert.match(masterSwitch, /getStableOsPushPermissionState/);
@@ -186,6 +277,11 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.match(nativeMedia, /permissionState = isSettingsOnly[\s\S]*\? 'denied'/);
   assert.match(nativeOneSignal, /register_onesignal_push_subscription/);
   assert.match(nativeOneSignal, /unregister_onesignal_push_subscription/);
+  assert.match(nativeOneSignal, /function isActiveSupabaseUserForPushSync/);
+  assert.match(nativeOneSignal, /supabase\.auth\.getSession\(\)/);
+  assert.match(nativeOneSignal, /push_subscription_sync_start/);
+  assert.match(nativeOneSignal, /push_subscription_sync_before_register/);
+  assert.match(nativeOneSignal, /p_expected_user_id: userId/);
   assert.doesNotMatch(nativeOneSignal, /isMissingPushSubscriptionRpc/);
   assert.doesNotMatch(nativeOneSignal, /\.from\('notification_preferences'\)/);
   assert.match(nativeAuth, /markSessionExpired[\s\S]*disconnectOneSignalForLogout\(uid \?\? null\)/);
@@ -205,6 +301,12 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.doesNotMatch(nativePrefsHook, /setTimeout|debounceRef/);
   assert.match(nativePrefsHook, /updated_at: new Date\(\)\.toISOString\(\)/);
   assert.match(nativeSettings, /const \{ prefs, updatePref, updatePrefs, isLoading, isUpdating, saveError \}/);
+  assert.match(nativeSettings, /requestPushPermissionsAfterPrompt\(user\.id\)/);
+  assert.match(nativeSettings, /syncBackendAfterPushGrant/);
+  assert.match(nativeSettings, /const sync = await syncBackendAfterPushGrant\(user\.id\)/);
+  assert.match(nativeSettings, /if \(result\.outcome === 'granted' && !result\.sync\.synced\)/);
+  assert.match(nativeSettings, /Notification setup needs a retry/);
+  assert.doesNotMatch(nativeSettings, /requestPermission\(\)/);
   assert.match(nativeSettings, /const providerControlsBusy = preferencesBusy \|\| masterBusy/);
   assert.match(nativeSettings, /const categoryControlsBusy = preferencesBusy/);
   assert.doesNotMatch(nativeSettings, /categoryControls\w+ = preferencesBusy \|\| !prefs\.push_enabled \|\| isPaused/);
@@ -228,6 +330,17 @@ test("web push uses subscription RPCs only and never sends users to fake browser
 
   assert.match(helper, /register_onesignal_push_subscription/);
   assert.match(helper, /unregister_onesignal_push_subscription/);
+  assert.match(helper, /p_expected_user_id: userId/);
+  assert.match(helper, /async function isActiveAuthUserForWebPush\(userId: string, context: string\)/);
+  assert.match(helper, /supabase\.auth\.getSession\(\)/);
+  assert.match(helper, /return syncResult\("stale_identity"\)/);
+  assert.match(helper, /sync_before_identity_bind/);
+  assert.match(helper, /sync_before_register/);
+  assert.match(helper, /sync_before_cached_result/);
+  assert.match(helper, /function forgetBackendSyncCacheForUser\(userId: string\)/);
+  assert.match(helper, /lastBackendSyncBySignature\.delete\(key\)/);
+  assert.match(helper, /WEB_PUSH_BACKEND_SYNC_CACHE_KEY/);
+  assert.match(helper, /finally \{[\s\S]*forgetRememberedWebPushSubscriptionId\(userId\);[\s\S]*forgetBackendSyncCacheForUser\(userId\);[\s\S]*syncInFlightByUser\.delete\(userId\);[\s\S]*\}/);
   assert.doesNotMatch(helper, /upsertLegacyWebPushPreference/);
   assert.doesNotMatch(helper, /isMissingPushSubscriptionRpc/);
   assert.doesNotMatch(helper, /\.from\("notification_preferences"\)/);
@@ -268,6 +381,7 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(prompt, /const promptUserId = user\.id/);
   assert.match(prompt, /activeUserIdRef\.current === promptUserId/);
   assert.match(prompt, /requestWebPushPermissionAndSync\(promptUserId\)/);
+  assert.match(prompt, /result\.code === "stale_identity"[\s\S]*localStorage\.removeItem\(promptedKeyForUser\(promptUserId\)\)/);
   assert.match(prompt, /user_id: promptUserId/);
   assert.match(prompt, /setOpen\(false\);\s*setBusy\(false\);\s*setRecovery\(null\);/);
   assert.match(prompt, /lastEligibilityCountsRef\.current = \{ matchCount: null, regCount: null \}/);
@@ -280,6 +394,7 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.doesNotMatch(prompt, /settings\?drawer=notifications/);
   assert.match(drawer, /unsupported_browser/);
   assert.match(drawer, /prompt_unavailable/);
+  assert.match(drawer, /result\?\.code === "stale_identity"/);
   assert.match(drawer, /Promise<PushSyncResult \| null>/);
   assert.match(drawer, /const result = await handleEnablePush\(\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*savePrefs\(\{ push_enabled: nextEnabled \}\)/);
   assert.match(drawer, /const categoryControlsBusy = isLoading \|\| isSaving/);
@@ -302,6 +417,12 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
     "function eventDeepLink",
   );
 
+  assert.doesNotMatch(sendNotification, /function jwtPayloadRole/);
+  assert.doesNotMatch(sendNotification, /atob\(/);
+  assert.match(sendNotification, /const isRawServiceRoleKey = token === serviceKey/);
+  assert.match(sendNotification, /await anonClient\.auth\.getClaims\(token\)/);
+  assert.match(sendNotification, /const role = typeof claims\?\.claims\?\.role === 'string'/);
+  assert.match(sendNotification, /isServiceRole = role === 'service_role'/);
   assert.match(sendNotification, /normalizePushDeepLinkPath\(eventLink\)/);
   assert.match(sendNotification, /normalizePushDeepLinkPath\(data\?\.url\)/);
   assert.match(sendNotification, /value\.startsWith\('\/\/'\) \|\| value\.includes/);
@@ -384,6 +505,16 @@ test("Supabase migration enforces storage privacy, push ownership, location gran
   assert.match(permissionHardeningMigration, /set_config\('vibely\.onesignal_rpc_write', 'on', true\)/);
   assert.match(permissionHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription\(text, text, boolean\)[\s\S]+TO authenticated, service_role/);
   assert.match(permissionHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\)[\s\S]+TO authenticated, service_role/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /p_expected_user_id uuid DEFAULT NULL/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /p_expected_user_id IS NOT NULL AND p_expected_user_id <> v_user_id/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /register_onesignal_push_subscription user mismatch/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /unregister_onesignal_push_subscription user mismatch/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /DROP FUNCTION IF EXISTS public\.register_onesignal_push_subscription\(text, text, boolean\)/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /DROP FUNCTION IF EXISTS public\.unregister_onesignal_push_subscription\(text, text\)/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /REVOKE CREATE ON SCHEMA public FROM PUBLIC, anon, authenticated/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription\(text, text, boolean, uuid\)[\s\S]+TO authenticated, service_role/);
+  assert.match(pushSubscriptionExpectedUserHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text, uuid\)[\s\S]+TO authenticated, service_role/);
 });
 
 test("trigger-only permission helpers are not exposed as callable RPCs", () => {

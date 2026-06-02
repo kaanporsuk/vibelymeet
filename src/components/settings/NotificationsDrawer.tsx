@@ -128,6 +128,10 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
         surface: "settings_notifications",
       });
       toast.success("Push notifications enabled! 🔔");
+    } else if (result?.code === "stale_identity") {
+      recordUserAction("notification_settings_push_retry_stale_identity", {
+        surface: "settings_notifications",
+      });
     } else if (result?.code === "no_player_id_after_retry") {
       recordUserAction("notification_settings_push_retry_failed", {
         surface: "settings_notifications",

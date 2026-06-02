@@ -185,7 +185,10 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.match(matchCall, /setLocalAudio\(true\)/);
   assert.match(matchCall, /setLocalVideo\(true\)/);
   assert.match(notificationStep, /settingsRecoveryActiveRef/);
-  assert.match(notificationStep, /syncBackendAfterPushGrant\(promptUserId\)\.finally\(\(\) => \{/);
+  assert.match(notificationStep, /setupRecoveryMessage/);
+  assert.match(notificationStep, /syncBackendAfterPushGrant\(promptUserId\)\.then\(\(sync\) => \{/);
+  assert.match(notificationStep, /if \(sync\.code === 'stale_identity'\) return;[\s\S]*if \(!sync\.synced\) \{[\s\S]*setSetupRecoveryMessage/);
+  assert.match(notificationStep, /result\.outcome === 'granted' && !result\.sync\.synced/);
   assert.match(notificationStep, /activeUserIdRef\.current === promptUserId/);
   assert.doesNotMatch(notificationStep, /openSettings\(\);\s*setShowDeniedRecovery\(false\)/);
   assert.deepEqual(directOpenSettingsHits, []);

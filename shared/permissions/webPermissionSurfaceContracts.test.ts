@@ -16,6 +16,16 @@ test("web onboarding notification denial stays on recoverable UI instead of auto
   assert.match(source, /Notification\.permission === "denied"/);
   assert.match(source, /Use your browser site settings/);
   assert.match(source, /Continue without notifications/);
+  assert.match(source, /activeUserIdRef/);
+  assert.match(source, /mountedRef/);
+  assert.match(source, /nextTimerRef/);
+  assert.match(source, /window\.clearTimeout\(nextTimerRef\.current\)/);
+  assert.match(source, /const promptUserId = userId/);
+  assert.match(source, /requestWebPushPermissionAndSync\(promptUserId\)/);
+  assert.match(source, /if \(result\.code === "stale_identity"\) return/);
+  assert.match(source, /isActivePromptUser\(promptUserId\)/);
+  assert.match(source, /continueForActiveUser\(promptUserId\)/);
+  assert.doesNotMatch(source, /setTimeout\(onNext/);
   assert.doesNotMatch(source, /else\s*\{\s*onNext\(\);\s*\}/);
 });
 
@@ -62,6 +72,15 @@ test("web push request helper does not re-prompt when browser permission is alre
     /const result = syncResult\(initialPermissionState === "unsupported" \? "unsupported_browser" : "permission_denied"\)/,
   );
   assert.match(requestBody, /const result = await syncWebPushRegistrationToBackend\(userId\)/);
+  assert.match(source, /async function isActiveAuthUserForWebPush\(userId: string, context: string\)/);
+  assert.match(source, /request_start/);
+  assert.match(source, /request_before_prompt/);
+  assert.match(source, /request_after_prompt/);
+  assert.match(source, /sync_before_register/);
+  assert.match(source, /sync_before_cached_result/);
+  assert.match(source, /forgetBackendSyncCacheForUser\(userId\)/);
+  assert.match(source, /p_expected_user_id: userId/);
+  assert.match(source, /finally \{[\s\S]*forgetRememberedWebPushSubscriptionId\(userId\);[\s\S]*forgetBackendSyncCacheForUser\(userId\);[\s\S]*syncInFlightByUser\.delete\(userId\);[\s\S]*\}/);
 });
 
 test("web event location failures render persistent retry recovery", () => {

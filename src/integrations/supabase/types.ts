@@ -10739,6 +10739,15 @@ export type Database = {
         }
         Returns: Json
       }
+      confirm_vde_event_inactive_base_v1: {
+        Args: {
+          p_entry_attempt_id?: string
+          p_room_name: string
+          p_room_url: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       confirm_vde_prepared_202605031300_base: {
         Args: {
           p_entry_attempt_id?: string
@@ -10749,15 +10758,6 @@ export type Database = {
         Returns: Json
       }
       confirm_video_date_entry_prepared: {
-        Args: {
-          p_entry_attempt_id?: string
-          p_room_name: string
-          p_room_url: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      confirm_video_date_entry_prepared_20260501200000_event_inactive: {
         Args: {
           p_entry_attempt_id?: string
           p_room_name: string
@@ -12013,14 +12013,6 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
-      ready_gate_transition_20260505140000_pre_ready_room_metadata_ba: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260505154500_preserve_after_ready_room_: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
       ready_gate_transition_20260505203000_registration_desync_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
@@ -12293,6 +12285,7 @@ export type Database = {
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
       register_onesignal_push_subscription: {
         Args: {
+          p_expected_user_id?: string
           p_platform?: string
           p_subscribed?: boolean
           p_subscription_id: string
@@ -12324,11 +12317,11 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: Json
       }
-      repair_stale_video_date_prepare_entries: {
+      repair_stale_vd_prepare_both_join_v1: {
         Args: { p_limit?: number }
         Returns: number
       }
-      repair_stale_video_date_prepare_entries_20260501170000_both_joi: {
+      repair_stale_video_date_prepare_entries: {
         Args: { p_limit?: number }
         Returns: number
       }
@@ -12388,6 +12381,14 @@ export type Database = {
           p_status?: string
         }
         Returns: number
+      }
+      rgt_pre_ready_room_meta_base_v1: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      rgt_preserve_warmup_base_v1: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
       }
       sanitize_profile_display_name: {
         Args: { p_input: string }
@@ -12591,7 +12592,11 @@ export type Database = {
       }
       unmatch_match: { Args: { p_match_id: string }; Returns: Json }
       unregister_onesignal_push_subscription: {
-        Args: { p_platform?: string; p_subscription_id?: string }
+        Args: {
+          p_expected_user_id?: string
+          p_platform?: string
+          p_subscription_id?: string
+        }
         Returns: undefined
       }
       update_media_session_status: {

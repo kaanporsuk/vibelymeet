@@ -8,6 +8,7 @@
  * Usage:
  *   import { deleteBunnyStreamVideo, deleteBunnyStorageFile } from "../_shared/bunny-media.ts";
  */
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "./provider-fetch.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -131,9 +132,13 @@ export async function deleteBunnyStreamVideo(videoId: string): Promise<BunnyDele
   const url = `https://video.bunnycdn.com/library/${libraryId}/videos/${encodeURIComponent(videoId)}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithProviderTimeout(url, {
       method: "DELETE",
       headers: { "AccessKey": apiKey },
+    }, {
+      provider: "bunny_stream",
+      operation: "video_delete",
+      timeoutMs: providerFetchTimeoutMs("bunny_stream", "video_delete"),
     });
 
     const alreadyGone = res.status === 404 || res.status === 410;
@@ -191,9 +196,13 @@ export async function deleteBunnyStorageFile(
   const url = `https://storage.bunnycdn.com/${storageZone}/${encodedPath}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithProviderTimeout(url, {
       method: "DELETE",
       headers: { "AccessKey": apiKey },
+    }, {
+      provider: "bunny_storage",
+      operation: "file_delete",
+      timeoutMs: providerFetchTimeoutMs("bunny_storage", "file_delete"),
     });
 
     const alreadyGone = res.status === 404 || res.status === 410;
@@ -262,7 +271,12 @@ export async function archiveBunnyStorageFile(storagePath: string): Promise<Bunn
   const archiveUrl = `https://storage.bunnycdn.com/${archive.zone}/${encodedPath}`;
 
   try {
-    const read = await fetch(hotUrl, { headers: { "AccessKey": hot.apiKey } });
+    const read = await fetchWithProviderTimeout(hotUrl, { headers: { "AccessKey": hot.apiKey } }, {
+      provider: "bunny_storage",
+      operation: "archive_read",
+      timeoutMs: providerFetchTimeoutMs("bunny_storage", "archive_read", 30_000),
+      includeBody: true,
+    });
     if (!read.ok || !read.body) {
       const body = await read.text().catch(() => "");
       return {
@@ -277,10 +291,14 @@ export async function archiveBunnyStorageFile(storagePath: string): Promise<Bunn
     const putHeaders: Record<string, string> = { "AccessKey": archive.apiKey };
     const contentType = read.headers.get("Content-Type");
     if (contentType) putHeaders["Content-Type"] = contentType;
-    const write = await fetch(archiveUrl, {
+    const write = await fetchWithProviderTimeout(archiveUrl, {
       method: "PUT",
       headers: putHeaders,
       body: read.body,
+    }, {
+      provider: "bunny_storage",
+      operation: "archive_write",
+      timeoutMs: providerFetchTimeoutMs("bunny_storage", "archive_write", 30_000),
     });
     if (!write.ok) {
       const body = await write.text().catch(() => "");
@@ -337,12 +355,16 @@ export async function deleteSupabaseStorageFile(
   const url = `${supabaseUrl}/storage/v1/object/${bucket}/${filePath}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithProviderTimeout(url, {
       method: "DELETE",
       headers: {
         "Authorization": `Bearer ${serviceKey}`,
         "apikey": serviceKey,
       },
+    }, {
+      provider: "supabase_storage",
+      operation: "file_delete",
+      timeoutMs: providerFetchTimeoutMs("supabase_storage", "file_delete"),
     });
 
     const alreadyGone = res.status === 404 || res.status === 400;

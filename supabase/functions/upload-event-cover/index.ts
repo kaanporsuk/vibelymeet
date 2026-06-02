@@ -23,6 +23,7 @@ import {
   readImagePlaceholderMetadata,
   type MediaPlaceholderMetadata,
 } from "../_shared/media-placeholders.ts";
+import { fetchWithProviderTimeout, providerFetchTimeoutMs } from "../_shared/provider-fetch.ts";
 
 const UPLOAD_EVENT_COVER_ALLOWED_HEADERS =
   "authorization, x-client-info, apikey, content-type, x-client-request-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version";
@@ -479,7 +480,7 @@ serve(async (req) => {
 
     let assetId = reservedStatus === "uploaded" && eventId ? reservedAssetId : null;
     if (!assetId) {
-      const uploadRes = await fetch(
+      const uploadRes = await fetchWithProviderTimeout(
         `https://storage.bunnycdn.com/${storageZone}/${uploadPath}`,
         {
           method: "PUT",
@@ -489,6 +490,11 @@ serve(async (req) => {
             "Checksum": contentSha256.toUpperCase(),
           },
           body: fileBuffer,
+        },
+        {
+          provider: PROVIDERS.BUNNY_STORAGE,
+          operation: "event_cover_upload",
+          timeoutMs: providerFetchTimeoutMs(PROVIDERS.BUNNY_STORAGE, "event_cover_upload"),
         },
       );
 

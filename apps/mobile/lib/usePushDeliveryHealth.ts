@@ -91,8 +91,16 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
   const [syncInFlight, setSyncInFlight] = useState(false);
   const [lastSyncResultCode, setLastSyncResultCode] = useState<PushSyncResultCode | null>(null);
   const mountedRef = useRef(true);
+  const activeUserIdRef = useRef<string | null>(userId ?? null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const lastObservedHealthRef = useRef<string | null>(null);
+  activeUserIdRef.current = userId ?? null;
+
+  const isActiveHealthUser = useCallback(
+    (targetUserId: string | null | undefined) =>
+      mountedRef.current && (targetUserId ?? null) === activeUserIdRef.current,
+    [],
+  );
 
   useEffect(() => {
     return () => {
@@ -100,9 +108,19 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
     };
   }, []);
 
+  useEffect(() => {
+    setBackend(EMPTY_BACKEND_ROW);
+    setLocalPlayerId(null);
+    setSdkSubscribed(null);
+    setSyncInFlight(false);
+    setLastSyncResultCode(null);
+    lastObservedHealthRef.current = null;
+  }, [userId]);
+
   const refreshBackend = useCallback(async () => {
-    if (!userId) {
-      setBackend(EMPTY_BACKEND_ROW);
+    const targetUserId = userId ?? null;
+    if (!targetUserId) {
+      if (isActiveHealthUser(targetUserId)) setBackend(EMPTY_BACKEND_ROW);
       return;
     }
     const [localId, prefsResult] = await Promise.all([
@@ -110,34 +128,43 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
       supabase
         .from('notification_preferences')
         .select('push_enabled, paused_until')
-        .eq('user_id', userId)
+        .eq('user_id', targetUserId)
         .maybeSingle(),
     ]);
     const { data, error } = prefsResult;
+    if (!isActiveHealthUser(targetUserId)) return;
     if (error) {
       if (__DEV__) console.warn('[push-health] Failed to read native push backend row:', error.message);
       return;
     }
     const currentSubscriptionId = localId?.trim() || null;
-    const normalized = await readBackendPushSubscription(userId, currentSubscriptionId);
-    if (!mountedRef.current) return;
+    const normalized = await readBackendPushSubscription(targetUserId, currentSubscriptionId);
+    if (!isActiveHealthUser(targetUserId)) return;
     setBackend({
       playerId: normalized?.playerId ?? null,
       subscribed: normalized?.subscribed ?? false,
       pushEnabled: (data?.push_enabled as boolean | null | undefined) ?? true,
       pausedUntil: (data?.paused_until as string | null | undefined) ?? null,
     });
-  }, [userId]);
+  }, [isActiveHealthUser, userId]);
 
   const refreshLocal = useCallback(async () => {
+    const targetUserId = userId ?? null;
+    if (!targetUserId) {
+      if (isActiveHealthUser(targetUserId)) {
+        setLocalPlayerId(null);
+        setSdkSubscribed(null);
+      }
+      return;
+    }
     const [playerId, optedIn] = await Promise.all([
       getCurrentNativePlayerId(),
       getCurrentNativePushSubscribed(),
     ]);
-    if (!mountedRef.current) return;
+    if (!isActiveHealthUser(targetUserId)) return;
     setLocalPlayerId(playerId?.trim() || null);
     setSdkSubscribed(optedIn);
-  }, []);
+  }, [isActiveHealthUser, userId]);
 
   const refresh = useCallback(async () => {
     await Promise.all([
@@ -148,18 +175,20 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
   }, [refreshBackend, refreshLocal, refreshPermission]);
 
   const sync = useCallback(async (): Promise<PushSyncResult | null> => {
-    if (!userId) return null;
+    const targetUserId = userId ?? null;
+    if (!targetUserId) return null;
+    if (!isActiveHealthUser(targetUserId)) return null;
     setSyncInFlight(true);
     try {
-      await syncNativePushSuppressionWithBackend(userId);
-      const result = await syncPushWithBackendIfPermissionGranted(userId);
-      if (mountedRef.current) setLastSyncResultCode(result.code);
+      await syncNativePushSuppressionWithBackend(targetUserId);
+      const result = await syncPushWithBackendIfPermissionGranted(targetUserId);
+      if (isActiveHealthUser(targetUserId)) setLastSyncResultCode(result.code);
       await refresh();
       return result;
     } finally {
-      if (mountedRef.current) setSyncInFlight(false);
+      if (isActiveHealthUser(targetUserId)) setSyncInFlight(false);
     }
-  }, [refresh, userId]);
+  }, [isActiveHealthUser, refresh, userId]);
 
   useEffect(() => {
     void refresh();
