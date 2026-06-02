@@ -16,6 +16,7 @@ import {
   ProviderRateLimitError,
   providerFetchTimeoutMs,
   providerRateLimitConfig,
+  safeProviderResponseDiagnostics,
 } from "../_shared/video-date-provider-reliability.ts";
 import {
   corsHeadersForRequest,
@@ -114,10 +115,6 @@ async function waitForBoundedDailyTokenRetry(headers: Headers, fallbackSeconds: 
   return true;
 }
 
-async function readProviderResponseText(response: Response): Promise<string> {
-  return response.clone().text().catch(() => "");
-}
-
 async function throwProviderResponseError(
   operation: "room_lookup" | "token_refresh",
   response: Response,
@@ -131,13 +128,13 @@ async function throwProviderResponseError(
       "provider_rate_limited",
     );
   }
-  const text = await readProviderResponseText(response);
+  const providerDiagnostics = await safeProviderResponseDiagnostics(response);
   console.error(JSON.stringify({
     event: "video_date_token_refresh_daily_provider_failed",
     operation,
     provider_status: response.status,
     room_name: roomName,
-    provider_error: text.slice(0, 300),
+    ...providerDiagnostics,
   }));
   throw new Error(`daily_${operation}_failed`);
 }

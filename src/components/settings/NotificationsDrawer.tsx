@@ -128,6 +128,18 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
         reason: result.code,
       });
       toast.error("Notifications are allowed, but this browser is still finishing setup. Try again in a moment.");
+    } else if (result?.code === "unsupported_browser") {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
+      toast.error("This browser or in-app webview does not support web push.");
+    } else if (result?.code === "prompt_unavailable") {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
+      toast.error("The browser notification prompt did not open. Check site settings and try again.");
     } else if (result?.code === "upsert_failed") {
       recordUserAction("notification_settings_push_retry_failed", {
         surface: "settings_notifications",

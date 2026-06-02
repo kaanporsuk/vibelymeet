@@ -10,18 +10,18 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import Colors from '@/constants/Colors';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import {
+  markNativePushPermissionAsked,
+  markNativePushPermissionRequestInFlight,
   requestPushPermissionsAfterPrompt,
   setDashboardPushOsPermissionRequestInFlight,
   setDashboardPushPrepromptVisible,
   syncBackendAfterPushGrant,
-  VIBELY_PUSH_PERMISSION_ASKED_KEY,
 } from '@/lib/requestPushPermissions';
 import { getStableOsPushPermissionState, pushPermDevLog, type OsPushPermissionState } from '@/lib/osPushPermission';
 import { NotificationDeniedRecoverySurface } from '@/components/notifications/NotificationDeniedRecovery';
@@ -106,7 +106,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
     grantedBaselineRef.current = isGranted;
     if (prev || !isGranted) return;
     void (async () => {
-      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+      await markNativePushPermissionAsked();
       await syncBackendAfterPushGrant(userId);
       setPhase('preprompt');
       onClose();
@@ -137,7 +137,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       return;
     }
     if (__DEV__) pushPermDevLog('PushPermissionPrompt: Not now / cancel — dismiss, no OS request');
-    await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'skipped');
+    await markNativePushPermissionAsked('skipped');
     onClose();
     onCompleted?.();
   };
@@ -157,7 +157,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
     setEnableBusy(true);
     try {
       if (!userId) {
-        await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+        await markNativePushPermissionAsked();
         onClose();
         onCompleted?.();
         return;
@@ -178,19 +178,19 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       }
       if (os === 'denied') {
         if (__DEV__) pushPermDevLog('PushPermissionPrompt: OS denied — passive recovery only, no requestPermission');
-        await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+        await markNativePushPermissionAsked();
         setPhase('deniedRecovery');
         return;
       }
       if (os === 'granted') {
-        await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+        await markNativePushPermissionAsked();
         await syncBackendAfterPushGrant(userId);
         onClose();
         onCompleted?.();
         return;
       }
-      /** Persist before closing modal so no other effect can re-show preprompt while the system sheet runs. */
-      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+      /** Persist an expiring in-flight marker so no other effect can re-show preprompt while the system sheet runs. */
+      await markNativePushPermissionRequestInFlight();
       if (__DEV__) pushPermDevLog('PushPermissionPrompt: undetermined — close branded modal, then OS sheet');
       onClose();
       await new Promise<void>((resolve) => setTimeout(resolve, DISMISS_BEFORE_OS_PERMISSION_MS));
@@ -214,7 +214,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
           <View style={{ width: Math.min(width - 40, 400), alignSelf: 'center' }}>
             <NotificationDeniedRecoverySurface
               onOpenSettings={() => {
-                void AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+                void markNativePushPermissionAsked();
                 openSettings();
                 onClose();
                 onCompleted?.();

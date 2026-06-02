@@ -1,10 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const RATE_LIMIT_REQUESTS = 30;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+function cityLevelCoordinate(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -62,9 +70,21 @@ serve(async (req) => {
       );
     }
 
+    const rateResult = await checkRateLimit(user.id, {
+      maxRequests: RATE_LIMIT_REQUESTS,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+      functionName: 'geocode',
+    });
+    if (!rateResult.allowed) {
+      return createRateLimitResponse(rateResult, corsHeaders);
+    }
+
+    const roundedLat = cityLevelCoordinate(lat);
+    const roundedLng = cityLevelCoordinate(lng);
+
     // Call Nominatim API from server side (no CORS issues)
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`,
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${roundedLat}&lon=${roundedLng}&zoom=10&addressdetails=1`,
       {
         headers: {
           'User-Agent': 'Vibely Dating App (support@vibelymeet.com)',
@@ -78,7 +98,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           error: 'Geocoding service temporarily unavailable',
-          fallback: { lat, lng, city: 'Unknown', country: 'Unknown', formatted: 'Location detected' }
+          fallback: { lat: roundedLat, lng: roundedLng, city: 'Unknown', country: 'Unknown', formatted: 'Location detected' }
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -97,12 +117,11 @@ serve(async (req) => {
     const country = data.address?.country || 'Unknown';
     
     const result = {
-      lat,
-      lng,
+      lat: roundedLat,
+      lng: roundedLng,
       city,
       country,
       formatted: city !== 'Unknown' ? `${city}, ${country}` : 'Location detected',
-      raw: data.address, // Include raw data for debugging
     };
 
     return new Response(

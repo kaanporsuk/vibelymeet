@@ -113,8 +113,9 @@ Deno.serve(async (req) => {
         )
       }
       if (idemError) {
+        console.error('revenuecat_webhook_idempotency_failed:', idemError)
         return new Response(
-          JSON.stringify({ success: false, error: idemError.message }),
+          JSON.stringify({ success: false, error: 'subscription_sync_failed' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
@@ -171,8 +172,9 @@ Deno.serve(async (req) => {
           .eq('user_id', appUserId)
           .eq('provider', 'revenuecat')
         if (error) {
+          console.error('revenuecat_billing_issue_update_failed:', error)
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error: 'subscription_sync_failed' }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
@@ -198,8 +200,9 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
+    console.error('revenuecat_webhook_failed:', error)
     return new Response(
-      JSON.stringify({ success: false, error: String(error) }),
+      JSON.stringify({ success: false, error: 'subscription_sync_failed' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

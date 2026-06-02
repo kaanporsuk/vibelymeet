@@ -57,7 +57,10 @@ test("web push request helper does not re-prompt when browser permission is alre
   assert.ok(deniedGuardIndex >= 0, "blocked/unsupported browser permission should have a pre-prompt guard");
   assert.ok(grantedGuardIndex > deniedGuardIndex, "already-granted permission should sync directly");
   assert.ok(promptIndex > grantedGuardIndex, "OneSignal prompt should only run after passive permission guards");
-  assert.match(requestBody, /const result = syncResult\("permission_denied"\)/);
+  assert.match(
+    requestBody,
+    /const result = syncResult\(initialPermissionState === "unsupported" \? "unsupported_browser" : "permission_denied"\)/,
+  );
   assert.match(requestBody, /const result = await syncWebPushRegistrationToBackend\(userId\)/);
 });
 

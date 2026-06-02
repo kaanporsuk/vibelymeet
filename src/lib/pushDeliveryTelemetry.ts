@@ -96,6 +96,15 @@ export function classifyPushDeepLink(raw: unknown): {
     };
   }
 
+  if (value.startsWith("//")) {
+    return {
+      deeplink_url_present: true,
+      deeplink_url_kind: "invalid_url",
+      deeplink_route_class: "unknown",
+      canonical_origin_valid: false,
+    };
+  }
+
   if (value.startsWith("/")) {
     return {
       deeplink_url_present: true,
@@ -136,5 +145,19 @@ export function classifyPushDeepLink(raw: unknown): {
       deeplink_route_class: "unknown",
       canonical_origin_valid: false,
     };
+  }
+}
+
+export function normalizePushDeepLinkHref(raw: unknown): string | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value || value.startsWith("//")) return null;
+  if (value.startsWith("/")) return value;
+
+  try {
+    const url = new URL(value);
+    if (url.origin !== CANONICAL_APP_ORIGIN && url.origin !== NON_CANONICAL_APEX_ORIGIN) return null;
+    return `${url.pathname || "/"}${url.search}${url.hash}`;
+  } catch {
+    return null;
   }
 }

@@ -1559,7 +1559,7 @@ const EventLobby = () => {
     currentSwipePending || !lobbyActionsEnabled || swipeRateLimited;
   const pairingBlockedByReadiness =
     readinessV2.enabled && !videoDateReadiness.canAttemptPairing;
-  const pairingControlsDisabled = swipeControlsDisabled || pairingBlockedByReadiness;
+  const pairingControlsDisabled = swipeControlsDisabled;
   const pairingReadinessMessage = pairingBlockedByReadiness
     ? videoDateReadiness.reason ?? "Camera and microphone access are needed before you can pair."
     : null;

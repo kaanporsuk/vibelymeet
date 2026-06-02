@@ -135,10 +135,15 @@ test("Lookup line-type guard remains present and fail-open posture is documented
 });
 
 test("one-user-one-phone association guard remains present", () => {
-  for (const marker of ["This number is already verified by another account.", "This phone number is already associated with another account."]) {
+  for (const marker of [
+    "We could not send a code to this number. Please try another mobile number.",
+    "This phone number is already associated with another account.",
+  ]) {
     assert.match(phoneVerify, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(phoneVerify, /\.from\("profiles"\)[\s\S]{0,160}\.eq\("phone_number", phoneNumber\)[\s\S]{0,120}\.eq\("phone_verified", true\)[\s\S]{0,120}\.neq\("id", user\.id\)/);
+  assert.match(phoneVerify, /duplicate_verified_phone_blocked/);
+  assert.match(phoneVerify, /errorType:\s*"verification_unavailable"/);
   assert.match(phoneVerify, /errorType:\s*"phone_already_claimed"/);
   assert.match(phoneVerify, /\.rpc\(\s*"mark_profile_phone_verified_from_server"/);
   assert.match(phoneVerify, /p_phone_number:\s*phoneNumber/);

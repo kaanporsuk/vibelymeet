@@ -740,7 +740,7 @@ serve(async (req) => {
           "AccessKey": apiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ title: `vibe-${user.id}-${clientRequestId}` }),
+        body: JSON.stringify({ title: `vibe-${globalThis.crypto.randomUUID()}` }),
       },
     );
 

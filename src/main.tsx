@@ -12,10 +12,7 @@ import "./lib/webAuthReturnBootstrap";
 import App from "./App.tsx";
 import "./index.css";
 
-const SENTRY_DSN_FALLBACK =
-  "https://64343f6a6cacbaf88c3aa31954a1da26@o4511012069113856.ingest.de.sentry.io/4511012079403088";
-const SENTRY_DSN =
-  import.meta.env.VITE_SENTRY_DSN || SENTRY_DSN_FALLBACK;
+const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN;
 
 function isLocalBrowserOrigin(): boolean {
   return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
@@ -53,27 +50,29 @@ function sanitizeSentryEvent(event: SentryBeforeSendEvent): SentryBeforeSendEven
   return event;
 }
 
-Sentry.init({
-  dsn: SENTRY_DSN,
-  environment:
-    window.location.hostname === "vibelymeet.com" || window.location.hostname === "www.vibelymeet.com"
-      ? "production"
-      : "development",
-  integrations: [
-    Sentry.browserTracingIntegration(),
-  ],
-  tracesSampleRate: 0.2,
-  beforeSend(event) {
-    if (event.user) {
-      delete event.user.email;
-      delete event.user.ip_address;
-    }
-    if (isLocalBrowserOrigin()) {
-      return null;
-    }
-    return sanitizeSentryEvent(event);
-  },
-});
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment:
+      window.location.hostname === "vibelymeet.com" || window.location.hostname === "www.vibelymeet.com"
+        ? "production"
+        : "development",
+    integrations: [
+      Sentry.browserTracingIntegration(),
+    ],
+    tracesSampleRate: 0.2,
+    beforeSend(event) {
+      if (event.user) {
+        delete event.user.email;
+        delete event.user.ip_address;
+      }
+      if (isLocalBrowserOrigin()) {
+        return null;
+      }
+      return sanitizeSentryEvent(event);
+    },
+  });
+}
 
 initAnalytics();
 initializeBrowserDiagnostics();

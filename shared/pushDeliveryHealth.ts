@@ -29,6 +29,8 @@ export type PushDeliveryStatus =
 export type PushSyncResultCode =
   | 'synced'
   | 'permission_denied'
+  | 'unsupported_browser'
+  | 'prompt_unavailable'
   | 'sdk_not_ready'
   | 'init_failed'
   | 'no_player_id_after_retry'

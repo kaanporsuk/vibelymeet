@@ -1,7 +1,8 @@
 /**
  * OneSignal push integration for mobile. Same backend contract as web:
  * send-notification targets user_id; devices register durable subscription rows
- * in push_subscriptions while mirroring legacy notification_preferences fields.
+ * in push_subscriptions. Legacy notification_preferences mirrors are maintained
+ * inside the authenticated RPCs only.
  *
  * Provider boundary: OneSignal owns remote push delivery, foreground display decisions,
  * click lifecycle, and native OS permission/status checks.
@@ -23,6 +24,7 @@ const APP_ID = (process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '').trim();
 const PLAYER_ID_SYNC_ATTEMPTS = 8;
 const PLAYER_ID_INITIAL_RETRY_MS = 500;
 const PLAYER_ID_MAX_RETRY_MS = 3000;
+const ONESIGNAL_INIT_RETRY_COOLDOWN_MS = 5_000;
 const NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY = 'vibely.native_push_subscription_id_by_user.v1';
 
 export type NativeOneSignalNotificationOpenSnapshot = {
@@ -55,6 +57,7 @@ type NativeOneSignalRuntimeState = {
   initializedAppId: string | null;
   initAttemptedAppId: string | null;
   initFailedAppId: string | null;
+  initLastFailedAtMs: number | null;
   nativeEventListenersAppId: string | null;
   overLimitTagWritesSuppressed: boolean;
   lastAppliedTagDigest: string | null;
@@ -74,6 +77,7 @@ const runtimeState = ((globalThis as GlobalWithNativeOneSignalState).__vibelyNat
   initializedAppId: null,
   initAttemptedAppId: null,
   initFailedAppId: null,
+  initLastFailedAtMs: null,
   nativeEventListenersAppId: null,
   overLimitTagWritesSuppressed: false,
   lastAppliedTagDigest: null,
@@ -87,6 +91,7 @@ const runtimeState = ((globalThis as GlobalWithNativeOneSignalState).__vibelyNat
 
 runtimeState.initAttemptedAppId ??= null;
 runtimeState.initFailedAppId ??= null;
+runtimeState.initLastFailedAtMs ??= null;
 runtimeState.nativeEventListenersAppId ??= null;
 runtimeState.overLimitTagWritesSuppressed ??= false;
 runtimeState.lastAppliedTagDigest ??= null;
@@ -96,13 +101,6 @@ runtimeState.identityGeneration ??= 0;
 runtimeState.permissionGrantedSyncInFlightByUser ??= new Map<string, Promise<PushSyncResult>>();
 runtimeState.lastNotificationOpen ??= null;
 runtimeState.diagnosticsListeners ??= new Set<() => void>();
-
-type PushSubscriptionRpcError = {
-  code?: string;
-  message?: string;
-  details?: string;
-  hint?: string;
-};
 
 type StoredSubscriptionIdCache = Record<string, string>;
 
@@ -162,12 +160,6 @@ async function forgetRememberedNativePushSubscriptionId(userId: string): Promise
   }
 }
 
-function isMissingPushSubscriptionRpc(error: PushSubscriptionRpcError | null | undefined): boolean {
-  if (!error) return false;
-  const haystack = `${error.code ?? ''} ${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`;
-  return /42883|PGRST202|Could not find the function|register_onesignal_push_subscription|unregister_onesignal_push_subscription/i.test(haystack);
-}
-
 function emitOneSignalDiagnosticsChanged(): void {
   for (const listener of runtimeState.diagnosticsListeners) {
     try {
@@ -211,8 +203,11 @@ function ensureOneSignalInitialized(): boolean {
     registerOneSignalRuntimeEventListeners();
     return true;
   }
-  if (runtimeState.initFailedAppId === APP_ID || runtimeState.initAttemptedAppId === APP_ID) return false;
-  initOneSignal();
+  const failedThisApp = runtimeState.initFailedAppId === APP_ID;
+  const failedAt = runtimeState.initLastFailedAtMs ?? 0;
+  const retryAllowed = failedThisApp && Date.now() - failedAt >= ONESIGNAL_INIT_RETRY_COOLDOWN_MS;
+  if (runtimeState.initAttemptedAppId === APP_ID && !retryAllowed) return false;
+  initOneSignal({ forceRetry: retryAllowed });
   return isOneSignalInitialized();
 }
 
@@ -335,8 +330,8 @@ function pushSyncDevLog(message: string, extra?: Record<string, unknown>): void 
   else console.log(`[Vibely][push][sync] ${message}`);
 }
 
-export function initOneSignal(): void {
-  if (isOneSignalInitialized() || !APP_ID || runtimeState.initAttemptedAppId === APP_ID) {
+export function initOneSignal(options: { forceRetry?: boolean } = {}): void {
+  if (isOneSignalInitialized() || !APP_ID || (!options.forceRetry && runtimeState.initAttemptedAppId === APP_ID)) {
     if (isOneSignalInitialized()) registerOneSignalRuntimeEventListeners();
     return;
   }
@@ -346,10 +341,12 @@ export function initOneSignal(): void {
     OneSignal.initialize(APP_ID);
     runtimeState.initializedAppId = APP_ID;
     runtimeState.initFailedAppId = null;
+    runtimeState.initLastFailedAtMs = null;
     registerOneSignalRuntimeEventListeners();
     emitOneSignalDiagnosticsChanged();
   } catch (e) {
     runtimeState.initFailedAppId = APP_ID;
+    runtimeState.initLastFailedAtMs = Date.now();
     emitOneSignalDiagnosticsChanged();
     console.warn('[Vibely] OneSignal init failed:', e);
     recordPushDeliveryTelemetry('push_registration_sync_result', {
@@ -397,7 +394,6 @@ export function bindOneSignalExternalUser(userId: string): number {
 }
 
 async function registerStoredPushSubscription(
-  userId: string,
   subscriptionId: string,
   subscribed: boolean,
 ): Promise<string | null> {
@@ -407,25 +403,11 @@ async function registerStoredPushSubscription(
     p_subscribed: subscribed,
   });
 
-  if (!error) return null;
-
-  if (!isMissingPushSubscriptionRpc(error as PushSubscriptionRpcError)) {
-    return error.message;
-  }
-
-  const fallback = await supabase.from('notification_preferences').upsert(
-    {
-      user_id: userId,
-      mobile_onesignal_player_id: subscriptionId,
-      mobile_onesignal_subscribed: subscribed,
-    },
-    { onConflict: 'user_id' }
-  );
-  return fallback.error?.message ?? null;
+  return error?.message ?? null;
 }
 
 async function unregisterStoredPushSubscription(
-  userId: string,
+  _userId: string,
   subscriptionId: string | null,
 ): Promise<string | null> {
   const { error } = await supabase.rpc('unregister_onesignal_push_subscription', {
@@ -433,26 +415,7 @@ async function unregisterStoredPushSubscription(
     p_platform: nativePushPlatform(),
   });
 
-  if (!error) return null;
-
-  if (!isMissingPushSubscriptionRpc(error as PushSubscriptionRpcError)) {
-    return error.message;
-  }
-
-  let query = supabase
-    .from('notification_preferences')
-    .update({
-      mobile_onesignal_player_id: null,
-      mobile_onesignal_subscribed: false,
-    })
-    .eq('user_id', userId);
-
-  if (subscriptionId) {
-    query = query.eq('mobile_onesignal_player_id', subscriptionId);
-  }
-
-  const fallback = await query;
-  return fallback.error?.message ?? null;
+  return error?.message ?? null;
 }
 
 /** Login + subscription id + Supabase upsert (no OS permission prompt). */
@@ -478,7 +441,7 @@ async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult
     return syncResult('stale_identity', subscriptionId);
   }
 
-  const saveError = await registerStoredPushSubscription(userId, subscriptionId, subscribed === true);
+  const saveError = await registerStoredPushSubscription(subscriptionId, subscribed === true);
   if (saveError) {
     console.warn('[Vibely] Failed to save mobile push id:', saveError);
     return syncResult('upsert_failed', subscriptionId, saveError);

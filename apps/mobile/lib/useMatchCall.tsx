@@ -2106,9 +2106,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const nextCallType = normalizeCallType(row.call_type);
+      if (!callObjectRef.current) {
+        const mediaPreflight = await requestNativeMatchCallMediaPermission(nextCallType);
+        if (!mediaPreflight.ok) {
+          logMatchCallDiag('active_rejoin_media_preflight_blocked', {
+            call_id: row.id,
+            call_type: nextCallType,
+            action: mediaPreflight.copy.primaryAction,
+          });
+          showMatchCallPermissionRecovery(mediaPreflight, () => {
+            void joinActiveCall(row);
+          });
+          return;
+        }
+      }
+
       trackedCallIdRef.current = row.id;
       roomNameRef.current = row.daily_room_name ?? null;
-      const nextCallType = normalizeCallType(row.call_type);
       setCallType(nextCallType);
       setActiveMatchId(row.match_id);
       setIncomingCall(null);
@@ -2215,6 +2230,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       hasBusyExternalDailyCall,
       runSingleJoinFlow,
       setupCallEvents,
+      showMatchCallPermissionRecovery,
       startDurationTimer,
       startHeartbeat,
       waitForProviderTeardown,

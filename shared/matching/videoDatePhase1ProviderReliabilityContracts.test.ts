@@ -8,7 +8,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
 const tokenRefreshProviderLimitMigration = read("supabase/migrations/20260601184730_video_date_token_refresh_provider_rate_limit.sql");
-const reviewCommentsForwardMigration = read("supabase/migrations/20260602000417_review_comments_1146_1158_followups.sql");
+const definitiveCloudAlignmentMigration = read("supabase/migrations/20260602005051_video_date_definitive_cloud_alignment.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const deadlineFinalizer = read("supabase/functions/video-date-deadline-finalizer/index.ts");
@@ -166,9 +166,9 @@ test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guar
   assert.match(tokenRefreshProviderLimitMigration, /v_scoped_bucket := concat\(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text\)/);
   assert.match(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_scoped_bucket/);
   assert.doesNotMatch(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_bucket/);
-  assert.match(reviewCommentsForwardMigration, /CREATE OR REPLACE FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1/);
-  assert.match(reviewCommentsForwardMigration, /v_scoped_bucket := concat\(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text\)/);
-  assert.match(reviewCommentsForwardMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_scoped_bucket/);
+  assert.match(definitiveCloudAlignmentMigration, /CREATE OR REPLACE FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1/);
+  assert.match(definitiveCloudAlignmentMigration, /v_scoped_bucket := concat\(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text\)/);
+  assert.match(definitiveCloudAlignmentMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_scoped_bucket/);
   assert.match(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1/);
   assert.match(tokenRefreshProviderLimitMigration, /GRANT EXECUTE ON FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1\(uuid, text\)[\s\S]+TO authenticated, service_role/);
   assert.match(tokenRefresh, /error: tokenError\.clientError/);
@@ -177,6 +177,19 @@ test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guar
   assert.match(snapshotFunction, /providerRateLimitConfig\("daily", "meeting_token"\)/);
   assert.match(sendNotification, /providerRateLimitConfig\('onesignal', 'notification_create'\)/);
   assert.match(sendNotification, /providerFetchTimeoutMs\('onesignal', 'notification_create'\)/);
+});
+
+test("satellite Daily and OneSignal provider failures keep raw response bodies out of logs and responses", () => {
+  assert.match(helper, /safeProviderResponseDiagnostics/);
+  for (const source of [tokenRefresh, snapshotFunction]) {
+    assert.match(source, /safeProviderResponseDiagnostics\(response\)/);
+    assert.match(source, /\.\.\.providerDiagnostics/);
+    assert.doesNotMatch(source, /provider_error:\s*text\.slice/);
+    assert.doesNotMatch(source, /readProviderResponseText/);
+  }
+  assert.match(sendNotification, /const providerSnippet = redactedProviderResponseSnippet\(osResultText\)/);
+  assert.doesNotMatch(sendNotification, /detail: errSnippet \|\| undefined/);
+  assert.match(sendNotification, /detail: providerSnippet \|\| undefined/);
 });
 
 test("Phase 1 event-log hardening explicitly protects internal and safety rows", () => {

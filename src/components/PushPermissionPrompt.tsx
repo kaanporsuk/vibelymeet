@@ -28,9 +28,6 @@ type PushPermissionRecovery = {
   title: string;
   message: string;
   primaryLabel: string;
-  settingsLink?: {
-    label: string;
-  };
 };
 
 export function PushPermissionPrompt() {
@@ -173,7 +170,26 @@ export function PushPermissionPrompt() {
           title: "Notifications are blocked in your browser",
           message: "Use your browser site settings to allow notifications for Vibely, then come back and try again.",
           primaryLabel: "I updated settings",
-          settingsLink: { label: "Open settings" },
+        });
+      } else if (result.code === "unsupported_browser") {
+        recordUserAction("push_prompt_enable_failed", {
+          surface: "push_permission_prompt",
+          reason: result.code,
+        });
+        setRecovery({
+          title: "Notifications are not available here",
+          message: "This browser or in-app webview does not support web push. You can still use in-app alerts.",
+          primaryLabel: "Try again",
+        });
+      } else if (result.code === "prompt_unavailable") {
+        recordUserAction("push_prompt_enable_failed", {
+          surface: "push_permission_prompt",
+          reason: result.code,
+        });
+        setRecovery({
+          title: "Notification prompt did not open",
+          message: "Check your browser site settings for Vibely, then try again.",
+          primaryLabel: "I updated settings",
         });
       } else if (result.code === "no_player_id_after_retry") {
         recordUserAction("push_prompt_enable_failed", {
@@ -184,7 +200,6 @@ export function PushPermissionPrompt() {
           title: "Notifications are still finishing setup",
           message: "Permission is allowed, but this browser has not finished creating the push subscription. Try again in a moment.",
           primaryLabel: "Try again",
-          settingsLink: { label: "Open settings" },
         });
       } else {
         recordUserAction("push_prompt_enable_failed", {
@@ -195,7 +210,6 @@ export function PushPermissionPrompt() {
           title: "Notification setup failed",
           message: "We could not finish notification setup. Try again, or continue without push alerts.",
           primaryLabel: "Try again",
-          settingsLink: { label: "Open settings" },
         });
       }
     } catch (err) {
@@ -278,15 +292,6 @@ export function PushPermissionPrompt() {
               "Enable Notifications"
             )}
           </Button>
-          {recovery?.settingsLink ? (
-            <Button
-              variant="ghost"
-              onClick={() => window.location.assign("/settings?drawer=notifications")}
-              className="w-full text-muted-foreground"
-            >
-              {recovery.settingsLink.label}
-            </Button>
-          ) : null}
           <Button variant="ghost" onClick={handleDismiss} className="w-full text-muted-foreground">
             {recovery ? "Continue without notifications" : "Maybe Later"}
           </Button>

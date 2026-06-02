@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import { NotificationDeniedRecoveryModal } from '@/components/notifications/NotificationDeniedRecovery';
-import { syncBackendAfterPushGrant, VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
+import {
+  clearNativePushPermissionAskedMarker,
+  markNativePushPermissionAsked,
+  markNativePushPermissionRequestInFlight,
+  syncBackendAfterPushGrant,
+} from '@/lib/requestPushPermissions';
 import { usePushPermission } from '@/lib/usePushPermission';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -27,14 +31,18 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
     if (busy) return;
     setBusy(true);
     try {
-      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+      await markNativePushPermissionRequestInFlight();
       const result = await requestPermission();
       if (result.osDenied) {
+        await markNativePushPermissionAsked();
         setShowDeniedRecovery(true);
         return;
       }
       if (result.granted) {
+        await markNativePushPermissionAsked();
         await syncBackendAfterPushGrant(userId);
+      } else {
+        await clearNativePushPermissionAskedMarker();
       }
       onNext();
     } finally {
@@ -52,7 +60,7 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
       <VibelyButton label="Turn on notifications" onPress={ask} variant="gradient" disabled={busy} />
       <Pressable
         onPress={() => {
-          void AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'skipped');
+          void markNativePushPermissionAsked('skipped');
           onNext();
         }}
       >
@@ -64,6 +72,8 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
         onClose={() => {
           settingsRecoveryActiveRef.current = false;
           setShowDeniedRecovery(false);
+          void markNativePushPermissionAsked('skipped');
+          onNext();
         }}
         onOpenSettings={() => {
           settingsRecoveryActiveRef.current = true;

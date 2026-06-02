@@ -85,6 +85,31 @@ export function parseRetryAfterSeconds(headers: Headers | null | undefined, fall
   return Math.min(300, Math.max(1, Math.ceil((dateMs - Date.now()) / 1000)));
 }
 
+function hexDigest(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function safeProviderResponseDiagnostics(response: Response): Promise<JsonRecord> {
+  const diagnostics: JsonRecord = {
+    provider_response_content_type: response.headers.get("content-type")?.slice(0, 120) ?? null,
+    provider_response_content_length: response.headers.get("content-length")?.slice(0, 40) ?? null,
+  };
+
+  try {
+    const body = await response.clone().arrayBuffer();
+    diagnostics.provider_response_body_bytes = body.byteLength;
+    diagnostics.provider_response_body_sha256 = body.byteLength > 0
+      ? hexDigest(await crypto.subtle.digest("SHA-256", body))
+      : null;
+  } catch {
+    diagnostics.provider_response_body_read_error = true;
+  }
+
+  return diagnostics;
+}
+
 export function providerFailureCode(error: unknown): string {
   if (error instanceof ProviderTimeoutError) return error.code;
   if (error instanceof ProviderRateLimitError) return error.code;

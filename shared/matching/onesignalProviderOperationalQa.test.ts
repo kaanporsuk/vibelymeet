@@ -89,7 +89,7 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
   assert.match(nativeOneSignal, /runtimeState\.activeIdentityUserId = nextUserId \|\| null;\s*runtimeState\.lastLoggedInUserId = null/s);
 });
 
-test("web player-id and subscription sync writes notification_preferences safely", () => {
+test("web player-id and subscription sync writes through subscription RPCs only", () => {
   assert.match(webPushSync, /getPlayerId\(/);
   assert.match(webPushSync, /WEB_PLAYER_ID_LOGOUT_LOOKUP/);
   assert.match(webPushSync, /WEB_PUSH_SUBSCRIPTION_ID_CACHE_KEY/);
@@ -102,22 +102,25 @@ test("web player-id and subscription sync writes notification_preferences safely
   assert.match(webPushSync, /isSubscribed\(\)/);
   assert.match(webPushSync, /register_onesignal_push_subscription/);
   assert.match(webPushSync, /unregister_onesignal_push_subscription/);
-  assert.match(webPushSync, /\.from\(["']notification_preferences["']\)\.upsert/);
-  assert.match(webPushSync, /onesignal_player_id:\s*playerId/);
-  assert.match(webPushSync, /onesignal_subscribed:\s*subscribed/);
-  assert.match(webPushSync, /push_enabled:\s*true/);
+  assert.doesNotMatch(webPushSync, /isMissingPushSubscriptionRpc/);
+  assert.doesNotMatch(webPushSync, /upsertLegacyWebPushPreference/);
+  assert.doesNotMatch(webPushSync, /\.from\(["']notification_preferences["']\)/);
   assert.match(webPushHealth, /\.from\(["']push_subscriptions["']\)/);
   assert.match(webPushHealth, /currentSubscriptionId = localId\?\.trim\(\) \|\| null/);
   assert.match(webPushHealth, /readBackendPushSubscription\(user\.id, currentSubscriptionId\)/);
-  assert.match(webPushHealth, /legacyMatchesCurrentDevice/);
+  assert.doesNotMatch(webPushHealth, /legacyMatchesCurrentDevice/);
+  assert.doesNotMatch(webPushHealth, /onesignal_player_id/);
+  assert.doesNotMatch(webPushHealth, /onesignal_subscribed/);
   assert.doesNotMatch(webPushHealth, /Failed to read latest web push subscription row/);
   assert.doesNotMatch(webPushHealth, /\.order\(["']last_seen_at["']/);
-  assert.match(webPushHealth, /\.select\(["']onesignal_player_id, onesignal_subscribed, push_enabled, paused_until["']\)/);
+  assert.match(webPushHealth, /\.select\(["']push_enabled, paused_until["']\)/);
   assert.match(webPushHealth, /vibely-onesignal-subscription-changed/);
   assert.match(pushPermissionPrompt, /requestWebPushPermissionAndSync\(user\.id\)/);
   assert.match(pushPermissionPrompt, /Notifications are blocked in your browser/);
-  assert.match(pushPermissionPrompt, /label: "Open settings"/);
-  assert.match(pushPermissionPrompt, /window\.location\.assign\("\/settings\?drawer=notifications"\)/);
+  assert.match(pushPermissionPrompt, /Use your browser site settings/);
+  assert.match(pushPermissionPrompt, /Notification prompt did not open/);
+  assert.doesNotMatch(pushPermissionPrompt, /settingsLink/);
+  assert.doesNotMatch(pushPermissionPrompt, /settings\?drawer=notifications/);
   assert.match(notificationsDrawer, /requestWebPushPermissionAndSync\(user\.id\)/);
 });
 
@@ -142,8 +145,8 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativePermissionSettings, /Linking\.openSettings\(\)/);
   assert.match(nativePermissionSettings, /Linking\.openURL\('app-settings:'\)/);
   assert.match(nativePermissionSettings, /AppState\.addEventListener\('change'/);
-  assert.match(nativeOneSignal, /mobile_onesignal_player_id:\s*subscriptionId/);
-  assert.match(nativeOneSignal, /mobile_onesignal_subscribed:\s*subscribed/);
+  assert.doesNotMatch(nativeOneSignal, /isMissingPushSubscriptionRpc/);
+  assert.doesNotMatch(nativeOneSignal, /\.from\(["']notification_preferences["']\)/);
   assert.match(
     nativePushForegroundSync,
     /await syncNativePushSuppressionWithBackend\(userId\);\s*await syncPushWithBackendIfPermissionGranted\(userId\);/,
@@ -161,7 +164,9 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativePushHealth, /\.from\(['"]push_subscriptions['"]\)/);
   assert.match(nativePushHealth, /currentSubscriptionId = localId\?\.trim\(\) \|\| null/);
   assert.match(nativePushHealth, /readBackendPushSubscription\(userId, currentSubscriptionId\)/);
-  assert.match(nativePushHealth, /legacyMatchesCurrentDevice/);
+  assert.doesNotMatch(nativePushHealth, /legacyMatchesCurrentDevice/);
+  assert.doesNotMatch(nativePushHealth, /mobile_onesignal_player_id/);
+  assert.doesNotMatch(nativePushHealth, /mobile_onesignal_subscribed/);
   assert.doesNotMatch(nativePushHealth, /Failed to read latest native push subscription row/);
   assert.doesNotMatch(nativePushHealth, /\.order\(['"]last_seen_at['"]/);
   assert.match(nativeAppConfig, /onesignal-expo-plugin/);
@@ -215,10 +220,11 @@ test("send-notification preserves preference gates and no-player suppression", (
   ]) {
     assert.match(sendNotification, new RegExp(marker));
   }
-  assert.match(sendNotification, /prefs\.onesignal_subscribed/);
-  assert.match(sendNotification, /prefs\.onesignal_player_id/);
-  assert.match(sendNotification, /prefs\.mobile_onesignal_subscribed/);
-  assert.match(sendNotification, /prefs\.mobile_onesignal_player_id/);
+  assert.match(sendNotification, /prefs\?\.onesignal_subscribed/);
+  assert.match(sendNotification, /prefs\?\.onesignal_player_id/);
+  assert.match(sendNotification, /prefs\?\.mobile_onesignal_subscribed/);
+  assert.match(sendNotification, /prefs\?\.mobile_onesignal_player_id/);
+  assert.doesNotMatch(sendNotification, /addOneSignalSubscriptionId\(ids, prefs/);
   assert.match(sendNotification, /new Set<string>\(\)/);
   assert.match(sendNotification, /BYPASS_QUIET_HOURS/);
   assert.match(sendNotification, /CATEGORY_TO_COLUMN/);

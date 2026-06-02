@@ -20,6 +20,35 @@ const supabase = createClient(
 const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID')!
 const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY')!
 const APP_URL = Deno.env.get('APP_URL') || 'https://www.vibelymeet.com'
+const CANONICAL_APP_ORIGIN = 'https://www.vibelymeet.com'
+const NON_CANONICAL_APEX_ORIGIN = 'https://vibelymeet.com'
+
+function configuredAppOrigin(): string {
+  try {
+    return new URL(APP_URL).origin
+  } catch {
+    return CANONICAL_APP_ORIGIN
+  }
+}
+
+function normalizePushDeepLinkPath(raw: unknown): string | null {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (!value || value.startsWith('//')) return null
+  if (value.startsWith('/')) return value
+
+  try {
+    const url = new URL(value)
+    const allowedOrigins = new Set([
+      configuredAppOrigin(),
+      CANONICAL_APP_ORIGIN,
+      NON_CANONICAL_APEX_ORIGIN,
+    ])
+    if (!allowedOrigins.has(url.origin)) return null
+    return `${url.pathname || '/'}${url.search}${url.hash}`
+  } catch {
+    return null
+  }
+}
 
 /**
  * Map notification category → notify_* column (settings UI + DB).
@@ -864,9 +893,6 @@ function onesignalJsonIndicatesLogicalFailure(parsed: unknown): string | null {
   return null
 }
 
-const CANONICAL_APP_ORIGIN = 'https://www.vibelymeet.com'
-const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN.replace('://www.', '://')
-
 type PushPlatform = 'web' | 'mobile'
 type ProviderStatus = 'not_attempted' | 'accepted' | 'failed' | 'logical_error'
 type DeepLinkRouteClass = 'chat' | 'event' | 'date' | 'matches' | 'profile' | 'settings' | 'unknown'
@@ -932,6 +958,15 @@ function classifyDeepLink(raw: unknown): {
     return {
       deeplink_url_present: false,
       deeplink_url_kind: 'missing',
+      deeplink_route_class: 'unknown',
+      canonical_origin_valid: false,
+    }
+  }
+
+  if (value.startsWith('//')) {
+    return {
+      deeplink_url_present: true,
+      deeplink_url_kind: 'invalid_url',
       deeplink_route_class: 'unknown',
       canonical_origin_valid: false,
     }
@@ -1066,13 +1101,10 @@ function buildPushDeliveryDiagnostic(args: {
   }
 }
 
-function dataWithPushDiagnostic(data: any, diagnostic: PushDeliveryDiagnostic): Record<string, unknown> {
-  const base = data && typeof data === 'object' && !Array.isArray(data)
-    ? { ...(data as Record<string, unknown>) }
-    : {}
+function diagnosticForNotificationLog(diagnostic: PushDeliveryDiagnostic): PushDeliveryDiagnostic {
   return {
-    ...base,
-    push_delivery_diagnostic: diagnostic,
+    ...diagnostic,
+    provider_response_body_snippet: null,
   }
 }
 
@@ -1087,19 +1119,11 @@ function isMissingPushSubscriptionsRelation(error: any): boolean {
   return /42P01|PGRST205|push_subscriptions|relation .* does not exist|Could not find the table/i.test(haystack)
 }
 
-async function collectOneSignalSubscriptionIds(userId: string, prefs: any): Promise<{
+async function collectOneSignalSubscriptionIds(userId: string, _prefs: any): Promise<{
   ids: string[]
   subscriptionTableTargetCount: number
 }> {
   const ids = new Set<string>()
-
-  // Compatibility: legacy column names still contain OneSignal subscription IDs.
-  if (prefs.onesignal_subscribed) {
-    addOneSignalSubscriptionId(ids, prefs.onesignal_player_id)
-  }
-  if (prefs.mobile_onesignal_subscribed) {
-    addOneSignalSubscriptionId(ids, prefs.mobile_onesignal_player_id)
-  }
 
   let subscriptionTableTargetCount = 0
   try {
@@ -1214,9 +1238,9 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
 async function logNotification(
   userId: string,
   category: string,
-  title: string,
-  body: string,
-  data: any,
+  _title: string,
+  _body: string,
+  _data: any,
   delivered: boolean,
   suppressedReason?: string,
   diagnostic?: PushDeliveryDiagnostic
@@ -1224,9 +1248,16 @@ async function logNotification(
   await supabase.from('notification_log').insert({
     user_id: userId,
     category,
-    title,
-    body,
-    data: diagnostic ? dataWithPushDiagnostic(data, diagnostic) : data,
+    title: `[${category}]`,
+    body: delivered ? '[delivered]' : '[suppressed]',
+    data: diagnostic
+      ? { push_delivery_diagnostic: diagnosticForNotificationLog(diagnostic) }
+      : {
+          push_delivery_diagnostic: {
+            notification_category: category,
+            delivered,
+          },
+        },
     delivered,
     suppressed_reason: suppressedReason || null,
   })
@@ -1858,13 +1889,11 @@ Deno.serve(async (req) => {
       const eventLink = isEventLifecycleCategory(category) ? eventDeepLink(category, data) : null
       const actionLink = pathFromAction(baseAction)
       const deepLink =
-        eventLink ||
-        actionLink ||
-        (data && typeof data.url === 'string'
-          ? data.url
-          : data && typeof data.deep_link === 'string'
-            ? data.deep_link
-            : '/')
+        normalizePushDeepLinkPath(eventLink) ||
+        normalizePushDeepLinkPath(actionLink) ||
+        normalizePushDeepLinkPath(data?.url) ||
+        normalizePushDeepLinkPath(data?.deep_link) ||
+        '/'
       osData.deep_link = deepLink
       osData.url = deepLink
       if (typeof admissionStatus === 'string') {
@@ -1967,8 +1996,6 @@ Deno.serve(async (req) => {
     }
     console.log('OneSignal:', osResponse.status, notificationId || 'no-id')
     if (!osResponse.ok) {
-      const errSnippet =
-        osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
       const providerSnippet = redactedProviderResponseSnippet(osResultText)
       const suppressed = `onesignal_http_${osResponse.status}`
       emitLifecycle('delivery_error', suppressed)
@@ -1990,7 +2017,7 @@ Deno.serve(async (req) => {
           success: false,
           reason: 'onesignal_error',
           status: osResponse.status,
-          detail: errSnippet || undefined,
+          detail: providerSnippet || undefined,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
@@ -1998,8 +2025,6 @@ Deno.serve(async (req) => {
 
     const osLogicalFailure = onesignalJsonIndicatesLogicalFailure(osParsed)
     if (osLogicalFailure) {
-      const errSnippet =
-        osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
       const providerSnippet = redactedProviderResponseSnippet(osResultText)
       emitLifecycle('delivery_error', osLogicalFailure)
       await logNotification(user_id, category, finalTitle, finalBody, data, false, osLogicalFailure, diagnostic({
@@ -2021,7 +2046,7 @@ Deno.serve(async (req) => {
           reason: 'onesignal_error',
           onesignal_reason: osLogicalFailure,
           status: osResponse.status,
-          detail: errSnippet || undefined,
+          detail: providerSnippet || undefined,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
