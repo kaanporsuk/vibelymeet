@@ -25,13 +25,12 @@ const triggerGrantHardeningMigration = read(
 );
 
 test("native iOS permission metadata matches the shipped runtime prompts", () => {
+  const appConfig = read("apps/mobile/app.base.json");
   const plistPaths = [
     "apps/mobile/ios/Vibely/Info.plist",
     "apps/mobile/ios/mobile/Info.plist",
   ].filter((path) => existsSync(join(root, path)));
   assert.ok(plistPaths.length > 0, "expected at least one checked-in iOS Info.plist");
-  const entitlements = read("apps/mobile/ios/Vibely/Vibely.entitlements");
-  const project = read("apps/mobile/ios/Vibely.xcodeproj/project.pbxproj");
 
   for (const path of plistPaths) {
     const source = read(path);
@@ -47,9 +46,30 @@ test("native iOS permission metadata matches the shipped runtime prompts", () =>
     assert.doesNotMatch(source, /NSLocationAlways(?:AndWhenInUse)?UsageDescription/);
   }
 
-  assert.match(entitlements, /<key>aps-environment<\/key>\s*<string>\$\(APS_ENVIRONMENT\)<\/string>/);
-  assert.match(project, /APS_ENVIRONMENT = development;/);
-  assert.match(project, /APS_ENVIRONMENT = production;/);
+  assert.match(appConfig, /NSCameraUsageDescription/);
+  assert.match(appConfig, /join video dates, record Vibe Videos or chat clips/);
+  assert.match(appConfig, /NSMicrophoneUsageDescription/);
+  assert.match(appConfig, /send voice messages/);
+  assert.match(appConfig, /NSPhotoLibraryUsageDescription/);
+  assert.match(appConfig, /photo library only when you choose photos or videos/);
+  assert.match(appConfig, /NSLocationWhenInUseUsageDescription/);
+  assert.match(appConfig, /while the app is open/);
+  assert.match(appConfig, /NSSpeechRecognitionUsageDescription/);
+  assert.doesNotMatch(appConfig, /NSLocationAlways(?:AndWhenInUse)?UsageDescription/);
+  assert.match(appConfig, /com\.apple\.security\.application-groups/);
+
+  const generatedEntitlementsPath = "apps/mobile/ios/Vibely/Vibely.entitlements";
+  if (existsSync(join(root, generatedEntitlementsPath))) {
+    const entitlements = read(generatedEntitlementsPath);
+    assert.match(entitlements, /<key>aps-environment<\/key>\s*<string>\$\(APS_ENVIRONMENT\)<\/string>/);
+  }
+
+  const generatedProjectPath = "apps/mobile/ios/Vibely.xcodeproj/project.pbxproj";
+  if (existsSync(join(root, generatedProjectPath))) {
+    const project = read(generatedProjectPath);
+    assert.match(project, /APS_ENVIRONMENT = development;/);
+    assert.match(project, /APS_ENVIRONMENT = production;/);
+  }
 });
 
 test("native push and match-call permission recovery survives interrupted or returning flows", () => {
