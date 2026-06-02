@@ -56,7 +56,7 @@ ON CONFLICT (flag_key) DO UPDATE
 SET
   enabled = true,
   rollout_bps = 10000,
-  kill_switch_active = false,
+  kill_switch_active = public.client_feature_flags.kill_switch_active,
   description = EXCLUDED.description,
   updated_at = now();
 

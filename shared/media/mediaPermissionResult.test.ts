@@ -115,6 +115,29 @@ test("browser-state classifier reserves settings recovery for blocked browser pe
   }
 });
 
+test("browser-state classifier preserves settings recovery when permission query is unavailable", async () => {
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {},
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { isSecureContext: true },
+  });
+  try {
+    const result = await classifyMediaPermissionErrorWithBrowserState(
+      { name: "NotAllowedError", message: "Permission denied" },
+      "camera_microphone",
+    );
+
+    assert.equal(result.status, "denied");
+    assert.equal(result.permissionState, "unknown");
+    assert.equal(result.recoveryAction, "open_settings");
+  } finally {
+    restoreBrowserGlobals();
+  }
+});
+
 test("microphone-only failures do not mention camera recovery", () => {
   const busy = classifyMediaPermissionError({ name: "NotReadableError" }, "microphone");
   const constrained = classifyMediaPermissionError({ name: "OverconstrainedError" }, "microphone");

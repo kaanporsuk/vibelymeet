@@ -316,8 +316,9 @@ test("native chat tracks keyboard and layout transitions before sticky keyboard 
 test("native explicit jump-to-latest actions deliberately restore bottom stickiness", () => {
   assert.match(
     nativeChat,
-    /const startVoiceReplyRecording = \(\) => \{[\s\S]*stickToBottomRef\.current = true;[\s\S]*userScrollIntentUntilRef\.current = 0;[\s\S]*scrollListToLatest\(true\);/,
+    /const startVoiceReplyRecording = \(\) => \{[\s\S]*if \(composerInputLocked\) return;[\s\S]*stickToBottomRef\.current = true;[\s\S]*userScrollIntentUntilRef\.current = 0;[\s\S]*scrollListToLatest\(true\);/,
   );
+  assert.match(nativeChat, /const startVoiceRecording = async \(\) => \{[\s\S]*if \(composerInputLocked \|\| recording/);
   assert.match(
     nativeChat,
     /const startVoiceReplyRecording = \(\) => \{[\s\S]*void startVoiceRecording\(\);[\s\S]*\};/,

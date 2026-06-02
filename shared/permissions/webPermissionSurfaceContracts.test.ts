@@ -161,6 +161,9 @@ test("web Scavenger uses real media selection and upload instead of mock remote 
   assert.match(helper, /uploadImageWithMediaSdk/);
   assert.match(helper, /context: "chat"/);
   assert.match(helper, /matchId: cleanMatchId/);
+  assert.match(helper, /const \{ url \} = await uploadImageWithMediaSdk/);
+  assert.match(helper, /return url/);
+  assert.doesNotMatch(helper, /return path/);
   assert.match(gameTypes, /type: 'scavenger'/);
   assert.doesNotMatch(gameTypes, /Disabled: stubbed photo\/media flow/);
 });

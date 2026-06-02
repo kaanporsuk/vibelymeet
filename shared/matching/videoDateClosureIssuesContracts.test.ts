@@ -19,6 +19,10 @@ const definitiveFlowHardeningMigration = readFileSync(
   "supabase/migrations/20260602010000_video_date_definitive_flow_hardening.sql",
   "utf8",
 );
+const reviewCommentsForwardMigration = readFileSync(
+  "supabase/migrations/20260602000417_review_comments_1146_1158_followups.sql",
+  "utf8",
+);
 const packageJson = readFileSync("package.json", "utf8");
 const certificationEnvExample = readFileSync(".env.certification.example", "utf8");
 const requiredCertificationGate = readFileSync("scripts/certify-video-date-required.mjs", "utf8");
@@ -173,6 +177,10 @@ test("definitive flow hardening activates core flags and keeps legacy extension 
   }
   assert.match(definitiveFlowHardeningMigration, /enabled = true/);
   assert.match(definitiveFlowHardeningMigration, /rollout_bps = 10000/);
+  assert.match(definitiveFlowHardeningMigration, /kill_switch_active = public\.client_feature_flags\.kill_switch_active/);
+  assert.doesNotMatch(definitiveFlowHardeningMigration, /ON CONFLICT \(flag_key\) DO UPDATE[\s\S]{0,160}kill_switch_active = false/);
+  assert.match(reviewCommentsForwardMigration, /UPDATE public\.client_feature_flags f[\s\S]*rollout_bps = 10000/);
+  assert.doesNotMatch(reviewCommentsForwardMigration, /kill_switch_active\s*=/);
   assert.doesNotMatch(definitiveFlowHardeningMigration, /'video_date\.daily_pool_v2'/);
   assert.match(definitiveFlowHardeningMigration, /legacy-no-key-v1:/);
   assert.match(definitiveFlowHardeningMigration, /legacy_idempotency/);
