@@ -321,10 +321,8 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
                 void (async () => {
                   await markNativePushPermissionAsked('true', promptUserId);
                   if (!isActivePromptUser(promptUserId)) return;
+                  setSetupRecoveryMessage(null);
                   openSettings();
-                  if (!isActivePromptUser(promptUserId)) return;
-                  onClose();
-                  onCompleted?.();
                 })();
               }}
               onDismiss={handleNotNow}

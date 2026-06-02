@@ -80,7 +80,8 @@ const activeEmailSources = [
 
 test("email-verification reads RESEND_API_KEY and sends through Resend", () => {
   assert.match(emailVerification, /Deno\.env\.get\(["']RESEND_API_KEY["']\)/);
-  assert.match(emailVerification, /fetch\(["']https:\/\/api\.resend\.com\/emails["'], \{/);
+  assert.match(emailVerification, /fetchWithProviderTimeout\(["']https:\/\/api\.resend\.com\/emails["'], \{/);
+  assert.match(emailVerification, /providerFetchTimeoutMs\(["']resend["'], ["']email_send["'], 8_000\)/);
   assert.match(emailVerification, /Authorization:\s*`Bearer \$\{RESEND_API_KEY\}`/);
   assert.match(emailVerification, /"Vibely <hello@vibelymeet\.com>"/);
   assert.match(supabaseConfig, /\[functions\.email-verification\][\s\S]{0,80}verify_jwt = true/);

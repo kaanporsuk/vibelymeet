@@ -104,11 +104,13 @@ test("native permission metadata matches the shipped runtime prompts", () => {
       };
     };
   };
-  const plistPaths = [
-    "apps/mobile/ios/Vibely/Info.plist",
-    "apps/mobile/ios/mobile/Info.plist",
-  ].filter((path) => existsSync(join(root, path)));
-  assert.ok(plistPaths.length > 0, "expected at least one checked-in iOS Info.plist");
+  assert.equal(
+    existsSync(join(root, "apps/mobile/ios/mobile/Info.plist")),
+    false,
+    "stale unreferenced ios/mobile/Info.plist must not be checked in",
+  );
+  const plistPaths = ["apps/mobile/ios/Vibely/Info.plist"];
+  assert.ok(existsSync(join(root, plistPaths[0])), "expected checked-in Vibely iOS Info.plist");
 
   for (const path of plistPaths) {
     const source = read(path);
@@ -396,12 +398,16 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(drawer, /prompt_unavailable/);
   assert.match(drawer, /result\?\.code === "stale_identity"/);
   assert.match(drawer, /Promise<PushSyncResult \| null>/);
-  assert.match(drawer, /const result = await handleEnablePush\(\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*savePrefs\(\{ push_enabled: nextEnabled \}\)/);
+  assert.match(drawer, /const providerSetupBusyRef = useRef\(false\)/);
+  assert.match(drawer, /if \(providerSetupBusyRef\.current\) return/);
+  assert.match(drawer, /providerSetupBusyRef\.current = true/);
+  assert.match(drawer, /const result = await handleEnablePush\(\{ setupBusyAlreadySet: true \}\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*savePrefs\(\{ push_enabled: nextEnabled \}\)/);
+  assert.match(drawer, /const providerControlsBusy = isLoading \|\| isSaving \|\| isSyncing \|\| masterToggleBusy/);
   assert.match(drawer, /const categoryControlsBusy = isLoading \|\| isSaving/);
   assert.doesNotMatch(drawer, /const disabled = isLoading \|\| !prefs\.push_enabled \|\| isPaused/);
   assert.match(drawer, /Category choices below are still saved and will apply when notifications resume/);
   assert.match(drawer, /Category choices below will apply when you turn this back on/);
-  assert.match(drawer, /disabled=\{isLoading \|\| isSaving\}/);
+  assert.match(drawer, /disabled=\{providerControlsBusy\}/);
   assert.match(drawer, /checked=\{prefs\.quiet_hours_enabled\}[\s\S]*disabled=\{isLoading \|\| isSaving\}/);
 });
 

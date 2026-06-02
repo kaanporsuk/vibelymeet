@@ -7,6 +7,7 @@ import type { EventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 import { parseMediaCaptions, type MediaCaptions } from "../../shared/media/captions";
+import { requestCurrentWebLocation } from "@/lib/webLocationPermission";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {
@@ -439,18 +440,7 @@ export interface GeoLocation {
 }
 
 export const detectLocation = (): Promise<GeolocationPosition> => {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("Geolocation is not supported by your browser"));
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 300000, // 5 minutes cache
-    });
-  });
+  return requestCurrentWebLocation();
 };
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocation> => {

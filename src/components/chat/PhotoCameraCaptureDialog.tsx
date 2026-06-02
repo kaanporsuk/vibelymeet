@@ -62,7 +62,7 @@ function shouldRetryWithGenericCamera(error: unknown): boolean {
     error && typeof error === "object" && "name" in error
       ? String((error as { name?: unknown }).name)
       : "";
-  return name !== "NotAllowedError" && name !== "SecurityError";
+  return !["NotAllowedError", "PermissionDeniedError", "SecurityError"].includes(name);
 }
 
 function facingModeFromStream(stream: MediaStream, fallback: PhotoCameraFacingMode): PhotoCameraFacingMode {

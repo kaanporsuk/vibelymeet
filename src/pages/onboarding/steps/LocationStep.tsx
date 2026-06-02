@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { hasConfirmedOnboardingLocation, isValidLocationData } from "@shared/onboardingTypes";
+import { requestCurrentWebLocation, webLocationRecoveryMessage } from "@/lib/webLocationPermission";
 
 interface LocationPayload {
   location: string;
@@ -138,26 +139,15 @@ export const LocationStep = ({
   };
 
   const autoDetect = async () => {
-    if (!navigator.geolocation) {
-      setSearchState("error");
-      setFeedback({
-        tone: "error",
-        text: "Location is not available in this browser. Search for your city instead.",
-      });
-      return;
-    }
-
     setDetecting(true);
     setSearchState("idle");
     setResults([]);
     setFeedback(null);
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          timeout: 10000,
-          maximumAge: 300000,
-        })
-      );
+      const position = await requestCurrentWebLocation({
+        timeout: 10000,
+        maximumAge: 300000,
+      });
 
       const { latitude: lat, longitude: lng } = position.coords;
       const { data, error } = await supabase.functions.invoke("geocode", {
@@ -187,7 +177,9 @@ export const LocationStep = ({
         setSearchState("error");
         setFeedback({
           tone: "error",
-          text: "Location permission was denied. Search for your city instead, or allow Location in this browser's site settings and try again.",
+          text: webLocationRecoveryMessage(error, {
+            blocked: "Location permission was denied. Search for your city instead, or allow Location in this browser's site settings and try again.",
+          }),
         });
         return;
       }
@@ -195,7 +187,10 @@ export const LocationStep = ({
       setSearchState("error");
       setFeedback({
         tone: "error",
-        text: "We couldn't determine your city right now. Search for your city instead, or try again.",
+        text: webLocationRecoveryMessage(error, {
+          unavailable: "Location is not available in this browser. Search for your city instead.",
+          retry: "We couldn't determine your city right now. Search for your city instead, or try again.",
+        }),
       });
     } finally {
       setDetecting(false);

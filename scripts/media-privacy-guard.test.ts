@@ -48,11 +48,25 @@ assert.match(sendMessage, /mediaSenderScopeOk\(videoUrl, match_id, actorId, "cha
 // mismatch must only block when enforcing (fail-soft otherwise).
 assert.match(sendMessage, /return !\(verdict === "mismatch" && SENDER_SCOPE_ENFORCE\)/, "send-message: not fail-soft");
 
-// --- proxy secret warn-once fallback (fail-soft) ---
+// --- proxy secret is dedicated in production; service-role fallback is explicit local/test only ---
 const getMedia = read("supabase/functions/get-chat-media-url/index.ts");
+const envExample = read(".env.example");
 assert.match(getMedia, /function resolveProxyTokenSecret/, "get-chat-media-url: missing proxy secret resolver");
-assert.match(getMedia, /chat_media_proxy_secret_fallback/, "get-chat-media-url: missing fallback warning");
+assert.match(getMedia, /CHAT_MEDIA_PROXY_SECRET_ALLOW_SERVICE_ROLE_FALLBACK/, "get-chat-media-url: missing explicit local fallback gate");
+assert.match(getMedia, /chat_media_proxy_secret_missing/, "get-chat-media-url: missing missing-secret log");
+assert.match(getMedia, /ProxyTokenSecretConfigError/, "get-chat-media-url: missing typed config error");
+assert.match(getMedia, /chat_media_proxy_secret_configured/, "get-chat-media-url: health check should expose proxy secret configuration");
+assert.match(getMedia, /chat_media_proxy_service_role_fallback_allowed/, "get-chat-media-url: health check should expose fallback gate state");
+assert.match(getMedia, /error: "chat_media_proxy_secret_missing" \}, \{ status: 503/, "get-chat-media-url: missing controlled 503 for proxy secret misconfiguration");
 assert.doesNotMatch(getMedia, /Deno\.env\.get\("CHAT_MEDIA_PROXY_SECRET"\)\s*\|\|\s*serviceRoleKey/, "get-chat-media-url: raw fallback still present");
+const directCdnIndex = getMedia.indexOf("const directCdn = directChatStorageCdnConfigForTier(storageZone)");
+const tokenSecretIndex = getMedia.indexOf("tokenSecret = resolveProxyTokenSecret(serviceRoleKey)", directCdnIndex);
+const createTokenIndex = getMedia.indexOf("const token = await createToken(tokenSecret", tokenSecretIndex);
+assert.ok(directCdnIndex >= 0, "get-chat-media-url: missing direct CDN branch");
+assert.ok(tokenSecretIndex > directCdnIndex, "get-chat-media-url: proxy secret should only be required after Stream/direct-CDN issue paths fall through");
+assert.ok(createTokenIndex > tokenSecretIndex, "get-chat-media-url: proxy secret should be resolved immediately before proxy token minting");
+assert.match(envExample, /CHAT_MEDIA_PROXY_SECRET=/, ".env.example: missing dedicated proxy secret");
+assert.match(envExample, /Local\/test only; never set this in production:[\s\S]*CHAT_MEDIA_PROXY_SECRET_ALLOW_SERVICE_ROLE_FALLBACK=false/, ".env.example: missing local-only fallback warning");
 
 // --- log redaction is applied in upload functions ---
 for (const p of ["supabase/functions/upload-image/index.ts", "supabase/functions/upload-chat-video/index.ts"]) {

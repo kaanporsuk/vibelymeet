@@ -81,7 +81,9 @@ Base resolver/proxy secrets:
 
 ```
 SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
-CHAT_MEDIA_PROXY_SECRET            # required in production; fallback exists only to avoid sudden breakage
+CHAT_MEDIA_PROXY_SECRET            # required in production for proxy-token signing
+CHAT_MEDIA_PROXY_SECRET_ALLOW_SERVICE_ROLE_FALLBACK
+                                   # local/test only; never enable in production
 BUNNY_STORAGE_ZONE, BUNNY_STORAGE_API_KEY
 BUNNY_ARCHIVE_STORAGE_ZONE / BUNNY_STORAGE_ARCHIVE_ZONE        # optional archive tier
 BUNNY_ARCHIVE_STORAGE_API_KEY / BUNNY_STORAGE_ARCHIVE_API_KEY  # optional archive tier

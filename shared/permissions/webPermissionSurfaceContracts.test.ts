@@ -2,12 +2,33 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  WEB_LOCATION_BLOCKED_MESSAGE,
+  WEB_LOCATION_RETRY_OR_CITY_MESSAGE,
+  WEB_LOCATION_UNAVAILABLE_MESSAGE,
+  webLocationRecoveryMessage,
+} from "../../src/lib/webLocationPermission.ts";
 
 const root = process.cwd();
 
 function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
+
+test("web location recovery helper maps browser outcomes without prompt loops", () => {
+  assert.equal(webLocationRecoveryMessage({ code: 1 }), WEB_LOCATION_BLOCKED_MESSAGE);
+  assert.equal(webLocationRecoveryMessage(new Error("web_geolocation_unavailable")), WEB_LOCATION_UNAVAILABLE_MESSAGE);
+  assert.equal(webLocationRecoveryMessage({ code: 2 }), WEB_LOCATION_RETRY_OR_CITY_MESSAGE);
+  assert.equal(
+    webLocationRecoveryMessage({ code: 1 }, { blocked: "blocked custom" }),
+    "blocked custom",
+  );
+  assert.equal(
+    webLocationRecoveryMessage(new Error("web_geolocation_unavailable"), { unavailable: "unavailable custom" }),
+    "unavailable custom",
+  );
+  assert.equal(webLocationRecoveryMessage(new Error("timeout"), { retry: "retry custom" }), "retry custom");
+});
 
 test("web onboarding notification denial stays on recoverable UI instead of auto-advancing", () => {
   const source = read("src/pages/onboarding/steps/NotificationStep.tsx");
@@ -83,14 +104,23 @@ test("web push request helper does not re-prompt when browser permission is alre
   assert.match(source, /finally \{[\s\S]*forgetRememberedWebPushSubscriptionId\(userId\);[\s\S]*forgetBackendSyncCacheForUser\(userId\);[\s\S]*syncInFlightByUser\.delete\(userId\);[\s\S]*\}/);
 });
 
-test("web event location failures render persistent retry recovery", () => {
+test("web event location failures render persistent retry recovery through shared copy", () => {
   const source = read("src/pages/Events.tsx");
+  const helper = read("src/lib/webLocationPermission.ts");
 
+  assert.match(source, /requestCurrentWebLocation/);
+  assert.match(source, /webLocationRecoveryMessage/);
+  assert.match(source, /function hasFiniteLocationData/);
+  assert.match(source, /Number\.isFinite\(locationData\.lat\)/);
+  assert.match(source, /Number\.isFinite\(locationData\.lng\)/);
+  assert.doesNotMatch(source, /setHasLocation\(\s*!!\(ld\?\.lat\)\s*\)/);
+  assert.match(source, /typeof navigator !== "undefined" && "permissions" in navigator/);
   assert.match(source, /const \[locationRecovery, setLocationRecovery\]/);
-  assert.match(source, /Location is blocked for this site/);
+  assert.match(helper, /Location is blocked for this site/);
   assert.match(source, /handleLocationModeChange\("nearby"\)/);
   assert.match(source, /Choose city/);
   assert.match(source, /const \[error, setError\]/);
+  assert.doesNotMatch(source, /navigator\.geolocation\.getCurrentPosition/);
 });
 
 test("web profile location detection has inline recovery beyond toast feedback", () => {
@@ -103,6 +133,17 @@ test("web profile location detection has inline recovery beyond toast feedback",
   assert.match(source, /Try again/);
   assert.match(service, /reverse_geocode_unresolved/);
   assert.doesNotMatch(service, /formatted:\s*"Location detected"/);
+});
+
+test("web photo camera does not retry browser-denied camera prompts", () => {
+  const source = read("src/components/chat/PhotoCameraCaptureDialog.tsx");
+  const retryGuard =
+    /function shouldRetryWithGenericCamera\(error: unknown\): boolean \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
+
+  assert.match(retryGuard, /NotAllowedError/);
+  assert.match(retryGuard, /PermissionDeniedError/);
+  assert.match(retryGuard, /SecurityError/);
+  assert.match(source, /classifyMediaPermissionErrorWithBrowserState\(error, "camera"\)/);
 });
 
 test("web voice messages keep persistent microphone recovery beyond toast feedback", () => {
@@ -226,14 +267,22 @@ test("web Scavenger uses real media selection and upload instead of mock remote 
   assert.doesNotMatch(gameTypes, /Disabled: stubbed photo\/media flow/);
 });
 
-test("web notification master switch cannot enable app prefs while browser permission is blocked", () => {
+test("web notification master switch prompts first-time browsers before enabling app prefs and blocks denied", () => {
   const source = read("src/components/settings/NotificationsDrawer.tsx");
 
   assert.match(source, /const handleMasterToggle = async/);
+  assert.match(source, /const \[masterToggleBusy, setMasterToggleBusy\]/);
+  assert.match(source, /const providerSetupBusyRef = useRef\(false\)/);
+  assert.match(source, /const providerControlsBusy = isLoading \|\| isSaving \|\| isSyncing \|\| masterToggleBusy/);
+  assert.match(source, /if \(providerSetupBusyRef\.current\) return/);
+  assert.match(source, /providerSetupBusyRef\.current = true/);
+  assert.match(source, /finally \{[\s\S]*providerSetupBusyRef\.current = false;[\s\S]*setMasterToggleBusy\(false\);[\s\S]*\}/);
   assert.match(source, /health\.status === "blocked"/);
-  assert.match(source, /Notification\.permission !== "granted"/);
+  assert.match(source, /browserPermission === "denied"/);
+  assert.match(source, /refreshedPermission === "denied"/);
+  assert.doesNotMatch(source, /Notification\.permission !== "granted"/);
   assert.match(source, /await refreshPushHealth\(\);[\s\S]*Allow notifications in your browser site settings first/);
-  assert.match(source, /const result = await handleEnablePush\(\);/);
+  assert.match(source, /const result = await handleEnablePush\(\{ setupBusyAlreadySet: true \}\);/);
   assert.match(source, /if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}/);
   assert.ok(
     source.indexOf("if (!result?.synced)") < source.indexOf("savePrefs({ push_enabled: nextEnabled })"),
@@ -242,4 +291,5 @@ test("web notification master switch cannot enable app prefs while browser permi
   assert.match(source, /savePrefs\(\{ push_enabled: nextEnabled \}\)/);
   assert.doesNotMatch(source, /toggle\("push_enabled"\)/);
   assert.match(source, /onCheckedChange=\{\(checked\) => void handleMasterToggle\(checked\)\}/);
+  assert.match(source, /disabled=\{providerControlsBusy\}/);
 });

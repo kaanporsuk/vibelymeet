@@ -43,7 +43,7 @@ test("send-notification writes in-app notifications without weakening push gates
   const clientEventVibeCategories =
     sendNotification.match(/const CLIENT_EVENT_VIBE_CATEGORIES = new Set\(\[([^\]]+)\]\)/)?.[1] ?? "";
   const nonServiceRequestBlock =
-    sendNotification.match(/if \(!isServiceRole\) \{\n      const clientValidationError[\s\S]*?\n    \}\n\n    const canBypassPreferences/)?.[0] ?? "";
+    sendNotification.match(/if \(!isServiceRole\) \{\n[ ]{6}const clientValidationError[\s\S]*?\n[ ]{4}\}\n\n[ ]{4}const canBypassPreferences/)?.[0] ?? "";
 
   assert.match(sendNotification, /type NotificationChannel = 'in_app' \| 'push'/);
   assert.match(sendNotification, /const DEFAULT_CHANNELS: NotificationChannel\[\] = \['in_app', 'push'\]/);

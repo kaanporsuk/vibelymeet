@@ -28,6 +28,21 @@ import {
   matchesThisWeekTimeFilter,
   matchesThisWeekendFilter,
 } from "@clientShared/eventTimingBuckets";
+import {
+  WEB_LOCATION_RETRY_OR_CITY_MESSAGE,
+  WEB_LOCATION_UNAVAILABLE_MESSAGE,
+  requestCurrentWebLocation,
+  webLocationRecoveryMessage,
+} from "@/lib/webLocationPermission";
+
+function hasFiniteLocationData(locationData: { lat: number; lng: number } | null | undefined): boolean {
+  return (
+    typeof locationData?.lat === "number" &&
+    Number.isFinite(locationData.lat) &&
+    typeof locationData?.lng === "number" &&
+    Number.isFinite(locationData.lng)
+  );
+}
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
@@ -41,16 +56,10 @@ const LocationPromptBanner = () => {
 
   const handleEnable = async () => {
     if (!user?.id) return;
-    if (!navigator.geolocation) {
-      setError("Location is not available in this browser. Use a city filter or update your location from profile.");
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const pos = await new Promise<GeolocationPosition>((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej)
-      );
+      const pos = await requestCurrentWebLocation();
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
 
@@ -90,12 +99,7 @@ const LocationPromptBanner = () => {
       toast.success("Location saved! Discovering events near you…");
       setDismissed(true);
     } catch (locationError) {
-      const geolocationError = locationError as GeolocationPositionError | undefined;
-      setError(
-        geolocationError?.code === 1
-          ? "Location is blocked for this site. Allow it in browser site settings, then try again."
-          : "Could not get your location. Try again, or choose a city filter if available.",
-      );
+      setError(webLocationRecoveryMessage(locationError));
     } finally {
       setLoading(false);
     }
@@ -296,20 +300,20 @@ const Events = () => {
       if (!user?.id) return;
       const data = await fetchMyLocationData().catch(() => null);
       const ld = data?.location_data;
-      setHasLocation(!!(ld?.lat));
+      setHasLocation(hasFiniteLocationData(ld));
     };
     checkLocation();
   }, [user?.id]);
 
   useEffect(() => {
     if (userCoords) return;
-    if ('permissions' in navigator) {
+    if (typeof navigator !== "undefined" && "permissions" in navigator) {
       navigator.permissions.query({ name: 'geolocation' }).then(result => {
         if (result.state === 'granted') {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-            () => {}
-          );
+          void requestCurrentWebLocation({
+            timeout: 10000,
+            maximumAge: 300000,
+          }).then((pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })).catch(() => {});
         }
       }).catch(() => {});
     }
@@ -322,23 +326,20 @@ const Events = () => {
       setSelectedCity(null);
       setDistanceKm(50);
       if (!userCoords) {
-        if (!navigator.geolocation) {
-          setLocationRecovery("Location is not available in this browser. Choose a city filter if available.");
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-            setLocationRecovery(null);
-          },
-          (error) => {
-            setLocationRecovery(
-              error.code === 1
-                ? "Location is blocked for this site. Allow it in browser site settings, then try again."
-                : "Could not get your location. Try again, or choose a city filter if available.",
-            );
-          },
-        );
+        void requestCurrentWebLocation({
+          timeout: 10000,
+          maximumAge: 300000,
+        }).then((pos) => {
+          setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocationRecovery(null);
+        }).catch((error) => {
+          const message = webLocationRecoveryMessage(error);
+          setLocationRecovery(
+            message === WEB_LOCATION_UNAVAILABLE_MESSAGE
+              ? WEB_LOCATION_RETRY_OR_CITY_MESSAGE
+              : message,
+          );
+        });
       }
     } else {
       setDistanceKm(25);
