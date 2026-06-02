@@ -18,9 +18,13 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
-const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
+const nativeReadyGate = read(
+  "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
+);
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+const webRoomWarmup = read("src/lib/videoDateRoomWarmup.ts");
+const nativeRoomWarmup = read("apps/mobile/lib/videoDateRoomWarmup.ts");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 
@@ -39,7 +43,11 @@ test("ReadyGate surfaces warm Daily but never perform the real join (handshake-c
   for (const [name, source] of readyGateSurfaces) {
     // No real Daily join from the lobby — that would start the backend
     // handshake clock before the user is on a stable /date route.
-    assert.doesNotMatch(source, /join(Web|Native)VideoDateDailyPrewarm/, `${name} must not join Daily`);
+    assert.doesNotMatch(
+      source,
+      /join(Web|Native)VideoDateDailyPrewarm/,
+      `${name} must not join Daily`,
+    );
     // No solo-prejoin: its only purpose was an early real join.
     assert.doesNotMatch(
       source,
@@ -47,7 +55,11 @@ test("ReadyGate surfaces warm Daily but never perform the real join (handshake-c
       `${name} must not solo-prejoin`,
     );
     // The joined stamp is owned by /date only (matches an actual rpc call, not comments).
-    assert.doesNotMatch(source, /rpc\(\s*['"]mark_video_date_daily_joined/, `${name} must not stamp joined`);
+    assert.doesNotMatch(
+      source,
+      /rpc\(\s*['"]mark_video_date_daily_joined/,
+      `${name} must not stamp joined`,
+    );
   }
   // ...but the ReadyGate still warms camera + preauth for a fast handoff.
   assert.match(webReadyGate, /startWebVideoDateDailyPrewarm/);
@@ -60,31 +72,47 @@ test("ReadyGate surfaces warm Daily but never perform the real join (handshake-c
 
 test("/date routes are the sole owners of the real Daily join + joined stamp", () => {
   for (const [name, source] of dateRouteOwners) {
-    assert.match(source, /\.join\(\{\s*url:/, `${name} should perform the real Daily join`);
-    assert.match(source, /rpc\(\s*['"]mark_video_date_daily_joined/, `${name} should stamp joined`);
+    assert.match(
+      source,
+      /\.join\(\{\s*url:/,
+      `${name} should perform the real Daily join`,
+    );
+    assert.match(
+      source,
+      /rpc\(\s*['"]mark_video_date_daily_joined/,
+      `${name} should stamp joined`,
+    );
   }
 });
 
 test("ReadyGate overlays reconcile both-ready into the prepare-entry handoff (liveness guard)", () => {
   for (const [name, source, resetMarker, guardMarker] of [
-    ["web", webReadyGate, 'releasePermissionPrewarmMedia("ready_gate_session_changed")', 'handleBothReady("both_ready_observed")'],
+    [
+      "web",
+      webReadyGate,
+      'releasePermissionPrewarmMedia("ready_gate_session_changed")',
+      'handleBothReady("both_ready_observed")',
+    ],
     [
       "native",
       nativeReadyGate,
-      "setNativePermissionDiagnostics(defaultNativeReadyGatePermissionDiagnostics())",
+      "setNativePermissionDiagnostics",
       "handleBothReady('both_ready_observed')",
     ],
   ] as Array<[string, string, string, string]>) {
     const resetIndex = source.indexOf(resetMarker);
     const guardIndex = source.indexOf(guardMarker);
-    assert.ok(resetIndex >= 0, `${name} overlay should reset session-owned handoff state`);
+    assert.ok(
+      resetIndex >= 0,
+      `${name} overlay should reset session-owned handoff state`,
+    );
     assert.ok(
       guardIndex > resetIndex,
       `${name} overlay liveness guard should run after session reset so reset cannot stale the handoff`,
     );
     assert.match(
       source,
-      /if \(!isBothReady\) return;\s*(?:if \([^)]+StateSessionId !== sessionId\) return;\s*)?handleBothReady\(['"]both_ready_observed['"]\)/,
+      /if \(!isBothReady\) return;\s*(?:if \([^)]+StateSessionId !== sessionId\) return;\s*)?handleBothReady\(\s*['"]both_ready_observed['"]\s*\)/,
       `${name} overlay should drive handleBothReady when both are ready`,
     );
   }
@@ -92,10 +120,19 @@ test("ReadyGate overlays reconcile both-ready into the prepare-entry handoff (li
 
 test("ReadyGate liveness guards ignore stale both-ready state after a session switch", () => {
   assert.match(webReadyGateHook, /stateSessionId: string \| null/);
-  assert.match(webReadyGateHook, /const isCurrentSessionState = state\.stateSessionId === sessionId/);
-  assert.match(webReadyGateHook, /const isBothReady = isCurrentSessionState && state\.isBothReady/);
+  assert.match(
+    webReadyGateHook,
+    /const isCurrentSessionState = state\.stateSessionId === sessionId/,
+  );
+  assert.match(
+    webReadyGateHook,
+    /const isBothReady = isCurrentSessionState && state\.isBothReady/,
+  );
   assert.match(webReadyGate, /stateSessionId: readyGateStateSessionId/);
-  assert.match(webReadyGate, /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\("both_ready_observed"\)/);
+  assert.match(
+    webReadyGate,
+    /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\("both_ready_observed"\)/,
+  );
   assert.match(webReadyGate, /readyGateStateSessionId,\s*sessionId/);
   assert.match(nativeReadyGateApi, /stateSessionId: string \| null/);
   assert.match(nativeReadyGateApi, /stateSessionId: sessionId \?\? null/);
@@ -104,12 +141,18 @@ test("ReadyGate liveness guards ignore stale both-ready state after a session sw
     /const isCurrentSessionState = state\.stateSessionId === \(sessionId \?\? null\);\s*const isBothReady = isCurrentSessionState && \(state\.isBothReady \|\| state\.status === BOTH_READY\)/,
   );
   assert.match(nativeReadyGate, /stateSessionId: readyGateStateSessionId/);
-  assert.match(nativeReadyGate, /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\('both_ready_observed'\)/);
+  assert.match(
+    nativeReadyGate,
+    /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\(\s*["']both_ready_observed["']\s*\)/,
+  );
   assert.match(nativeReadyGate, /readyGateStateSessionId,\s*sessionId/);
 });
 
 test("ReadyGate video_provider row stays neutral (waiting) until prepare-entry begins", () => {
-  for (const [name, source] of [["web", webReadyGate], ["native", nativeReadyGate]] as Array<[string, string]>) {
+  for (const [name, source] of [
+    ["web", webReadyGate],
+    ["native", nativeReadyGate],
+  ] as Array<[string, string]>) {
     // waiting before prepare-entry starts; checking only while it is running.
     assert.match(
       source,
@@ -122,5 +165,39 @@ test("ReadyGate video_provider row stays neutral (waiting) until prepare-entry b
       /prepareEntryStatus !== ['"]idle['"] \|\| isBothReady/,
       `${name} overlay must not force checking on isBothReady`,
     );
+  }
+});
+
+test("ReadyGate handoff retries and room warmups are single-flight/provider-aware", () => {
+  for (const [name, source] of [
+    ["web", webReadyGate],
+    ["native", nativeReadyGate],
+  ] as Array<[string, string]>) {
+    assert.match(
+      source,
+      /getVideoDateEntryHandoffRetryDelayMs\(\s*result,\s*VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS\[attempt\],?\s*\)/,
+      `${name} overlay should respect provider retry-after before retrying prepare-entry`,
+    );
+    assert.match(
+      source,
+      /readyActionInFlightRef\.current/,
+      `${name} overlay should synchronously guard ready taps before permission prewarm`,
+    );
+    assert.match(
+      source,
+      /prepareEntryHandoffStartedRef\.current[\s\S]{0,260}prepare_entry_in_progress/,
+      `${name} overlay should not start room-warmup Daily prewarm while prepare-entry handoff owns prewarm`,
+    );
+  }
+  assert.match(nativeReadyRoute, /readyActionInFlightRef\.current/);
+
+  for (const [name, source] of [
+    ["web", webRoomWarmup],
+    ["native", nativeRoomWarmup],
+  ] as Array<[string, string]>) {
+    assert.match(source, /const roomWarmupInflight = new Map/);
+    assert.match(source, /existing\.then\(coalesceRoomWarmupResult\)/);
+    assert.match(source, /coalesced: true/);
+    assert.match(source, /ownerEntryAttemptId/);
   }
 });

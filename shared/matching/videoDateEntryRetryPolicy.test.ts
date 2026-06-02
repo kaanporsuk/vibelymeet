@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS,
   VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+  getVideoDateEntryHandoffRetryDelayMs,
   getVideoDateEntryHandoffStatusCopy,
   getVideoDateEntryHandoffMaxAttempts,
   shouldRetryVideoDateEntryHandoffFailure,
@@ -10,25 +11,83 @@ import {
 
 test("video date entry handoff policy centralizes retry timing", () => {
   assert.equal(VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS, 3_000);
-  assert.deepEqual([...VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS], [1_000, 2_000, 4_000, 8_000]);
+  assert.deepEqual(
+    [...VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS],
+    [1_000, 2_000, 4_000, 8_000],
+  );
   assert.equal(getVideoDateEntryHandoffMaxAttempts(), 5);
 });
 
+test("video date entry handoff prefers provider retry-after with a cap", () => {
+  assert.equal(
+    getVideoDateEntryHandoffRetryDelayMs({ retryAfterSeconds: 6 }, 1000),
+    6000,
+  );
+  assert.equal(
+    getVideoDateEntryHandoffRetryDelayMs({ retryAfterMs: 2500 }, 1000),
+    2500,
+  );
+  assert.equal(
+    getVideoDateEntryHandoffRetryDelayMs({ retryAfterMs: 90_000 }, 1000),
+    30_000,
+  );
+  assert.equal(getVideoDateEntryHandoffRetryDelayMs({}, 2000), 2000);
+});
+
 test("video date entry handoff retries only transient prepare failures", () => {
-  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "READY_GATE_NOT_READY" }), true);
-  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "EVENT_NOT_ACTIVE" }), false);
-  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "DAILY_PROVIDER_UNAVAILABLE" }), true);
-  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "ACCESS_DENIED", retryable: false }), false);
-  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ httpStatus: 502 }), true);
-  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ httpStatus: 403 }), false);
+  assert.equal(
+    shouldRetryVideoDateEntryHandoffFailure({ code: "READY_GATE_NOT_READY" }),
+    true,
+  );
+  assert.equal(
+    shouldRetryVideoDateEntryHandoffFailure({ code: "EVENT_NOT_ACTIVE" }),
+    false,
+  );
+  assert.equal(
+    shouldRetryVideoDateEntryHandoffFailure({
+      code: "DAILY_PROVIDER_UNAVAILABLE",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRetryVideoDateEntryHandoffFailure({
+      code: "ACCESS_DENIED",
+      retryable: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRetryVideoDateEntryHandoffFailure({ httpStatus: 502 }),
+    true,
+  );
+  assert.equal(
+    shouldRetryVideoDateEntryHandoffFailure({ httpStatus: 403 }),
+    false,
+  );
 });
 
 test("video date entry handoff exposes calm shared status copy", () => {
-  assert.equal(getVideoDateEntryHandoffStatusCopy("preparing").title, "Joining your date...");
-  assert.equal(getVideoDateEntryHandoffStatusCopy("slow").title, "Holding your date...");
-  assert.equal(getVideoDateEntryHandoffStatusCopy("retrying").title, "Retrying connection...");
-  assert.deepEqual(getVideoDateEntryHandoffStatusCopy("failed", "Try again in a moment."), {
-    title: "Connection needs a retry",
-    body: "Try again in a moment.",
-  });
+  assert.equal(
+    getVideoDateEntryHandoffStatusCopy("preparing").title,
+    "Joining your date...",
+  );
+  assert.equal(
+    getVideoDateEntryHandoffStatusCopy("slow").title,
+    "Holding your date...",
+  );
+  assert.equal(
+    getVideoDateEntryHandoffStatusCopy("retrying").title,
+    "Retrying connection...",
+  );
+  assert.match(
+    getVideoDateEntryHandoffStatusCopy("retrying").body,
+    /video service catches up/,
+  );
+  assert.deepEqual(
+    getVideoDateEntryHandoffStatusCopy("failed", "Try again in a moment."),
+    {
+      title: "Connection needs a retry",
+      body: "Try again in a moment.",
+    },
+  );
 });

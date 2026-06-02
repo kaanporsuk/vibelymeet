@@ -32,10 +32,19 @@ export type VideoDateRoomWarmupFailure = {
   message?: string;
   httpStatus?: number;
   retryable?: boolean;
+  retry_after_seconds?: number;
+  retryAfterSeconds?: number;
+  retry_after_ms?: number;
+  retryAfterMs?: number;
 };
 
 export type VideoDateRoomWarmupResult =
-  | { ok: true; data: VideoDateRoomWarmupSuccess }
+  | {
+      ok: true;
+      data: VideoDateRoomWarmupSuccess;
+      coalesced?: boolean;
+      ownerEntryAttemptId?: string | null;
+    }
   | {
       ok: false;
       code: string;
@@ -43,15 +52,28 @@ export type VideoDateRoomWarmupResult =
       httpStatus?: number;
       retryable: boolean;
       entryAttemptId?: string | null;
+      retryAfterSeconds?: number;
+      retryAfterMs?: number;
+      coalesced?: boolean;
+      ownerEntryAttemptId?: string | null;
     };
 
-export function hasVideoDateRoomWarmupPayload(data: unknown): data is VideoDateRoomWarmupSuccess {
+export function hasVideoDateRoomWarmupPayload(
+  data: unknown,
+): data is VideoDateRoomWarmupSuccess {
   if (!data || typeof data !== "object") return false;
   const row = data as Partial<VideoDateRoomWarmupSuccess>;
-  return row.success === true && typeof row.room_name === "string" && typeof row.room_url === "string";
+  return (
+    row.success === true &&
+    typeof row.room_name === "string" &&
+    typeof row.room_url === "string"
+  );
 }
 
-export function readVideoDateRoomWarmupFailureMessage(data: unknown, fallback?: string): string | undefined {
+export function readVideoDateRoomWarmupFailureMessage(
+  data: unknown,
+  fallback?: string,
+): string | undefined {
   if (!data || typeof data !== "object") return fallback;
   const row = data as { error?: unknown; message?: unknown };
   return typeof row.message === "string"

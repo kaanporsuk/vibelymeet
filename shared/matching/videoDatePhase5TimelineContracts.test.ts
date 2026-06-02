@@ -323,7 +323,10 @@ test("native ready keeps ambiguous active snapshots on canonical truth fallback"
     reason: "not_date_ready",
   });
 
-  assert.match(nativeReadyRedirect, /recovery\.action === ['"]go_lobby['"] && recovery\.reason !== ['"]not_date_ready['"]/);
+  assert.match(
+    nativeReadyRedirect,
+    /recovery\.action === ['"]go_lobby['"][\s\S]{0,120}recovery\.reason !== ['"]not_date_ready['"]/,
+  );
   assert.match(nativeReadyRedirect, /standalone_snapshot_lobby_deferred_to_truth/);
   assert.match(nativeReadyRedirect, /initial_snapshot_\$\{recovery\.reason\}_nav_suppressed/);
   assert.match(nativeReadyRedirect, /if \(navigated\) return/);

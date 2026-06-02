@@ -1,7 +1,10 @@
 export const PREPARE_VIDEO_DATE_ENTRY_ACTION = "prepare_date_entry" as const;
-export const PREPARE_VIDEO_DATE_SOLO_ENTRY_ACTION = "prepare_solo_entry" as const;
+export const PREPARE_VIDEO_DATE_SOLO_ENTRY_ACTION =
+  "prepare_solo_entry" as const;
 export const PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS = 3 * 60 * 1000;
 export const PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION = 1 as const;
+export const PREPARE_VIDEO_DATE_ENTRY_FAILURE_COOLDOWN_FALLBACK_MS = 1_000;
+export const PREPARE_VIDEO_DATE_ENTRY_FAILURE_COOLDOWN_MAX_MS = 30_000;
 
 export type PrepareVideoDateEntryTimings = {
   bothReadyToPrepareStartMs?: number | null;
@@ -69,8 +72,16 @@ export type PrepareVideoDateEntryFailure = {
   message?: string;
   httpStatus?: number;
   retryable?: boolean;
+  retry_after_seconds?: number;
+  retryAfterSeconds?: number;
+  retry_after_ms?: number;
+  retryAfterMs?: number;
   details?: {
     operation?: unknown;
+    retry_after_seconds?: unknown;
+    retryAfterSeconds?: unknown;
+    retry_after_ms?: unknown;
+    retryAfterMs?: unknown;
     [key: string]: unknown;
   };
 };
@@ -109,7 +120,11 @@ export type PreparedVideoDateEntryHandoffEnvelope = {
 };
 
 export type PreparedVideoDateEntryHandoffValidation =
-  | { ok: true; envelope: PreparedVideoDateEntryHandoffEnvelope; cacheEntry: PreparedVideoDateEntryCacheEntry }
+  | {
+      ok: true;
+      envelope: PreparedVideoDateEntryHandoffEnvelope;
+      cacheEntry: PreparedVideoDateEntryCacheEntry;
+    }
   | {
       ok: false;
       reason:
@@ -133,6 +148,8 @@ export type PrepareVideoDateEntryResult =
       cached: boolean;
       cacheKey: string;
       cacheEntry: PreparedVideoDateEntryCacheEntry;
+      coalesced?: boolean;
+      ownerEntryAttemptId?: string | null;
     }
   | {
       ok: false;
@@ -142,7 +159,16 @@ export type PrepareVideoDateEntryResult =
       retryable: boolean;
       entryAttemptId?: string | null;
       providerOperation?: string | null;
+      retryAfterSeconds?: number;
+      retryAfterMs?: number;
+      coalesced?: boolean;
+      ownerEntryAttemptId?: string | null;
     };
+
+type PrepareVideoDateEntryFailureResult = Extract<
+  PrepareVideoDateEntryResult,
+  { ok: false }
+>;
 
 export type PrepareVideoDateSoloEntryResult =
   | {
@@ -173,25 +199,63 @@ type PrepareWithClientOptions = {
     error?: unknown;
     response?: unknown;
     timedOut?: boolean;
-  }) => Promise<{ kind: string; httpStatus?: number; serverCode?: string; retryable: boolean }>;
+  }) => Promise<{
+    kind: string;
+    httpStatus?: number;
+    serverCode?: string;
+    retryable: boolean;
+    retryAfterSeconds?: number;
+    retryAfterMs?: number;
+  }>;
   force?: boolean;
   entryAttemptId?: string;
   nowMs?: number;
   bothReadyObservedAtMs?: number;
+  onOwnerStart?: (input: {
+    entryAttemptId: string;
+    startedAtMs: number;
+  }) => void;
 };
 
 const preparedEntryCache = new Map<string, PreparedVideoDateEntryCacheEntry>();
-const preparedEntryHandoffs = new Map<string, PreparedVideoDateEntryHandoffEnvelope>();
-const prepareEntryInflight = new Map<string, Promise<PrepareVideoDateEntryResult>>();
+const preparedEntryHandoffs = new Map<
+  string,
+  PreparedVideoDateEntryHandoffEnvelope
+>();
+const prepareEntryInflight = new Map<
+  string,
+  Promise<PrepareVideoDateEntryResult>
+>();
 
-export function createVideoDateEntryAttemptId(nowMs: number = Date.now()): string {
+type PrepareEntryFailureCooldown = {
+  retryUntilMs: number;
+  code: string;
+  message?: string;
+  httpStatus?: number;
+  retryable: boolean;
+  entryAttemptId?: string | null;
+  ownerEntryAttemptId?: string | null;
+  providerOperation?: string | null;
+};
+
+const prepareEntryFailureCooldowns = new Map<
+  string,
+  PrepareEntryFailureCooldown
+>();
+
+export function createVideoDateEntryAttemptId(
+  nowMs: number = Date.now(),
+): string {
   const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
   if (randomUUID) return randomUUID();
   const random = Math.random().toString(36).slice(2, 12);
   return `vde_${nowMs.toString(36)}_${random}`;
 }
 
-export function preparedVideoDateEntryCacheKey(sessionId: string, userId: string): string {
+export function preparedVideoDateEntryCacheKey(
+  sessionId: string,
+  userId: string,
+): string {
   return `${sessionId}:${userId}`;
 }
 
@@ -200,17 +264,161 @@ function isoFromMs(value: number): string {
 }
 
 function readTokenExpiresAtMs(value: PreparedVideoDateEntry): number {
-  return value.token_expires_at ? new Date(value.token_expires_at).getTime() : NaN;
+  return value.token_expires_at
+    ? new Date(value.token_expires_at).getTime()
+    : NaN;
 }
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function preparedEntryRoomUrlMatchesRoomName(roomUrl: string, roomName: string): boolean {
+function readPositiveFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number")
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  if (typeof value !== "string") return undefined;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function readRetryAfterMsFromRecord(
+  record: Record<string, unknown> | undefined,
+): number | undefined {
+  if (!record) return undefined;
+  const retryAfterMs =
+    readPositiveFiniteNumber(record.retryAfterMs) ??
+    readPositiveFiniteNumber(record.retry_after_ms);
+  if (retryAfterMs !== undefined) return Math.ceil(retryAfterMs);
+  const retryAfterSeconds =
+    readPositiveFiniteNumber(record.retryAfterSeconds) ??
+    readPositiveFiniteNumber(record.retry_after_seconds);
+  return retryAfterSeconds === undefined
+    ? undefined
+    : Math.ceil(retryAfterSeconds * 1000);
+}
+
+function readRetryAfterMsFromFailureData(data: unknown): number | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const body = data as Record<string, unknown>;
+  return (
+    readRetryAfterMsFromRecord(body) ??
+    readRetryAfterMsFromRecord(
+      body.details as Record<string, unknown> | undefined,
+    )
+  );
+}
+
+function clampPrepareEntryRetryAfterMs(
+  value: number | undefined,
+): number | undefined {
+  if (value === undefined || !Number.isFinite(value) || value <= 0)
+    return undefined;
+  return Math.min(
+    Math.ceil(value),
+    PREPARE_VIDEO_DATE_ENTRY_FAILURE_COOLDOWN_MAX_MS,
+  );
+}
+
+function retryAfterSecondsFromMs(
+  value: number | undefined,
+): number | undefined {
+  return value === undefined ? undefined : Math.ceil(value / 1000);
+}
+
+function withPrepareResultCoalesced(
+  result: PrepareVideoDateEntryResult,
+  requestedEntryAttemptId?: string,
+): PrepareVideoDateEntryResult {
+  if (result.ok === true) {
+    const ownerEntryAttemptId =
+      result.ownerEntryAttemptId ??
+      result.data.entry_attempt_id ??
+      result.cacheEntry.entryAttemptId ??
+      null;
+    return {
+      ...result,
+      coalesced: true,
+      ownerEntryAttemptId,
+    };
+  }
+  const ownerEntryAttemptId =
+    result.ownerEntryAttemptId ?? result.entryAttemptId ?? null;
+  return {
+    ...result,
+    entryAttemptId: requestedEntryAttemptId ?? result.entryAttemptId,
+    coalesced: true,
+    ownerEntryAttemptId,
+  };
+}
+
+function readPrepareEntryCooldown(
+  key: string,
+  nowMs: number,
+  requestedEntryAttemptId?: string,
+): PrepareVideoDateEntryResult | null {
+  const cooldown = prepareEntryFailureCooldowns.get(key);
+  if (!cooldown) return null;
+  if (cooldown.retryUntilMs <= nowMs) {
+    prepareEntryFailureCooldowns.delete(key);
+    return null;
+  }
+  const retryAfterMs = Math.max(1, Math.ceil(cooldown.retryUntilMs - nowMs));
+  return {
+    ok: false,
+    code: cooldown.code,
+    message: cooldown.message,
+    httpStatus: cooldown.httpStatus,
+    retryable: true,
+    entryAttemptId: requestedEntryAttemptId ?? cooldown.entryAttemptId ?? null,
+    providerOperation: cooldown.providerOperation ?? null,
+    retryAfterMs,
+    retryAfterSeconds: retryAfterSecondsFromMs(retryAfterMs),
+    coalesced: true,
+    ownerEntryAttemptId:
+      cooldown.ownerEntryAttemptId ?? cooldown.entryAttemptId ?? null,
+  };
+}
+
+function rememberPrepareEntryFailureCooldown(
+  key: string,
+  result: PrepareVideoDateEntryFailureResult,
+  nowMs: number = Date.now(),
+): PrepareVideoDateEntryResult {
+  if (!result.retryable) {
+    prepareEntryFailureCooldowns.delete(key);
+    return result;
+  }
+  const retryAfterMs =
+    clampPrepareEntryRetryAfterMs(result.retryAfterMs) ??
+    PREPARE_VIDEO_DATE_ENTRY_FAILURE_COOLDOWN_FALLBACK_MS;
+  prepareEntryFailureCooldowns.set(key, {
+    retryUntilMs: nowMs + retryAfterMs,
+    code: result.code,
+    message: result.message,
+    httpStatus: result.httpStatus,
+    retryable: result.retryable,
+    entryAttemptId: result.entryAttemptId ?? null,
+    ownerEntryAttemptId:
+      result.ownerEntryAttemptId ?? result.entryAttemptId ?? null,
+    providerOperation: result.providerOperation ?? null,
+  });
+  return {
+    ...result,
+    retryAfterMs,
+    retryAfterSeconds: retryAfterSecondsFromMs(retryAfterMs),
+  };
+}
+
+function preparedEntryRoomUrlMatchesRoomName(
+  roomUrl: string,
+  roomName: string,
+): boolean {
   try {
     const url = new URL(roomUrl);
-    return url.protocol === "https:" && url.pathname.replace(/\/+$/, "") === `/${roomName}`;
+    return (
+      url.protocol === "https:" &&
+      url.pathname.replace(/\/+$/, "") === `/${roomName}`
+    );
   } catch {
     return false;
   }
@@ -224,16 +432,23 @@ function preparedEntryInvalidStartabilityCode(data: unknown): string | null {
   if (!data || typeof data !== "object") return "PREPARE_ENTRY_INVALID_PAYLOAD";
   const row = data as Partial<PreparedVideoDateEntry>;
   if (row.success !== true) return "PREPARE_ENTRY_INVALID_PAYLOAD";
-  if (!nonEmptyString(row.room_name) || !nonEmptyString(row.room_url)) return "PREPARE_ENTRY_MISSING_ROOM";
-  if (!preparedEntryRoomUrlMatchesRoomName(row.room_url, row.room_name)) return "PREPARE_ENTRY_ROOM_MISMATCH";
+  if (!nonEmptyString(row.room_name) || !nonEmptyString(row.room_url))
+    return "PREPARE_ENTRY_MISSING_ROOM";
+  if (!preparedEntryRoomUrlMatchesRoomName(row.room_url, row.room_name))
+    return "PREPARE_ENTRY_ROOM_MISMATCH";
   if (!nonEmptyString(row.token)) return "PREPARE_ENTRY_MISSING_TOKEN";
-  if (!isPreparedEntryStartableState(row.session_state)) return "PREPARE_ENTRY_INVALID_STATE";
-  if (!isPreparedEntryStartableState(row.session_phase)) return "PREPARE_ENTRY_INVALID_PHASE";
-  if (row.ready_gate_status && row.ready_gate_status !== "both_ready") return "PREPARE_ENTRY_INVALID_READY_GATE";
+  if (!isPreparedEntryStartableState(row.session_state))
+    return "PREPARE_ENTRY_INVALID_STATE";
+  if (!isPreparedEntryStartableState(row.session_phase))
+    return "PREPARE_ENTRY_INVALID_PHASE";
+  if (row.ready_gate_status && row.ready_gate_status !== "both_ready")
+    return "PREPARE_ENTRY_INVALID_READY_GATE";
   return null;
 }
 
-function buildPreparedVideoDateEntryHandoffEnvelope(entry: PreparedVideoDateEntryCacheEntry): PreparedVideoDateEntryHandoffEnvelope {
+function buildPreparedVideoDateEntryHandoffEnvelope(
+  entry: PreparedVideoDateEntryCacheEntry,
+): PreparedVideoDateEntryHandoffEnvelope {
   const value = entry.value;
   return {
     handoffVersion: PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION,
@@ -249,7 +464,10 @@ function buildPreparedVideoDateEntryHandoffEnvelope(entry: PreparedVideoDateEntr
     readyGateExpiresAt: value.ready_gate_expires_at ?? null,
     phase: value.session_phase ?? null,
     state: value.session_state ?? null,
-    participants: [value.participant_1_id ?? null, value.participant_2_id ?? null],
+    participants: [
+      value.participant_1_id ?? null,
+      value.participant_2_id ?? null,
+    ],
     entryAttemptId: entry.entryAttemptId ?? value.entry_attempt_id ?? null,
     videoDateTraceId: value.video_date_trace_id ?? entry.entryAttemptId ?? null,
     cachedAtMs: entry.cachedAtMs,
@@ -288,14 +506,18 @@ export function setCachedPreparedVideoDateEntry(params: {
     ? new Date(params.value.token_expires_at).getTime()
     : NaN;
   const cacheExpiresAtMs = Number.isFinite(tokenExpiresAtMs)
-    ? Math.min(nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS, Math.max(nowMs, tokenExpiresAtMs - 30_000))
+    ? Math.min(
+        nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS,
+        Math.max(nowMs, tokenExpiresAtMs - 30_000),
+      )
     : nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS;
   const key = preparedVideoDateEntryCacheKey(params.sessionId, params.userId);
   const entry: PreparedVideoDateEntryCacheEntry = {
     sessionId: params.sessionId,
     userId: params.userId,
     value: params.value,
-    entryAttemptId: params.entryAttemptId ?? params.value.entry_attempt_id ?? null,
+    entryAttemptId:
+      params.entryAttemptId ?? params.value.entry_attempt_id ?? null,
     cachedAtMs: nowMs,
     expiresAtMs: cacheExpiresAtMs,
     bothReadyObservedAtMs: params.bothReadyObservedAtMs,
@@ -303,11 +525,17 @@ export function setCachedPreparedVideoDateEntry(params: {
     prepareFinishedAtMs: params.prepareFinishedAtMs,
   };
   preparedEntryCache.set(key, entry);
-  preparedEntryHandoffs.set(key, buildPreparedVideoDateEntryHandoffEnvelope(entry));
+  preparedEntryHandoffs.set(
+    key,
+    buildPreparedVideoDateEntryHandoffEnvelope(entry),
+  );
   return entry;
 }
 
-export function rejectCachedPreparedVideoDateEntry(sessionId: string, userId: string): boolean {
+export function rejectCachedPreparedVideoDateEntry(
+  sessionId: string,
+  userId: string,
+): boolean {
   const key = preparedVideoDateEntryCacheKey(sessionId, userId);
   preparedEntryHandoffs.delete(key);
   return preparedEntryCache.delete(key);
@@ -317,6 +545,7 @@ export function clearPreparedVideoDateEntryCache(): void {
   preparedEntryCache.clear();
   preparedEntryHandoffs.clear();
   prepareEntryInflight.clear();
+  prepareEntryFailureCooldowns.clear();
 }
 
 export function peekPreparedVideoDateEntryHandoff(
@@ -328,13 +557,15 @@ export function peekPreparedVideoDateEntryHandoff(
   const envelope = preparedEntryHandoffs.get(key);
   const cacheEntry = getCachedPreparedVideoDateEntry(sessionId, userId, nowMs);
   if (!envelope || !cacheEntry) return { ok: false, reason: "missing" };
-  if (envelope.sessionId !== sessionId) return { ok: false, reason: "session_mismatch" };
+  if (envelope.sessionId !== sessionId)
+    return { ok: false, reason: "session_mismatch" };
   if (envelope.userId !== userId) return { ok: false, reason: "user_mismatch" };
   if (envelope.expiresAtMs <= nowMs) {
     rejectCachedPreparedVideoDateEntry(sessionId, userId);
     return { ok: false, reason: "expired" };
   }
-  if (!envelope.roomName || !envelope.roomUrl) return { ok: false, reason: "missing_room" };
+  if (!envelope.roomName || !envelope.roomUrl)
+    return { ok: false, reason: "missing_room" };
   if (
     envelope.roomName !== cacheEntry.value.room_name ||
     envelope.roomUrl !== cacheEntry.value.room_url ||
@@ -375,16 +606,22 @@ export function consumePreparedVideoDateEntryHandoff(
 ): PreparedVideoDateEntryHandoffValidation {
   const result = peekPreparedVideoDateEntryHandoff(sessionId, userId, nowMs);
   if (result.ok === true) {
-    preparedEntryHandoffs.delete(preparedVideoDateEntryCacheKey(sessionId, userId));
+    preparedEntryHandoffs.delete(
+      preparedVideoDateEntryCacheKey(sessionId, userId),
+    );
   }
   return result;
 }
 
-function hasPreparedEntryPayload(data: unknown): data is PreparedVideoDateEntry {
+function hasPreparedEntryPayload(
+  data: unknown,
+): data is PreparedVideoDateEntry {
   return preparedEntryInvalidStartabilityCode(data) === null;
 }
 
-export function hasPreparedVideoDateSoloEntryPayload(data: unknown): data is PreparedVideoDateSoloEntry {
+export function hasPreparedVideoDateSoloEntryPayload(
+  data: unknown,
+): data is PreparedVideoDateSoloEntry {
   if (!data || typeof data !== "object") return false;
   const row = data as Partial<PreparedVideoDateSoloEntry>;
   return (
@@ -396,7 +633,10 @@ export function hasPreparedVideoDateSoloEntryPayload(data: unknown): data is Pre
   );
 }
 
-function readFailureMessage(data: unknown, fallback?: string): string | undefined {
+function readFailureMessage(
+  data: unknown,
+  fallback?: string,
+): string | undefined {
   if (!data || typeof data !== "object") return fallback;
   const row = data as { error?: unknown; message?: unknown };
   return typeof row.message === "string"
@@ -411,16 +651,25 @@ function readFailureProviderOperationFromBody(data: unknown): string | null {
   const details = (data as { details?: unknown }).details;
   if (!details || typeof details !== "object") return null;
   const operation = (details as { operation?: unknown }).operation;
-  return typeof operation === "string" && operation.trim().length > 0 ? operation.trim() : null;
+  return typeof operation === "string" && operation.trim().length > 0
+    ? operation.trim()
+    : null;
 }
 
-async function readFailureProviderOperation(data: unknown, response?: unknown): Promise<string | null> {
+async function readFailureProviderOperation(
+  data: unknown,
+  response?: unknown,
+): Promise<string | null> {
   const fromData = readFailureProviderOperationFromBody(data);
   if (fromData) return fromData;
 
   if (!response || typeof response !== "object") return null;
   const maybeResponse = response as Response;
-  if (typeof maybeResponse.clone !== "function" || typeof maybeResponse.text !== "function") return null;
+  if (
+    typeof maybeResponse.clone !== "function" ||
+    typeof maybeResponse.text !== "function"
+  )
+    return null;
 
   try {
     const text = await maybeResponse.clone().text();
@@ -438,7 +687,11 @@ export async function prepareVideoDateEntryWithClient(
   const key = preparedVideoDateEntryCacheKey(options.sessionId, options.userId);
 
   if (!options.force) {
-    const cached = getCachedPreparedVideoDateEntry(options.sessionId, options.userId, nowMs);
+    const cached = getCachedPreparedVideoDateEntry(
+      options.sessionId,
+      options.userId,
+      nowMs,
+    );
     if (cached) {
       return {
         ok: true,
@@ -446,25 +699,43 @@ export async function prepareVideoDateEntryWithClient(
         cached: true,
         cacheKey: key,
         cacheEntry: cached,
+        coalesced: false,
+        ownerEntryAttemptId:
+          cached.entryAttemptId ?? cached.value.entry_attempt_id ?? null,
       };
     }
   }
 
   const existing = prepareEntryInflight.get(key);
-  if (existing) return existing;
+  if (existing)
+    return existing.then((result) =>
+      withPrepareResultCoalesced(result, options.entryAttemptId),
+    );
+
+  const cooldown = readPrepareEntryCooldown(key, nowMs, options.entryAttemptId);
+  if (cooldown) return cooldown;
 
   const prepareStartedAtMs = nowMs;
-  const entryAttemptId = options.entryAttemptId ?? createVideoDateEntryAttemptId(prepareStartedAtMs);
+  const entryAttemptId =
+    options.entryAttemptId ?? createVideoDateEntryAttemptId(prepareStartedAtMs);
+  try {
+    options.onOwnerStart?.({ entryAttemptId, startedAtMs: prepareStartedAtMs });
+  } catch {
+    // Observability should not be able to block a date handoff.
+  }
   const task = (async (): Promise<PrepareVideoDateEntryResult> => {
     try {
-      const { data, error, response } = await options.invoke({ entryAttemptId });
+      const { data, error, response } = await options.invoke({
+        entryAttemptId,
+      });
       const prepareFinishedAtMs = Date.now();
       if (!error && hasPreparedEntryPayload(data)) {
         const bothReadyToPrepareStartMs =
           options.bothReadyObservedAtMs == null
             ? null
             : Math.max(0, prepareStartedAtMs - options.bothReadyObservedAtMs);
-        const traceId = data.video_date_trace_id ?? data.entry_attempt_id ?? entryAttemptId;
+        const traceId =
+          data.video_date_trace_id ?? data.entry_attempt_id ?? entryAttemptId;
         const value: PreparedVideoDateEntry = {
           ...data,
           entry_attempt_id: data.entry_attempt_id ?? traceId,
@@ -472,7 +743,10 @@ export async function prepareVideoDateEntryWithClient(
           timings: {
             ...(data.timings ?? {}),
             bothReadyToPrepareStartMs,
-            prepareDurationMs: Math.max(0, prepareFinishedAtMs - prepareStartedAtMs),
+            prepareDurationMs: Math.max(
+              0,
+              prepareFinishedAtMs - prepareStartedAtMs,
+            ),
           },
         };
         const cacheEntry = setCachedPreparedVideoDateEntry({
@@ -491,41 +765,89 @@ export async function prepareVideoDateEntryWithClient(
           cached: false,
           cacheKey: key,
           cacheEntry,
+          coalesced: false,
+          ownerEntryAttemptId: value.entry_attempt_id ?? entryAttemptId,
         };
       }
 
-      if (!error && data && typeof data === "object" && (data as { success?: unknown }).success === true) {
-        return {
-          ok: false,
-          code: preparedEntryInvalidStartabilityCode(data) ?? "PREPARE_ENTRY_INVALID_PAYLOAD",
-          message: "Prepared video date entry was not startable.",
-          retryable: true,
-          entryAttemptId,
-          providerOperation: null,
-        };
+      if (
+        !error &&
+        data &&
+        typeof data === "object" &&
+        (data as { success?: unknown }).success === true
+      ) {
+        return rememberPrepareEntryFailureCooldown(
+          key,
+          {
+            ok: false,
+            code:
+              preparedEntryInvalidStartabilityCode(data) ??
+              "PREPARE_ENTRY_INVALID_PAYLOAD",
+            message: "Prepared video date entry was not startable.",
+            retryable: true,
+            entryAttemptId,
+            providerOperation: null,
+            retryAfterMs: PREPARE_VIDEO_DATE_ENTRY_FAILURE_COOLDOWN_FALLBACK_MS,
+            retryAfterSeconds: retryAfterSecondsFromMs(
+              PREPARE_VIDEO_DATE_ENTRY_FAILURE_COOLDOWN_FALLBACK_MS,
+            ),
+            coalesced: false,
+            ownerEntryAttemptId: entryAttemptId,
+          },
+          prepareFinishedAtMs,
+        );
       }
 
       const failure = await options.classifyFailure({ data, error, response });
-      return {
-        ok: false,
-        code: failure.serverCode ?? failure.kind,
-        message: readFailureMessage(data, error instanceof Error ? error.message : undefined),
-        httpStatus: failure.httpStatus,
-        retryable: failure.retryable,
-        entryAttemptId,
-        providerOperation: await readFailureProviderOperation(data, response),
-      };
+      const retryAfterMs =
+        clampPrepareEntryRetryAfterMs(failure.retryAfterMs) ??
+        clampPrepareEntryRetryAfterMs(readRetryAfterMsFromFailureData(data)) ??
+        (failure.retryAfterSeconds === undefined
+          ? undefined
+          : clampPrepareEntryRetryAfterMs(failure.retryAfterSeconds * 1000));
+      return rememberPrepareEntryFailureCooldown(
+        key,
+        {
+          ok: false,
+          code: failure.serverCode ?? failure.kind,
+          message: readFailureMessage(
+            data,
+            error instanceof Error ? error.message : undefined,
+          ),
+          httpStatus: failure.httpStatus,
+          retryable: failure.retryable,
+          entryAttemptId,
+          providerOperation: await readFailureProviderOperation(data, response),
+          retryAfterMs,
+          retryAfterSeconds: retryAfterSecondsFromMs(retryAfterMs),
+          coalesced: false,
+          ownerEntryAttemptId: entryAttemptId,
+        },
+        prepareFinishedAtMs,
+      );
     } catch (error) {
       const failure = await options.classifyFailure({ error, timedOut: false });
-      return {
+      const retryAfterMs =
+        clampPrepareEntryRetryAfterMs(failure.retryAfterMs) ??
+        (failure.retryAfterSeconds === undefined
+          ? undefined
+          : clampPrepareEntryRetryAfterMs(failure.retryAfterSeconds * 1000));
+      return rememberPrepareEntryFailureCooldown(key, {
         ok: false,
         code: failure.serverCode ?? failure.kind,
         message: error instanceof Error ? error.message : String(error),
         httpStatus: failure.httpStatus,
         retryable: failure.retryable,
         entryAttemptId,
-        providerOperation: await readFailureProviderOperation(undefined, (error as { context?: unknown })?.context),
-      };
+        providerOperation: await readFailureProviderOperation(
+          undefined,
+          (error as { context?: unknown })?.context,
+        ),
+        retryAfterMs,
+        retryAfterSeconds: retryAfterSecondsFromMs(retryAfterMs),
+        coalesced: false,
+        ownerEntryAttemptId: entryAttemptId,
+      });
     } finally {
       prepareEntryInflight.delete(key);
     }
@@ -535,7 +857,10 @@ export async function prepareVideoDateEntryWithClient(
   return task;
 }
 
-export function getPrepareToJoinStartMs(entry: PreparedVideoDateEntryCacheEntry, nowMs: number = Date.now()): number {
+export function getPrepareToJoinStartMs(
+  entry: PreparedVideoDateEntryCacheEntry,
+  nowMs: number = Date.now(),
+): number {
   return Math.max(0, nowMs - entry.prepareFinishedAtMs);
 }
 

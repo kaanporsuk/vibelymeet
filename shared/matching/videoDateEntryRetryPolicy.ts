@@ -1,7 +1,15 @@
 export const VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS = 3_000;
-export const VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
+export const VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS = [
+  1_000, 2_000, 4_000, 8_000,
+] as const;
+export const VIDEO_DATE_ENTRY_HANDOFF_RETRY_AFTER_MAX_MS = 30_000;
 
-export type VideoDateEntryHandoffStatus = "idle" | "preparing" | "slow" | "retrying" | "failed";
+export type VideoDateEntryHandoffStatus =
+  | "idle"
+  | "preparing"
+  | "slow"
+  | "retrying"
+  | "failed";
 
 export type VideoDateEntryHandoffStatusCopy = {
   title: string;
@@ -26,7 +34,7 @@ export const VIDEO_DATE_ENTRY_HANDOFF_STATUS_COPY: Record<
   },
   retrying: {
     title: "Retrying connection...",
-    body: "Holding your date while video setup catches up.",
+    body: "Holding your date while the video service catches up.",
   },
   failed: {
     title: "Connection needs a retry",
@@ -38,6 +46,8 @@ export type VideoDateEntryHandoffFailure = {
   code?: string;
   httpStatus?: number;
   retryable?: boolean;
+  retryAfterSeconds?: number | null;
+  retryAfterMs?: number | null;
 };
 
 const RETRYABLE_PREPARE_ENTRY_CODES = new Set([
@@ -48,9 +58,15 @@ const RETRYABLE_PREPARE_ENTRY_CODES = new Set([
   "DAILY_PROVIDER_ERROR",
 ]);
 
-export function shouldRetryVideoDateEntryHandoffFailure(result: VideoDateEntryHandoffFailure): boolean {
+export function shouldRetryVideoDateEntryHandoffFailure(
+  result: VideoDateEntryHandoffFailure,
+): boolean {
   if (result.retryable === true) return true;
-  if (typeof result.code === "string" && RETRYABLE_PREPARE_ENTRY_CODES.has(result.code)) return true;
+  if (
+    typeof result.code === "string" &&
+    RETRYABLE_PREPARE_ENTRY_CODES.has(result.code)
+  )
+    return true;
   return typeof result.httpStatus === "number" && result.httpStatus >= 500;
 }
 
@@ -58,6 +74,27 @@ export function getVideoDateEntryHandoffMaxAttempts(
   retryDelaysMs: readonly number[] = VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS,
 ): number {
   return retryDelaysMs.length + 1;
+}
+
+function readPositiveDelayMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+    return undefined;
+  return Math.ceil(value);
+}
+
+export function getVideoDateEntryHandoffRetryDelayMs(
+  result: VideoDateEntryHandoffFailure,
+  fallbackDelayMs: number,
+  maxDelayMs: number = VIDEO_DATE_ENTRY_HANDOFF_RETRY_AFTER_MAX_MS,
+): number {
+  const retryAfterMs =
+    readPositiveDelayMs(result.retryAfterMs) ??
+    (readPositiveDelayMs(result.retryAfterSeconds) === undefined
+      ? undefined
+      : Math.ceil(Number(result.retryAfterSeconds) * 1000));
+  const chosenDelayMs =
+    retryAfterMs ?? readPositiveDelayMs(fallbackDelayMs) ?? 1_000;
+  return Math.min(Math.max(1, chosenDelayMs), maxDelayMs);
 }
 
 export function getVideoDateEntryHandoffStatusCopy(
