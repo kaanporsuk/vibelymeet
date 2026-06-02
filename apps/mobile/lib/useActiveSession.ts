@@ -29,6 +29,7 @@ import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJour
 import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
+import { isDateNavigationSuppressedAfterManualExit } from '@/lib/dateNavigationGuard';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
@@ -36,6 +37,9 @@ export type ActiveSession =
   | { kind: 'syncing'; sessionId: string; eventId: string };
 
 type Options = { eventId?: string | null };
+
+// Native keeps a faster foreground fallback than web because AppState pauses realtime sooner on device.
+const NATIVE_ACTIVE_SESSION_POLL_MS = 8_000;
 
 type StaleActiveSessionPayload = {
   reason: string;
@@ -428,6 +432,21 @@ export function useActiveSession(
     const reg = pickRegistrationForActiveSession(regs ?? []);
 
     if (reg?.current_room_id) {
+      if (isDateNavigationSuppressedAfterManualExit(reg.current_room_id as string)) {
+        emitStaleActiveSessionDetected({
+          reason: 'manual_date_exit_suppressed_after_preconnect',
+          eventId: reg.event_id as string | null,
+          sessionId: reg.current_room_id as string | null,
+          queueStatus: reg.queue_status as string | null,
+          currentPartnerPresent: Boolean(reg.current_partner_id),
+        });
+        if (mounted.current) {
+          setActiveSession(null);
+          setHydrated(true);
+        }
+        return;
+      }
+
       if (eventFilter && reg.event_id !== eventFilter) {
         emitStaleActiveSessionDetected({
           reason: 'different_event_registration_room',
@@ -811,7 +830,7 @@ export function useActiveSession(
     if (!userId) return;
     const intervalId = setInterval(() => {
       void check();
-    }, 8000);
+    }, NATIVE_ACTIVE_SESSION_POLL_MS);
     return () => clearInterval(intervalId);
   }, [userId, check]);
 

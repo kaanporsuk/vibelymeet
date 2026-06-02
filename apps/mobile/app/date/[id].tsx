@@ -60,6 +60,7 @@ import {
   fetchVideoSessionDateEntryTruth,
   fetchVideoSessionDateEntryTruthCoalesced,
   type PartnerProfileData,
+  type VideoSessionDateEntryTruth,
   type VibeQuestionState,
 } from '@/lib/videoDateApi';
 import {
@@ -142,6 +143,7 @@ import {
   isDateEntryTransitionActive,
   markVideoDateEntryPipelineStarted,
 } from '@/lib/dateEntryTransitionLatch';
+import { suppressDateNavigationAfterManualExit } from '@/lib/dateNavigationGuard';
 import {
   eventLobbyHref,
   eventLobbyHrefPostSurveyComplete,
@@ -864,6 +866,15 @@ function nativeVideoSessionIndicatesTerminalEnd(
   return Boolean(session && (session.ended_at || session.state === 'ended' || session.phase === 'ended'));
 }
 
+function shouldTerminalizeNativePeerMissingAbort(
+  truth: VideoSessionDateEntryTruth | null | undefined,
+): boolean {
+  if (!truth) return false;
+  if (truth.ended_at || truth.date_started_at || truth.state === 'ended' || truth.phase === 'ended') return false;
+  if (truth.state === 'date' || truth.phase === 'date') return false;
+  return Boolean(truth.participant_1_joined_at) !== Boolean(truth.participant_2_joined_at);
+}
+
 type NativeTerminalSurveySessionRow = {
   id?: string | null;
   participant_1_id?: string | null;
@@ -1231,6 +1242,44 @@ export default function VideoDateScreen() {
     [sessionId, eventId]
   );
 
+  const openNativePostDateSurvey = useCallback(
+    (
+      reason: string,
+      context?: {
+        eventId?: string | null;
+        roomName?: string | null;
+        pendingPostDateSurveyDue?: boolean;
+        reconnectExpiredSurveyDue?: boolean;
+      },
+    ) => {
+      if (surveyOpenedRef.current) return false;
+      surveyOpenedRef.current = true;
+      setShowFeedback(true);
+      const surveyEventId = context?.eventId ?? eventId ?? null;
+      const surveyRoomName = context?.roomName ?? roomNameRef.current ?? null;
+      vdbg('post_date_survey_opened', {
+        sessionId: sessionId ?? null,
+        eventId: surveyEventId,
+        roomName: surveyRoomName,
+        reason,
+      });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_OPENED, {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: surveyEventId,
+        room_name: surveyRoomName,
+        reason,
+        source_surface: 'video_date_route',
+        source_action: reason,
+        pendingPostDateSurveyDue: context?.pendingPostDateSurveyDue,
+        reconnectExpiredSurveyDue: context?.reconnectExpiredSurveyDue,
+      });
+      logJourney('survey_opened', { reason }, `survey_opened_${reason}`);
+      return true;
+    },
+    [eventId, logJourney, sessionId],
+  );
+
   const openNativePostDateSurveyFromTerminalTruth = useCallback(
     async (source: string, sessionOverride?: NativeTerminalSurveySessionRow | null) => {
       if (!sessionId || !user?.id) return false;
@@ -1307,6 +1356,7 @@ export default function VideoDateScreen() {
         platform: 'native',
         session_id: sessionId,
         event_id: sessionRow.event_id ?? eventId ?? null,
+        room_name: sessionRow.daily_room_name ?? roomNameRef.current ?? null,
         source_surface: 'video_date_route',
         source_action: source,
         outcome: 'recovered',
@@ -1314,11 +1364,14 @@ export default function VideoDateScreen() {
         reconnectExpiredSurveyDue,
         pendingPostDateSurveyDue,
       });
-      surveyOpenedRef.current = true;
-      setShowFeedback(true);
-      return true;
+      return openNativePostDateSurvey(source, {
+        eventId: sessionRow.event_id ?? eventId ?? null,
+        roomName: sessionRow.daily_room_name ?? roomNameRef.current ?? null,
+        reconnectExpiredSurveyDue,
+        pendingPostDateSurveyDue,
+      });
     },
-    [eventId, logJourney, sessionId, user?.id]
+    [eventId, logJourney, openNativePostDateSurvey, sessionId, user?.id]
   );
 
   const confirmNativeTerminalPostDateRecovery = useCallback(
@@ -4268,11 +4321,72 @@ export default function VideoDateScreen() {
             platform: 'native',
             session_id: sessionId,
             event_id: eventId,
+            room_name: roomNameRef.current ?? null,
           });
-          await endVideoDate(sessionId, 'partial_join_peer_timeout');
+          let truth: VideoSessionDateEntryTruth | null = null;
+          try {
+            truth = await fetchVideoSessionDateEntryTruth(sessionId);
+          } catch (error) {
+            vdbg('native_peer_missing_abort_truth_failed', {
+              sessionId,
+              eventId,
+              roomName: roomNameRef.current ?? null,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+          if (shouldTerminalizeNativePeerMissingAbort(truth)) {
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              room_name: roomNameRef.current ?? null,
+              source_surface: 'video_date_route',
+              source_action: 'peer_missing_back_to_lobby',
+              outcome: 'server_end_attempted',
+              reason_code: 'partial_join_peer_timeout',
+              server_end_attempted: true,
+            });
+            await endVideoDate(sessionId, 'partial_join_peer_timeout');
+          } else {
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              room_name: roomNameRef.current ?? null,
+              source_surface: 'video_date_route',
+              source_action: 'peer_missing_back_to_lobby',
+              outcome: 'server_end_attempted',
+              reason_code: 'pre_date_manual_end',
+              server_end_attempted: true,
+            });
+            vdbg('native_peer_missing_abort_pre_date_cleanup', {
+              sessionId,
+              eventId,
+              roomName: roomNameRef.current ?? null,
+              state: truth?.state ?? null,
+              phase: truth?.phase ?? null,
+              endedAt: truth?.ended_at ?? null,
+              dateStartedAt: truth?.date_started_at ?? null,
+              participant1Joined: Boolean(truth?.participant_1_joined_at),
+              participant2Joined: Boolean(truth?.participant_2_joined_at),
+            });
+            await endVideoDate(sessionId, 'ended_from_client');
+          }
         } else if (sessionId) {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            room_name: roomNameRef.current ?? null,
+            source_surface: 'video_date_route',
+            source_action: 'pre_connect_back_to_lobby',
+            outcome: 'server_end_attempted',
+            reason_code: 'pre_date_manual_end',
+            server_end_attempted: true,
+          });
           await endVideoDate(sessionId, 'ended_from_client');
         }
+        if (sessionId) suppressDateNavigationAfterManualExit(sessionId);
         await cleanupForAbortWithoutServerEnd();
         if (eventId) {
           const target = eventLobbyHref(eventId);

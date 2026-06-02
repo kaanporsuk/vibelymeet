@@ -296,6 +296,8 @@ export function PostDateSurvey({
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const shellImpressionRef = useRef(false);
   const verdictImpressionRef = useRef(false);
+  const surveyLifecycleRef = useRef<'opened' | 'submitted' | 'completed'>('opened');
+  const currentStepRef = useRef<SurveyStep>('verdict');
   const reportBeforeVerdictRef = useRef(false);
   const reportPassVerdictSavedRef = useRef(false);
   const verdictOpenedAtMsRef = useRef(Date.now());
@@ -377,6 +379,8 @@ export function PostDateSurvey({
   useEffect(() => {
     shellImpressionRef.current = false;
     verdictImpressionRef.current = false;
+    surveyLifecycleRef.current = 'opened';
+    currentStepRef.current = 'verdict';
     finishSurveyInFlightRef.current = false;
     queuedNavigationStartedRef.current = false;
     queuedDrainAttemptKeyRef.current = null;
@@ -430,6 +434,25 @@ export function PostDateSurvey({
     () => getVideoDateMicroVerdictRemainingSeconds(verdictOpenedAtMsRef.current, microVerdictNowMs),
     [microVerdictNowMs],
   );
+
+  useEffect(() => {
+    currentStepRef.current = step;
+  }, [step]);
+
+  useEffect(() => {
+    return () => {
+      if (surveyLifecycleRef.current !== 'opened') return;
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_ABANDONED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: 'post_date_survey',
+        source_action: 'component_unmount',
+        reason_code: 'unsubmitted_unmount',
+        step: currentStepRef.current,
+      });
+    };
+  }, [eventId, sessionId]);
 
   useEffect(() => {
     if (!sessionId || shellImpressionRef.current) return;
@@ -679,6 +702,7 @@ export function PostDateSurvey({
   const finishSurvey = useCallback(async () => {
     if (finishSurveyInFlightRef.current || queuedNavigationStartedRef.current) return;
     finishSurveyInFlightRef.current = true;
+    surveyLifecycleRef.current = 'completed';
     setFinishing(true);
     trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_SURVEY_COMPLETE, {
       platform: 'native',
@@ -1069,6 +1093,7 @@ export function PostDateSurvey({
         event_id: eventId,
         verdict: liked ? 'vibe' : 'pass',
       });
+      surveyLifecycleRef.current = 'submitted';
       logJourney('survey_completed', { source: 'verdict_submitted', verdict: liked ? 'vibe' : 'pass' }, 'survey_completed');
       trackEvent(LobbyPostDateEvents.MUTUAL_VIBE_OUTCOME, {
         platform: 'native',
@@ -1278,6 +1303,14 @@ export function PostDateSurvey({
       verdict: 'pass',
       source: 'report_before_verdict',
     });
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_SUBMITTED, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      verdict: 'pass',
+      source: 'report_before_verdict',
+    });
+    surveyLifecycleRef.current = 'submitted';
     return true;
   };
 

@@ -30,6 +30,7 @@ type UseActiveSessionOptions = {
   enabled?: boolean;
 };
 
+// Web keeps the active-session poll as a slow safety net; visible-tab realtime is the primary path.
 const ACTIVE_SESSION_POLL_MS = 30_000;
 
 type StaleActiveSessionPayload = {
