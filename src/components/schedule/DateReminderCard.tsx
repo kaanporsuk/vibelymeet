@@ -105,10 +105,13 @@ export function DateReminderCard({
           
           {!notificationsEnabled && (
             <button
+              type="button"
+              aria-label="Enable date reminder notifications"
+              title="Enable date reminder notifications"
               onClick={onEnableNotifications}
               className="p-2 rounded-lg hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
             >
-              <Bell className="w-4 h-4" />
+              <Bell className="w-4 h-4" aria-hidden="true" />
             </button>
           )}
 

@@ -108,8 +108,8 @@ const LocationPromptBanner = () => {
         <MapPin className="w-4 h-4 text-primary" />
       </div>
       <div className="flex-1">
-        <p className="text-sm font-medium text-foreground">Enable location to see local and regional events</p>
-        <p className="text-xs text-muted-foreground mt-0.5">Without location access, only global events are shown</p>
+        <p className="text-sm font-medium text-foreground">Save your location to see local and regional events</p>
+        <p className="text-xs text-muted-foreground mt-0.5">We’ll save your city-level profile location so nearby events and people work across Vibely.</p>
         {error ? (
           <p className="mt-2 text-xs font-medium text-amber-300">{error}</p>
         ) : null}

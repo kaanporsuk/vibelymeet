@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql"),
   "utf8",
 );
+const permissionHardeningMigration = readFileSync(
+  join(root, "supabase/migrations/20260602020000_permission_flow_definitive_hardening.sql"),
+  "utf8",
+);
 const operatorMetrics = readFileSync(
   join(root, "shared/observability/videoDateOperatorMetrics.ts"),
   "utf8",
@@ -133,6 +137,10 @@ test("queue fairness picker keeps heartbeat freshness authoritative at drain tim
   assert.match(drain, /v_partner_runtime\.last_heartbeat_at >= now\(\) - interval '45 seconds'/);
   assert.match(drain, /'heartbeat_age_seconds', EXTRACT\(EPOCH FROM \(now\(\) - v_self_runtime\.last_heartbeat_at\)\)::int/);
   assert.match(drain, /'heartbeat_age_seconds', EXTRACT\(EPOCH FROM \(now\(\) - v_partner_runtime\.last_heartbeat_at\)\)::int/);
+  assert.match(permissionHardeningMigration, /normalize_event_runtime_readiness_for_pairing/);
+  assert.match(permissionHardeningMigration, /NEW\.readiness_status = 'warning'/);
+  assert.match(permissionHardeningMigration, /NEW\.readiness_status := 'unchecked'/);
+  assert.match(permissionHardeningMigration, /WHERE readiness_status = 'warning'/);
   assert.ok(
     drain.indexOf("FOR UPDATE OF vs SKIP LOCKED") < drain.indexOf("v_self_runtime.last_heartbeat_at"),
     "heartbeat freshness must be rechecked after the queue row is locked",

@@ -25,8 +25,6 @@ export interface NotificationPreferences {
   quiet_hours_end: string;
   quiet_hours_timezone: string;
   message_bundle_enabled: boolean;
-  onesignal_player_id: string | null;
-  onesignal_subscribed: boolean;
 }
 
 const DEFAULTS: NotificationPreferences = {
@@ -50,12 +48,10 @@ const DEFAULTS: NotificationPreferences = {
   quiet_hours_end: "08:00:00",
   quiet_hours_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   message_bundle_enabled: true,
-  onesignal_player_id: null,
-  onesignal_subscribed: false,
 };
 
 const NOTIFICATION_PREFERENCES_SELECT =
-  "push_enabled, paused_until, notify_new_match, notify_messages, notify_match_calls, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled, onesignal_player_id, onesignal_subscribed";
+  "push_enabled, paused_until, notify_new_match, notify_messages, notify_match_calls, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled";
 
 export function useNotificationPreferences() {
   const { user } = useUserProfile();
@@ -113,8 +109,6 @@ export function useNotificationPreferences() {
           quiet_hours_end: data.quiet_hours_end || "08:00:00",
           quiet_hours_timezone: data.quiet_hours_timezone || "UTC",
           message_bundle_enabled: data.message_bundle_enabled ?? true,
-          onesignal_player_id: data.onesignal_player_id,
-          onesignal_subscribed: data.onesignal_subscribed ?? false,
         });
       }
       setIsLoading(false);

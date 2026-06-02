@@ -4,12 +4,17 @@ import test from "node:test";
 import {
   VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS,
 } from "../featureFlags/videoDateV4Flags";
+import {
+  VIDEO_DATE_READINESS_PENDING_COPY,
+  resolveVideoDateReadinessGate,
+} from "./videoDateReadinessV2";
 
 const snapshotFunction = readFileSync("supabase/functions/video-date-snapshot/index.ts", "utf8");
 const tokenRefreshFunction = readFileSync("supabase/functions/video-date-token-refresh/index.ts", "utf8");
 const dailyRoomFunction = readFileSync("supabase/functions/daily-room/index.ts", "utf8");
 const sendNotificationFunction = readFileSync("supabase/functions/send-notification/index.ts", "utf8");
 const webLobby = readFileSync("src/pages/EventLobby.tsx", "utf8");
+const webSwipeAction = readFileSync("src/hooks/useSwipeAction.ts", "utf8");
 const nativeLobby = readFileSync("apps/mobile/app/event/[eventId]/lobby.tsx", "utf8");
 const flowHardeningFollowupsMigration = readFileSync(
   "supabase/migrations/20260602000000_video_date_flow_hardening_followups.sql",
@@ -19,8 +24,8 @@ const definitiveFlowHardeningMigration = readFileSync(
   "supabase/migrations/20260602010000_video_date_definitive_flow_hardening.sql",
   "utf8",
 );
-const reviewCommentsForwardMigration = readFileSync(
-  "supabase/migrations/20260602000417_review_comments_1146_1158_followups.sql",
+const definitiveCloudAlignmentMigration = readFileSync(
+  "supabase/migrations/20260602005051_video_date_definitive_cloud_alignment.sql",
   "utf8",
 );
 const packageJson = readFileSync("package.json", "utf8");
@@ -57,6 +62,17 @@ test("legacy snapshot token issuance uses shared Daily provider reliability", ()
   assert.match(snapshotFunction, /operation: "snapshot_token"/);
 });
 
+test("warning readiness is treated as pending and cannot attempt pairing", () => {
+  const warning = resolveVideoDateReadinessGate("warning");
+  const blocked = resolveVideoDateReadinessGate("blocked");
+  const ready = resolveVideoDateReadinessGate("ready");
+
+  assert.equal(warning.canAttemptPairing, false);
+  assert.equal(warning.reason, VIDEO_DATE_READINESS_PENDING_COPY);
+  assert.equal(blocked.canAttemptPairing, false);
+  assert.equal(ready.canAttemptPairing, true);
+});
+
 test("snapshot token failures surface bounded 429 retry-after without leaking token material", () => {
   assert.match(snapshotFunction, /DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS/);
   assert.match(snapshotFunction, /response\.status === 429 && retries > 0/);
@@ -71,7 +87,7 @@ test("snapshot token failures surface bounded 429 retry-after without leaking to
   assert.match(snapshotFunction, /error instanceof ProviderRateLimitError \|\| error instanceof ProviderTimeoutError/);
   assert.doesNotMatch(snapshotFunction, /snapshotTokenFailureStatus\(error\) === 429/);
   assert.match(snapshotFunction, /provider_status/);
-  assert.doesNotMatch(snapshotFunction, /provider_payload|raw_payload|response_body/i);
+  assert.doesNotMatch(snapshotFunction, /provider_payload|raw_payload|provider_error|response_body_(?:snippet|text)/i);
   assert.doesNotMatch(snapshotFunction, /console\.(?:log|error|warn)\([^)]*DAILY_API_KEY/);
 });
 
@@ -179,8 +195,8 @@ test("definitive flow hardening activates core flags and keeps legacy extension 
   assert.match(definitiveFlowHardeningMigration, /rollout_bps = 10000/);
   assert.match(definitiveFlowHardeningMigration, /kill_switch_active = public\.client_feature_flags\.kill_switch_active/);
   assert.doesNotMatch(definitiveFlowHardeningMigration, /ON CONFLICT \(flag_key\) DO UPDATE[\s\S]{0,160}kill_switch_active = false/);
-  assert.match(reviewCommentsForwardMigration, /UPDATE public\.client_feature_flags f[\s\S]*rollout_bps = 10000/);
-  assert.doesNotMatch(reviewCommentsForwardMigration, /kill_switch_active\s*=/);
+  assert.match(definitiveCloudAlignmentMigration, /UPDATE public\.client_feature_flags f[\s\S]*rollout_bps = 10000/);
+  assert.doesNotMatch(definitiveCloudAlignmentMigration, /kill_switch_active\s*=/);
   assert.doesNotMatch(definitiveFlowHardeningMigration, /'video_date\.daily_pool_v2'/);
   assert.match(definitiveFlowHardeningMigration, /legacy-no-key-v1:/);
   assert.match(definitiveFlowHardeningMigration, /legacy_idempotency/);
@@ -188,19 +204,50 @@ test("definitive flow hardening activates core flags and keeps legacy extension 
   assert.doesNotMatch(definitiveFlowHardeningMigration, /missing_idempotency_key/);
 });
 
-test("web lobby visibly disables pairing controls when readiness blocks pairing", () => {
+test("definitive cloud alignment closes anon Video Date RPC and table grants without breaking clients", () => {
+  for (const rpc of [
+    "advance_video_session_vibe_question\\(uuid\\)",
+    "get_or_seed_video_session_vibe_questions\\(uuid, jsonb\\)",
+    "find_video_date_match\\(uuid, uuid\\)",
+    "repair_stale_video_date_prepare_entries\\(integer\\)",
+    "video_date_pair_has_terminal_encounter\\(uuid, uuid, uuid, uuid\\)",
+    "enforce_one_active_video_session\\(\\)",
+    "enrich_video_date_transition_observability\\(\\)",
+  ]) {
+    assert.match(definitiveCloudAlignmentMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${rpc}[\\s\\S]+FROM PUBLIC, anon`));
+  }
+
+  assert.match(definitiveCloudAlignmentMigration, /GRANT EXECUTE ON FUNCTION public\.advance_video_session_vibe_question\(uuid\)[\s\S]+TO authenticated, service_role/);
+  assert.match(definitiveCloudAlignmentMigration, /GRANT EXECUTE ON FUNCTION public\.get_or_seed_video_session_vibe_questions\(uuid, jsonb\)[\s\S]+TO authenticated, service_role/);
+  assert.match(definitiveCloudAlignmentMigration, /GRANT EXECUTE ON FUNCTION public\.repair_stale_video_date_prepare_entries\(integer\)[\s\S]+TO service_role/);
+  assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.date_feedback FROM PUBLIC, anon/);
+  assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT, INSERT, UPDATE ON TABLE public\.date_feedback TO authenticated/);
+  assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.event_registrations FROM PUBLIC, anon/);
+  assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.event_registrations TO authenticated/);
+  assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.event_swipes FROM PUBLIC, anon/);
+  assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT ON TABLE public\.event_swipes TO authenticated/);
+  assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.video_sessions FROM PUBLIC, anon/);
+  assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT ON TABLE public\.video_sessions TO authenticated/);
+  assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.video_date_credit_extension_spends FROM PUBLIC, anon, authenticated/);
+});
+
+test("web lobby keeps readiness pairing recovery reachable before swipe submission", () => {
   assert.match(webLobby, /const pairingBlockedByReadiness =[\s\S]*readinessV2\.enabled[\s\S]*!videoDateReadiness\.canAttemptPairing/);
-  assert.match(webLobby, /const pairingControlsDisabled = swipeControlsDisabled \|\| pairingBlockedByReadiness/);
+  assert.match(webLobby, /const pairingControlsDisabled = swipeControlsDisabled/);
+  assert.match(webLobby, /canAttemptPairing: !readinessV2\.enabled \|\| videoDateReadiness\.canAttemptPairing/);
   assert.match(webLobby, /disabled=\{pairingControlsDisabled \|\| superVibeRemaining <= 0\}/);
   assert.match(webLobby, /disabled=\{pairingControlsDisabled\}/);
   assert.match(webLobby, /rightSwipeDisabled=\{pairingControlsDisabled\}/);
   assert.match(webLobby, /pairingReadinessMessage/);
   assert.match(webLobby, /if \(event\.key === "ArrowLeft"\)[\s\S]*if \(swipeControlsDisabled\) return[\s\S]*else if \(event\.key === "ArrowRight"\)[\s\S]*if \(pairingControlsDisabled\) return/);
+  assert.match(webSwipeAction, /if \(swipeType !== "pass" && !canAttemptPairing\) \{[\s\S]*requestWebPairingMediaReadiness\(readinessBlockMessage\)/);
+  assert.match(webSwipeAction, /navigator\.mediaDevices\.getUserMedia\(\{ video: true, audio: true \}\)/);
+  assert.match(webSwipeAction, /stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
 });
 
-test("native lobby visibly disables pairing controls when readiness blocks pairing", () => {
+test("native lobby keeps readiness pairing recovery reachable before swipe submission", () => {
   assert.match(nativeLobby, /const pairingBlockedByReadiness =[\s\S]*readinessV2\.enabled[\s\S]*!videoDateReadiness\.canAttemptPairing/);
-  assert.match(nativeLobby, /const pairingActionsDisabled = swipeActionsDisabled \|\| pairingBlockedByReadiness/);
+  assert.match(nativeLobby, /const pairingActionsDisabled = swipeActionsDisabled/);
   assert.match(nativeLobby, /disabled=\{pairingActionsDisabled \|\| superVibeRemaining <= 0\}/);
   assert.match(nativeLobby, /disabled=\{pairingActionsDisabled\}/);
   assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Pass"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \}\}/);
@@ -208,7 +255,9 @@ test("native lobby visibly disables pairing controls when readiness blocks pairi
   assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Vibe"[\s\S]*accessibilityState=\{\{ disabled: pairingActionsDisabled \}\}/);
   assert.match(nativeLobby, /pairingReadinessMessage/);
   assert.match(nativeLobby, /accessibilityLiveRegion="polite"/);
-  assert.match(nativeLobby, /if \(swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing\)/);
+  assert.match(nativeLobby, /recoverPairingReadinessAndRetry/);
+  assert.match(nativeLobby, /requestNativeCameraMicrophonePermissions/);
+  assert.match(nativeLobby, /if \(swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing && !options\.bypassReadiness\)/);
 });
 
 test("canonical video-date rollout flags and compatibility aliases are documented and typed", () => {

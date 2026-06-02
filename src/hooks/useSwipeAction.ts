@@ -32,6 +32,11 @@ import {
   requestManagedAuthRefresh,
 } from "@clientShared/authRefreshPolicy";
 import { getVideoDateSwipeRateLimitRetryUntilMs } from "@clientShared/matching/videoDateDeckPrefetch";
+import {
+  classifyMediaPermissionErrorWithBrowserState,
+  mediaPermissionMessage,
+  mediaPermissionTitle,
+} from "@clientShared/media/mediaPermissionResult";
 
 type SwipeType = "vibe" | "pass" | "super_vibe";
 
@@ -65,6 +70,30 @@ function unauthorizedSwipeResult(): SwipeSessionStageResult {
     message: "Sign in again to keep swiping.",
     notification_suppressed: true,
   };
+}
+
+async function requestWebPairingMediaReadiness(readinessBlockMessage?: string | null): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    toast.info(readinessBlockMessage ?? "Camera and microphone are not available in this browser.", {
+      duration: 5200,
+    });
+    return false;
+  }
+
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    return true;
+  } catch (error) {
+    const result = await classifyMediaPermissionErrorWithBrowserState(error, "camera_microphone");
+    toast.info(mediaPermissionTitle(result), {
+      description: mediaPermissionMessage(result),
+      duration: 5200,
+    });
+    return false;
+  } finally {
+    stream?.getTracks().forEach((track) => track.stop());
+  }
 }
 
 async function recoverSwipeRefreshRace(attemptedSession: Session): Promise<Session | null> {
@@ -230,10 +259,8 @@ export const useSwipeAction = ({
         return null;
       }
       if (swipeType !== "pass" && !canAttemptPairing) {
-        toast.info(readinessBlockMessage ?? "Camera and microphone access are needed before you can pair.", {
-          duration: 4200,
-        });
-        return null;
+        const recovered = await requestWebPairingMediaReadiness(readinessBlockMessage);
+        if (!recovered) return null;
       }
 
       setIsProcessing(true);

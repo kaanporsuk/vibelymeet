@@ -58,6 +58,85 @@ function stringProp(value: unknown, key: string): string | null {
   return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
 }
 
+export const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/;
+
+export type NotificationRoutePlatform = 'any' | 'native' | 'web';
+
+const UNIVERSAL_NOTIFICATION_STATIC_APP_PATHS = [
+  '/',
+  '/credits',
+  '/daily-drop',
+  '/events',
+  '/matches',
+  '/premium',
+  '/profile',
+  '/schedule',
+  '/settings',
+  '/settings/credits',
+  '/settings/notifications',
+] as const;
+
+export const WEB_NOTIFICATION_STATIC_APP_PATHS = new Set([
+  ...UNIVERSAL_NOTIFICATION_STATIC_APP_PATHS,
+  '/dashboard',
+  '/home',
+]);
+
+export const NATIVE_NOTIFICATION_STATIC_APP_PATHS = new Set([
+  ...UNIVERSAL_NOTIFICATION_STATIC_APP_PATHS,
+  '/(tabs)/profile',
+]);
+
+export const NOTIFICATION_STATIC_APP_PATHS = new Set([
+  ...WEB_NOTIFICATION_STATIC_APP_PATHS,
+  ...NATIVE_NOTIFICATION_STATIC_APP_PATHS,
+]);
+
+export const NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user']);
+
+export function normalizeNotificationRouteSegment(value: unknown): string | null {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed || trimmed === '.' || trimmed === '..') return null;
+  return SAFE_NOTIFICATION_ROUTE_SEGMENT.test(trimmed) ? encodeURIComponent(trimmed) : null;
+}
+
+function routeSegment(value: string | null | undefined): string | null {
+  return normalizeNotificationRouteSegment(value);
+}
+
+function staticNotificationPathsForPlatform(platform: NotificationRoutePlatform): Set<string> {
+  if (platform === 'web') return WEB_NOTIFICATION_STATIC_APP_PATHS;
+  if (platform === 'native') return NATIVE_NOTIFICATION_STATIC_APP_PATHS;
+  return NOTIFICATION_STATIC_APP_PATHS;
+}
+
+export function isAllowedNotificationAppPath(path: string, platform: NotificationRoutePlatform = 'any'): boolean {
+  if (staticNotificationPathsForPlatform(platform).has(path)) return true;
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length === 2 && NOTIFICATION_DYNAMIC_SINGLE_SEGMENT_ROUTES.has(segments[0])) {
+    return normalizeNotificationRouteSegment(segments[1]) === segments[1];
+  }
+  if (segments.length === 3 && segments[0] === 'event' && segments[2] === 'lobby') {
+    return normalizeNotificationRouteSegment(segments[1]) === segments[1];
+  }
+  if (segments.length === 3 && segments[0] === 'settings' && segments[1] === 'ticket') {
+    return normalizeNotificationRouteSegment(segments[2]) === segments[2];
+  }
+  return false;
+}
+
+export function normalizeNotificationAppPath(
+  rawPath: string,
+  platform: NotificationRoutePlatform = 'any',
+): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed || trimmed.startsWith('//') || trimmed.includes('\\')) return null;
+  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const [cleanPath] = path.split(/[?#]/);
+  const appPath = cleanPath || '/';
+  return isAllowedNotificationAppPath(appPath, platform) ? appPath : null;
+}
+
 export function isUrgentNotification(priority: string | null | undefined): boolean {
   return priority === 'urgent';
 }
@@ -114,21 +193,31 @@ export function resolveNotificationActionToWebRoute(actionInput: unknown): strin
   const action = normalizeNotificationAction(actionInput);
   switch (action.kind) {
     case 'open_chat': {
-      const peerId = action.otherUserId ?? action.userId ?? action.matchId;
+      const peerId = routeSegment(action.otherUserId ?? action.userId ?? action.matchId);
       return peerId ? `/chat/${peerId}` : null;
     }
-    case 'open_event':
-      return `/events/${action.eventId}`;
-    case 'open_event_lobby':
-      return `/event/${action.eventId}/lobby`;
-    case 'open_ready_gate':
-      return `/ready/${action.sessionId}`;
-    case 'open_video_date':
-      return `/date/${action.sessionId}`;
+    case 'open_event': {
+      const eventId = routeSegment(action.eventId);
+      return eventId ? `/events/${eventId}` : null;
+    }
+    case 'open_event_lobby': {
+      const eventId = routeSegment(action.eventId);
+      return eventId ? `/event/${eventId}/lobby` : null;
+    }
+    case 'open_ready_gate': {
+      const sessionId = routeSegment(action.sessionId);
+      return sessionId ? `/ready/${sessionId}` : null;
+    }
+    case 'open_video_date': {
+      const sessionId = routeSegment(action.sessionId);
+      return sessionId ? `/date/${sessionId}` : null;
+    }
     case 'open_daily_drop':
       return '/matches';
-    case 'open_profile':
-      return `/user/${action.userId}`;
+    case 'open_profile': {
+      const userId = routeSegment(action.userId);
+      return userId ? `/user/${userId}` : null;
+    }
     case 'open_credits':
       return '/credits';
     case 'open_subscription':
@@ -146,21 +235,31 @@ export function resolveNotificationActionToNativeRoute(actionInput: unknown): st
   const action = normalizeNotificationAction(actionInput);
   switch (action.kind) {
     case 'open_chat': {
-      const peerId = action.otherUserId ?? action.userId ?? action.matchId;
+      const peerId = routeSegment(action.otherUserId ?? action.userId ?? action.matchId);
       return peerId ? `/chat/${peerId}` : null;
     }
-    case 'open_event':
-      return `/events/${action.eventId}`;
-    case 'open_event_lobby':
-      return `/event/${action.eventId}/lobby`;
-    case 'open_ready_gate':
-      return `/ready/${action.sessionId}`;
-    case 'open_video_date':
-      return `/date/${action.sessionId}`;
+    case 'open_event': {
+      const eventId = routeSegment(action.eventId);
+      return eventId ? `/events/${eventId}` : null;
+    }
+    case 'open_event_lobby': {
+      const eventId = routeSegment(action.eventId);
+      return eventId ? `/event/${eventId}/lobby` : null;
+    }
+    case 'open_ready_gate': {
+      const sessionId = routeSegment(action.sessionId);
+      return sessionId ? `/ready/${sessionId}` : null;
+    }
+    case 'open_video_date': {
+      const sessionId = routeSegment(action.sessionId);
+      return sessionId ? `/date/${sessionId}` : null;
+    }
     case 'open_daily_drop':
       return '/daily-drop';
-    case 'open_profile':
-      return `/user/${action.userId}`;
+    case 'open_profile': {
+      const userId = routeSegment(action.userId);
+      return userId ? `/user/${userId}` : null;
+    }
     case 'open_credits':
       return '/settings/credits';
     case 'open_subscription':

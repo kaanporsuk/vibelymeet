@@ -143,5 +143,9 @@ export function formatSendGameEventError(err: SendGameEventError): string {
   if (err.code === "event_index_out_of_order") return "Out of sync with the server. Refresh and try again.";
   if (err.code === "partner_event_required") return "Not your turn yet.";
   if (err.code === "session_already_complete") return "This game round is already complete.";
+  if (err.code === "invalid_scavenger_start" || err.code === "invalid_photo_url") {
+    return "Could not verify that photo. Choose it again and retry.";
+  }
+  if (err.code === "media_sync_failed") return "Could not attach that photo safely. Try again.";
   return "Could not save this game action.";
 }

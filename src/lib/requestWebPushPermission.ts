@@ -151,35 +151,11 @@ function getFreshCachedBackendSync(signature: string): PushSyncResult | null {
   return stored.result;
 }
 
-function isMissingPushSubscriptionRpc(error: PushSubscriptionRpcError | null | undefined): boolean {
-  if (!error) return false;
-  const haystack = `${error.code ?? ""} ${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`;
-  return /42883|PGRST202|Could not find the function|register_onesignal_push_subscription|unregister_onesignal_push_subscription/i.test(haystack);
-}
-
 function pushSubscriptionRpc(): PushSubscriptionRpcClient {
   return supabase as unknown as PushSubscriptionRpcClient;
 }
 
-async function upsertLegacyWebPushPreference(
-  userId: string,
-  playerId: string | null,
-  subscribed: boolean,
-): Promise<string | null> {
-  const { error } = await supabase.from("notification_preferences").upsert(
-    {
-      user_id: userId,
-      onesignal_player_id: playerId,
-      onesignal_subscribed: subscribed,
-      push_enabled: true,
-    },
-    { onConflict: "user_id" }
-  );
-  return error?.message ?? null;
-}
-
 async function registerStoredWebPushSubscription(
-  userId: string,
   playerId: string,
   subscribed: boolean,
 ): Promise<string | null> {
@@ -189,13 +165,7 @@ async function registerStoredWebPushSubscription(
     p_subscribed: subscribed,
   });
 
-  if (error && !isMissingPushSubscriptionRpc(error)) {
-    return error.message ?? "push_subscription_register_failed";
-  }
-
-  const legacyError = await upsertLegacyWebPushPreference(userId, playerId, subscribed);
-  if (legacyError) return legacyError;
-  return null;
+  return error?.message ?? null;
 }
 
 export async function disconnectWebPushForLogout(userId: string): Promise<void> {
@@ -206,23 +176,18 @@ export async function disconnectWebPushForLogout(userId: string): Promise<void> 
     p_platform: "web",
   });
 
-  const { error: legacyError } = await supabase
-    .from("notification_preferences")
-    .update({
-      onesignal_player_id: null,
-      onesignal_subscribed: false,
-    })
-    .eq("user_id", userId);
-  if (legacyError) throw legacyError;
-  if (error && !isMissingPushSubscriptionRpc(error)) {
+  if (error) {
     throw new Error(error.message ?? "push_subscription_unregister_failed");
   }
   forgetRememberedWebPushSubscriptionId(userId);
 }
 
 async function syncWebPushRegistrationToBackendInternal(userId: string): Promise<PushSyncResult> {
-  if (typeof Notification === "undefined" || Notification.permission !== "granted") {
-    return syncResult("permission_denied");
+  if (typeof Notification === "undefined") {
+    return syncResult("unsupported_browser");
+  }
+  if (Notification.permission !== "granted") {
+    return syncResult(Notification.permission === "denied" ? "permission_denied" : "prompt_unavailable");
   }
 
   const snapshot = getOneSignalWebClientSnapshot();
@@ -256,7 +221,7 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
     return cachedResult;
   }
 
-  const registerError = await registerStoredWebPushSubscription(userId, playerId, subscribed);
+  const registerError = await registerStoredWebPushSubscription(playerId, subscribed);
   if (registerError) {
     vibelyOsLog("syncWebPushRegistrationToBackend:upsert failed", { message: registerError });
     console.error("[requestWebPushPermission] upsert failed:", registerError);
@@ -294,7 +259,7 @@ export async function requestWebPushPermissionAndSync(userId: string): Promise<P
     vibelyOsLog("requestWebPushPermission:start", { userIdTail: userId.slice(-6) });
     const initialPermissionState = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
     if (initialPermissionState === "unsupported" || initialPermissionState === "denied") {
-      const result = syncResult("permission_denied");
+      const result = syncResult(initialPermissionState === "unsupported" ? "unsupported_browser" : "permission_denied");
       recordPushDeliveryTelemetry("push_permission_prompt_result", {
         platform: "web",
         surface: "permission_request",
@@ -343,14 +308,21 @@ export async function requestWebPushPermissionAndSync(userId: string): Promise<P
       surface: "permission_request",
       permission_state: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
       sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
-      sync_result_code: granted ? "prompt_granted" : "permission_denied",
+      sync_result_code: granted ? "prompt_granted" : Notification.permission === "denied" ? "permission_denied" : "prompt_unavailable",
     });
     if (!granted) {
-      const result = syncResult("permission_denied");
+      const permissionState = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+      const result = syncResult(
+        permissionState === "unsupported"
+          ? "unsupported_browser"
+          : permissionState === "denied"
+            ? "permission_denied"
+            : "prompt_unavailable",
+      );
       recordPushDeliveryTelemetry("push_registration_sync_result", {
         platform: "web",
         surface: "permission_request",
-        permission_state: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+        permission_state: permissionState,
         sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
         sync_result_code: result.code,
         local_player_present: false,

@@ -79,6 +79,9 @@ import {
   persistReadyGateSuppressionV2,
   useNonBlockingVideoDateReadiness,
 } from '@/lib/videoDateReadiness';
+import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
+import { openPermissionSettings } from '@/lib/permissionSettings';
+import { mediaPermissionMessage, mediaPermissionTitle } from '@clientShared/media/mediaPermissionResult';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canonicalVideoDateRouteLogDetail,
@@ -2200,10 +2203,47 @@ export default function EventLobbyScreen() {
   const swipeActionsDisabled = currentSwipePending || !currentIsSwipeable || swipeRateLimited;
   const pairingBlockedByReadiness =
     readinessV2.enabled && !videoDateReadiness.canAttemptPairing;
-  const pairingActionsDisabled = swipeActionsDisabled || pairingBlockedByReadiness;
+  const pairingActionsDisabled = swipeActionsDisabled;
   const pairingReadinessMessage = pairingBlockedByReadiness
     ? videoDateReadiness.reason ?? 'Camera and microphone access are needed before you can pair.'
     : null;
+
+  const recoverPairingReadinessAndRetry = async (swipeType: 'vibe' | 'super_vibe') => {
+    const result = await requestNativeCameraMicrophonePermissions({
+      userId: user?.id ?? null,
+      sources: {
+        androidExisting: 'event_lobby_pairing_existing',
+        androidRequest: 'event_lobby_pairing_request',
+        nativeExisting: 'event_lobby_pairing_existing',
+        nativeRequest: 'event_lobby_pairing_request',
+      },
+      setHandoff: false,
+    });
+
+    if (result.ok) {
+      void handleSwipe(swipeType, { bypassReadiness: true });
+      return;
+    }
+
+    const needsSettings = result.mediaPermission.recoveryAction === 'open_settings';
+    show({
+      title: mediaPermissionTitle(result.mediaPermission),
+      message: mediaPermissionMessage(result.mediaPermission),
+      variant: 'warning',
+      primaryAction: needsSettings
+        ? {
+            label: 'Open Settings',
+            onPress: () => void openPermissionSettings('event_lobby_pairing_media'),
+            dismissBeforeAction: true,
+          }
+        : {
+            label: 'Try Again',
+            onPress: () => void recoverPairingReadinessAndRetry(swipeType),
+            dismissBeforeAction: true,
+          },
+      secondaryAction: { label: 'Not Now', onPress: () => {} },
+    });
+  };
 
   useEffect(() => {
     optimisticSwipeSequenceRef.current = 0;
@@ -2804,7 +2844,10 @@ export default function EventLobbyScreen() {
     </View>
   );
 
-  const handleSwipe = async (swipeType: 'vibe' | 'pass' | 'super_vibe') => {
+  const handleSwipe = async (
+    swipeType: 'vibe' | 'pass' | 'super_vibe',
+    options: { bypassReadiness?: boolean } = {},
+  ) => {
     if (
       !current ||
       pendingSwipeTargetIds.has(current.id) ||
@@ -2821,12 +2864,17 @@ export default function EventLobbyScreen() {
       });
       return;
     }
-    if (swipeType !== 'pass' && readinessV2.enabled && !videoDateReadiness.canAttemptPairing) {
+    if (swipeType !== 'pass' && readinessV2.enabled && !videoDateReadiness.canAttemptPairing && !options.bypassReadiness) {
       show({
         title: 'Camera and mic needed',
         message: videoDateReadiness.reason ?? 'Enable camera and microphone access before pairing for a video date.',
         variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
+        primaryAction: {
+          label: 'Enable Access',
+          onPress: () => void recoverPairingReadinessAndRetry(swipeType),
+          dismissBeforeAction: true,
+        },
+        secondaryAction: { label: 'Not Now', onPress: () => {} },
       });
       return;
     }

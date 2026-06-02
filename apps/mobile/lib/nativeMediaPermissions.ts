@@ -112,8 +112,11 @@ function permissionResult(
     microphoneUxStatus === 'blocked_settings' ||
     cameraUxStatus === 'limited' ||
     microphoneUxStatus === 'limited';
-  const permissionState =
-    cameraStatus === 'undetermined' || microphoneStatus === 'undetermined' ? 'prompt' : 'denied';
+  const permissionState = isSettingsOnly
+    ? 'denied'
+    : cameraStatus === 'undetermined' || microphoneStatus === 'undetermined'
+      ? 'prompt'
+      : 'denied';
   const kind = permissionUxMediaKindForRequiredGrants(
     { status: cameraStatus, canAskAgain: cameraCanAskAgain },
     { status: microphoneStatus, canAskAgain: microphoneCanAskAgain },

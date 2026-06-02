@@ -111,7 +111,10 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
   assert.match(webOneSignal, /ackNotificationDispatchFromPayload\(data, "web_click"/);
   assert.match(webOneSignal, /markNotificationOpenedV2FromPayload\(data\)/);
   assert.match(webOneSignal, /preloadVideoDatePushTargetsFromPayload\(data\)/);
-  assert.match(webOneSignal, /resolveVideoDatePushHrefFromCanonicalTruth\(url\)/);
+  assert.match(webOneSignal, /const safeHref = normalizePushDeepLinkHref\(url\)/);
+  assert.match(webOneSignal, /resolveVideoDatePushHrefFromCanonicalTruth\(safeHref\)/);
+  assert.match(webOneSignal, /window\.location\.href = normalizePushDeepLinkHref\(href\) \?\? safeHref/);
+  assert.match(webOneSignal, /window\.location\.href = safeHref/);
 
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload\(data, 'native_click'/);
   assert.match(nativeDeepLink, /markNotificationOpenedV2FromPayload\(data\)/);

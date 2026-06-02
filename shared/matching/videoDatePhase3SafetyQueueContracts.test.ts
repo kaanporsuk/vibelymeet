@@ -16,6 +16,10 @@ const phase6QueueFairnessMigration = readFileSync(
   join(root, "supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql"),
   "utf8",
 );
+const permissionHardeningMigration = readFileSync(
+  join(root, "supabase/migrations/20260602020000_permission_flow_definitive_hardening.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -124,6 +128,10 @@ test("PR 3.9 queue drain v2 revalidates hot eligibility before promotion", () =>
   assert.match(drain, /public\.event_participant_runtime_state/);
   assert.match(drain, /last_heartbeat_at >= now\(\) - interval '45 seconds'/);
   assert.match(drain, /readiness_status IN \('ready', 'warning'\)/);
+  assert.match(permissionHardeningMigration, /normalize_event_runtime_readiness_for_pairing/);
+  assert.match(permissionHardeningMigration, /NEW\.readiness_status = 'warning'/);
+  assert.match(permissionHardeningMigration, /NEW\.readiness_status := 'unchecked'/);
+  assert.match(permissionHardeningMigration, /WHERE readiness_status = 'warning'/);
   assert.match(drain, /public\.is_blocked\(v_actor, v_partner_id\)/);
   assert.match(drain, /public\.user_reports ur[\s\S]+ur\.reporter_id = v_actor[\s\S]+ur\.reporter_id = v_partner_id/);
   assert.match(drain, /current_partner_id IN \(v_actor, v_partner_id\)/);

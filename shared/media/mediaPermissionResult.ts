@@ -9,7 +9,8 @@ export type MediaPermissionStatus =
   | "hardware_missing"
   | "constraint_failed"
   | "in_use_or_abort"
-  | "in_use";
+  | "in_use"
+  | "unknown_error";
 
 export type MediaPermissionKind = "camera" | "microphone" | "camera_microphone";
 
@@ -129,7 +130,7 @@ export function classifyMediaPermissionError(
   }
 
   return mediaPermissionResultForStatus({
-    status: "in_use_or_abort",
+    status: "unknown_error",
     kind,
     rawErrorName,
     rawErrorMessage,
@@ -232,6 +233,7 @@ function recoveryActionForStatus(status: MediaPermissionStatus): MediaPermission
     case "constraint_failed":
     case "in_use_or_abort":
     case "in_use":
+    case "unknown_error":
       return "retry";
     case "denied":
     case "blocked_settings":
@@ -269,6 +271,7 @@ export function mediaPermissionTitle(result: MediaPermissionResult): string {
           ? "Camera is busy"
           : "Camera or microphone is busy";
     case "constraint_failed":
+    case "unknown_error":
       return result.kind === "microphone"
         ? "Microphone setup needs another try"
         : result.kind === "camera"
@@ -309,6 +312,14 @@ export function mediaPermissionMessage(result: MediaPermissionResult): string {
         return "Your browser could not start the preferred camera. Try again or choose a saved photo if available.";
       }
       return "Your browser could not start the preferred camera or microphone. Try again or upload a saved video.";
+    case "unknown_error":
+      if (result.kind === "microphone") {
+        return "We could not start the microphone. Try again.";
+      }
+      if (result.kind === "camera") {
+        return "We could not start the camera. Try again or choose a saved photo if available.";
+      }
+      return "We could not start the camera or microphone. Try again or upload a saved video.";
     case "in_use_or_abort":
     case "in_use":
       return `Another app or tab may be using the ${subject}. Close it, then try again.`;

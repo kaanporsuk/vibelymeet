@@ -41,6 +41,7 @@ import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { PushSyncResult } from "@clientShared/pushDeliveryHealth";
 
 interface NotificationsDrawerProps {
   open: boolean;
@@ -105,8 +106,8 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     [prefs.quiet_hours_start, prefs.quiet_hours_end]
   );
 
-  const handleEnablePush = async () => {
-    if (!user?.id) return;
+  const handleEnablePush = async (): Promise<PushSyncResult | null> => {
+    if (!user?.id) return null;
     recordUserAction("notification_settings_push_retry_clicked", {
       surface: "settings_notifications",
       health_status: health.status,
@@ -128,6 +129,18 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
         reason: result.code,
       });
       toast.error("Notifications are allowed, but this browser is still finishing setup. Try again in a moment.");
+    } else if (result?.code === "unsupported_browser") {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
+      toast.error("This browser or in-app webview does not support web push.");
+    } else if (result?.code === "prompt_unavailable") {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
+      toast.error("The browser notification prompt did not open. Check site settings and try again.");
     } else if (result?.code === "upsert_failed") {
       recordUserAction("notification_settings_push_retry_failed", {
         surface: "settings_notifications",
@@ -140,6 +153,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
         reason: result.code,
       });
     }
+    return result ?? null;
   };
 
   const handlePause = (duration: string) => {
@@ -183,14 +197,23 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
       toast.error("Allow notifications in your browser site settings first.");
       return;
     }
+    if (
+      nextEnabled &&
+      typeof Notification !== "undefined" &&
+      Notification.permission !== "granted"
+    ) {
+      await refreshPushHealth();
+      toast.error("Allow notifications in your browser site settings first.");
+      return;
+    }
     if (nextEnabled && health.status === "unsupported") {
       toast.error("This browser does not support push notifications.");
       return;
     }
     if (nextEnabled && health.status !== "enabled") {
-      await handleEnablePush();
+      const result = await handleEnablePush();
       await refreshPushHealth();
-      if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+      if (!result?.synced) {
         return;
       }
     }

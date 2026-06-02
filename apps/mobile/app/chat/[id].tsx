@@ -3925,6 +3925,7 @@ export default function ChatThreadScreen() {
   };
 
   const openVideoMessageOptions = () => {
+    if (composerInputLocked) return;
     setShowAttachmentTray(false);
     setShowVibeClipSendSheet(true);
   };
@@ -4478,8 +4479,8 @@ export default function ChatThreadScreen() {
               reactionPair={pair}
               threadMessageCount={displayMessages.length}
               sparkMessageId={item.id}
-              onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
-              onVoiceReply={isMe ? undefined : () => startVoiceReplyRecording()}
+              onReplyWithClip={isMe || composerInputLocked ? undefined : () => openVideoMessageOptions()}
+              onVoiceReply={isMe || composerInputLocked ? undefined : () => startVoiceReplyRecording()}
               onSuggestDate={
                 isMe ? undefined : () => openDateComposer({ mode: 'new', launchFrom: 'vibe_clip' })
               }

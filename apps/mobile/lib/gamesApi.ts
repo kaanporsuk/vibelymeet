@@ -22,7 +22,24 @@ export type SendGameEventRejectionCode =
   | 'access_denied'
   | 'blocked_pair'
   | 'client_session_complete_forbidden'
+  | 'invalid_payload'
+  | 'invalid_scavenger_start'
+  | 'invalid_photo_url'
+  | 'invalid_statements'
+  | 'invalid_lie_index'
+  | 'invalid_would_rather_start'
+  | 'invalid_charades_start'
+  | 'invalid_emojis'
+  | 'invalid_roulette_start'
+  | 'invalid_intuition_options'
+  | 'invalid_sender_choice'
+  | 'invalid_guess_index'
+  | 'invalid_receiver_vote'
+  | 'invalid_guess'
+  | 'invalid_receiver_answer'
+  | 'invalid_intuition_result'
   | 'insert_failed'
+  | 'media_sync_failed'
   | 'internal_error'
   | 'invalid_json'
   | 'invalid_ids'
@@ -43,7 +60,24 @@ const KNOWN_REJECTION_CODES = new Set<string>([
   'access_denied',
   'blocked_pair',
   'client_session_complete_forbidden',
+  'invalid_payload',
+  'invalid_scavenger_start',
+  'invalid_photo_url',
+  'invalid_statements',
+  'invalid_lie_index',
+  'invalid_would_rather_start',
+  'invalid_charades_start',
+  'invalid_emojis',
+  'invalid_roulette_start',
+  'invalid_intuition_options',
+  'invalid_sender_choice',
+  'invalid_guess_index',
+  'invalid_receiver_vote',
+  'invalid_guess',
+  'invalid_receiver_answer',
+  'invalid_intuition_result',
   'insert_failed',
+  'media_sync_failed',
   'internal_error',
   'invalid_json',
   'invalid_ids',
@@ -825,6 +859,26 @@ export function formatSendGameEventError(err: SendGameEventError): string {
     case 'session_start_must_be_index_0':
       return 'Could not start the round. Try again.';
     case 'invalid_event_fields':
+      return 'Some game details are invalid. Edit and try again.';
+    case 'invalid_scavenger_start':
+    case 'invalid_photo_url':
+      return 'Could not verify that photo. Choose it again and retry.';
+    case 'media_sync_failed':
+      return 'Could not attach that photo safely. Try again.';
+    case 'invalid_payload':
+    case 'invalid_statements':
+    case 'invalid_lie_index':
+    case 'invalid_would_rather_start':
+    case 'invalid_charades_start':
+    case 'invalid_emojis':
+    case 'invalid_roulette_start':
+    case 'invalid_intuition_options':
+    case 'invalid_sender_choice':
+    case 'invalid_guess_index':
+    case 'invalid_receiver_vote':
+    case 'invalid_guess':
+    case 'invalid_receiver_answer':
+    case 'invalid_intuition_result':
       return 'Some game details are invalid. Edit and try again.';
     default:
       return err.rawCode || err.code || 'Could not send your pick.';

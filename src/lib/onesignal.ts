@@ -6,7 +6,7 @@ declare global {
 
 import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
-import { classifyPushDeepLink, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
+import { classifyPushDeepLink, normalizePushDeepLinkHref, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
 import { recordServiceWorkerState } from "@/lib/browserDiagnostics";
 import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from "@/lib/notificationDispatchAck";
 import {
@@ -368,11 +368,12 @@ export const initOneSignal = () => {
           surface: "onesignal_click",
           ...deepLink,
         });
-        if (url && typeof url === "string") {
-          void resolveVideoDatePushHrefFromCanonicalTruth(url).then((href) => {
-            window.location.href = href ?? url;
+        const safeHref = normalizePushDeepLinkHref(url);
+        if (safeHref) {
+          void resolveVideoDatePushHrefFromCanonicalTruth(safeHref).then((href) => {
+            window.location.href = normalizePushDeepLinkHref(href) ?? safeHref;
           }).catch(() => {
-            window.location.href = url;
+            window.location.href = safeHref;
           });
         }
       });

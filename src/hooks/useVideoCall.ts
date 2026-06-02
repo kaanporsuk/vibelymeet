@@ -118,6 +118,16 @@ const REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
 const WEB_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
 
+function safeMeetingState(call: Pick<DailyCall, "meetingState"> | null | undefined): string | null {
+  if (!call || typeof call.meetingState !== "function") return null;
+  try {
+    const state = call.meetingState();
+    return typeof state === "string" ? state : state == null ? null : String(state);
+  } catch {
+    return "error";
+  }
+}
+
 type RemoteVideoFrameCallbackMetadata = {
   presentedFrames?: number;
   mediaTime?: number;
@@ -4388,7 +4398,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             session_id: sessionId,
             event_id: truthRow.event_id ?? eventId,
           });
-          Sentry.captureMessage("daily_camera_error", { level: "error", extra: { event } });
+          Sentry.captureMessage("daily_camera_error", {
+            level: "error",
+            extra: {
+              errorName: rawError && typeof rawError === "object" && "name" in rawError
+                ? String((rawError as { name?: unknown }).name ?? "")
+                : null,
+              errorMessage: errorMsg ?? null,
+              meetingState: safeMeetingState(callObject),
+              sessionId,
+              eventId: truthRow.event_id ?? eventId ?? null,
+            },
+          });
         });
 
         bindDailyEvent("track-stopped", (event) => {

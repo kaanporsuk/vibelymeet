@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  isAllowedNotificationAppPath,
+  normalizeNotificationAppPath,
+  resolveNotificationActionToNativeRoute,
+  resolveNotificationActionToWebRoute,
+} from "./notifications";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -60,7 +66,11 @@ test("web and native clients share notification action normalization while keepi
   assert.match(sharedNotifications, /normalizeNotificationAction/);
   assert.match(sharedNotifications, /resolveNotificationActionToWebRoute/);
   assert.match(sharedNotifications, /resolveNotificationActionToNativeRoute/);
-  assert.match(sharedNotifications, /case 'open_event_lobby':\s+return `\/event\/\$\{action\.eventId\}\/lobby`/);
+  assert.match(sharedNotifications, /SAFE_NOTIFICATION_ROUTE_SEGMENT/);
+  assert.match(sharedNotifications, /WEB_NOTIFICATION_STATIC_APP_PATHS/);
+  assert.match(sharedNotifications, /NATIVE_NOTIFICATION_STATIC_APP_PATHS/);
+  assert.match(sharedNotifications, /NotificationRoutePlatform/);
+  assert.match(sharedNotifications, /routeSegment\(action\.eventId\)/);
   assert.match(sharedNotifications, /case 'open_daily_drop':\s+return '\/matches'/);
   assert.match(sharedNotifications, /case 'open_daily_drop':\s+return '\/daily-drop'/);
   assert.equal(exists("src/lib/notificationActions.ts"), true);
@@ -68,7 +78,11 @@ test("web and native clients share notification action normalization while keepi
   assert.match(mobileDeepLinkHandler, /resolveNotificationActionRoute\(additionalData\?\.action\)/);
   assert.match(mobileDeepLinkHandler, /function shouldPreferNativeActionRoute/);
   assert.match(mobileDeepLinkHandler, /function sanitizeDiagnosticHref/);
-  assert.match(mobileDeepLinkHandler, /\^\(chat\|daily-drop\|ready\|date\|event\|events\|settings\|premium\|user\|matches\)/);
+  assert.match(mobileDeepLinkHandler, /from '@clientShared\/notifications'/);
+  assert.match(mobileDeepLinkHandler, /normalizeNotificationAppPath\(trimmed, 'native'\)/);
+  assert.match(mobileDeepLinkHandler, /normalizeNotificationAppPath\(`\$\{u\.pathname \|\| '\/'\}\$\{u\.search\}\$\{u\.hash\}`, 'native'\)/);
+  assert.match(mobileDeepLinkHandler, /normalizeNotificationRouteSegment\(additionalData\?\.other_user_id\)/);
+  assert.match(mobileDeepLinkHandler, /const ticketId = normalizeNotificationRouteSegment\(data\.ticket_id\)/);
   assert.match(mobileDeepLinkHandler, /DIAGNOSTIC_HREF_KEYS/);
   assert.match(mobileDeepLinkHandler, /route: sanitizeDiagnosticHref\(route\)/);
   assert.match(mobileDeepLinkHandler, /rawHref: sanitizeDiagnosticHref\(rawHref\)/);
@@ -76,6 +90,40 @@ test("web and native clients share notification action normalization while keepi
   assert.match(mobileDeepLinkHandler, /case 'open_ready_gate':/);
   assert.match(mobileDeepLinkHandler, /case 'open_video_date':/);
   assert.match(mobileDeepLinkHandler, /case 'open_daily_drop':\s+return true/);
+});
+
+test("notification action route builders reject dynamic segment injection", () => {
+  for (const resolver of [resolveNotificationActionToWebRoute, resolveNotificationActionToNativeRoute]) {
+    assert.equal(resolver({ kind: "open_chat", otherUserId: "../settings" }), null);
+    assert.equal(resolver({ kind: "open_chat", otherUserId: "abc/def" }), null);
+    assert.equal(resolver({ kind: "open_chat", otherUserId: "abc%2Fdef" }), null);
+    assert.equal(resolver({ kind: "open_event_lobby", eventId: "event?next=/settings" }), null);
+    assert.equal(resolver({ kind: "open_ready_gate", sessionId: "ready#fragment" }), null);
+    assert.equal(resolver({ kind: "open_profile", userId: ".." }), null);
+  }
+  assert.equal(
+    resolveNotificationActionToWebRoute({ kind: "open_chat", otherUserId: "11111111-1111-4111-8111-111111111111" }),
+    "/chat/11111111-1111-4111-8111-111111111111",
+  );
+  assert.equal(
+    resolveNotificationActionToNativeRoute({ kind: "open_event_lobby", eventId: "22222222-2222-4222-8222-222222222222" }),
+    "/event/22222222-2222-4222-8222-222222222222/lobby",
+  );
+});
+
+test("notification app path normalization strips payload query and hash state", () => {
+  assert.equal(normalizeNotificationAppPath("/settings?drawer=support"), "/settings");
+  assert.equal(
+    normalizeNotificationAppPath("/chat/11111111-1111-4111-8111-111111111111?next=/settings#x"),
+    "/chat/11111111-1111-4111-8111-111111111111",
+  );
+  assert.equal(normalizeNotificationAppPath("/home?drawer=notifications", "web"), "/home");
+  assert.equal(normalizeNotificationAppPath("/dashboard", "web"), "/dashboard");
+  assert.equal(normalizeNotificationAppPath("/(tabs)/profile", "native"), "/(tabs)/profile");
+  assert.equal(isAllowedNotificationAppPath("/home", "native"), false);
+  assert.equal(isAllowedNotificationAppPath("/(tabs)/profile", "web"), false);
+  assert.equal(normalizeNotificationAppPath("/settings/ticket/../account"), null);
+  assert.equal(normalizeNotificationAppPath("//evil.example/chat/abc"), null);
 });
 
 test("web and mobile inbox hooks use the same table, realtime channel, and RPC mutations", () => {

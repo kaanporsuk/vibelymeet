@@ -139,6 +139,7 @@ test("browser media statuses normalize into the shared UX model", () => {
   assert.equal(permissionUxStatusFromBrowserMediaStatus("missing_device"), "hardware_missing");
   assert.equal(permissionUxStatusFromBrowserMediaStatus("in_use_or_abort"), "in_use");
   assert.equal(permissionUxStatusFromBrowserMediaStatus("constraint_failed"), "denied_retryable");
+  assert.equal(permissionUxStatusFromBrowserMediaStatus("unknown_error"), "denied_retryable");
   assert.equal(permissionUxStatusFromMediaPermissionStatus("blocked_settings"), "blocked_settings");
   assert.equal(permissionUxStatusFromMediaPermissionStatus("hardware_missing"), "hardware_missing");
   assert.equal(permissionUxStatusFromMediaPermissionStatus("denied_retryable"), "denied_retryable");

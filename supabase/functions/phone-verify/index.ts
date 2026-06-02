@@ -148,10 +148,11 @@ serve(async (req) => {
         .maybeSingle();
 
       if (existing) {
+        logWarn("duplicate_verified_phone_blocked", { requestId, phone: loggedPhone });
         return jsonResponse({
           success: false,
-          error: "This number is already verified by another account.",
-          errorType: "phone_already_claimed",
+          error: "We could not send a code to this number. Please try another mobile number.",
+          errorType: "verification_unavailable",
         });
       }
 

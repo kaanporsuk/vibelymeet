@@ -325,7 +325,15 @@ test("native explicit jump-to-latest actions deliberately restore bottom stickin
   );
   assert.match(
     nativeChat,
-    /onVoiceReply=\{isMe \? undefined : \(\) => startVoiceReplyRecording\(\)\}/,
+    /const openVideoMessageOptions = \(\) => \{[\s\S]*if \(composerInputLocked\) return;[\s\S]*setShowAttachmentTray\(false\);[\s\S]*setShowVibeClipSendSheet\(true\);/,
+  );
+  assert.match(
+    nativeChat,
+    /onReplyWithClip=\{isMe \|\| composerInputLocked \? undefined : \(\) => openVideoMessageOptions\(\)\}/,
+  );
+  assert.match(
+    nativeChat,
+    /onVoiceReply=\{isMe \|\| composerInputLocked \? undefined : \(\) => startVoiceReplyRecording\(\)\}/,
   );
   assert.match(
     nativeChat,

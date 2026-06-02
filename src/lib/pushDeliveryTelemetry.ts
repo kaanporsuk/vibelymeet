@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
+import { normalizeNotificationAppPath } from "@clientShared/notifications";
 
 const CANONICAL_APP_ORIGIN = "https://www.vibelymeet.com";
 const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN.replace("://www.", "://");
@@ -80,6 +81,10 @@ function routeClassForPath(path: string): DeepLinkRouteClass {
   return "unknown";
 }
 
+function normalizePushAppPath(rawPath: string): string | null {
+  return normalizeNotificationAppPath(rawPath, "web");
+}
+
 export function classifyPushDeepLink(raw: unknown): {
   deeplink_url_present: boolean;
   deeplink_url_kind: DeepLinkUrlKind;
@@ -96,11 +101,29 @@ export function classifyPushDeepLink(raw: unknown): {
     };
   }
 
+  if (value.startsWith("//") || value.includes("\\")) {
+    return {
+      deeplink_url_present: true,
+      deeplink_url_kind: "invalid_url",
+      deeplink_route_class: "unknown",
+      canonical_origin_valid: false,
+    };
+  }
+
   if (value.startsWith("/")) {
+    const safePath = normalizePushAppPath(value);
+    if (!safePath) {
+      return {
+        deeplink_url_present: true,
+        deeplink_url_kind: "invalid_url",
+        deeplink_route_class: "unknown",
+        canonical_origin_valid: false,
+      };
+    }
     return {
       deeplink_url_present: true,
       deeplink_url_kind: "relative_app_path",
-      deeplink_route_class: routeClassForPath(value),
+      deeplink_route_class: routeClassForPath(safePath),
       canonical_origin_valid: true,
     };
   }
@@ -108,25 +131,43 @@ export function classifyPushDeepLink(raw: unknown): {
   try {
     const url = new URL(value);
     if (url.origin === CANONICAL_APP_ORIGIN) {
+      const safePath = normalizePushAppPath(`${url.pathname || "/"}${url.search}${url.hash}`);
+      if (!safePath) {
+        return {
+          deeplink_url_present: true,
+          deeplink_url_kind: "invalid_url",
+          deeplink_route_class: "unknown",
+          canonical_origin_valid: true,
+        };
+      }
       return {
         deeplink_url_present: true,
         deeplink_url_kind: "canonical_www_url",
-        deeplink_route_class: routeClassForPath(url.pathname),
+        deeplink_route_class: routeClassForPath(safePath),
         canonical_origin_valid: true,
       };
     }
     if (url.origin === NON_CANONICAL_APEX_ORIGIN) {
+      const safePath = normalizePushAppPath(`${url.pathname || "/"}${url.search}${url.hash}`);
+      if (!safePath) {
+        return {
+          deeplink_url_present: true,
+          deeplink_url_kind: "invalid_url",
+          deeplink_route_class: "unknown",
+          canonical_origin_valid: false,
+        };
+      }
       return {
         deeplink_url_present: true,
         deeplink_url_kind: "non_canonical_apex_url",
-        deeplink_route_class: routeClassForPath(url.pathname),
+        deeplink_route_class: routeClassForPath(safePath),
         canonical_origin_valid: false,
       };
     }
     return {
       deeplink_url_present: true,
       deeplink_url_kind: "external_url",
-      deeplink_route_class: routeClassForPath(url.pathname),
+      deeplink_route_class: "unknown",
       canonical_origin_valid: false,
     };
   } catch {
@@ -136,5 +177,19 @@ export function classifyPushDeepLink(raw: unknown): {
       deeplink_route_class: "unknown",
       canonical_origin_valid: false,
     };
+  }
+}
+
+export function normalizePushDeepLinkHref(raw: unknown): string | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value || value.startsWith("//") || value.includes("\\")) return null;
+  if (value.startsWith("/")) return normalizePushAppPath(value);
+
+  try {
+    const url = new URL(value);
+    if (url.origin !== CANONICAL_APP_ORIGIN && url.origin !== NON_CANONICAL_APEX_ORIGIN) return null;
+    return normalizePushAppPath(`${url.pathname || "/"}${url.search}${url.hash}`);
+  } catch {
+    return null;
   }
 }

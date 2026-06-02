@@ -114,7 +114,7 @@ export function usePushDeliveryHealth() {
       getCurrentWebPlayerId(),
       supabase
         .from("notification_preferences")
-        .select("onesignal_player_id, onesignal_subscribed, push_enabled, paused_until")
+        .select("push_enabled, paused_until")
         .eq("user_id", user.id)
         .maybeSingle(),
     ]);
@@ -126,17 +126,9 @@ export function usePushDeliveryHealth() {
     const currentSubscriptionId = localId?.trim() || null;
     const normalized = await readBackendPushSubscription(user.id, currentSubscriptionId);
     if (!mountedRef.current) return;
-    const legacyPlayerId = typeof data?.onesignal_player_id === "string" && data.onesignal_player_id.trim()
-      ? data.onesignal_player_id.trim()
-      : null;
-    const legacyMatchesCurrentDevice =
-      !currentSubscriptionId || !legacyPlayerId || legacyPlayerId === currentSubscriptionId;
-    const legacySubscribed = legacyMatchesCurrentDevice
-      ? data?.onesignal_subscribed ?? false
-      : false;
     setBackend({
-      playerId: normalized?.playerId ?? (legacyMatchesCurrentDevice ? legacyPlayerId : null),
-      subscribed: normalized?.subscribed ?? legacySubscribed,
+      playerId: normalized?.playerId ?? null,
+      subscribed: normalized?.subscribed ?? false,
       pushEnabled: data?.push_enabled ?? true,
       pausedUntil: data?.paused_until ?? null,
     });

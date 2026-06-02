@@ -19,6 +19,7 @@ import {
   ProviderRateLimitError,
   ProviderTimeoutError,
   providerRateLimitConfig,
+  safeProviderResponseDiagnostics,
 } from "../_shared/video-date-provider-reliability.ts";
 import {
   corsHeadersForRequest,
@@ -209,10 +210,6 @@ async function waitForBoundedSnapshotProviderRetry(headers: Headers, fallbackSec
   return true;
 }
 
-async function readProviderResponseText(response: Response): Promise<string> {
-  return response.clone().text().catch(() => "");
-}
-
 async function throwSnapshotProviderLookupError(response: Response, roomName: string): Promise<never> {
   if (response.status === 429) {
     throw new ProviderRateLimitError(
@@ -222,12 +219,12 @@ async function throwSnapshotProviderLookupError(response: Response, roomName: st
       "provider_rate_limited",
     );
   }
-  const text = await readProviderResponseText(response);
+  const providerDiagnostics = await safeProviderResponseDiagnostics(response);
   console.error(JSON.stringify({
     event: "video_date_snapshot_daily_room_lookup_failed",
     provider_status: response.status,
     room_name: roomName,
-    provider_error: text.slice(0, 300),
+    ...providerDiagnostics,
   }));
   throw new SnapshotDailyTokenError({
     message: "daily_room_lookup_failed",

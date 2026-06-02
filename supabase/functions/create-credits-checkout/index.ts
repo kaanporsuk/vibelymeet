@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
       metadata_summary: { mode: 'payment', type: 'credits_pack' },
     })
     return new Response(
-      JSON.stringify({ success: false, error: message }),
+      JSON.stringify({ success: false, error: 'checkout_unavailable' }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

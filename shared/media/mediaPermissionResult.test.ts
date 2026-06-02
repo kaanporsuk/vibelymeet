@@ -73,6 +73,15 @@ test("media permission classifier distinguishes busy devices and missing devices
   assert.equal(classifyMediaPermissionError({ name: "NotFoundError" }, "microphone").status, "missing_device");
 });
 
+test("media permission classifier keeps unknown failures retryable without calling them busy", () => {
+  const result = classifyMediaPermissionError({ name: "UnknownError", message: "capture failed" }, "camera_microphone");
+
+  assert.equal(result.status, "unknown_error");
+  assert.equal(result.recoveryAction, "retry");
+  assert.equal(mediaPermissionTitle(result), "Camera or microphone setup needs another try");
+  assert.match(mediaPermissionMessage(result), /could not start the camera or microphone/i);
+});
+
 test("media permission copy stays tied to recovery categories", () => {
   const denied = mediaPermissionResultForQueryState("camera_microphone", "denied");
   const promptable = mediaPermissionResultForQueryState("camera_microphone", "prompt");

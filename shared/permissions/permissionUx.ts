@@ -395,6 +395,7 @@ export function permissionUxStatusFromMediaPermissionStatus(status: MediaPermiss
       return "hardware_missing";
     case "constraint_failed":
     case "denied_retryable":
+    case "unknown_error":
       return "denied_retryable";
     case "in_use_or_abort":
     case "in_use":
