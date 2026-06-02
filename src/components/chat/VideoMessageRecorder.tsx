@@ -11,8 +11,6 @@ import {
   VIBE_CLIP_RECORDER_RECORDING_REMAINING,
   VIBE_CLIP_RECORDER_SOFT_FRAMING,
   VIBE_CLIP_RECORDER_TAGLINE,
-  VIBE_CLIP_WEB_TOAST_CAMERA_DENIED,
-  VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC,
   VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE,
   VIBE_CLIP_WEB_TOAST_UNSUPPORTED,
 } from "../../../shared/chat/vibeClipCaptureCopy";
@@ -253,12 +251,10 @@ const VideoMessageRecorder = ({
         setMediaPermissionResult(result);
         if (!opts?.silentError) {
           const name = err instanceof Error ? err.name : "";
-          if (name === "AbortError" || name === "NotAllowedError") {
-            toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_DENIED);
-          } else if (name === "NotSupportedError") {
+          if (name === "NotSupportedError") {
             toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
           } else {
-            toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC);
+            toast.error(mediaPermissionMessage(result) || mediaPermissionTitle(result));
           }
         }
         if (!previousStream) setCameraReady(false);

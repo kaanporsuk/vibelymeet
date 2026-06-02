@@ -176,10 +176,13 @@ test("native app config does not request background upload execution modes", () 
   assert.doesNotMatch(modes.join("\n"), /^fetch$/m);
   assert.doesNotMatch(modes.join("\n"), /^processing$/m);
 
-  const plistPaths = ["apps/mobile/ios/mobile/Info.plist", "apps/mobile/ios/Vibely/Info.plist"].filter((path) =>
-    existsSync(path),
+  assert.equal(
+    existsSync("apps/mobile/ios/mobile/Info.plist"),
+    false,
+    "stale unreferenced ios/mobile/Info.plist must not be checked in",
   );
-  assert.ok(plistPaths.length >= 1, "at least one app Info.plist must be present for UIBackgroundModes parity");
+  const plistPaths = ["apps/mobile/ios/Vibely/Info.plist"];
+  assert.ok(existsSync(plistPaths[0]), "app Info.plist must be present for UIBackgroundModes parity");
   for (const plistPath of plistPaths) {
     assert.deepEqual(
       plistArrayForKey(plistPath, "UIBackgroundModes"),

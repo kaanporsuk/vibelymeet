@@ -17,18 +17,40 @@ const TOKEN_TTL_SECONDS = 15 * 60;
 const PROXY_CACHE_SAFETY_SECONDS = 15;
 const SENTRY_FLUSH_TIMEOUT_MS = 1000;
 
-// Proxy-token signing should use a dedicated CHAT_MEDIA_PROXY_SECRET so it is decoupled from the
-// DB service-role key (rotation blast radius). We keep the fallback to avoid breaking media if the
-// secret is unset (fail-soft), but warn once so ops can provision it.
+// Proxy-token signing must use a dedicated CHAT_MEDIA_PROXY_SECRET in deployed environments so it is
+// decoupled from the DB service-role key (rotation blast radius). Local/test fallback requires an
+// explicit opt-in env flag and should never be enabled in production.
 let proxySecretFallbackWarned = false;
+class ProxyTokenSecretConfigError extends Error {
+  constructor() {
+    super("CHAT_MEDIA_PROXY_SECRET is required for chat media proxy signing.");
+    this.name = "ProxyTokenSecretConfigError";
+  }
+}
+
+function serviceRoleProxySecretFallbackAllowed(): boolean {
+  const flag = (Deno.env.get("CHAT_MEDIA_PROXY_SECRET_ALLOW_SERVICE_ROLE_FALLBACK") ?? "")
+    .trim()
+    .toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes";
+}
+
 function resolveProxyTokenSecret(serviceRoleKey: string): string {
   const dedicated = (Deno.env.get("CHAT_MEDIA_PROXY_SECRET") ?? "").trim();
   if (dedicated) return dedicated;
+  if (!serviceRoleProxySecretFallbackAllowed()) {
+    logChatMediaUrl("error", "chat_media_proxy_secret_missing", {
+      fallback_allowed: false,
+    });
+    throw new ProxyTokenSecretConfigError();
+  }
   if (!proxySecretFallbackWarned) {
     proxySecretFallbackWarned = true;
     console.warn(JSON.stringify({
+      scope: "chat_media_url",
+      function: "get-chat-media-url",
       event: "chat_media_proxy_secret_fallback",
-      detail: "CHAT_MEDIA_PROXY_SECRET is unset; falling back to SUPABASE_SERVICE_ROLE_KEY. Set a dedicated secret in production.",
+      detail: "CHAT_MEDIA_PROXY_SECRET is unset; explicit local/test service-role fallback is enabled.",
     }));
   }
   return serviceRoleKey;
@@ -797,6 +819,8 @@ async function handleHealth(req: Request): Promise<Response> {
       profile_stream_token_security_key_configured: Boolean(Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim()),
       storage_zone_configured: Boolean(Deno.env.get("BUNNY_STORAGE_ZONE")?.trim()),
       storage_api_key_configured: Boolean(Deno.env.get("BUNNY_STORAGE_API_KEY")?.trim()),
+      chat_media_proxy_secret_configured: Boolean(Deno.env.get("CHAT_MEDIA_PROXY_SECRET")?.trim()),
+      chat_media_proxy_service_role_fallback_allowed: serviceRoleProxySecretFallbackAllowed(),
       archive_storage_zone_configured: Boolean(
         Deno.env.get("BUNNY_ARCHIVE_STORAGE_ZONE")?.trim() ||
           Deno.env.get("BUNNY_STORAGE_ARCHIVE_ZONE")?.trim(),
@@ -848,7 +872,6 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
 
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
@@ -1067,6 +1090,16 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     );
   }
 
+  let tokenSecret: string;
+  try {
+    tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
+  } catch (error) {
+    if (error instanceof ProxyTokenSecretConfigError) {
+      return jsonResponse(req, { success: false, error: "chat_media_proxy_secret_missing" }, { status: 503, headers: corsHeaders });
+    }
+    throw error;
+  }
+
   const token = await createToken(tokenSecret, {
     sub: user.id,
     mid: scopedMessageId,
@@ -1156,7 +1189,15 @@ async function handleProxy(req: Request): Promise<Response> {
   const isHeadRequest = req.method === "HEAD";
   const token = new URL(req.url).searchParams.get("token") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
+  let tokenSecret: string;
+  try {
+    tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
+  } catch (error) {
+    if (error instanceof ProxyTokenSecretConfigError) {
+      return jsonResponse(req, { success: false, error: "chat_media_proxy_secret_missing" }, { status: 503, headers: corsHeaders });
+    }
+    throw error;
+  }
   const claims = await verifyToken(tokenSecret, token);
   const path = typeof claims?.path === "string" ? normalizeStoragePathForProxy(claims.path) : "";
   const storageTier: BunnyStorageZoneTier = claims?.zone === "archive" ? "archive" : "hot";

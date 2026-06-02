@@ -13,7 +13,7 @@ const vibeStudioModal = read("src/components/vibe-video/VibeStudioModal.tsx");
 
 test("Vibe Studio uses shared camera and microphone permission classification", () => {
   assert.match(vibeStudioModal, /@clientShared\/media\/mediaPermissionResult/);
-  assert.match(vibeStudioModal, /classifyMediaPermissionError\(err, "camera_microphone"\)/);
+  assert.match(vibeStudioModal, /classifyMediaPermissionErrorWithBrowserState\(err, "camera_microphone"\)/);
   assert.match(vibeStudioModal, /mediaPermissionTitle\(permissionBlock\)/);
   assert.match(vibeStudioModal, /mediaPermissionMessage\(permissionBlock\)/);
   assert.match(vibeStudioModal, /vibe_video_media_permission_blocked/);

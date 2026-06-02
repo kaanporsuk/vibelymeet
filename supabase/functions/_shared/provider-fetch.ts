@@ -46,7 +46,6 @@ export async function fetchWithProviderTimeout(
   const controller = new AbortController();
   let timedOut = false;
   let cleanedUp = false;
-  let timeout: ReturnType<typeof setTimeout>;
   function cleanup() {
     if (cleanedUp) return;
     cleanedUp = true;
@@ -57,7 +56,7 @@ export async function fetchWithProviderTimeout(
     controller.abort(options.signal?.reason);
     cleanup();
   };
-  timeout = setTimeout(() => {
+  const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
     cleanup();

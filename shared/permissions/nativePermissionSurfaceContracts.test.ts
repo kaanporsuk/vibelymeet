@@ -170,6 +170,7 @@ test("native saved-video Vibe Clip picker has a real file fallback", () => {
 test("native permission settings recovery is centralized and refreshes on app return", () => {
   const helper = readRepo("apps/mobile/lib/permissionSettings.ts");
   const matchCall = readRepo("apps/mobile/lib/useMatchCall.tsx");
+  const dashboardPrompt = readRepo("apps/mobile/components/notifications/PushPermissionPrompt.tsx");
   const notificationStep = readRepo("apps/mobile/components/onboarding/steps/NotificationStep.tsx");
   const directOpenSettingsHits = findRepoFilesContaining(/Linking\.openSettings\(/, "apps/mobile")
     .filter((path) => path !== "apps/mobile/lib/permissionSettings.ts");
@@ -191,6 +192,8 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.match(notificationStep, /result\.outcome === 'granted' && !result\.sync\.synced/);
   assert.match(notificationStep, /activeUserIdRef\.current === promptUserId/);
   assert.doesNotMatch(notificationStep, /openSettings\(\);\s*setShowDeniedRecovery\(false\)/);
+  assert.match(dashboardPrompt, /onOpenSettings=\{\(\) => \{[\s\S]*setSetupRecoveryMessage\(null\);[\s\S]*openSettings\(\);/);
+  assert.doesNotMatch(dashboardPrompt, /openSettings\(\);\s*if \(!isActivePromptUser\(promptUserId\)\) return;\s*onClose\(\);\s*onCompleted\?\.\(\);/);
   assert.deepEqual(directOpenSettingsHits, []);
 });
 

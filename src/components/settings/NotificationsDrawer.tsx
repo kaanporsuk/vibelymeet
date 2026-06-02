@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
@@ -95,6 +95,8 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
   const { prefs, isLoading, isSaving, saveError, isPaused, toggle, savePrefs, setPauseUntil } =
     useNotificationPreferences();
   const [pauseOptionsOpen, setPauseOptionsOpen] = useState(false);
+  const [masterToggleBusy, setMasterToggleBusy] = useState(false);
+  const providerSetupBusyRef = useRef(false);
 
   useEffect(() => {
     if (!saveError) return;
@@ -111,58 +113,73 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     [prefs.quiet_hours_start, prefs.quiet_hours_end]
   );
 
-  const handleEnablePush = async (): Promise<PushSyncResult | null> => {
+  const handleEnablePush = async (
+    options: { setupBusyAlreadySet?: boolean } = {},
+  ): Promise<PushSyncResult | null> => {
     if (!user?.id) return null;
-    recordUserAction("notification_settings_push_retry_clicked", {
-      surface: "settings_notifications",
-      health_status: health.status,
-    });
-    const result =
-      health.status === "needs_sync" || health.status === "allowed_finishing_setup"
-        ? await retryPushSync()
-        : await requestWebPushPermissionAndSync(user.id);
-    await refreshPushHealth();
-    if (result?.synced) {
-      window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
-      recordUserAction("notification_settings_push_retry_succeeded", {
-        surface: "settings_notifications",
-      });
-      toast.success("Push notifications enabled! 🔔");
-    } else if (result?.code === "stale_identity") {
-      recordUserAction("notification_settings_push_retry_stale_identity", {
-        surface: "settings_notifications",
-      });
-    } else if (result?.code === "no_player_id_after_retry") {
-      recordUserAction("notification_settings_push_retry_failed", {
-        surface: "settings_notifications",
-        reason: result.code,
-      });
-      toast.error("Notifications are allowed, but this browser is still finishing setup. Try again in a moment.");
-    } else if (result?.code === "unsupported_browser") {
-      recordUserAction("notification_settings_push_retry_failed", {
-        surface: "settings_notifications",
-        reason: result.code,
-      });
-      toast.error("This browser or in-app webview does not support web push.");
-    } else if (result?.code === "prompt_unavailable") {
-      recordUserAction("notification_settings_push_retry_failed", {
-        surface: "settings_notifications",
-        reason: result.code,
-      });
-      toast.error("The browser notification prompt did not open. Check site settings and try again.");
-    } else if (result?.code === "upsert_failed") {
-      recordUserAction("notification_settings_push_retry_failed", {
-        surface: "settings_notifications",
-        reason: result.code,
-      });
-      toast.error("Couldn’t save this browser for push. Please retry.");
-    } else if (result?.code) {
-      recordUserAction("notification_settings_push_retry_failed", {
-        surface: "settings_notifications",
-        reason: result.code,
-      });
+    const ownsBusy = !options.setupBusyAlreadySet;
+    if (ownsBusy) {
+      if (providerSetupBusyRef.current) return null;
+      providerSetupBusyRef.current = true;
+      setMasterToggleBusy(true);
     }
-    return result ?? null;
+    try {
+      recordUserAction("notification_settings_push_retry_clicked", {
+        surface: "settings_notifications",
+        health_status: health.status,
+      });
+      const result =
+        health.status === "needs_sync" || health.status === "allowed_finishing_setup"
+          ? await retryPushSync()
+          : await requestWebPushPermissionAndSync(user.id);
+      await refreshPushHealth();
+      if (result?.synced) {
+        window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+        recordUserAction("notification_settings_push_retry_succeeded", {
+          surface: "settings_notifications",
+        });
+        toast.success("Push notifications enabled! 🔔");
+      } else if (result?.code === "stale_identity") {
+        recordUserAction("notification_settings_push_retry_stale_identity", {
+          surface: "settings_notifications",
+        });
+      } else if (result?.code === "no_player_id_after_retry") {
+        recordUserAction("notification_settings_push_retry_failed", {
+          surface: "settings_notifications",
+          reason: result.code,
+        });
+        toast.error("Notifications are allowed, but this browser is still finishing setup. Try again in a moment.");
+      } else if (result?.code === "unsupported_browser") {
+        recordUserAction("notification_settings_push_retry_failed", {
+          surface: "settings_notifications",
+          reason: result.code,
+        });
+        toast.error("This browser or in-app webview does not support web push.");
+      } else if (result?.code === "prompt_unavailable") {
+        recordUserAction("notification_settings_push_retry_failed", {
+          surface: "settings_notifications",
+          reason: result.code,
+        });
+        toast.error("The browser notification prompt did not open. Check site settings and try again.");
+      } else if (result?.code === "upsert_failed") {
+        recordUserAction("notification_settings_push_retry_failed", {
+          surface: "settings_notifications",
+          reason: result.code,
+        });
+        toast.error("Couldn’t save this browser for push. Please retry.");
+      } else if (result?.code) {
+        recordUserAction("notification_settings_push_retry_failed", {
+          surface: "settings_notifications",
+          reason: result.code,
+        });
+      }
+      return result ?? null;
+    } finally {
+      if (ownsBusy) {
+        providerSetupBusyRef.current = false;
+        setMasterToggleBusy(false);
+      }
+    }
   };
 
   const handlePause = (duration: string) => {
@@ -202,33 +219,45 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
   };
 
   const handleMasterToggle = async (nextEnabled: boolean) => {
-    if (nextEnabled && health.status === "blocked") {
-      toast.error("Allow notifications in your browser site settings first.");
-      return;
-    }
-    if (
-      nextEnabled &&
-      typeof Notification !== "undefined" &&
-      Notification.permission !== "granted"
-    ) {
-      await refreshPushHealth();
-      toast.error("Allow notifications in your browser site settings first.");
-      return;
-    }
-    if (nextEnabled && health.status === "unsupported") {
-      toast.error("This browser does not support push notifications.");
-      return;
-    }
-    if (nextEnabled && health.status !== "enabled") {
-      const result = await handleEnablePush();
-      await refreshPushHealth();
-      if (!result?.synced) {
+    if (providerSetupBusyRef.current) return;
+    providerSetupBusyRef.current = true;
+    setMasterToggleBusy(true);
+    try {
+      if (nextEnabled && health.status === "unsupported") {
+        toast.error("This browser does not support push notifications.");
         return;
       }
+      const browserPermission =
+        typeof Notification !== "undefined" ? Notification.permission : null;
+      if (nextEnabled && browserPermission === "denied") {
+        await refreshPushHealth();
+        toast.error("Allow notifications in your browser site settings first.");
+        return;
+      }
+      if (nextEnabled && health.status === "blocked") {
+        await refreshPushHealth();
+        const refreshedPermission =
+          typeof Notification !== "undefined" ? Notification.permission : null;
+        if (refreshedPermission === "denied" || refreshedPermission === null) {
+          toast.error("Allow notifications in your browser site settings first.");
+          return;
+        }
+      }
+      if (nextEnabled && health.status !== "enabled") {
+        const result = await handleEnablePush({ setupBusyAlreadySet: true });
+        await refreshPushHealth();
+        if (!result?.synced) {
+          return;
+        }
+      }
+      savePrefs({ push_enabled: nextEnabled });
+    } finally {
+      providerSetupBusyRef.current = false;
+      setMasterToggleBusy(false);
     }
-    savePrefs({ push_enabled: nextEnabled });
   };
 
+  const providerControlsBusy = isLoading || isSaving || isSyncing || masterToggleBusy;
   const categoryControlsBusy = isLoading || isSaving;
 
   const ToggleRow = ({
@@ -287,7 +316,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
               </div>
               <p className="text-xs text-muted-foreground mb-3">{health.description}</p>
               {health.status !== "unsupported" && (
-                <Button variant="gradient" size="sm" onClick={handleEnablePush} disabled={isSyncing}>
+                <Button variant="gradient" size="sm" onClick={() => void handleEnablePush()} disabled={providerControlsBusy}>
                   {health.status === "disabled" ? "Enable Push Notifications" : "Retry Setup"}
                 </Button>
               )}
@@ -369,7 +398,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
             <Switch
               checked={prefs.push_enabled}
               onCheckedChange={(checked) => void handleMasterToggle(checked)}
-              disabled={isLoading || isSaving}
+              disabled={providerControlsBusy}
             />
           </div>
 
