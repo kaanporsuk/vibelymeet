@@ -489,14 +489,14 @@ export default function NotificationsSettingsScreen() {
   const onStartTimeChange = (event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === 'android') setShowStartPicker(false);
     if (Platform.OS === 'android' && event.type === 'dismissed') return;
-    if (preferencesBusy) return;
+    if (Platform.OS !== 'ios' && preferencesBusy) return;
     if (date) saveQuietHoursPatch({ quiet_hours_start: dateToTimeString(date) });
   };
 
   const onEndTimeChange = (event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === 'android') setShowEndPicker(false);
     if (Platform.OS === 'android' && event.type === 'dismissed') return;
-    if (preferencesBusy) return;
+    if (Platform.OS !== 'ios' && preferencesBusy) return;
     if (date) saveQuietHoursPatch({ quiet_hours_end: dateToTimeString(date) });
   };
 

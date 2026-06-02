@@ -148,6 +148,7 @@ test("native push and match-call permission recovery survives interrupted or ret
   assert.match(nativeSettings, /const providerControlsBusy = preferencesBusy \|\| masterBusy/);
   assert.match(nativeSettings, /const categoryControlsBusy = preferencesBusy/);
   assert.doesNotMatch(nativeSettings, /categoryControls\w+ = preferencesBusy \|\| !prefs\.push_enabled \|\| isPaused/);
+  assert.match(nativeSettings, /if \(Platform\.OS !== 'ios' && preferencesBusy\) return/);
   assert.match(nativeSettings, /disabled=\{providerControlsBusy\}/);
   assert.match(nativeSettings, /const saveQuietHoursPatch = useCallback\([\s\S]*updatePrefs\(patch\)/);
   assert.match(nativeSettings, /Category choices below are still saved and will apply when notifications resume/);
