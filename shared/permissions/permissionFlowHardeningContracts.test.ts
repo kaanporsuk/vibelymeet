@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +8,16 @@ const root = process.cwd();
 
 function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
+}
+
+function gitTrackedFiles(path: string): string[] {
+  return execFileSync("git", ["ls-files", path], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function extractBetween(source: string, startNeedle: string, endNeedle: string): string {
@@ -109,22 +120,11 @@ test("native permission metadata matches the shipped runtime prompts", () => {
     false,
     "stale unreferenced ios/mobile/Info.plist must not be checked in",
   );
-  const plistPaths = ["apps/mobile/ios/Vibely/Info.plist"];
-  assert.ok(existsSync(join(root, plistPaths[0])), "expected checked-in Vibely iOS Info.plist");
-
-  for (const path of plistPaths) {
-    const source = read(path);
-    assert.match(source, /<key>NSCameraUsageDescription<\/key>/);
-    assert.match(source, /join video dates, record Vibe Videos or chat clips/);
-    assert.match(source, /<key>NSMicrophoneUsageDescription<\/key>/);
-    assert.match(source, /send voice messages/);
-    assert.match(source, /<key>NSPhotoLibraryUsageDescription<\/key>/);
-    assert.match(source, /photo library only when you choose photos or videos/);
-    assert.match(source, /<key>NSLocationWhenInUseUsageDescription<\/key>/);
-    assert.match(source, /while the app is open/);
-    assert.match(source, /<key>NSSpeechRecognitionUsageDescription<\/key>/);
-    assert.doesNotMatch(source, /NSLocationAlways(?:AndWhenInUse)?UsageDescription/);
-  }
+  assert.deepEqual(
+    gitTrackedFiles("apps/mobile/ios"),
+    [],
+    "Expo managed config is the iOS source of truth; do not commit a partial generated ios directory",
+  );
 
   const androidManifestPath = "apps/mobile/android/app/src/main/AndroidManifest.xml";
   const androidPermissions = appConfigJson.expo?.android?.permissions ?? [];
@@ -164,6 +164,9 @@ test("native permission metadata matches the shipped runtime prompts", () => {
   assert.match(appConfig, /while the app is open/);
   assert.match(appConfig, /NSSpeechRecognitionUsageDescription/);
   assert.doesNotMatch(appConfig, /NSLocationAlways(?:AndWhenInUse)?UsageDescription/);
+  assert.match(appConfig, /"UIBackgroundModes": \[/);
+  assert.match(appConfig, /"remote-notification"/);
+  assert.match(appConfig, /"audio"/);
   assert.match(appConfig, /com\.apple\.security\.application-groups/);
   assert.match(appConfig, /"photosPermission": "Vibely uses your photo library only when you choose photos or videos/);
   assert.match(appConfig, /"cameraPermission": "Vibely uses your camera when you choose to join video dates/);

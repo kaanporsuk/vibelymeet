@@ -272,6 +272,15 @@ export function useNotificationPreferences() {
     [flushPendingPrefs, user?.id]
   );
 
+  useEffect(() => {
+    return () => {
+      const activeUserId = activeUserIdRef.current;
+      if (activeUserId && Object.keys(pendingPatchRef.current).length) {
+        void flushPendingPrefs(activeUserId);
+      }
+    };
+  }, [flushPendingPrefs]);
+
   const toggle = useCallback(
     (key: keyof NotificationPreferences) => {
       const current = prefs[key];

@@ -40,6 +40,10 @@ function safeUnexpectedError(error: unknown): Record<string, string> {
   return { name: typeof error };
 }
 
+function publicUrlForUploadContext(storagePath: string, context: string | null): string | null {
+  return context === "chat" ? null : bunnyCdnUrl(storagePath);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -405,7 +409,7 @@ serve(async (req) => {
       return json({
         success: true,
         path: reservedPath,
-        url: bunnyCdnUrl(reservedPath),
+        url: publicUrlForUploadContext(reservedPath, context),
         assetId: reservedAssetId,
         contentSha256,
         receiptId,
@@ -568,7 +572,7 @@ serve(async (req) => {
     return json({
       success: true,
       path: uploadPath,
-      url: bunnyCdnUrl(uploadPath),
+      url: publicUrlForUploadContext(uploadPath, context),
       assetId,
       contentSha256,
       receiptId,

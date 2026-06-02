@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
@@ -17,6 +18,15 @@ function read(path: string): string {
 
 function readJson(path: string): Record<string, unknown> {
   return JSON.parse(read(path)) as Record<string, unknown>;
+}
+
+function gitTrackedFiles(path: string): string[] {
+  return execFileSync("git", ["ls-files", path], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function dependenciesOf(packageJsonPath: string): Record<string, string> {
@@ -47,13 +57,6 @@ function runtimeSourceCorpus(paths: readonly string[]): string {
     .flatMap((path) => runtimeFilesUnder(path))
     .map((path) => `\n--- ${path} ---\n${read(path)}`)
     .join("\n");
-}
-
-function plistArrayForKey(path: string, key: string): string[] {
-  const text = read(path);
-  const match = new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`).exec(text);
-  if (!match) return [];
-  return Array.from(match[1].matchAll(/<string>([^<]+)<\/string>/g), (entry) => entry[1]);
 }
 
 test("Phase 7 OS-level background uploads stay research-only until measured platform gates pass", () => {
@@ -181,15 +184,11 @@ test("native app config does not request background upload execution modes", () 
     false,
     "stale unreferenced ios/mobile/Info.plist must not be checked in",
   );
-  const plistPaths = ["apps/mobile/ios/Vibely/Info.plist"];
-  assert.ok(existsSync(plistPaths[0]), "app Info.plist must be present for UIBackgroundModes parity");
-  for (const plistPath of plistPaths) {
-    assert.deepEqual(
-      plistArrayForKey(plistPath, "UIBackgroundModes"),
-      modes,
-      `${plistPath} UIBackgroundModes must match apps/mobile/app.base.json exactly`,
-    );
-  }
+  assert.deepEqual(
+    gitTrackedFiles("apps/mobile/ios"),
+    [],
+    "Expo managed config is the iOS source of truth; do not commit a partial generated ios directory",
+  );
 
   assert.match(read("apps/mobile/app.base.json"), /@daily-co\/config-plugin-rn-daily-js/);
   assert.match(read("docs/media-background-upload-phase7-decision.md"), /does not include a PushKit\/PKPush incoming-call stack/);
