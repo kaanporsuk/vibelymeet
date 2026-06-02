@@ -16,6 +16,7 @@ AS $function$
 DECLARE
   v_uid uuid := auth.uid();
   v_bucket text := btrim(lower(COALESCE(p_bucket, '')));
+  v_scoped_bucket text;
   v_capacity integer;
   v_refill numeric;
   v_session record;
@@ -54,9 +55,11 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'invalid_rate_limit_bucket', 'retryAfterSeconds', 30);
   END IF;
 
+  v_scoped_bucket := concat(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text);
+
   RETURN public.take_provider_rate_limit_token_v1(
     'daily',
-    v_bucket,
+    v_scoped_bucket,
     1,
     v_capacity,
     v_refill

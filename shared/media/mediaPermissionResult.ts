@@ -174,8 +174,9 @@ function deniedResultForBrowserPermissionState(params: {
   rawErrorName: string | null;
   rawErrorMessage: string | null;
 }): MediaPermissionResult {
+  const status = params.permissionState === "prompt" ? "denied_retryable" : "denied";
   return mediaPermissionResultForStatus({
-    status: params.permissionState === "denied" ? "denied" : "denied_retryable",
+    status,
     kind: params.kind,
     permissionState: params.permissionState,
     rawErrorName: params.rawErrorName,

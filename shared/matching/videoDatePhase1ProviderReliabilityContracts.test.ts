@@ -8,6 +8,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
 const tokenRefreshProviderLimitMigration = read("supabase/migrations/20260601184730_video_date_token_refresh_provider_rate_limit.sql");
+const reviewCommentsForwardMigration = read("supabase/migrations/20260602000417_review_comments_1146_1158_followups.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const deadlineFinalizer = read("supabase/functions/video-date-deadline-finalizer/index.ts");
@@ -162,6 +163,12 @@ test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guar
   assert.match(tokenRefreshProviderLimitMigration, /session_not_active/);
   assert.match(tokenRefreshProviderLimitMigration, /v_bucket = 'room_lookup'/);
   assert.match(tokenRefreshProviderLimitMigration, /v_bucket = 'meeting_token'/);
+  assert.match(tokenRefreshProviderLimitMigration, /v_scoped_bucket := concat\(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text\)/);
+  assert.match(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_scoped_bucket/);
+  assert.doesNotMatch(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_bucket/);
+  assert.match(reviewCommentsForwardMigration, /CREATE OR REPLACE FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1/);
+  assert.match(reviewCommentsForwardMigration, /v_scoped_bucket := concat\(v_bucket, ':session:', p_session_id::text, ':user:', v_uid::text\)/);
+  assert.match(reviewCommentsForwardMigration, /public\.take_provider_rate_limit_token_v1\(\s*'daily',\s*v_scoped_bucket/);
   assert.match(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1/);
   assert.match(tokenRefreshProviderLimitMigration, /GRANT EXECUTE ON FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1\(uuid, text\)[\s\S]+TO authenticated, service_role/);
   assert.match(tokenRefresh, /error: tokenError\.clientError/);

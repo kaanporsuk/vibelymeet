@@ -3404,7 +3404,7 @@ export default function ChatThreadScreen() {
   };
 
   const startVoiceRecording = async () => {
-    if (recording || voiceStopInFlightRef.current || voiceStartInFlightRef.current) return;
+    if (composerInputLocked || recording || voiceStopInFlightRef.current || voiceStartInFlightRef.current) return;
     voiceStartInFlightRef.current = true;
     setVoiceError(null);
     voiceStopIntentRef.current = null;
@@ -3628,6 +3628,7 @@ export default function ChatThreadScreen() {
   };
 
   const startVoiceReplyRecording = () => {
+    if (composerInputLocked) return;
     stickToBottomRef.current = true;
     userScrollIntentUntilRef.current = 0;
     scrollListToLatest(true);
