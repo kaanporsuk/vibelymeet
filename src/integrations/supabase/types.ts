@@ -12025,6 +12025,10 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      ready_gate_transition_20260602231752_57014_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
       recompute_profile_live_counts: {
         Args: { p_profile_id: string }
         Returns: undefined
