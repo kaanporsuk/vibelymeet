@@ -55,6 +55,7 @@ import {
 import {
   classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionResultForStatus,
+  type MediaPermissionQueryState,
   type MediaPermissionResult,
 } from "@clientShared/media/mediaPermissionResult";
 import {
@@ -118,6 +119,142 @@ const REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 // GOP, which is the original bug we are fixing.
 const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
 const WEB_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
+
+export type VideoDateMediaPromptIntent = "auto" | "user_retry";
+
+type VideoCallStartOptions = {
+  internalRetry?: boolean;
+  mediaPromptIntent?: VideoDateMediaPromptIntent;
+};
+
+type WebVideoDateMediaCaptureReadiness = {
+  canAcquire: boolean;
+  permissionState: MediaPermissionQueryState;
+  sourceAction: string;
+  reasonCode: string | null;
+};
+
+function hasLabeledMediaDevice(
+  devices: MediaDeviceInfo[],
+  kind: MediaDeviceKind,
+): boolean {
+  return devices.some(
+    (device) => device.kind === kind && device.label.trim().length > 0,
+  );
+}
+
+async function hasPriorGrantedVideoDateDeviceLabels(): Promise<boolean> {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices?.enumerateDevices
+  ) {
+    return false;
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return (
+    hasLabeledMediaDevice(devices, "videoinput") &&
+    hasLabeledMediaDevice(devices, "audioinput")
+  );
+}
+
+async function queryVideoDateMediaPermissionState(
+  name: "camera" | "microphone",
+): Promise<MediaPermissionQueryState> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+    return "unknown";
+  }
+  try {
+    const status = await navigator.permissions.query({
+      name: name as PermissionName,
+    });
+    return status.state === "granted" ||
+      status.state === "prompt" ||
+      status.state === "denied"
+      ? status.state
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function resolveWebVideoDateMediaCaptureReadiness(
+  promptIntent: VideoDateMediaPromptIntent,
+  hasPermissionHandoff: boolean,
+): Promise<WebVideoDateMediaCaptureReadiness> {
+  if (promptIntent === "user_retry") {
+    return {
+      canAcquire: true,
+      permissionState: "unknown",
+      sourceAction: "media_permission_preflight_user_retry",
+      reasonCode: null,
+    };
+  }
+
+  const [cameraState, microphoneState] = await Promise.all([
+    queryVideoDateMediaPermissionState("camera"),
+    queryVideoDateMediaPermissionState("microphone"),
+  ]);
+
+  if (cameraState === "granted" && microphoneState === "granted") {
+    return {
+      canAcquire: true,
+      permissionState: "granted",
+      sourceAction: "media_permission_preflight_prior_grant",
+      reasonCode: null,
+    };
+  }
+
+  if (cameraState === "denied" || microphoneState === "denied") {
+    return {
+      canAcquire: false,
+      permissionState: "denied",
+      sourceAction: "media_permission_preflight_blocked_settings",
+      reasonCode: "browser_permission_denied",
+    };
+  }
+
+  if (hasPermissionHandoff) {
+    return {
+      canAcquire: true,
+      permissionState:
+        cameraState === "prompt" || microphoneState === "prompt"
+          ? "prompt"
+          : "unknown",
+      sourceAction: "media_permission_preflight_permission_handoff",
+      reasonCode: null,
+    };
+  }
+
+  if (cameraState === "prompt" || microphoneState === "prompt") {
+    return {
+      canAcquire: false,
+      permissionState: "prompt",
+      sourceAction: "media_permission_preflight_prompt_required",
+      reasonCode: "browser_permission_prompt_required",
+    };
+  }
+
+  try {
+    if (await hasPriorGrantedVideoDateDeviceLabels()) {
+      return {
+        canAcquire: true,
+        permissionState: "unknown",
+        sourceAction: "media_permission_preflight_prior_device_labels",
+        reasonCode: null,
+      };
+    }
+  } catch {
+    // Absence of device-label evidence means we should avoid auto-prompting.
+  }
+
+  return {
+    canAcquire: false,
+    permissionState: "unknown",
+    sourceAction: "media_permission_preflight_prompt_required",
+    reasonCode: "browser_permission_prior_grant_unproven",
+  };
+}
+
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
 
@@ -265,6 +402,40 @@ function stopMediaStreamTracks(stream: MediaStream | null | undefined) {
 
 function firstLiveTrack(tracks: MediaStreamTrack[]): MediaStreamTrack | null {
   return tracks.find((track) => track.readyState !== "ended") ?? null;
+}
+
+type LiveVideoDateMediaTracks = {
+  videoTrack: MediaStreamTrack;
+  audioTrack: MediaStreamTrack;
+};
+
+function getLiveVideoDateMediaTracks(
+  stream: MediaStream | null | undefined,
+): LiveVideoDateMediaTracks | null {
+  const videoTrack = firstLiveTrack(stream?.getVideoTracks() ?? []);
+  if (!videoTrack) return null;
+  const audioTrack = firstLiveTrack(stream?.getAudioTracks() ?? []);
+  if (!audioTrack) return null;
+  return { videoTrack, audioTrack };
+}
+
+function missingLiveVideoDateMediaTrackReason(
+  stream: MediaStream | null | undefined,
+): "missing_video_track" | "missing_audio_track" {
+  return firstLiveTrack(stream?.getVideoTracks() ?? [])
+    ? "missing_audio_track"
+    : "missing_video_track";
+}
+
+function requireLiveVideoDateMediaTracks(
+  stream: MediaStream | null | undefined,
+  source: string,
+): LiveVideoDateMediaTracks {
+  const videoTrack = firstLiveTrack(stream?.getVideoTracks() ?? []);
+  if (!videoTrack) throw new Error(`${source} returned no live video track`);
+  const audioTrack = firstLiveTrack(stream?.getAudioTracks() ?? []);
+  if (!audioTrack) throw new Error(`${source} returned no live audio track`);
+  return { videoTrack, audioTrack };
 }
 
 type WebDailyCallSingletonEntry = {
@@ -2088,7 +2259,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, []);
 
   const preflightMediaPermission = useCallback(
-    async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
+    async (
+      sessionId: string,
+      eventId: string | null | undefined,
+      userId: string | null | undefined,
+      promptIntent: VideoDateMediaPromptIntent = "auto",
+    ) => {
       const permissionStartedAt = Date.now();
       lastMediaHandoffUsedRef.current = false;
       lastMediaHandoffMissReasonRef.current = null;
@@ -2148,9 +2324,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         : { ok: false as const, reason: "missing_user" };
       if (mediaHandoff.ok === true) {
         releaseAppAcquiredMedia("media_handoff_stream_reused");
-        const videoTrack = firstLiveTrack(mediaHandoff.stream.getVideoTracks());
-        const audioTrack = firstLiveTrack(mediaHandoff.stream.getAudioTracks());
-        if (videoTrack) {
+        const mediaTracks = getLiveVideoDateMediaTracks(mediaHandoff.stream);
+        if (mediaTracks) {
+          const { videoTrack, audioTrack } = mediaTracks;
           const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
           lastMediaHandoffUsedRef.current = true;
           lastMediaHandoffMissReasonRef.current = null;
@@ -2226,8 +2402,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
           return true;
         }
+        lastMediaHandoffMissReasonRef.current =
+          missingLiveVideoDateMediaTrackReason(mediaHandoff.stream);
         stopMediaStreamTracks(mediaHandoff.stream);
-        lastMediaHandoffMissReasonRef.current = "missing_video_track";
       } else {
         lastMediaHandoffMissReasonRef.current = mediaHandoff.reason;
       }
@@ -2245,8 +2422,61 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       });
 
       let deferredMediaPermissionError: unknown = null;
-      let mediaPermissionFailureSourceAction = "media_permission_preflight_failed";
       const permissionHandoff = userId ? getVideoDatePermissionHandoff(sessionId, userId) : null;
+      const captureReadiness =
+        await resolveWebVideoDateMediaCaptureReadiness(
+          promptIntent,
+          Boolean(permissionHandoff),
+        );
+      let mediaPermissionFailureSourceAction = captureReadiness.sourceAction;
+      if (!captureReadiness.canAcquire) {
+        releaseAppAcquiredMedia("media_permission_preflight_prompt_required");
+        mediaPermissionDeniedRef.current = true;
+        setHasPermission(false);
+        const permissionResult = mediaPermissionResultForStatus({
+          status:
+            captureReadiness.permissionState === "denied"
+              ? "denied"
+              : "promptable",
+          kind: "camera_microphone",
+          permissionState: captureReadiness.permissionState,
+          rawErrorName: captureReadiness.reasonCode,
+          rawErrorMessage:
+            "Camera and microphone access needs a tap before this browser can ask.",
+        });
+        setMediaPermissionResult(permissionResult);
+        setMediaPermissionError("Camera and microphone access is needed before this date can start.");
+        vdbg("daily_media_permission_preflight_prompt_required", {
+          sessionId,
+          eventId: eventId ?? null,
+          userId: userId ?? null,
+          promptIntent,
+          permissionState: captureReadiness.permissionState,
+          sourceAction: captureReadiness.sourceAction,
+          reasonCode: captureReadiness.reasonCode,
+          mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
+        });
+        trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          source: captureReadiness.sourceAction,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          source_surface: "video_date_daily",
+          source_action: captureReadiness.sourceAction,
+          reason:
+            captureReadiness.reasonCode ?? "media_permission_prompt_required",
+          permission_status: permissionResult.status,
+          permission_state: permissionResult.permissionState,
+          recovery_action: permissionResult.recoveryAction,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+        });
+        return false;
+      }
       if (permissionHandoff) {
         releaseAppAcquiredMedia("permission_handoff_media_restart");
         let handoffCaptureProfile: VideoDateWebMediaCaptureProfile = permissionHandoff.captureProfile ?? "ideal";
@@ -2274,9 +2504,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
             }
           }
-          const videoTrack = firstLiveTrack(handoffStream?.getVideoTracks() ?? []);
-          const audioTrack = firstLiveTrack(handoffStream?.getAudioTracks() ?? []);
-          if (handoffStream && videoTrack) {
+          if (handoffStream) {
+            const { videoTrack, audioTrack } = requireLiveVideoDateMediaTracks(
+              handoffStream,
+              "Video Date permission handoff media acquire",
+            );
             const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
             appAcquiredMediaRef.current = {
               stream: handoffStream,
@@ -2425,12 +2657,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         captureProfileRef.current = nextCaptureProfile;
         setCaptureProfile(nextCaptureProfile);
-        const videoTrack = firstLiveTrack(stream.getVideoTracks());
-        const audioTrack = firstLiveTrack(stream.getAudioTracks());
-        if (!videoTrack) {
+        let mediaTracks: LiveVideoDateMediaTracks;
+        try {
+          mediaTracks = requireLiveVideoDateMediaTracks(
+            stream,
+            "Video Date media permission preflight",
+          );
+        } catch (error) {
           stopMediaStreamTracks(stream);
-          throw new Error("Video Date media permission preflight returned no live video track");
+          throw error;
         }
+        const { videoTrack, audioTrack } = mediaTracks;
         const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
         appAcquiredMediaRef.current = {
           stream,
@@ -2495,6 +2732,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           sessionId,
           eventId: eventId ?? null,
           userId: userId ?? null,
+          promptIntent,
+          captureReadinessSourceAction: captureReadiness.sourceAction,
           captureProfile: nextCaptureProfile,
           appAcquiredMedia: true,
           mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
@@ -3055,10 +3294,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   );
 
   const startCall = useCallback(
-    async (roomId?: string, opts?: { internalRetry?: boolean }) => {
+    async (roomId?: string, opts?: VideoCallStartOptions) => {
       const sessionId = roomId || optionsRef.current?.roomId;
       const eventId = optionsRef.current?.eventId ?? null;
       const userId = optionsRef.current?.userId ?? null;
+      const mediaPromptIntent = opts?.mediaPromptIntent ?? "auto";
       if (!sessionId) {
         toast.error("No session ID provided");
         return { ok: false, failure: { kind: "session_unavailable", retryable: false } } as VideoCallStartResult;
@@ -3181,7 +3421,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           : await preflightMediaPermission(
               sessionId,
               truthRow.event_id ?? eventId,
-              userId
+              userId,
+              mediaPromptIntent,
             );
         if (skipMediaPreflightForSingleton) {
           setHasPermission(true);
@@ -3480,13 +3721,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               }
             }
             if (stream) {
-              const videoTrack = firstLiveTrack(stream.getVideoTracks());
-              const audioTrack = firstLiveTrack(stream.getAudioTracks());
-              if (!videoTrack) {
+              let mediaTracks: LiveVideoDateMediaTracks;
+              try {
+                mediaTracks = requireLiveVideoDateMediaTracks(
+                  stream,
+                  "Video Date handoff capture",
+                );
+              } catch (error) {
                 stopMediaStreamTracks(stream);
                 stream = null;
-                throw new Error("Video Date handoff capture returned no live video track");
+                throw error;
               }
+              const { videoTrack, audioTrack } = mediaTracks;
               const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
               captureProfileForCall = nextCaptureProfile;
               captureProfileRef.current = nextCaptureProfile;
@@ -3576,22 +3822,21 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const acquiredMedia = appAcquiredMediaRef.current;
         const appAcquiredMediaForCall =
           acquiredMedia && acquiredMedia.captureProfile === captureProfileForCall
-            ? {
-                audioTrack: firstLiveTrack(acquiredMedia.stream.getAudioTracks()),
-                videoTrack: firstLiveTrack(acquiredMedia.stream.getVideoTracks()),
-              }
+            ? getLiveVideoDateMediaTracks(acquiredMedia.stream) ?? undefined
             : undefined;
-        const hasAppAcquiredVideoTrack = Boolean(appAcquiredMediaForCall?.videoTrack);
         if (acquiredMedia && acquiredMedia.captureProfile !== captureProfileForCall) {
           releaseAppAcquiredMedia("capture_profile_changed_before_daily_create");
+        } else if (acquiredMedia && !appAcquiredMediaForCall) {
+          releaseAppAcquiredMedia("app_acquired_media_missing_required_track");
         }
+        const hasAppAcquiredMediaTracks = Boolean(appAcquiredMediaForCall);
         let guardedCreateFailure: "external_call_busy" | "cleanup_pending" | null = null;
         const callObject = singletonCall.ok === true
           ? singletonCall.entry.call
           : prewarmedCall.ok === true
           ? prewarmedCall.entry.call
           : await (async () => {
-              const factoryOptions = hasAppAcquiredVideoTrack && appAcquiredMediaForCall
+              const factoryOptions = hasAppAcquiredMediaTracks && appAcquiredMediaForCall
                 ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(
                     captureProfileForCall,
                     appAcquiredMediaForCall,
@@ -3680,7 +3925,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
         } else if (prewarmedCall.ok === true && appAcquiredMediaRef.current && !prewarmAppAcquiredMedia) {
           releaseAppAcquiredMedia("prewarmed_call_reused");
-        } else if (hasAppAcquiredVideoTrack && appAcquiredMediaRef.current) {
+        } else if (hasAppAcquiredMediaTracks && appAcquiredMediaRef.current) {
           appAcquiredMediaRef.current.consumedByDaily = true;
           vdbg("daily_call_object_app_acquired_media_used", {
             sessionId,
@@ -3710,7 +3955,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reusedJoinedCallObject: prewarmedAlreadyJoined,
           reusedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
           appAcquiredMediaUsed:
-            singletonCall.ok === false && hasAppAcquiredVideoTrack && prewarmedCall.ok === false,
+            singletonCall.ok === false && hasAppAcquiredMediaTracks && prewarmedCall.ok === false,
           prewarmFallbackReason: prewarmedCall.ok === false ? prewarmedCall.reason : null,
         });
 
@@ -4956,7 +5201,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   result: "rejoin_scheduled",
                   attempt: noRemoteAutoRecoveryCountRef.current,
                 });
-                void startCall(sessionId, { internalRetry: true });
+                void startCall(sessionId, {
+                  internalRetry: true,
+                  mediaPromptIntent,
+                });
               })();
               return;
             }
@@ -5048,7 +5296,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             roomName: preparedEntryAtFailure.value.room_name,
             reason: "prepared_token_rejected_before_retry",
           });
-          return await startCall(sessionId, { internalRetry: true });
+          return await startCall(sessionId, {
+            internalRetry: true,
+            mediaPromptIntent,
+          });
         }
         setHasPermission(false);
         toast.error("Video is temporarily unavailable. Please try again.");

@@ -7,8 +7,8 @@ import {
 
 type WebDailyCallObjectMediaOptions = Pick<DailyFactoryOptions, "audioSource" | "videoSource">;
 type VideoDateAppAcquiredMediaTracks = {
-  audioTrack?: MediaStreamTrack | null;
-  videoTrack?: MediaStreamTrack | null;
+  audioTrack: MediaStreamTrack;
+  videoTrack: MediaStreamTrack;
 };
 type DailyAdvancedConfigWithVideoDateKnobs = NonNullable<DailyFactoryOptions["dailyConfig"]> & {
   experimentalChromeVideoMuteLightOff?: boolean;

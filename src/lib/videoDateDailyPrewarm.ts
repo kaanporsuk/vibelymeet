@@ -105,6 +105,19 @@ function firstLiveTrack(tracks: MediaStreamTrack[]): MediaStreamTrack | null {
   return tracks.find((track) => track.readyState !== "ended") ?? null;
 }
 
+type LivePrewarmMediaTracks = {
+  audioTrack: MediaStreamTrack;
+  videoTrack: MediaStreamTrack;
+};
+
+function getLivePrewarmMediaTracks(stream: MediaStream | null | undefined): LivePrewarmMediaTracks | null {
+  const videoTrack = firstLiveTrack(stream?.getVideoTracks() ?? []);
+  if (!videoTrack) return null;
+  const audioTrack = firstLiveTrack(stream?.getAudioTracks() ?? []);
+  if (!audioTrack) return null;
+  return { audioTrack, videoTrack };
+}
+
 function stopMediaStreamTracks(stream: MediaStream | null | undefined) {
   stream?.getTracks().forEach((track) => {
     try {
@@ -299,18 +312,15 @@ export async function startWebVideoDateDailyPrewarm(params: {
   }
 
   const captureProfile = params.appAcquiredMedia?.captureProfile ?? params.captureProfile ?? "ideal";
-  const appAcquiredMedia =
-    params.appAcquiredMedia?.captureProfile === captureProfile &&
-    firstLiveTrack(params.appAcquiredMedia.stream.getVideoTracks())
-      ? params.appAcquiredMedia
+  const appAcquiredMediaTracks =
+    params.appAcquiredMedia?.captureProfile === captureProfile
+      ? getLivePrewarmMediaTracks(params.appAcquiredMedia.stream)
       : null;
+  const appAcquiredMedia = appAcquiredMediaTracks ? params.appAcquiredMedia ?? null : null;
   const guardedCall = await createDailyCallObjectGuarded(
     DailyIframe,
-    appAcquiredMedia
-      ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(captureProfile, {
-          audioTrack: firstLiveTrack(appAcquiredMedia.stream.getAudioTracks()),
-          videoTrack: firstLiveTrack(appAcquiredMedia.stream.getVideoTracks()),
-        })
+    appAcquiredMedia && appAcquiredMediaTracks
+      ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(captureProfile, appAcquiredMediaTracks)
       : dailyVideoDateCallObjectOptions(captureProfile),
     {
       source: `web_video_date_daily_prewarm:${params.source}`,

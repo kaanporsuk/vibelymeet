@@ -279,8 +279,11 @@ export async function requestNativeCameraMicrophonePermissions(params: {
 }): Promise<NativeCameraMicrophonePermissionRequestResult> {
   try {
     if (Platform.OS === 'android') {
-      const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
-      const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      const [camOk, micOk, rememberedBlocked] = await Promise.all([
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA),
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO),
+        readAndroidBlockedMediaPermissions(),
+      ]);
       if (camOk && micOk) {
         await rememberAndroidMediaPermissionResult(
           PermissionsAndroid.RESULTS.GRANTED,
@@ -297,12 +300,24 @@ export async function requestNativeCameraMicrophonePermissions(params: {
         });
       }
 
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      ]);
-      const cameraStatus = granted[PermissionsAndroid.PERMISSIONS.CAMERA] ?? 'denied';
-      const microphoneStatus = granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] ?? 'denied';
+      const permissionsToRequest = [
+        ...(!camOk && !rememberedBlocked.camera ? [PermissionsAndroid.PERMISSIONS.CAMERA] : []),
+        ...(!micOk && !rememberedBlocked.microphone ? [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] : []),
+      ];
+      const granted: Partial<Record<string, string>> =
+        permissionsToRequest.length > 0
+          ? await PermissionsAndroid.requestMultiple(permissionsToRequest)
+          : {};
+      const cameraStatus = camOk
+        ? PermissionsAndroid.RESULTS.GRANTED
+        : rememberedBlocked.camera
+          ? PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
+          : granted[PermissionsAndroid.PERMISSIONS.CAMERA] ?? 'denied';
+      const microphoneStatus = micOk
+        ? PermissionsAndroid.RESULTS.GRANTED
+        : rememberedBlocked.microphone
+          ? PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
+          : granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] ?? 'denied';
       const ok =
         cameraStatus === PermissionsAndroid.RESULTS.GRANTED &&
         microphoneStatus === PermissionsAndroid.RESULTS.GRANTED;
@@ -334,8 +349,14 @@ export async function requestNativeCameraMicrophonePermissions(params: {
       });
     }
 
-    const cam = await Camera.requestCameraPermissionsAsync();
-    const mic = await Camera.requestMicrophonePermissionsAsync();
+    const cam =
+      camExisting.status === 'granted' || camExisting.canAskAgain === false
+        ? camExisting
+        : await Camera.requestCameraPermissionsAsync();
+    const mic =
+      micExisting.status === 'granted' || micExisting.canAskAgain === false
+        ? micExisting
+        : await Camera.requestMicrophonePermissionsAsync();
     const ok = cam.status === 'granted' && mic.status === 'granted';
     return finalizePermissionResult({
       ok,

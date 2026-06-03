@@ -1314,7 +1314,10 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
 
 test("web and native reject cached prewarmed token after Daily join failure and retry prepare", () => {
   assert.match(webVideoCallHook, /rejectPreparedVideoDateEntry\(sessionId, userId, "daily_join_failed", eventId\)/);
-  assert.match(webVideoCallHook, /return await startCall\(sessionId, \{ internalRetry: true \}\)/);
+  assert.match(
+    webVideoCallHook,
+    /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*\}\)/,
+  );
   assert.match(nativeVideoDateRoute, /rejectPreparedVideoDateEntry\(sessionId, user\.id, 'daily_join_failed', eventId \|\| null\)/);
   assert.match(nativeVideoDateRoute, /setJoinAttemptNonce\(\(n\) => n \+ 1\)/);
 });
@@ -1556,6 +1559,9 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff\?: boolean/);
   assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff:\s*true/);
   assert.match(webDailyCallObjectConfig, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webDailyCallObjectConfig, /audioTrack:\s*MediaStreamTrack/);
+  assert.match(webDailyCallObjectConfig, /videoTrack:\s*MediaStreamTrack/);
+  assert.match(webDailyCallObjectConfig, /appAcquiredMedia\?\.audioTrack/);
   assert.match(webDailyCallObjectConfig, /appAcquiredMedia\?\.videoTrack/);
   assert.match(webDailyCallObjectConfig, /useDevicePreferenceCookies/);
   assert.match(webDailyCallObjectConfig, /avoidEval:\s*true/);
@@ -3039,7 +3045,9 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(webDailyPrewarm, /failOnExternalCall:\s*true/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia\(captureProfile/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptions\(captureProfile\)/);
-  assert.match(webDailyPrewarm, /firstLiveTrack\(appAcquiredMedia\.stream\.getVideoTracks\(\)\)/);
+  assert.match(webDailyPrewarm, /function getLivePrewarmMediaTracks/);
+  assert.match(webDailyPrewarm, /getLivePrewarmMediaTracks\(params\.appAcquiredMedia\.stream\)/);
+  assert.match(webDailyPrewarm, /appAcquiredMedia && appAcquiredMediaTracks[\s\S]*dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /finally\s*\{[\s\S]*stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/);
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObjectGuarded\(captureProfile/);
   assert.match(nativeDailyPrewarm, /failOnExternalCall:\s*true/);

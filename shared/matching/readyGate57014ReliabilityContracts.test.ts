@@ -71,8 +71,12 @@ test("Ready Gate 57014 copy is a transient status-sync delay, not a permission d
       staleOrConflict: false,
     },
   );
-  assert.match(webReadyGateOverlay, /permission_prewarm_failed_diagnostics_ok/);
-  assert.match(webReadyGateOverlay, /!permissionReady && !mediaDiagnosticsAreGreen/);
+  assert.match(
+    webReadyGateOverlay,
+    /if \(!permissionReady\) \{[\s\S]*ready_tap_permission_prewarm_failed_diagnostics_ok[\s\S]*return;/,
+  );
+  assert.doesNotMatch(webReadyGateOverlay, /!permissionReady && !mediaDiagnosticsAreGreen/);
+  assert.doesNotMatch(webReadyGateOverlay, /if \(!permissionReady && mediaDiagnosticsAreGreen\)/);
 });
 
 test("Ready Gate 57014 migration makes sync/deck paths non-blocking", () => {
