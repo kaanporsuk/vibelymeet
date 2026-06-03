@@ -73,8 +73,9 @@ test("Ready Gate 57014 copy is a transient status-sync delay, not a permission d
   );
   assert.match(
     webReadyGateOverlay,
-    /if \(!permissionReady\) \{[\s\S]*ready_tap_permission_prewarm_failed_diagnostics_ok[\s\S]*return;/,
+    /if \(!permissionReady\) \{[\s\S]*ready_tap_permission_prewarm_failed_diagnostics_ok[\s\S]*setTerminalActionError\([\s\S]*return;\s*\}\s*const result = await markReady\(\);/,
   );
+  assert.doesNotMatch(webReadyGateOverlay, /ready_tap_permission_unconfirmed_soft_proceed/);
   assert.doesNotMatch(webReadyGateOverlay, /!permissionReady && !mediaDiagnosticsAreGreen/);
   assert.doesNotMatch(webReadyGateOverlay, /if \(!permissionReady && mediaDiagnosticsAreGreen\)/);
 });

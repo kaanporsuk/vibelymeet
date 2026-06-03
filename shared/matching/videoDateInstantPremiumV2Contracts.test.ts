@@ -194,8 +194,10 @@ test("daily call singleton warm handoff is default-off, web/native gated, and id
   assert.match(webVideoCall, /hasReusableWebDailyCallSingleton/);
   assert.match(webVideoCall, /expired_before_preflight/);
   assert.match(webVideoCall, /destroyed_before_preflight/);
+  assert.match(webVideoCall, /local_media_not_live_before_preflight/);
   assert.match(webVideoCall, /expired_before_consume/);
   assert.match(webVideoCall, /destroyed_before_consume/);
+  assert.match(webVideoCall, /local_media_not_live_before_consume/);
   assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_singleton/);
   assert.match(webVideoCall, /daily_call_singleton_reused/);
   assert.match(webVideoCall, /Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);

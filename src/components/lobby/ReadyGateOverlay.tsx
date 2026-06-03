@@ -96,7 +96,6 @@ interface ReadyGateOverlayProps {
 }
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
-const WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 const READY_GATE_DEGRADED_SYNC_POLL_MS = 2_500;
@@ -213,43 +212,22 @@ async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissio
   );
 }
 
-function waitForMediaStreamWithTimeout(
-  streamPromise: Promise<ReadyGatePermissionPrewarmMedia>,
-  timeoutMs: number,
-): Promise<ReadyGatePermissionPrewarmMedia | null> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timeout = window.setTimeout(() => {
-      settled = true;
-      resolve(null);
-    }, timeoutMs);
-
-    void streamPromise.then(
-      (stream) => {
-        if (settled) {
-          stopMediaStreamTracks(stream.stream);
-          return;
-        }
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve(stream);
-      },
-      (error) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
-function permissionStateToDiagnosticStatus(
+function resolveWebMediaPermissionDiagnosticStatus(
   state: PermissionState | null,
+  hasGrantedLabel: boolean,
 ): ReadyGateDiagnosticStatus {
-  if (state === "granted") return "ok";
+  // A non-empty device label is only exposed for a media kind the page already
+  // has permission to use, so it is a reliable cross-browser "already granted"
+  // signal — critically on iOS WebKit (Safari and iOS Chrome), where
+  // navigator.permissions.query({ name: "camera" | "microphone" }) is
+  // unsupported and always resolves to null.
+  if (state === "granted" || hasGrantedLabel) return "ok";
   if (state === "denied") return "blocked";
-  return "unknown";
+  // Not provably granted and not denied: surface the actionable "Allow …" prompt
+  // affordance (the "warning" row renders an "Allow camera"/"Allow microphone"
+  // button) rather than a passive, non-actionable "checking" row, so the user
+  // always has a way to trigger the permission prompt.
+  return "warning";
 }
 
 async function queryWebMediaPermissionState(
@@ -272,42 +250,59 @@ async function inspectWebReadyGateMediaDiagnostics(): Promise<ReadyGateMediaDiag
     queryWebMediaPermissionState("camera"),
     queryWebMediaPermissionState("microphone"),
   ]);
-  const next: ReadyGateMediaDiagnosticState = {
-    cameraPermissionStatus: permissionStateToDiagnosticStatus(cameraPermission),
-    microphonePermissionStatus:
-      permissionStateToDiagnosticStatus(microphonePermission),
-    cameraDeviceStatus: "unknown",
-    microphoneDeviceStatus: "unknown",
-  };
+
+  let enumerated = false;
+  let hasCameraDevice = false;
+  let hasMicrophoneDevice = false;
+  let cameraLabelGranted = false;
+  let microphoneLabelGranted = false;
 
   if (
-    typeof navigator === "undefined" ||
-    !navigator.mediaDevices?.enumerateDevices
-  )
-    return next;
-
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const hasCamera = devices.some((device) => device.kind === "videoinput");
-    const hasMicrophone = devices.some(
-      (device) => device.kind === "audioinput",
-    );
-    next.cameraDeviceStatus = hasCamera
-      ? "ok"
-      : cameraPermission === "granted"
-        ? "failed"
-        : "unknown";
-    next.microphoneDeviceStatus = hasMicrophone
-      ? "ok"
-      : microphonePermission === "granted"
-        ? "failed"
-        : "unknown";
-  } catch {
-    next.cameraDeviceStatus = "unknown";
-    next.microphoneDeviceStatus = "unknown";
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices?.enumerateDevices
+  ) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      enumerated = true;
+      hasCameraDevice = devices.some((device) => device.kind === "videoinput");
+      hasMicrophoneDevice = devices.some(
+        (device) => device.kind === "audioinput",
+      );
+      cameraLabelGranted = hasLabeledDevice(devices, "videoinput");
+      microphoneLabelGranted = hasLabeledDevice(devices, "audioinput");
+    } catch {
+      enumerated = false;
+    }
   }
 
-  return next;
+  const cameraPermissionStatus = resolveWebMediaPermissionDiagnosticStatus(
+    cameraPermission,
+    cameraLabelGranted,
+  );
+  const microphonePermissionStatus = resolveWebMediaPermissionDiagnosticStatus(
+    microphonePermission,
+    microphoneLabelGranted,
+  );
+
+  return {
+    cameraPermissionStatus,
+    microphonePermissionStatus,
+    // Only assert a green device row once the permission proves usable; before
+    // that we cannot truly verify capture, so stay neutral instead of pairing a
+    // green "Camera"/"Microphone" row next to an un-granted permission row.
+    cameraDeviceStatus:
+      cameraPermissionStatus !== "ok"
+        ? "unknown"
+        : !enumerated || hasCameraDevice
+          ? "ok"
+          : "failed",
+    microphoneDeviceStatus:
+      microphonePermissionStatus !== "ok"
+        ? "unknown"
+        : !enumerated || hasMicrophoneDevice
+          ? "ok"
+          : "failed",
+  };
 }
 
 async function mediaDiagnosticFromPrewarmError(
@@ -523,6 +518,12 @@ const ReadyGateOverlay = ({
     typeof setTimeout
   > | null>(null);
   const permissionPrewarmSkipLoggedRef = useRef(false);
+  // Records the outcome of the most recent runPermissionPrewarm() call so the
+  // "I'm Ready" gate can choose between settings guidance and an in-place retry
+  // prompt without ever marking ready before live camera + microphone are proven.
+  const lastPermissionPrewarmOutcomeRef = useRef<
+    "granted" | "denied" | "transient" | null
+  >(null);
   const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
@@ -918,6 +919,9 @@ const ReadyGateOverlay = ({
     async (source: "ready_gate_open" | "ready_tap"): Promise<boolean> => {
       if (permissionPrewarmStartedRef.current) {
         if (source !== "ready_tap" || permissionPrewarmMediaRef.current) {
+          if (permissionPrewarmMediaRef.current) {
+            lastPermissionPrewarmOutcomeRef.current = "granted";
+          }
           return Boolean(permissionPrewarmMediaRef.current);
         }
         permissionPrewarmStartedRef.current = false;
@@ -937,6 +941,7 @@ const ReadyGateOverlay = ({
         (source !== "ready_tap" || permissionPrewarmMediaRef.current)
       ) {
         permissionPrewarmStartedRef.current = true;
+        lastPermissionPrewarmOutcomeRef.current = "granted";
         return true;
       }
 
@@ -944,9 +949,14 @@ const ReadyGateOverlay = ({
         source === "ready_gate_open"
           ? "permission_prewarm_silent"
           : "permission_prewarm_gesture";
-      let silentFallbackWaitMs: number | null = null;
 
       if (source === "ready_gate_open") {
+        // Never open the camera silently (outside a user gesture) unless we have
+        // proof it is already granted; otherwise we wait for the "I'm Ready" /
+        // "Allow" tap so the prompt fires inside transient activation.
+        let cameraGranted = false;
+        let microphoneGranted = false;
+        let permissionsApiAvailable = false;
         try {
           const permissionsQuery = navigator.permissions?.query;
           if (!permissionsQuery) throw new Error("permissions_api_unavailable");
@@ -959,11 +969,9 @@ const ReadyGateOverlay = ({
             }),
           ]);
           if (activeReadyGateKeyRef.current !== readyGateKey) return false;
-          if (
-            cameraStatus.state !== "granted" ||
-            microphoneStatus.state !== "granted"
-          )
-            return false;
+          permissionsApiAvailable = true;
+          cameraGranted = cameraStatus.state === "granted";
+          microphoneGranted = microphoneStatus.state === "granted";
         } catch {
           if (activeReadyGateKeyRef.current !== readyGateKey) return false;
           if (!permissionPrewarmSkipLoggedRef.current) {
@@ -986,7 +994,13 @@ const ReadyGateOverlay = ({
               }),
             );
           }
+        }
 
+        if (!permissionsApiAvailable) {
+          // iOS WebKit (Safari + iOS Chrome): the Permissions API does not
+          // expose camera/microphone, so fall back to labeled-device evidence as
+          // the "already granted" signal. Device labels are only exposed for a
+          // media kind the page is already permitted to use.
           let priorGrantEvidence = false;
           try {
             priorGrantEvidence = await hasPriorGrantedVideoDateDeviceLabels();
@@ -994,14 +1008,19 @@ const ReadyGateOverlay = ({
             priorGrantEvidence = false;
           }
           if (activeReadyGateKeyRef.current !== readyGateKey) return false;
-          if (!priorGrantEvidence) return false;
-          sourceAction = "permission_prewarm_silent_no_permissions_api";
-          silentFallbackWaitMs =
-            WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS;
+          cameraGranted = priorGrantEvidence;
+          microphoneGranted = priorGrantEvidence;
+          if (priorGrantEvidence) {
+            sourceAction = "permission_prewarm_silent_no_permissions_api";
+          }
         }
+
+        if (!cameraGranted || !microphoneGranted) return false;
       }
 
       permissionPrewarmStartedRef.current = true;
+      // Default the outcome to transient until proven granted or denied below.
+      lastPermissionPrewarmOutcomeRef.current = "transient";
       const startedAtMs = Date.now();
 
       const startedContext = recordReadyGateToDateLatencyCheckpoint({
@@ -1030,25 +1049,12 @@ const ReadyGateOverlay = ({
 
       let media: ReadyGatePermissionPrewarmMedia | null = null;
       try {
-        const streamPromise = getVideoDatePermissionPrewarmStream();
-        media =
-          silentFallbackWaitMs == null
-            ? await streamPromise
-            : await waitForMediaStreamWithTimeout(
-                streamPromise,
-                silentFallbackWaitMs,
-              );
-        if (!media) {
-          permissionPrewarmStartedRef.current = false;
-          vdbg("ready_gate_permission_prewarm_silent_fallback_timed_out", {
-            sessionId,
-            eventId,
-            userId,
-            source,
-            waitMs: silentFallbackWaitMs,
-          });
-          return false;
-        }
+        // Always await the full capture. (We previously raced this against a
+        // short timer for the silent WebKit fallback, but the discarded
+        // getUserMedia kept the camera open in the background, so the next
+        // in-gesture "Allow"/"I'm Ready" tap failed with a busy/AbortError and
+        // the permission prompt never appeared.)
+        media = await getVideoDatePermissionPrewarmStream();
 
         releasePermissionPrewarmMedia("permission_prewarm_replaced");
         if (activeReadyGateKeyRef.current !== readyGateKey) {
@@ -1142,6 +1148,7 @@ const ReadyGateOverlay = ({
           source,
           durationMs,
         });
+        lastPermissionPrewarmOutcomeRef.current = "granted";
         return true;
       } catch (error) {
         stopMediaStreamTracks(media?.stream ?? null);
@@ -1150,6 +1157,8 @@ const ReadyGateOverlay = ({
             error,
             "camera_microphone",
           );
+        lastPermissionPrewarmOutcomeRef.current =
+          permissionResult.status === "denied" ? "denied" : "transient";
         const isActiveReadyGate =
           activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
@@ -1158,11 +1167,10 @@ const ReadyGateOverlay = ({
           }
         }
         if (!isActiveReadyGate) return false;
-        const nextMediaDiagnostics =
-          await resolveMediaDiagnosticsAfterPrewarmError(error);
-        if (activeReadyGateKeyRef.current !== readyGateKey) return false;
-        setMediaDiagnostics(nextMediaDiagnostics);
         if (sourceAction === "permission_prewarm_silent_no_permissions_api") {
+          // Silent (no-gesture) WebKit capture failed — do NOT overwrite the
+          // label-derived resting diagnostics; the user can still trigger the
+          // prompt via the "Allow"/"I'm Ready" tap.
           vdbg("ready_gate_permission_prewarm_silent_fallback_failed", {
             sessionId,
             eventId,
@@ -1178,6 +1186,10 @@ const ReadyGateOverlay = ({
           });
           return false;
         }
+        const nextMediaDiagnostics =
+          await resolveMediaDiagnosticsAfterPrewarmError(error);
+        if (activeReadyGateKeyRef.current !== readyGateKey) return false;
+        setMediaDiagnostics(nextMediaDiagnostics);
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
           platform: "web",
           session_id: sessionId,
@@ -3350,9 +3362,8 @@ const ReadyGateOverlay = ({
                         const permissionReady =
                           await runPermissionPrewarm("ready_tap");
                         if (!permissionReady) {
-                          setTerminalActionError(
-                            "Allow camera and microphone access to join this date.",
-                          );
+                          const permissionBlocked =
+                            lastPermissionPrewarmOutcomeRef.current === "denied";
                           trackEvent(
                             LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED,
                             {
@@ -3361,13 +3372,24 @@ const ReadyGateOverlay = ({
                               event_id: eventId,
                               reason: mediaDiagnosticsAreGreen
                                 ? "ready_tap_permission_prewarm_failed_diagnostics_ok"
-                                : "ready_tap_permission_not_ready",
-                              permission_status: "unknown",
-                              recovery_action: "request_permission",
+                                : permissionBlocked
+                                  ? "ready_tap_permission_denied"
+                                  : "ready_tap_permission_not_ready",
+                              permission_status: permissionBlocked
+                                ? "denied"
+                                : "unknown",
+                              recovery_action: permissionBlocked
+                                ? "open_settings"
+                                : "request_permission",
                               settings_deep_link: "browser_site_settings",
                               source_surface: "ready_gate_overlay",
                               source_action: "ready_tap",
                             },
+                          );
+                          setTerminalActionError(
+                            permissionBlocked
+                              ? "Camera and microphone are blocked. Allow access in your browser settings, then tap I'm Ready again."
+                              : "Allow camera and microphone access to join this date.",
                           );
                           return;
                         }

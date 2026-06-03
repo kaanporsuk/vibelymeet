@@ -408,6 +408,9 @@ type LiveVideoDateMediaTracks = {
   videoTrack: MediaStreamTrack;
   audioTrack: MediaStreamTrack;
 };
+type DailyParticipantMediaTrack = NonNullable<
+  NonNullable<DailyParticipant["tracks"]>["audio"]
+>;
 
 function getLiveVideoDateMediaTracks(
   stream: MediaStream | null | undefined,
@@ -436,6 +439,21 @@ function requireLiveVideoDateMediaTracks(
   const audioTrack = firstLiveTrack(stream?.getAudioTracks() ?? []);
   if (!audioTrack) throw new Error(`${source} returned no live audio track`);
   return { videoTrack, audioTrack };
+}
+
+function dailyTrackHasLiveMedia(track: DailyParticipantMediaTrack | undefined): boolean {
+  const state = track?.state;
+  if (state === "blocked" || state === "off") return false;
+  const mediaTrack = track?.persistentTrack;
+  return Boolean(mediaTrack && mediaTrack.readyState !== "ended");
+}
+
+function hasLiveDailyLocalCameraAndMicrophone(call: Pick<DailyCall, "participants">): boolean {
+  const localParticipant = call.participants().local;
+  return (
+    dailyTrackHasLiveMedia(localParticipant?.tracks?.video) &&
+    dailyTrackHasLiveMedia(localParticipant?.tracks?.audio)
+  );
 }
 
 type WebDailyCallSingletonEntry = {
@@ -546,6 +564,10 @@ function consumeWebDailyCallSingleton(params: {
     destroyWebDailyCallSingleton("not_joined_before_consume");
     return { ok: false, reason: "not_joined" };
   }
+  if (!hasLiveDailyLocalCameraAndMicrophone(entry.call)) {
+    destroyWebDailyCallSingleton("local_media_not_live_before_consume");
+    return { ok: false, reason: "local_media_not_live" };
+  }
   if (entry.destroyTimer) {
     clearTimeout(entry.destroyTimer);
     entry.destroyTimer = null;
@@ -585,6 +607,10 @@ function hasReusableWebDailyCallSingleton(params: { userId: string; nextSessionI
   const meetingState = readDailyMeetingState(entry.call);
   if (meetingState !== "joined-meeting") {
     destroyWebDailyCallSingleton("not_joined_before_preflight");
+    return false;
+  }
+  if (!hasLiveDailyLocalCameraAndMicrophone(entry.call)) {
+    destroyWebDailyCallSingleton("local_media_not_live_before_preflight");
     return false;
   }
   return true;
