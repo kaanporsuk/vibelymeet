@@ -21,6 +21,16 @@ export type AppleAuthNoncePair = {
   hashedNonce: string;
 };
 
+export type AppleSupabaseIdTokenCredentials = {
+  provider: 'apple';
+  token: string;
+  nonce: string;
+  access_token?: string;
+  options?: {
+    captchaToken?: string;
+  };
+};
+
 function trimToNull(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -47,13 +57,12 @@ export async function createAppleAuthNoncePair(size = 32): Promise<AppleAuthNonc
 
 function summarizeNonceForDebug(value: string | null | undefined) {
   if (typeof value !== 'string') {
-    return { exists: false, length: null, prefix: null };
+    return { exists: false, length: null };
   }
 
   return {
     exists: value.length > 0,
     length: value.length,
-    prefix: value.length > 0 ? value.slice(0, 8) : null,
   };
 }
 
@@ -67,6 +76,43 @@ export function logAppleNonceDebug(
     rawNonce: summarizeNonceForDebug(input.rawNonce),
     hashedNonce: summarizeNonceForDebug(input.hashedNonce),
   });
+}
+
+function summarizeAppleCredentialSecret(value: string | null | undefined) {
+  return {
+    exists: typeof value === 'string' && value.length > 0,
+    length: typeof value === 'string' ? value.length : null,
+  };
+}
+
+export function summarizeAppleCredentialForDebug(
+  credential: AppleAuthentication.AppleAuthenticationCredential | null | undefined,
+) {
+  return {
+    identityToken: summarizeAppleCredentialSecret(credential?.identityToken),
+    authorizationCode: summarizeAppleCredentialSecret(credential?.authorizationCode),
+    fullName: { exists: Boolean(credential?.fullName) },
+    email: { exists: typeof credential?.email === 'string' && credential.email.length > 0 },
+  };
+}
+
+export function buildAppleSupabaseIdTokenCredentials(input: {
+  credential: AppleAuthentication.AppleAuthenticationCredential;
+  rawNonce: string;
+  captchaToken?: string | null;
+}): AppleSupabaseIdTokenCredentials {
+  if (!input.credential.identityToken) {
+    throw new Error('Apple did not return an identity token. Please try again.');
+  }
+
+  const captchaToken = trimToNull(input.captchaToken);
+  return {
+    provider: 'apple',
+    token: input.credential.identityToken,
+    nonce: input.rawNonce,
+    access_token: input.credential.authorizationCode ?? undefined,
+    ...(captchaToken ? { options: { captchaToken } } : {}),
+  };
 }
 
 export function normalizeAppleFullName(

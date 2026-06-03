@@ -128,7 +128,7 @@ function sanitizeNativeSentryPayload(value: unknown, depth = 0): unknown {
       output[key] = '[redacted]';
       continue;
     }
-    if (typeof entry === 'string' && /(url|uri|href|path|filename|abs_path|request_url)$/i.test(key)) {
+    if (typeof entry === 'string' && /^(url|filename|abs_path|request_url)$/i.test(key)) {
       output[key] = sanitizeNativeSentryUrl(entry);
       continue;
     }

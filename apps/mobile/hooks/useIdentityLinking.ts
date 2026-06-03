@@ -6,7 +6,7 @@
  * SUPPORTED METHODS
  * ─────────────────
  * • Google  → supabase.auth.linkIdentity() via browser OAuth (expo-web-browser)
- * • Apple   → supabase.auth.linkIdentity() via native ID token (expo-apple-authentication)
+ * • Apple   → supabase.auth.linkIdentity() via native Apple credential (expo-apple-authentication)
  * • Email+password  → two distinct flows depending on session state:
  *     A. Session already has an email (OAuth user) → addPasswordToAccount(password)
  *        Uses updateUser({ password }). No email change, no confirmation email.
@@ -23,10 +23,10 @@
  *   2. SignInWithIdTokenCredentials  — native OIDC ID token
  *
  * APPLE: Native token path is implemented.
- *   expo-apple-authentication.signAsync() produces an identityToken that is passed
- *   directly to linkIdentity({ provider: 'apple', token, nonce }). The Apple request
- *   uses a SHA-256 hashed nonce while Supabase receives the corresponding raw nonce.
- *   No browser required.
+ *   expo-apple-authentication.signInAsync() produces an identityToken and authorizationCode
+ *   that are passed directly to linkIdentity({ provider: 'apple', token, access_token, nonce }).
+ *   The Apple request uses a SHA-256 hashed nonce while Supabase receives the corresponding
+ *   raw nonce. No browser required.
  *
  * GOOGLE: Browser OAuth path is used. This is a deliberate first-release choice:
  *   • Native Google ID tokens require @react-native-google-signin, which is not in
@@ -63,7 +63,7 @@ import {
   getNativeEmailChangeRedirectUrl,
   getNativeGoogleOAuthRedirectUrl,
 } from '@/lib/nativeAuthRedirect';
-import { createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
+import { buildAppleSupabaseIdTokenCredentials, createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 import {
   authIdentityMethodLabel,
@@ -202,9 +202,9 @@ export function useIdentityLinking() {
 
   // ─── Apple native token linking ───────────────────────────────────────────
   //
-  // Uses expo-apple-authentication to obtain an OIDC identity token, then passes
-  // it directly to linkIdentity({ provider: 'apple', token, nonce }). Apple receives
-  // the hashed nonce; Supabase receives the matching raw nonce. No browser required.
+  // Uses expo-apple-authentication to obtain an OIDC identity token and authorization
+  // code, then passes both to linkIdentity(). Apple receives the hashed nonce; Supabase
+  // receives the matching raw nonce. No browser required.
 
   const linkAppleNative = useCallback(async (): Promise<void> => {
     if (Platform.OS !== 'ios') {
@@ -226,16 +226,11 @@ export function useIdentityLinking() {
       nonce: hashedNonce,
     });
 
-    if (!credential.identityToken) {
-      throw new Error('Apple did not return an identity token. Please try again.');
-    }
-
     logAppleNonceDebug('Submitting Apple identity-linking nonce pair to Supabase', { rawNonce, hashedNonce });
-    const { error } = await supabase.auth.linkIdentity({
-      provider: 'apple',
-      token: credential.identityToken,
-      nonce: rawNonce,
-    });
+    const { error } = await supabase.auth.linkIdentity(buildAppleSupabaseIdTokenCredentials({
+      credential,
+      rawNonce,
+    }));
 
     if (error) throw new Error(safeIdentityLinkingErrorMessage(error, 'apple', 'Failed to link Apple.'));
 

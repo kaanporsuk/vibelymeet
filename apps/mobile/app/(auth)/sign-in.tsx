@@ -20,7 +20,14 @@ import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { authErrorDebugInfo, mapPhoneOtpSendError, safeAuthErrorMessage } from '@clientShared/authErrorCopy';
-import { buildAppleNameMetadataPatch, createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
+import {
+  buildAppleNameMetadataPatch,
+  buildAppleSupabaseIdTokenCredentials,
+  createAppleAuthNoncePair,
+  logAppleNonceDebug,
+  summarizeAppleCredentialForDebug,
+} from '@/lib/appleAuth';
+import { primeCachedSession } from '@/lib/nativeAuthSession';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
@@ -94,6 +101,95 @@ function addAppleAuthDiagnostic(
   }
 }
 
+type AppleAuthStage =
+  | 'captcha'
+  | 'nonce'
+  | 'apple_authorization'
+  | 'supabase_exchange'
+  | 'cache_prime'
+  | 'metadata_update';
+
+type AppleAuthDiagnosticData = Record<string, string | number | boolean | null | undefined>;
+
+function appleAuthStageTimeoutError(stage: AppleAuthStage, timeoutMs: number): Error {
+  const error = new Error(`${stage}_timeout`);
+  Object.assign(error, {
+    code: 'APPLE_AUTH_STAGE_TIMEOUT',
+    stage,
+    timeoutMs,
+  });
+  return error;
+}
+
+function isAppleAuthStageTimeout(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'APPLE_AUTH_STAGE_TIMEOUT';
+}
+
+function addAppleAuthStageDiagnostic(
+  stage: AppleAuthStage,
+  status: 'started' | 'completed' | 'failed' | 'timeout' | 'skipped' | 'cancelled',
+  data: AppleAuthDiagnosticData = {},
+  level: 'info' | 'warning' = status === 'failed' || status === 'timeout' ? 'warning' : 'info',
+) {
+  addAppleAuthDiagnostic('Stage ' + status, { stage, ...data }, level);
+}
+
+function withAppleAuthStageTimeout<T>(
+  stage: AppleAuthStage,
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(appleAuthStageTimeoutError(stage, timeoutMs)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+async function runAppleAuthStage<T>(
+  stage: AppleAuthStage,
+  operation: () => PromiseLike<T>,
+  options: {
+    timeoutMs?: number;
+    completedData?: (result: T) => AppleAuthDiagnosticData;
+    startedData?: AppleAuthDiagnosticData;
+  } = {},
+): Promise<T> {
+  const startedAt = Date.now();
+  addAppleAuthStageDiagnostic(stage, 'started', {
+    ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.startedData ?? {}),
+  });
+
+  try {
+    const result = await (
+      options.timeoutMs
+        ? withAppleAuthStageTimeout(stage, operation(), options.timeoutMs)
+        : operation()
+    );
+    addAppleAuthStageDiagnostic(stage, 'completed', {
+      elapsedMs: Date.now() - startedAt,
+      ...(options.completedData ? options.completedData(result) : {}),
+    });
+    return result;
+  } catch (error) {
+    const timedOut = isAppleAuthStageTimeout(error);
+    const cancelled = stage === 'apple_authorization' && isAppleAuthCancelled(error);
+    const diagnostics = appleAuthErrorDiagnostics(error);
+    addAppleAuthStageDiagnostic(stage, timedOut ? 'timeout' : cancelled ? 'cancelled' : 'failed', {
+      elapsedMs: Date.now() - startedAt,
+      ...diagnostics,
+    }, timedOut || !cancelled ? 'warning' : 'info');
+    throw error;
+  }
+}
+
 type AuthView =
   | 'welcome'
   | 'otp'
@@ -105,6 +201,9 @@ type AuthView =
 type Country = { name: string; code: string; flag: string; suggested?: boolean };
 
 const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
+const NATIVE_APPLE_AUTH_CAPTCHA_TIMEOUT_MS = 30_000;
+const NATIVE_APPLE_AUTH_SUPABASE_TIMEOUT_MS = 25_000;
+const NATIVE_APPLE_AUTH_METADATA_TIMEOUT_MS = 5_000;
 
 /** Canonical web origin for legal pages (matches `EXPO_PUBLIC_WEB_APP_URL` usage elsewhere). */
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
@@ -641,37 +740,139 @@ export default function SignInScreen() {
         setError('Apple Sign In is not available on this iOS build.');
         return;
       }
-      const { rawNonce, hashedNonce } = await createAppleAuthNoncePair();
-      logAppleNonceDebug('Prepared native Apple sign-in nonce pair', { rawNonce, hashedNonce });
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
-        nonce: hashedNonce,
-      });
-      if (!credential.identityToken) throw new Error('Missing Apple token');
-      logAppleNonceDebug('Submitting native Apple sign-in nonce pair to Supabase', { rawNonce, hashedNonce });
-      const captcha = await requestNativeAuthCaptchaToken('native_apple_signin');
+
+      const captcha = await runAppleAuthStage(
+        'captcha',
+        () => requestNativeAuthCaptchaToken('native_apple_signin', {
+          timeoutMs: NATIVE_APPLE_AUTH_CAPTCHA_TIMEOUT_MS,
+        }),
+        {
+          startedData: { timeoutMs: NATIVE_APPLE_AUTH_CAPTCHA_TIMEOUT_MS },
+          completedData: (result) => ({
+            ok: result.ok,
+            captchaTokenPresent: result.ok ? Boolean(result.token) : false,
+            captchaTokenLength: result.ok && result.token ? result.token.length : null,
+          }),
+        },
+      );
       if (!captcha.ok) {
+        addAppleAuthStageDiagnostic('captcha', 'failed', {
+          reason: 'not_ok',
+          messagePrefix: captcha.message.slice(0, 120),
+        }, 'warning');
         setError(captcha.message);
         return;
       }
-      const { data, error: e } = await supabase.auth.signInWithIdToken({
-        provider: 'apple',
-        token: credential.identityToken,
-        nonce: rawNonce,
-        ...(captcha.token ? { options: { captchaToken: captcha.token } } : {}),
+
+      const { rawNonce, hashedNonce } = await runAppleAuthStage(
+        'nonce',
+        () => createAppleAuthNoncePair(),
+        {
+          completedData: (noncePair) => ({
+            rawNoncePresent: Boolean(noncePair.rawNonce),
+            rawNonceLength: noncePair.rawNonce.length,
+            hashedNoncePresent: Boolean(noncePair.hashedNonce),
+            hashedNonceLength: noncePair.hashedNonce.length,
+          }),
+        },
+      );
+      logAppleNonceDebug('Prepared native Apple sign-in nonce pair', { rawNonce, hashedNonce });
+
+      const credential = await runAppleAuthStage(
+        'apple_authorization',
+        async () => {
+          const appleCredential = await AppleAuthentication.signInAsync({
+            requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+            nonce: hashedNonce,
+          });
+          buildAppleSupabaseIdTokenCredentials({
+            credential: appleCredential,
+            rawNonce,
+            captchaToken: captcha.token,
+          });
+          return appleCredential;
+        },
+        {
+          completedData: (appleCredential) => {
+            const summary = summarizeAppleCredentialForDebug(appleCredential);
+            return {
+              identityTokenPresent: summary.identityToken.exists,
+              identityTokenLength: summary.identityToken.length,
+              authorizationCodePresent: summary.authorizationCode.exists,
+              authorizationCodeLength: summary.authorizationCode.length,
+              fullNamePresent: summary.fullName.exists,
+              emailPresent: summary.email.exists,
+            };
+          },
+        },
+      );
+
+      logAppleNonceDebug('Submitting native Apple sign-in nonce pair to Supabase', { rawNonce, hashedNonce });
+      const appleIdTokenCredentials = buildAppleSupabaseIdTokenCredentials({
+        credential,
+        rawNonce,
+        captchaToken: captcha.token,
       });
+      const { data, error: e } = await runAppleAuthStage(
+        'supabase_exchange',
+        () => supabase.auth.signInWithIdToken(appleIdTokenCredentials),
+        {
+          timeoutMs: NATIVE_APPLE_AUTH_SUPABASE_TIMEOUT_MS,
+          startedData: {
+            authorizationCodePresent: Boolean(appleIdTokenCredentials.access_token),
+            captchaTokenPresent: Boolean(captcha.token),
+          },
+          completedData: (result) => ({
+            hasError: Boolean(result.error),
+            hasUser: Boolean(result.data.user),
+            hasSession: Boolean(result.data.session),
+          }),
+        },
+      );
       if (e) throw e;
+      if (!data.session) {
+        throw new Error('Apple sign-in did not return a session. Please try again.');
+      }
+
+      await runAppleAuthStage(
+        'cache_prime',
+        async () => {
+          primeCachedSession(data.session);
+          return data.session;
+        },
+        {
+          completedData: (session) => ({
+            hasSession: Boolean(session),
+            hasUser: Boolean(session.user),
+          }),
+        },
+      );
+
       const nameMetadataPatch = buildAppleNameMetadataPatch({
         existingMetadata: data.user?.user_metadata,
         fullName: credential.fullName,
       });
       if (nameMetadataPatch) {
-        const { error: updateError } = await supabase.auth.updateUser({ data: nameMetadataPatch });
-        if (updateError) {
+        await runAppleAuthStage(
+          'metadata_update',
+          async () => {
+            const updateResult = await supabase.auth.updateUser({ data: nameMetadataPatch });
+            if (updateResult.error) throw updateResult.error;
+            return updateResult;
+          },
+          {
+            timeoutMs: NATIVE_APPLE_AUTH_METADATA_TIMEOUT_MS,
+            completedData: (result) => ({
+              hasUser: Boolean(result.data.user),
+            }),
+          },
+        ).catch((updateError) => {
           console.warn('[auth] failed to persist Apple full name metadata', {
-            message: updateError.message,
+            message: errorMessage(updateError, 'metadata_update_failed'),
           });
-        }
+        });
+      } else {
+        addAppleAuthStageDiagnostic('metadata_update', 'skipped', { reason: 'no_name_metadata' });
       }
       trackEvent('auth_social_completed', { provider: 'apple', platform: 'native' });
       setView('success');
