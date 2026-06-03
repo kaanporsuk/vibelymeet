@@ -1024,8 +1024,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     const currentOptions = optionsRef.current;
     const sessionId = currentOptions?.roomId ?? null;
     if (!sessionId) return;
-    const eventId = currentOptions.eventId ?? null;
-    const userId = currentOptions.userId ?? null;
+    const eventId = currentOptions?.eventId ?? null;
+    const userId = currentOptions?.userId ?? null;
     if (remoteSeenStampedSessionRef.current === sessionId) return;
     if (remoteSeenRetryTimerRef.current) {
       clearTimeout(remoteSeenRetryTimerRef.current);
