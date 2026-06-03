@@ -4443,9 +4443,11 @@ export default function VideoDateScreen() {
             room_name: roomNameRef.current ?? null,
           });
           let truth: VideoSessionDateEntryTruth | null = null;
+          let truthFetchFailed = false;
           try {
             truth = await fetchVideoSessionDateEntryTruth(sessionId);
           } catch (error) {
+            truthFetchFailed = true;
             vdbg('native_peer_missing_abort_truth_failed', {
               sessionId,
               eventId,
@@ -4453,7 +4455,7 @@ export default function VideoDateScreen() {
               error: error instanceof Error ? error.message : String(error),
             });
           }
-          if (shouldTerminalizeNativePeerMissingAbort(truth)) {
+          if (truthFetchFailed || shouldTerminalizeNativePeerMissingAbort(truth)) {
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
               platform: 'native',
               session_id: sessionId,
@@ -4464,6 +4466,7 @@ export default function VideoDateScreen() {
               outcome: 'server_end_attempted',
               reason_code: 'partial_join_peer_timeout',
               server_end_attempted: true,
+              truth_fetch_failed: truthFetchFailed,
             });
             await endVideoDate(sessionId, 'partial_join_peer_timeout');
           } else {
