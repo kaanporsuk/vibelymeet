@@ -1138,21 +1138,21 @@ async function getNotificationOutboxHealth(
       ),
     ]);
   } else if (!eventId) {
-    let outboxQuery = service
+    const outboxQuery = service
       .from("video_date_provider_outbox")
       .select("session_id,kind,state,attempts,next_attempt_at,created_at,updated_at,last_error")
       .gte("created_at", sinceIso)
       .in("kind", ["notification.send"])
       .order("created_at", { ascending: false })
       .limit(MAX_ROWS);
-    let failureQuery = service
+    const failureQuery = service
       .from("video_date_provider_outbox_failure_log")
       .select("target_kind,session_id,provider,operation,error_code,permanent,lease_lost,created_at")
       .gte("created_at", sinceIso)
       .in("target_kind", ["outbox", "provider"])
       .order("created_at", { ascending: false })
       .limit(MAX_ROWS);
-    let deadLetterQuery = service
+    const deadLetterQuery = service
       .from("video_date_provider_dead_letters")
       .select("target_kind,session_id,provider,operation,reason,created_at")
       .gte("created_at", sinceIso)
