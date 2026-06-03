@@ -7,7 +7,9 @@ import { videoDateStartSnapshotToDateEntryTruth } from "./videoDateStartSnapshot
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-const migration = read("supabase/migrations/20260603150106_video_date_start_snapshot_ready_gate_hardening.sql");
+const startSnapshotMigration = read("supabase/migrations/20260603150106_video_date_start_snapshot_ready_gate_hardening.sql");
+const snapshotChunkingMigration = read("supabase/migrations/20260603161423_video_date_start_snapshot_jsonb_chunking.sql");
+const migration = `${startSnapshotMigration}\n${snapshotChunkingMigration}`;
 const webReadyGate = read("src/hooks/useReadyGate.ts");
 const nativeReadyGate = read("apps/mobile/lib/readyGateApi.ts");
 const webTruth = read("src/lib/videoDateSessionTruth.ts");
@@ -57,6 +59,21 @@ test("Ready Gate public RPCs return structured payloads instead of uncaught star
 
   assert.match(migration, /ALTER FUNCTION public\.get_profile_for_viewer\(uuid\)[\s\S]*RENAME TO get_profile_for_viewer_20260603150106_start_base/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.get_profile_for_viewer\(p_target_id uuid\)[\s\S]*WHEN OTHERS THEN\s*RETURN NULL/s);
+});
+
+test("latest startup snapshot payload stays below Postgres JSON argument limits", () => {
+  assert.match(snapshotChunkingMigration, /RETURN\s+jsonb_build_object\(/);
+  assert.match(snapshotChunkingMigration, /\|\|\s*jsonb_build_object\(/);
+  assert.match(snapshotChunkingMigration, /'viewer_role', v_actor_role/);
+  assert.match(snapshotChunkingMigration, /NOTIFY pgrst, 'reload schema'/);
+
+  for (const call of extractJsonbBuildObjectCalls(snapshotChunkingMigration)) {
+    const argCount = countTopLevelArgs(call);
+    assert.ok(
+      argCount <= 100,
+      `jsonb_build_object must receive <= 100 arguments, saw ${argCount}: ${call.slice(0, 120)}`,
+    );
+  }
 });
 
 test("web and native Ready Gate hydration are snapshot-first with raw reads only as fallback", () => {
@@ -124,3 +141,105 @@ test("Ready Gate overlay avoids startup raw session reads and respects mobile sa
   assert.match(webOverlay, /minHeight: "100svh"/);
   assert.match(webOverlay, /safe-area-inset-top/);
 });
+
+function extractJsonbBuildObjectCalls(source: string): string[] {
+  const calls: string[] = [];
+  const token = "jsonb_build_object(";
+  let searchFrom = 0;
+
+  while (searchFrom < source.length) {
+    const start = source.indexOf(token, searchFrom);
+    if (start === -1) break;
+
+    const openParen = start + "jsonb_build_object".length;
+    let depth = 0;
+    let inString = false;
+    let foundEnd = false;
+
+    for (let index = openParen; index < source.length; index += 1) {
+      const char = source[index];
+      const next = source[index + 1];
+
+      if (inString) {
+        if (char === "'" && next === "'") {
+          index += 1;
+          continue;
+        }
+        if (char === "'") inString = false;
+        continue;
+      }
+
+      if (char === "'") {
+        inString = true;
+        continue;
+      }
+
+      if (char === "(") {
+        depth += 1;
+        continue;
+      }
+
+      if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          calls.push(source.slice(start, index + 1));
+          searchFrom = index + 1;
+          foundEnd = true;
+          break;
+        }
+      }
+    }
+
+    if (!foundEnd) {
+      searchFrom = start + token.length;
+    }
+  }
+
+  return calls;
+}
+
+function countTopLevelArgs(call: string): number {
+  const openParen = call.indexOf("(");
+  const closeParen = call.lastIndexOf(")");
+  const args = call.slice(openParen + 1, closeParen).trim();
+  if (!args) return 0;
+
+  let depth = 0;
+  let inString = false;
+  let count = 1;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const char = args[index];
+    const next = args[index + 1];
+
+    if (inString) {
+      if (char === "'" && next === "'") {
+        index += 1;
+        continue;
+      }
+      if (char === "'") inString = false;
+      continue;
+    }
+
+    if (char === "'") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "(") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === ")") {
+      depth -= 1;
+      continue;
+    }
+
+    if (char === "," && depth === 0) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
