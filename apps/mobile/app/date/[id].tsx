@@ -4445,7 +4445,7 @@ export default function VideoDateScreen() {
           let truth: VideoSessionDateEntryTruth | null = null;
           let truthFetchFailed = false;
           try {
-            truth = await fetchVideoSessionDateEntryTruth(sessionId);
+            truth = await fetchVideoSessionDateEntryTruth(sessionId, { throwOnError: true });
           } catch (error) {
             truthFetchFailed = true;
             vdbg('native_peer_missing_abort_truth_failed', {

@@ -442,8 +442,7 @@ function requireLiveVideoDateMediaTracks(
 }
 
 function dailyTrackHasLiveMedia(track: DailyParticipantMediaTrack | undefined): boolean {
-  const state = track?.state;
-  if (state === "blocked" || state === "off") return false;
+  if (track?.state !== "playable") return false;
   const mediaTrack = track?.persistentTrack;
   return Boolean(mediaTrack && mediaTrack.readyState !== "ended");
 }

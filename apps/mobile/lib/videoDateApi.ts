@@ -849,7 +849,8 @@ export type VideoSessionDateEntryTruth = {
 };
 
 export async function fetchVideoSessionDateEntryTruth(
-  sessionId: string
+  sessionId: string,
+  options?: { throwOnError?: boolean },
 ): Promise<VideoSessionDateEntryTruth | null> {
   const snapshot = await fetchVideoDateStartSnapshot(sessionId);
   const snapshotTruth = videoDateStartSnapshotToDateEntryTruth(snapshot);
@@ -860,7 +861,13 @@ export async function fetchVideoSessionDateEntryTruth(
     .select(`${VIDEO_DATE_HANDSHAKE_TRUTH_SELECT}, event_id, date_started_at, ready_gate_status, ready_gate_expires_at`)
     .eq('id', sessionId)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    if (options?.throwOnError) {
+      throw new Error(error.message || error.code || 'video_session_truth_query_failed');
+    }
+    return null;
+  }
+  if (!data) return null;
   return data as VideoSessionDateEntryTruth;
 }
 
