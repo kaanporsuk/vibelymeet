@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { isDateNavigationSuppressedAfterManualExit } from "@/lib/dateNavigationGuard";
 import { isActiveSessionContextShadowEnabled } from "@/lib/runtimeFlags";
+import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   activeSessionDirectFallbackStaleReason,
@@ -601,11 +602,17 @@ export function useActiveSession(
       }
     }
 
-    const { data: session, error: sessionError } = await supabase
-      .from("video_sessions")
-      .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, daily_room_name, daily_room_url")
-      .eq("id", reg.current_room_id)
-      .maybeSingle();
+    const startSnapshot = await fetchVideoDateStartSnapshot(reg.current_room_id as string);
+    const session = startSnapshot.ok && startSnapshot.sessionId
+      ? ({
+          ...startSnapshot.raw,
+          id: startSnapshot.sessionId,
+          event_id: startSnapshot.eventId,
+        } as ActiveSessionVideoTruth)
+      : null;
+    const sessionError = !startSnapshot.ok && startSnapshot.retryable !== false
+      ? { message: startSnapshot.error ?? "video_date_start_snapshot_unavailable" }
+      : null;
 
     if (sessionError) {
       if (import.meta.env.DEV) console.warn("[useActiveSession] session query failed:", sessionError.message);
@@ -658,7 +665,7 @@ export function useActiveSession(
 
     const qs = reg.queue_status;
     const base = {
-      sessionId: session.id,
+      sessionId: session.id as string,
       eventId: reg.event_id as string,
       partnerName,
     };

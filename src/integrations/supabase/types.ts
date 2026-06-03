@@ -11395,6 +11395,10 @@ export type Database = {
         Returns: string
       }
       get_profile_for_viewer: { Args: { p_target_id: string }; Returns: Json }
+      get_profile_for_viewer_20260603150106_start_base: {
+        Args: { p_target_id: string }
+        Returns: Json
+      }
       get_profile_presence_for_viewer: {
         Args: { p_event_id?: string; p_target_user_id: string }
         Returns: {
@@ -11583,6 +11587,10 @@ export type Database = {
         }[]
       }
       get_video_date_snapshot_core: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      get_video_date_start_snapshot_v1: {
         Args: { p_session_id: string }
         Returns: Json
       }
@@ -12048,6 +12056,10 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      ready_gate_transition_20260603150106_start_snapshot_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
       recompute_profile_live_counts: {
         Args: { p_profile_id: string }
         Returns: undefined
@@ -12196,6 +12208,15 @@ export type Database = {
         Returns: Json
       }
       record_video_date_launch_latency_checkpoint_20260505214500_rpc_: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      record_vd_launch_latency_20260603150106_start_base: {
         Args: {
           p_checkpoint: string
           p_latency_ms?: number
@@ -12986,6 +13007,14 @@ export type Database = {
         Returns: Json
       }
       video_session_mark_ready_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_v2_20260603150106_start_snapshot_base: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string

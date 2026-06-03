@@ -28,6 +28,7 @@ import {
   ensureVideoDateRoomWarmup,
   videoDateRoomWarmupAfterReadyEnabled,
 } from "@/lib/videoDateRoomWarmup";
+import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateSessionTruth";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
@@ -2263,7 +2264,7 @@ const ReadyGateOverlay = ({
         }
       }
 
-      const [{ data: reg, error: regError }, { data: vs, error: vsError }] =
+      const [{ data: reg, error: regError }, vs] =
         await Promise.all([
           supabase
             .from("event_registrations")
@@ -2271,23 +2272,17 @@ const ReadyGateOverlay = ({
             .eq("event_id", eventId)
             .eq("profile_id", user.id)
             .maybeSingle(),
-          supabase
-            .from("video_sessions")
-            .select(
-              "participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at, daily_room_name, daily_room_url",
-            )
-            .eq("id", sessionId)
-            .maybeSingle(),
+          fetchVideoSessionDateEntryTruthCoalesced(sessionId),
         ]);
 
       if (dateNavigationStartedRef.current) return;
 
-      if (regError || vsError) {
+      if (regError || !vs) {
         readyGateDebug("session reconciliation deferred after query error", {
           sessionId,
           source,
           regError: regError?.message,
-          vsError: vsError?.message,
+          vsError: vs ? null : "video_date_start_snapshot_unavailable",
         });
         return;
       }
@@ -2811,28 +2806,36 @@ const ReadyGateOverlay = ({
     setSharedVibes([]);
 
     void (async () => {
-      const { data: session } = await supabase
-        .from("video_sessions")
-        .select("participant_1_id, participant_2_id")
-        .eq("id", sessionId)
-        .maybeSingle();
-      if (cancelled || !session) return;
-
-      const isParticipant =
-        session.participant_1_id === user.id ||
-        session.participant_2_id === user.id;
-      if (!isParticipant) return;
-
-      const partnerId =
-        session.participant_1_id === user.id
-          ? session.participant_2_id
-          : session.participant_1_id;
+      const snapshot = await fetchVideoDateStartSnapshot(sessionId);
+      if (cancelled || !snapshot.ok || !snapshot.partnerId) return;
 
       // Partner photo + vibes through the session-aware profile RPC.
-      const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
-        p_target_id: partnerId,
-      });
-      if (cancelled) return;
+      let profile: unknown = null;
+      try {
+        const { data, error: profileError } = await supabase.rpc("get_profile_for_viewer", {
+          p_target_id: snapshot.partnerId,
+        });
+        if (cancelled) return;
+        if (profileError) {
+          vdbg("ready_gate_partner_profile_display_degraded", {
+            sessionId,
+            eventId,
+            error: profileError.message,
+          });
+        } else {
+          profile = data;
+        }
+      } catch (error) {
+        if (cancelled) return;
+        vdbg("ready_gate_partner_profile_display_degraded", {
+          sessionId,
+          eventId,
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error),
+        });
+      }
 
       const partnerProfile = profile as {
         avatar_url?: unknown;
@@ -2893,7 +2896,7 @@ const ReadyGateOverlay = ({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id]);
+  }, [eventId, sessionId, user?.id]);
 
   // Countdown timer (only when user hasn't pressed ready yet)
   useEffect(() => {
@@ -3042,12 +3045,13 @@ const ReadyGateOverlay = ({
       aria-modal="true"
       aria-labelledby="ready-gate-title"
       aria-describedby="ready-gate-description"
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto px-4 py-4"
+      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto px-4 py-4 sm:items-center"
       style={{
         boxSizing: "border-box",
         height: "100dvh",
-        paddingTop: "max(1rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+        minHeight: "100svh",
+        paddingTop: "max(1.5rem, calc(env(safe-area-inset-top) + 1rem))",
+        paddingBottom: "max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))",
       }}
     >
       {/* Backdrop */}
@@ -3460,6 +3464,8 @@ const ReadyGateOverlay = ({
                           handleBothReady(
                             "both_ready_observed_via_rpc_short_circuit",
                           );
+                        } else if (result.isTerminal === true) {
+                          return;
                         } else {
                           startRoomWarmupAfterReady(
                             "ready_tap_mark_ready_success",

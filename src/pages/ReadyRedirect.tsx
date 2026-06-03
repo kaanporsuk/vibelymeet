@@ -6,6 +6,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
+import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import {
@@ -148,15 +149,22 @@ const ReadyRedirect = () => {
         }
       }
 
-      const { data: session, error } = await supabase
-        .from("video_sessions")
-        .select("participant_1_id, participant_2_id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
-        .eq("id", candidate)
-        .maybeSingle();
+      const startSnapshot = await fetchVideoDateStartSnapshot(candidate);
+      const session = startSnapshot.raw as Record<string, unknown>;
+      const endedReason =
+        typeof session.ended_reason === "string"
+          ? session.ended_reason
+          : typeof session.endedReason === "string"
+            ? session.endedReason
+            : null;
+      const canonicalTruth = {
+        ...session,
+        ended_reason: endedReason,
+      };
 
       if (cancelled) return;
 
-      if (error || !session) {
+      if (!startSnapshot.ok || !startSnapshot.eventId) {
         notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
         setRouteState({ kind: "redirecting" });
         navigate("/events", { replace: true });
@@ -172,17 +180,10 @@ const ReadyRedirect = () => {
         return;
       }
 
-      if (!session.event_id) {
-        notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
-        setRouteState({ kind: "redirecting" });
-        navigate("/events", { replace: true });
-        return;
-      }
-
       const { data: readyGateRegistration } = await supabase
         .from("event_registrations")
         .select("queue_status, current_room_id")
-        .eq("event_id", session.event_id)
+        .eq("event_id", startSnapshot.eventId)
         .eq("profile_id", user.id)
         .maybeSingle();
 
@@ -190,12 +191,12 @@ const ReadyRedirect = () => {
 
       const canonicalRoute = decideCanonicalVideoDateRoute({
         sessionId: candidate,
-        eventId: session.event_id,
-        truth: session,
+        eventId: startSnapshot.eventId,
+        truth: canonicalTruth,
         registration: {
           queue_status: readyGateRegistration?.queue_status ?? null,
           current_room_id: readyGateRegistration?.current_room_id ?? null,
-          event_id: session.event_id,
+          event_id: startSnapshot.eventId,
         },
       });
       if (import.meta.env.DEV) {
@@ -211,7 +212,7 @@ const ReadyRedirect = () => {
       }
 
       if (canonicalRoute.target === "ready_gate") {
-        setRouteState({ kind: "hosting", eventId: session.event_id });
+        setRouteState({ kind: "hosting", eventId: startSnapshot.eventId });
         return;
       }
 

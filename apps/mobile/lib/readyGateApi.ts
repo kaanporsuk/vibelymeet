@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
+import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
@@ -464,8 +465,51 @@ export function useReadyGate(
     };
   }, [notifyTerminal, readyGateClockEnabled, sessionId, userId]);
 
+  const fetchPartnerName = useCallback(async (partnerId: string | null): Promise<string | null> => {
+    if (!partnerId) return null;
+    try {
+      const { data: profile, error } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+      if (error) {
+        if (__DEV__) console.warn('[readyGateApi] partner profile display lookup degraded:', error.message);
+        return null;
+      }
+      const partnerProfile = profile as { name?: string | null } | null;
+      return partnerProfile?.name ?? null;
+    } catch (error) {
+      if (__DEV__) {
+        console.warn(
+          '[readyGateApi] partner profile display lookup threw:',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+      return null;
+    }
+  }, []);
+
+  const applyStartSnapshot = useCallback(async (
+    snapshot: Awaited<ReturnType<typeof fetchVideoDateStartSnapshot>>,
+  ): Promise<ReadyGateSyncResult | null> => {
+    if (!snapshot.ok) return null;
+    const partnerName = await fetchPartnerName(snapshot.partnerId);
+    return applyReadyGateTruth(snapshot.raw as ReadyGateSessionTruth, {
+      partnerName: partnerName ?? 'Your match',
+    });
+  }, [applyReadyGateTruth, fetchPartnerName]);
+
   const fetchSession = useCallback(async (): Promise<ReadyGateSyncResult | null> => {
     if (!sessionId || !userId) return null;
+    const snapshot = await fetchVideoDateStartSnapshot(sessionId);
+    const snapshotResult = await applyStartSnapshot(snapshot);
+    if (snapshotResult) return snapshotResult;
+    if (snapshot.terminal === true || snapshot.retryable === false) {
+      return {
+        ok: false,
+        error: snapshot.error ?? 'ready_gate_start_snapshot_failed',
+        status: snapshot.readyGateStatus,
+        terminal: snapshot.terminal,
+      };
+    }
+
     const { data: session, error } = await supabase
       .from('video_sessions')
       .select(
@@ -503,13 +547,10 @@ export function useReadyGate(
     }
     const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
-    let partnerName: string | null = null;
-    const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
-    const partnerProfile = profile as { name?: string | null } | null;
-    if (partnerProfile) partnerName = partnerProfile.name ?? 'Your match';
+    const partnerName = await fetchPartnerName(partnerId);
 
-    return applyReadyGateTruth(session, { partnerName });
-  }, [sessionId, userId, applyReadyGateTruth]);
+    return applyReadyGateTruth(session, { partnerName: partnerName ?? 'Your match' });
+  }, [sessionId, userId, applyReadyGateTruth, applyStartSnapshot, fetchPartnerName]);
 
   const setSequenceGapUnresolved = useCallback((unresolved: boolean) => {
     setState((prev) => (
@@ -1072,6 +1113,18 @@ export function useReadyGate(
     if (syncSessionInFlightRef.current) return syncSessionInFlightRef.current;
 
     const syncPromise = (async (): Promise<ReadyGateSyncResult> => {
+      const snapshot = await fetchVideoDateStartSnapshot(sessionId);
+      const snapshotResult = await applyStartSnapshot(snapshot);
+      if (snapshotResult) return snapshotResult;
+      if (snapshot.terminal === true || snapshot.retryable === false) {
+        return {
+          ok: false,
+          error: snapshot.error ?? 'ready_gate_start_snapshot_failed',
+          status: snapshot.readyGateStatus,
+          terminal: snapshot.terminal,
+        };
+      }
+
       const { data, error } = await supabase.rpc('ready_gate_transition', {
         p_session_id: sessionId,
         p_action: 'sync' satisfies ReadyGateTransitionAction,
@@ -1157,7 +1210,7 @@ export function useReadyGate(
         syncSessionInFlightRef.current = null;
       }
     }
-  }, [sessionId, userId, applyReadyGateTruth, notifyTerminal]);
+  }, [sessionId, userId, applyReadyGateTruth, applyStartSnapshot, notifyTerminal]);
 
   const markReady = useCallback(async (): Promise<ReadyGateTransitionResult> => {
     return runReadyGateTransition('mark_ready');

@@ -46,6 +46,7 @@ import {
 } from '@/lib/nativeMediaPermissions';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
+import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   preAuthNativeVideoDateDailyPrewarm,
@@ -738,17 +739,22 @@ export default function ReadyGateScreen() {
           }
         }
 
-        const { data: session } = await supabase
-          .from('video_sessions')
-          .select('participant_1_id, participant_2_id, event_id, ended_at')
-          .eq('id', sessionId)
-          .maybeSingle();
+        const startSnapshot = await fetchVideoDateStartSnapshot(String(sessionId));
+        const session = startSnapshot.raw as {
+          participant_1_id?: string | null;
+          participant_2_id?: string | null;
+          event_id?: string | null;
+          ended_at?: string | null;
+        };
 
-        if (!session) {
+        if (!startSnapshot.ok || !startSnapshot.eventId) {
           rcBreadcrumb(
             RC_CATEGORY.readyGate,
             'standalone_session_row_missing',
-            { session_id: sessionId },
+            {
+              session_id: sessionId,
+              snapshot_error: startSnapshot.error,
+            },
           );
           explainInvalidToTabs();
           return;
@@ -773,17 +779,12 @@ export default function ReadyGateScreen() {
           return;
         }
 
-        if (!session.event_id) {
-          explainInvalidToTabs();
-          return;
-        }
-
         const initialTruth = await fetchVideoSessionDateEntryTruthCoalesced(
           String(sessionId),
         );
         const initialCanonicalRoute = decideCanonicalVideoDateRoute({
           sessionId: String(sessionId),
-          eventId: session.event_id,
+          eventId: startSnapshot.eventId,
           truth: initialTruth,
         });
         const initialCanonicalLog = canonicalVideoDateRouteLogDetail(
@@ -795,7 +796,7 @@ export default function ReadyGateScreen() {
         );
         const initialRecovery = adviseVideoSessionTruthRecovery({
           sessionId: String(sessionId),
-          eventId: session.event_id,
+          eventId: startSnapshot.eventId,
           truth: initialTruth,
           platform: 'native',
           surface: 'ready_redirect',
@@ -807,7 +808,7 @@ export default function ReadyGateScreen() {
             'standalone_initial_truth_canonical_recheck',
             {
               session_id: sessionId,
-              event_id: session.event_id,
+              event_id: startSnapshot.eventId,
               ...initialCanonicalLog,
             },
           );
@@ -821,7 +822,7 @@ export default function ReadyGateScreen() {
         const { data: reg } = await supabase
           .from('event_registrations')
           .select('queue_status')
-          .eq('event_id', session.event_id)
+          .eq('event_id', startSnapshot.eventId)
           .eq('profile_id', user.id)
           .maybeSingle();
 
@@ -834,16 +835,46 @@ export default function ReadyGateScreen() {
           });
         }
 
-        setEventId(session.event_id);
+        setEventId(startSnapshot.eventId);
         setPermissionRequestEligible(true);
         revealReadyUi = true;
-        const partnerId =
-          session.participant_1_id === user.id
-            ? session.participant_2_id
-            : session.participant_1_id;
-        const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
-          p_target_id: partnerId,
-        });
+        const partnerId = startSnapshot.partnerId;
+        if (!partnerId) return;
+        let profile: unknown = null;
+        try {
+          const { data, error: profileError } = await supabase.rpc(
+            'get_profile_for_viewer',
+            {
+              p_target_id: partnerId,
+            },
+          );
+          if (profileError) {
+            rcBreadcrumb(
+              RC_CATEGORY.readyGate,
+              'standalone_partner_profile_display_degraded',
+              {
+                session_id: sessionId,
+                event_id: startSnapshot.eventId,
+                error: profileError.message.slice(0, 120),
+              },
+            );
+          } else {
+            profile = data;
+          }
+        } catch (error) {
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_partner_profile_display_degraded',
+            {
+              session_id: sessionId,
+              event_id: startSnapshot.eventId,
+              error:
+                error instanceof Error
+                  ? error.message.slice(0, 120)
+                  : String(error).slice(0, 120),
+            },
+          );
+        }
         const partnerProfile = profile as {
           avatar_url?: unknown;
           photos?: unknown;
@@ -1605,6 +1636,10 @@ export default function ReadyGateScreen() {
                             platform: 'native',
                           });
                         throw new Error(transitionFailure.message);
+                      }
+                      if (result.isTerminal === true) {
+                        setTerminalActionError(null);
+                        return;
                       }
                     } catch (e) {
                       const fallback =
