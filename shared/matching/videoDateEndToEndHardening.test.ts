@@ -186,6 +186,10 @@ const encounterSurveyMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260503090000_video_date_encounter_survey_and_pair_guard.sql"),
   "utf8",
 );
+const remoteSeenEncounterGuardMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260603090000_video_date_remote_seen_encounter_guard.sql"),
+  "utf8",
+);
 const encounterPairGuardAclPolishMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260503100000_video_date_pair_guard_function_acl_polish.sql"),
   "utf8",
@@ -248,6 +252,18 @@ const nativeReadyGateApi = readFileSync(
 );
 const sharedActiveSession = readFileSync(
   join(process.cwd(), "shared/matching/activeSession.ts"),
+  "utf8",
+);
+const sharedVideoDateRouteDecision = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateRouteDecision.ts"),
+  "utf8",
+);
+const sharedVideoDateSnapshot = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateSnapshot.ts"),
+  "utf8",
+);
+const sharedVideoDateRecoveryAdvisor = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateRecoveryAdvisor.ts"),
   "utf8",
 );
 const webPrepareEntry = readFileSync(
@@ -316,8 +332,16 @@ const webVideoCallHook = readFileSync(
   join(process.cwd(), "src/hooks/useVideoCall.ts"),
   "utf8",
 );
+const webDailyCallInstance = readFileSync(
+  join(process.cwd(), "src/lib/dailyCallInstance.ts"),
+  "utf8",
+);
 const webDailyPrewarm = readFileSync(
   join(process.cwd(), "src/lib/videoDateDailyPrewarm.ts"),
+  "utf8",
+);
+const webVideoDateReadiness = readFileSync(
+  join(process.cwd(), "src/hooks/useVideoDateReadiness.ts"),
   "utf8",
 );
 const webDailyCallObjectConfig = readFileSync(
@@ -328,8 +352,20 @@ const nativeDailyPrewarm = readFileSync(
   join(process.cwd(), "apps/mobile/lib/videoDateDailyPrewarm.ts"),
   "utf8",
 );
+const nativeDailyCallInstance = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/nativeDailyCallInstance.ts"),
+  "utf8",
+);
+const nativeVideoDateReadiness = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/videoDateReadiness.ts"),
+  "utf8",
+);
 const webEnvExample = readFileSync(
   join(process.cwd(), ".env.example"),
+  "utf8",
+);
+const supabaseTypes = readFileSync(
+  join(process.cwd(), "src/integrations/supabase/types.ts"),
   "utf8",
 );
 const nativeEnvExample = readFileSync(
@@ -1834,6 +1870,7 @@ test("web and native active-session recovery share pending survey contract", () 
   assert.match(sharedActiveSession, /POST_DATE_SURVEY_RECOVERY_WINDOW_MS = 24 \* 60 \* 60 \* 1000/);
   assert.match(sharedActiveSession, /function videoSessionHasPostDateSurveyTruth/);
   assert.match(sharedActiveSession, /function videoSessionHasRecoverablePostDateSurveyTruth/);
+  assert.match(sharedActiveSession, /participant_1_remote_seen_at[\s\S]*participant_2_remote_seen_at/);
   assert.match(sharedActiveSession, /function isActiveSessionDirectFallbackFresh/);
   assert.match(sharedActiveSession, /function activeSessionDirectFallbackStaleReason/);
   assert.match(sharedActiveSession, /function getVideoSessionPartnerIdForUser/);
@@ -1844,7 +1881,7 @@ test("web and native active-session recovery share pending survey contract", () 
     assert.match(source, /findPendingPostDateSurveySession/);
     assert.match(source, /\.not\(["']ended_at["'], ["']is["'], null\)/);
     assert.doesNotMatch(source, /\.not\(["']date_started_at["'], ["']is["'], null\)/);
-    assert.match(source, /participant_1_joined_at, participant_2_joined_at, state, phase/);
+    assert.match(source, /participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
     assert.match(source, /videoSessionHasPostDateSurveyTruth/);
     assert.match(source, /videoSessionHasRecoverablePostDateSurveyTruth/);
     assert.match(source, /pending_survey_recovery_stale/);
@@ -1914,6 +1951,7 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.ok(helperLatchReturnIndex > helperLatchIndex);
   assert.ok(helperDueIndex > helperLatchReturnIndex);
   assert.match(nativeVideoDateRoute, /NATIVE_TERMINAL_SURVEY_SESSION_SELECT/);
+  assert.match(nativeVideoDateRoute, /participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
   assert.match(nativeVideoDateRoute, /pendingPostDateSurveyDue/);
   assert.match(nativeVideoDateRoute, /if \(!pendingPostDateSurveyDue\) return false/);
   assert.match(nativeVideoDateRoute, /if \(recoveredPartnerId\) setPartnerId\(recoveredPartnerId\)/);
@@ -1952,7 +1990,7 @@ test("web date route opens ended-session survey only when feedback is missing", 
   assert.match(webVideoDatePage, /const hydrateTerminalSurveyContext/);
   assert.match(webVideoDatePage, /setVideoDateAccess\("allowed"\)/);
   assert.match(webVideoDatePage, /terminal_survey_context_hydrated/);
-  assert.match(webVideoDatePage, /participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at/);
+  assert.match(webVideoDatePage, /participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
   assert.match(webVideoDatePage, /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", id\)[\s\S]*\.eq\("user_id", user\.id\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("session_load_terminal", sessionRow\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("timing_terminal"\)/);
@@ -1964,24 +2002,88 @@ test("web date route opens ended-session survey only when feedback is missing", 
   assert.match(webVideoDatePage, /\(isConnecting \|\| !isConnected \|\| remotePlayback\.playRejected\)[\s\S]*!showFeedback/);
 });
 
-test("terminal both-joined encounters are survey eligible and non-encounters stay excluded", () => {
-  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.video_date_session_has_encounter_exposure/);
-  assert.match(encounterSurveyMigration, /participant_1_joined_at IS NOT NULL AND p_participant_2_joined_at IS NOT NULL/);
-  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.video_date_session_is_post_date_survey_eligible/);
-  assert.match(encounterSurveyMigration, /COALESCE\(p_ended_reason, ''\) NOT IN \([\s\S]*'ready_gate_expired'[\s\S]*'partial_join_peer_timeout'[\s\S]*'blocked_pair'/);
-  assert.doesNotMatch(encounterSurveyMigration, /'handshake_timeout'[\s\S]*'partial_join_peer_timeout'/);
+test("bilateral remote video evidence gates terminal survey eligibility", () => {
+  assert.match(remoteSeenEncounterGuardMigration, /ADD COLUMN IF NOT EXISTS participant_1_remote_seen_at timestamptz/);
+  assert.match(remoteSeenEncounterGuardMigration, /ADD COLUMN IF NOT EXISTS participant_2_remote_seen_at timestamptz/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.mark_video_date_remote_seen\(p_session_id uuid\)/);
+  assert.match(remoteSeenEncounterGuardMigration, /GRANT EXECUTE ON FUNCTION public\.mark_video_date_remote_seen\(uuid\) TO authenticated/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.video_date_session_has_confirmed_encounter/);
+  assert.match(
+    remoteSeenEncounterGuardMigration,
+    /p_participant_1_remote_seen_at IS NOT NULL[\s\S]*p_participant_2_remote_seen_at IS NOT NULL[\s\S]*p_date_started_at IS NOT NULL[\s\S]*p_participant_1_joined_at IS NOT NULL[\s\S]*p_participant_2_joined_at IS NOT NULL/s,
+  );
+  assert.doesNotMatch(remoteSeenEncounterGuardMigration, /SELECT p_date_started_at IS NOT NULL\s+OR/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.video_date_session_is_post_date_survey_eligible_v2/);
+  assert.match(remoteSeenEncounterGuardMigration, /COALESCE\(p_ended_reason, ''\) NOT IN \([\s\S]*'ready_gate_expired'[\s\S]*'partial_join_peer_timeout'[\s\S]*'blocked_pair'/);
   assert.match(sharedActiveSession, /function videoSessionHasEncounterExposureTruth/);
-  assert.match(sharedActiveSession, /participant_1_joined_at && row\.participant_2_joined_at/);
+  assert.match(
+    sharedActiveSession,
+    /row\.participant_1_remote_seen_at &&[\s\S]*row\.participant_2_remote_seen_at &&[\s\S]*row\.date_started_at[\s\S]*row\.participant_1_joined_at &&[\s\S]*row\.participant_2_joined_at/s,
+  );
+  assert.match(sharedVideoDateRouteDecision, /"peer_missing_timeout"/);
+  assert.match(sharedVideoDateRouteDecision, /"prepare_entry_daily_join_missing"/);
+  assert.match(sharedVideoDateRouteDecision, /case "survey":[\s\S]*input\.truthKnown && !input\.surveyEligible[\s\S]*return null/s);
   assert.match(sharedActiveSession, /function videoSessionHasTerminalEncounterExposureTruth/);
+  assert.match(sharedVideoDateRouteDecision, /participant_1_remote_seen_at/);
+  assert.match(sharedVideoDateRouteDecision, /participant_2_remote_seen_at/);
+  assert.match(sharedVideoDateSnapshot, /surveyRequired\?: boolean \| null/);
+  assert.match(sharedVideoDateSnapshot, /remoteSeenAt\?: number \| null/);
+  assert.match(sharedVideoDateRecoveryAdvisor, /typeof snapshot\.surveyRequired === "boolean"/);
+  assert.match(sharedVideoDateRecoveryAdvisor, /snapshotSelfHasRemoteSeen\(snapshot\)[\s\S]*snapshotPartnerHasRemoteSeen\(snapshot\)/);
 });
 
-test("handshake deadline terminal encounters route both users to survey", () => {
-  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.finalize_video_date_handshake_deadline/);
-  assert.match(encounterSurveyMigration, /v_should_open_survey := public\.video_date_session_is_post_date_survey_eligible/);
-  assert.match(encounterSurveyMigration, /queue_status = CASE WHEN v_should_open_survey THEN 'in_survey' ELSE 'idle' END/);
-  assert.match(encounterSurveyMigration, /current_room_id = CASE WHEN v_should_open_survey THEN p_session_id ELSE NULL END/);
-  assert.match(encounterSurveyMigration, /current_partner_id = CASE[\s\S]*WHEN v_should_open_survey THEN CASE WHEN profile_id = v_p1 THEN v_p2 ELSE v_p1 END/s);
-  assert.match(encounterSurveyMigration, /'survey_required', v_should_open_survey/);
+test("transition wrapper cannot open survey from failed or one-sided date starts", () => {
+  assert.match(remoteSeenEncounterGuardMigration, /RENAME TO video_date_transition_20260603090000_remote_seen_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /v_result := public\.video_date_transition_20260603090000_remote_seen_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /v_result := public\.video_date_transition_20260603090000_remote_seen_base\(\s*p_session_id,\s*p_action,\s*p_reason\s*\)/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.end_unconfirmed_video_date_start/);
+  assert.match(remoteSeenEncounterGuardMigration, /ended_reason = 'partial_join_peer_timeout'/);
+  assert.match(remoteSeenEncounterGuardMigration, /date_started_at = NULL/);
+  assert.match(remoteSeenEncounterGuardMigration, /'unconfirmed_remote_video_terminalized'/);
+  assert.match(remoteSeenEncounterGuardMigration, /v_result->>'state' = 'date'[\s\S]*NOT public\.video_date_session_has_confirmed_encounter[\s\S]*RETURN public\.end_unconfirmed_video_date_start/s);
+  assert.match(remoteSeenEncounterGuardMigration, /'transition_' \|\| COALESCE\(NULLIF\(p_action, ''\), 'unknown'\)/);
+  assert.match(remoteSeenEncounterGuardMigration, /'deadline_' \|\| COALESCE\(NULLIF\(p_source, ''\), 'unknown'\)/);
+  assert.match(remoteSeenEncounterGuardMigration, /v_should_open_survey := public\.video_date_session_is_post_date_survey_eligible_v2/);
+  assert.match(remoteSeenEncounterGuardMigration, /IF v_should_open_survey THEN[\s\S]*queue_status = 'in_survey'/);
+  assert.match(remoteSeenEncounterGuardMigration, /ELSE[\s\S]*queue_status = v_resume_status/);
+  assert.match(remoteSeenEncounterGuardMigration, /WHEN v_event_live THEN 'browsing'/);
+  assert.match(remoteSeenEncounterGuardMigration, /current_room_id = p_session_id/);
+  assert.match(remoteSeenEncounterGuardMigration, /current_room_id = NULL/);
+  assert.match(remoteSeenEncounterGuardMigration, /current_partner_id = CASE[\s\S]*WHEN profile_id = v_session\.participant_1_id THEN v_session\.participant_2_id[\s\S]*ELSE v_session\.participant_1_id/s);
+  assert.match(remoteSeenEncounterGuardMigration, /current_partner_id = NULL/);
+  assert.match(remoteSeenEncounterGuardMigration, /'survey_required', v_should_open_survey/);
+  assert.match(remoteSeenEncounterGuardMigration, /'participant_1_remote_seen_at', v_session\.participant_1_remote_seen_at/);
+  assert.match(remoteSeenEncounterGuardMigration, /'participant_2_remote_seen_at', v_session\.participant_2_remote_seen_at/);
+  assert.match(remoteSeenEncounterGuardMigration, /RENAME TO finalize_vd_handshake_deadline_20260603090000_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /v_result := public\.finalize_vd_handshake_deadline_20260603090000_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /deadline_unconfirmed_encounter_no_survey/);
+  assert.match(remoteSeenEncounterGuardMigration, /GRANT EXECUTE ON FUNCTION public\.finalize_video_date_handshake_deadline\(uuid, uuid, text, text\)[\s\S]*TO service_role/);
+  assert.match(remoteSeenEncounterGuardMigration, /RENAME TO video_session_continue_handshake_v2_20260603090000_remote_seen_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /RENAME TO video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_continue_handshake_v2_20260603090000_remote_seen_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
+  assert.match(supabaseTypes, /video_session_continue_handshake_v2_20260603090000_remote_seen_base/);
+  assert.match(supabaseTypes, /video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
+  assert.match(remoteSeenEncounterGuardMigration, /NOT public\.video_date_session_has_confirmed_encounter[\s\S]*'video_session_continue_handshake_v2'/s);
+  assert.match(remoteSeenEncounterGuardMigration, /NOT public\.video_date_session_has_confirmed_encounter[\s\S]*'video_session_handshake_auto_promote_v2'/s);
+  assert.match(remoteSeenEncounterGuardMigration, /GRANT EXECUTE ON FUNCTION public\.video_session_continue_handshake_v2\(uuid, text, text\)[\s\S]*TO authenticated, service_role/);
+  assert.match(remoteSeenEncounterGuardMigration, /GRANT EXECUTE ON FUNCTION public\.video_session_handshake_auto_promote_v2\(uuid, text, text\)[\s\S]*TO authenticated, service_role/);
+});
+
+test("post-date server surfaces cannot use old joined-only survey eligibility", () => {
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
+  assert.match(remoteSeenEncounterGuardMigration, /IF public\.video_date_session_is_post_date_survey_eligible_v2\(/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.claim_post_date_pending_verdict_reminders/);
+  assert.match(remoteSeenEncounterGuardMigration, /AND public\.video_date_session_is_post_date_survey_eligible_v2\(/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.submit_post_date_verdict\(p_session_id uuid, p_liked boolean\)/);
+  assert.match(remoteSeenEncounterGuardMigration, /IF NOT public\.video_date_session_is_post_date_survey_eligible_v2\(/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_snapshot_core/);
+  assert.match(remoteSeenEncounterGuardMigration, /'surveyRequired', v_survey_required/);
+  assert.match(remoteSeenEncounterGuardMigration, /v_confirmed_encounter boolean := false/);
+  assert.match(remoteSeenEncounterGuardMigration, /WHEN v_phase = 'verdict' THEN v_confirmed_encounter/);
+  assert.match(remoteSeenEncounterGuardMigration, /WHEN v_phase = 'verdict' THEN CASE WHEN v_survey_required THEN ARRAY\['submit_verdict', 'report_block'\]::text\[\] ELSE ARRAY\['report_block'\]::text\[\] END/);
+  assert.match(remoteSeenEncounterGuardMigration, /'remoteSeenAt'/);
+  assert.match(sharedVideoDateRecoveryAdvisor, /snapshotHasVerdictSurveyEvidence/);
 });
 
 test("survey continuity cleanup removes remaining date-started-only reminder and transition gates", () => {
@@ -1998,6 +2100,9 @@ test("survey continuity cleanup removes remaining date-started-only reminder and
 
 test("same-event terminal encounter pairs are blocked from deck swipe and ready-gate promotion", () => {
   assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.video_date_pair_has_terminal_encounter/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE OR REPLACE FUNCTION public\.video_date_pair_has_terminal_encounter/);
+  assert.match(remoteSeenEncounterGuardMigration, /public\.video_date_session_is_post_date_survey_eligible_v2/);
+  assert.match(remoteSeenEncounterGuardMigration, /CREATE INDEX IF NOT EXISTS idx_video_sessions_terminal_confirmed_pair_lookup/);
   assert.match(encounterSurveyMigration, /AND NOT public\.video_date_pair_has_terminal_encounter\(p_event_id, p_user_id, base\.profile_id\)/);
   assert.match(encounterSurveyMigration, /ALTER FUNCTION public\.handle_swipe\(uuid, uuid, uuid, text\)[\s\S]*RENAME TO handle_swipe_20260503090000_encounter_guard_base/);
   assert.match(encounterSurveyMigration, /public\.video_date_pair_has_terminal_encounter\(p_event_id, p_actor_id, p_target_id\)/);
@@ -2219,13 +2324,17 @@ test("native local date end waits for server terminal truth before survey", () =
   assert.doesNotMatch(nativeVideoDateRoute, /if \(!recoveredSurvey\) setShowFeedback\(true\)/);
 });
 
-test("mobile terminal survey recovery does not depend on Daily-observed remote presence", () => {
+test("mobile terminal survey recovery uses server survey truth instead of local remote flags", () => {
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('sync_reconnect'\)/);
   assert.match(nativeVideoDateRoute, /if \(!reconnectEndedHandledRef\.current\) \{/);
   assert.doesNotMatch(nativeVideoDateRoute, /if \(!reconnectEndedHandledRef\.current && partnerEverJoinedRef\.current\)/);
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\([\s\S]*'complete_handshake_survey_required'/);
+  assert.match(nativeVideoDateRoute, /participant_1_remote_seen_at\?: string \| null/);
+  assert.match(nativeVideoDateRoute, /participant_2_remote_seen_at\?: string \| null/);
   assert.match(nativeVideoDateApi, /survey_required\?: boolean/);
   assert.match(nativeVideoDateApi, /survey_required: payload\?\.survey_required/);
+  assert.match(nativeVideoDateApi, /participant_1_remote_seen_at\?: string \| null/);
+  assert.match(nativeVideoDateApi, /participant_2_remote_seen_at\?: string \| null/);
   assert.match(webVideoDatePage, /survey_required\?: boolean/);
   assert.match(webVideoDatePage, /payload\?\.survey_required === true/);
 });
@@ -2361,7 +2470,7 @@ test("notification date deep links require provider-prepared truth before routin
   assert.match(notificationDeepLinkHandler, /adviseVideoSessionTruthRecovery/);
   assert.match(notificationDeepLinkHandler, /if \(!vs\) return tabsRootHref\(\);/);
   assert.match(notificationDeepLinkHandler, /if \(!isParticipant\) return tabsRootHref\(\);/);
-  assert.match(notificationDeepLinkHandler, /ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at/);
+  assert.match(notificationDeepLinkHandler, /ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
   assert.match(notificationDeepLinkHandler, /videoSessionHasPostDateSurveyTruth\(vs\)/);
   assert.match(notificationDeepLinkHandler, /pending_survey_terminal_encounter/);
   assert.match(notificationDeepLinkHandler, /return videoDateHref\(sid\);/);
@@ -2988,6 +3097,87 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
     readyGateOverlay,
     /ready_gate_unmount_before_date_navigation[\s\S]{0,500}\}, \[sessionId, user\?\.id\]\);/,
   );
+});
+
+test("Daily lifecycle guards destroy stale calls and only reuse same-session joined calls", () => {
+  assert.match(webVideoCallHook, /entry\.previousSessionId !== params\.nextSessionId \|\| entry\.previousRoomName !== params\.nextRoomName/);
+  assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("session_or_room_changed_before_consume"\)/);
+  assert.match(webVideoCallHook, /const meetingState = readDailyMeetingState\(entry\.call\)/);
+  assert.match(webVideoCallHook, /meetingState !== "joined-meeting"[\s\S]*destroyWebDailyCallSingleton\("not_joined_before_consume"\)/);
+  assert.match(webVideoCallHook, /hasReusableWebDailyCallSingleton\(params: \{ userId: string; nextSessionId: string \}\)/);
+  assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("session_changed_before_preflight"\)/);
+
+  assert.match(webDailyCallInstance, /if \(options\.failOnExternalCall && !isTerminalDailyMeetingState\(meetingState\)\)/);
+  assert.match(webDailyCallInstance, /const destroyed = await destroyDailyCallObject\(sdkCallObject, options\.source, options\.onDiagnostic\)/);
+  assert.match(nativeDailyCallInstance, /if \(options\.failOnExternalCall && !isTerminalNativeDailyMeetingState\(meetingState\)\)/);
+  assert.match(nativeDailyCallInstance, /const destroyed = await destroyNativeDailyCallObject\(sdkCallObject, options\.source, options\.onDiagnostic\)/);
+});
+
+test("Daily prewarm rejects mismatched or stale call objects before date reuse", () => {
+  for (const source of [webDailyPrewarm, nativeDailyPrewarm]) {
+    assert.match(source, /function rejectUnusablePrewarmEntry/);
+    assert.match(source, /entry\.call\.isDestroyed\(\)/);
+    assert.match(source, /entry\.status === ['"]joined['"]/);
+    assert.match(source, /meetingState === ['"]joined-meeting['"] \? null : `joined_state_\$\{meetingState \?\? ['"]unknown['"]\}`/);
+    assert.match(source, /entry\.status === ['"]joining['"]/);
+    assert.match(source, /meetingState === ['"]left-meeting['"] \|\| meetingState === ['"]error['"]/);
+    assert.match(source, /meetingState === ['"]new['"] \|\| meetingState === ['"]loaded['"]/);
+    assert.match(source, /fallbackEntry\(entry, `daily_prewarm_call_\$\{unusableReason\}`\)/);
+    assert.match(source, /return \{ ok: false, reason: ['"]call_not_usable['"] \}/);
+  }
+  assert.match(webDailyPrewarm, /readDailyMeetingState\(entry\.call\)/);
+  assert.match(nativeDailyPrewarm, /readNativeDailyMeetingState\(entry\.call\)/);
+});
+
+test("Daily readiness diagnostics skip call quality after failed preauth", () => {
+  for (const source of [webVideoDateReadiness, nativeVideoDateReadiness]) {
+    const preauthIndex = source.indexOf("preAuthReady = await withTimeout");
+    assert.match(source, /preAuth/);
+    assert.match(source, /skipped: ['"]preauth_api_unavailable['"]/);
+    assert.match(source, /preAuthReady = await withTimeout/);
+    assert.match(source, /preAuth\(\{ url: diagnostic\.roomUrl, token: diagnosticToken \}\)/);
+    assert.match(source, /skipped: preAuthReady === null \? ['"]preauth_timeout['"] : ['"]preauth_failed['"]/);
+    assert.ok(preauthIndex >= 0);
+    assert.ok(source.indexOf("testCallQuality", preauthIndex) > preauthIndex);
+  }
+});
+
+test("web and native stamp bilateral remote-video evidence once remote media is mounted", () => {
+  assert.match(webVideoCallHook, /const remoteSeenStampedSessionRef = useRef<string \| null>\(null\)/);
+  assert.match(webVideoCallHook, /const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> \| null>\(null\)/);
+  assert.match(webVideoCallHook, /const markRemoteSeenOnServer = useCallback/);
+  assert.match(webVideoCallHook, /\.rpc\("mark_video_date_remote_seen", \{ p_session_id: sessionId \}\)/);
+  assert.match(webVideoCallHook, /remoteSeenStampedSessionRef\.current = null/);
+  assert.match(webVideoCallHook, /\.catch\(\(error: unknown\) =>/);
+  assert.match(webVideoCallHook, /handleFailure\([\s\S]*"promise_rejected"/);
+  assert.match(webVideoCallHook, /REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3/);
+  assert.match(webVideoCallHook, /REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500/);
+  assert.match(webVideoCallHook, /stamp\(`\$\{attemptSource\}_retry_\$\{nextAttempt\}`, nextAttempt\)/);
+  assert.match(webVideoCallHook, /attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS/);
+  assert.match(webVideoCallHook, /const hasRemoteVideo = !isLocal && Boolean\(videoTrack\)/);
+  assert.match(webVideoCallHook, /if \(hasRemoteVideo\) \{[\s\S]*markRemoteFirstFrameRendered\("loadeddata"\)[\s\S]*markRemoteFirstFrameRendered\("playing"\)/);
+  assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)[\s\S]*if \(remoteFirstFrameTrackedRef\.current\) return/);
+  assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)/);
+  assert.match(webVideoCallHook, /daily_remote_first_frame_rendered/);
+  assert.match(webVideoDatePage, /MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS = 15_000/);
+  assert.match(webVideoDatePage, /firstRemoteFrameAtMsRef = useRef<number \| null>\(null\)/);
+  assert.match(webVideoDatePage, /complete_handshake_deferred_for_remote_frame_window/);
+
+  assert.match(nativeVideoDateRoute, /const remoteSeenStampedSessionRef = useRef<string \| null>\(null\)/);
+  assert.match(nativeVideoDateRoute, /const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> \| null>\(null\)/);
+  assert.match(nativeVideoDateRoute, /const remoteSeenActiveSessionRef = useRef<string \| null>\(sessionId \?\? null\)/);
+  assert.match(nativeVideoDateRoute, /const markRemoteSeenOnce = useCallback/);
+  assert.match(nativeVideoDateRoute, /\.rpc\('mark_video_date_remote_seen', \{ p_session_id: sessionId \}\)/);
+  assert.match(nativeVideoDateRoute, /remoteSeenStampedSessionRef\.current = null/);
+  assert.match(nativeVideoDateRoute, /\.catch\(\(error: unknown\) =>/);
+  assert.match(nativeVideoDateRoute, /handleFailure\([\s\S]*'promise_rejected'/);
+  assert.match(nativeVideoDateRoute, /REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3/);
+  assert.match(nativeVideoDateRoute, /REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500/);
+  assert.match(nativeVideoDateRoute, /stamp\(`\$\{attemptSource\}_retry_\$\{nextAttempt\}`, nextAttempt\)/);
+  assert.match(nativeVideoDateRoute, /attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS/);
+  assert.match(nativeVideoDateRoute, /remoteSeenActiveSessionRef\.current !== sessionId/);
+  assert.match(nativeVideoDateRoute, /markRemoteSeenOnce\('remote_track_mounted'\)/);
+  assert.match(nativeVideoDateRoute, /void refetchVideoSession\(\)/);
 });
 
 test("video date trace id is propagated through prepare entry analytics and Daily-room payloads", () => {

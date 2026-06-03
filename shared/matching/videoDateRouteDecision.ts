@@ -60,6 +60,8 @@ export type VideoDateRouteSessionTruth = {
   handshake_started_at?: string | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   phase?: string | null;
   ready_gate_expires_at?: string | number | null;
   ready_gate_status?: string | null;
@@ -111,6 +113,8 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "queued_ttl_expired",
   "handshake_grace_expired",
   "partial_join_peer_timeout",
+  "peer_missing_timeout",
+  "prepare_entry_daily_join_missing",
   "blocked_pair",
   "blocked_or_reported_pair",
 ] as const;
@@ -220,15 +224,20 @@ export function videoDateRouteTruthReadyGateEligible(
 function videoDateRouteTruthHasEncounterExposure(
   row: Pick<
     VideoDateRouteSessionTruth,
-    "date_started_at" | "participant_1_joined_at" | "participant_2_joined_at" | "phase" | "state"
+    | "date_started_at"
+    | "participant_1_joined_at"
+    | "participant_2_joined_at"
+    | "participant_1_remote_seen_at"
+    | "participant_2_remote_seen_at"
   > | null,
 ): boolean {
   return Boolean(
     row &&
+      row.participant_1_remote_seen_at &&
+      row.participant_2_remote_seen_at &&
       (row.date_started_at ||
-        row.state === "date" ||
-        row.phase === "date" ||
-        (row.participant_1_joined_at && row.participant_2_joined_at)),
+        (row.participant_1_joined_at &&
+          row.participant_2_joined_at)),
   );
 }
 
@@ -302,6 +311,7 @@ function routeFromServerNextSurface(input: {
   canAttemptDaily: boolean;
   hasProviderRoom: boolean;
   readyGateEligible: boolean;
+  surveyEligible: boolean;
   truthKnown: boolean;
 }): VideoDateCanonicalRouteDecision | null {
   const action = input.surface.action ?? null;
@@ -331,6 +341,7 @@ function routeFromServerNextSurface(input: {
         hasProviderRoom: input.hasProviderRoom,
       });
     case "survey":
+      if (input.truthKnown && !input.surveyEligible) return null;
       return makeDecision({
         target: "survey",
         reason: "server_next_survey",
@@ -406,6 +417,7 @@ export function decideCanonicalVideoDateRoute(
       canAttemptDaily,
       hasProviderRoom,
       readyGateEligible: truth ? videoDateRouteTruthReadyGateEligible(truth, nowMs) : false,
+      surveyEligible: truth ? videoDateRouteTruthHasPostDateSurvey(truth) : false,
       truthKnown: Boolean(truth),
     });
     if (serverDecision) return serverDecision;

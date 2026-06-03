@@ -12,6 +12,7 @@ export type VideoDateSnapshotParticipant = {
   isSelf: boolean;
   isPartner: boolean;
   mediaJoinedAt: number | null;
+  remoteSeenAt?: number | null;
   awayAt: number | null;
 };
 
@@ -35,6 +36,7 @@ export type VideoDateSnapshotOk = {
   phaseStartedAt: number | null;
   phaseDeadlineAt: number | null;
   allowedActions: string[];
+  surveyRequired?: boolean | null;
   participants: VideoDateSnapshotParticipant[];
   room: VideoDateSnapshotRoom | null;
   endedReason: string | null;
@@ -84,6 +86,11 @@ export function normalizeVideoDateSnapshot(payload: unknown): VideoDateSnapshot 
     allowedActions: Array.isArray(record.allowedActions)
       ? record.allowedActions.filter((action): action is string => typeof action === "string")
       : [],
+    surveyRequired: typeof record.surveyRequired === "boolean"
+      ? record.surveyRequired
+      : typeof record.survey_required === "boolean"
+        ? record.survey_required
+        : null,
     participants: Array.isArray(record.participants)
       ? record.participants.map(normalizeParticipant).filter(Boolean) as VideoDateSnapshotParticipant[]
       : [],
@@ -165,6 +172,7 @@ function normalizeParticipant(value: unknown): VideoDateSnapshotParticipant | nu
     isSelf: record.isSelf === true,
     isPartner: record.isPartner === true,
     mediaJoinedAt: nullableNumber(record.mediaJoinedAt),
+    remoteSeenAt: nullableNumber(record.remoteSeenAt),
     awayAt: nullableNumber(record.awayAt),
   };
 }

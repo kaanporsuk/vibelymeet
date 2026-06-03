@@ -150,7 +150,7 @@ const ReadyRedirect = () => {
 
       const { data: session, error } = await supabase
         .from("video_sessions")
-        .select("participant_1_id, participant_2_id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
+        .select("participant_1_id, participant_2_id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
         .eq("id", candidate)
         .maybeSingle();
 

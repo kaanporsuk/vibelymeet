@@ -83,12 +83,69 @@ test("legacy snapshot recovery adapter delegates to advisor-compatible outcomes"
       room: null,
       endedAt: nowMs,
       endedReason: "date_timeout",
+      surveyRequired: true,
     }),
     {
       action: "survey",
       sessionId: baseSnapshot.sessionId,
       eventId: baseSnapshot.eventId,
       reason: "terminal_encounter",
+    },
+  );
+});
+
+test("advisor only opens active verdict snapshot after bilateral remote evidence", () => {
+  assert.deepEqual(
+    adviseVideoDateSnapshotRecovery({
+      ...baseSnapshot,
+      phase: "verdict",
+      surveyRequired: false,
+      allowedActions: ["report_block"],
+      room: null,
+    }),
+    {
+      action: "go_lobby",
+      sessionId: baseSnapshot.sessionId,
+      eventId: baseSnapshot.eventId,
+      reason: "not_date_ready",
+      platform: undefined,
+      surface: undefined,
+    },
+  );
+
+  assert.deepEqual(
+    adviseVideoDateSnapshotRecovery({
+      ...baseSnapshot,
+      phase: "verdict",
+      surveyRequired: true,
+      allowedActions: ["submit_verdict", "report_block"],
+      room: null,
+      participants: [
+        {
+          id: "self",
+          isSelf: true,
+          isPartner: false,
+          mediaJoinedAt: nowMs - 20_000,
+          remoteSeenAt: nowMs - 19_000,
+          awayAt: null,
+        },
+        {
+          id: "partner",
+          isSelf: false,
+          isPartner: true,
+          mediaJoinedAt: nowMs - 18_000,
+          remoteSeenAt: nowMs - 17_000,
+          awayAt: null,
+        },
+      ],
+    }),
+    {
+      action: "go_survey",
+      sessionId: baseSnapshot.sessionId,
+      eventId: baseSnapshot.eventId,
+      reason: "verdict",
+      platform: undefined,
+      surface: undefined,
     },
   );
 });

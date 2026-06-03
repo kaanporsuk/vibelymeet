@@ -8156,11 +8156,13 @@ export type Database = {
           participant_1_id: string
           participant_1_joined_at: string | null
           participant_1_liked: boolean | null
+          participant_1_remote_seen_at: string | null
           participant_2_away_at: string | null
           participant_2_decided_at: string | null
           participant_2_id: string
           participant_2_joined_at: string | null
           participant_2_liked: boolean | null
+          participant_2_remote_seen_at: string | null
           phase: string
           prepare_entry_actor_id: string | null
           prepare_entry_attempt_id: string | null
@@ -8205,11 +8207,13 @@ export type Database = {
           participant_1_id: string
           participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
+          participant_1_remote_seen_at?: string | null
           participant_2_away_at?: string | null
           participant_2_decided_at?: string | null
           participant_2_id: string
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
+          participant_2_remote_seen_at?: string | null
           phase?: string
           prepare_entry_actor_id?: string | null
           prepare_entry_attempt_id?: string | null
@@ -8254,11 +8258,13 @@ export type Database = {
           participant_1_id?: string
           participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
+          participant_1_remote_seen_at?: string | null
           participant_2_away_at?: string | null
           participant_2_decided_at?: string | null
           participant_2_id?: string
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
+          participant_2_remote_seen_at?: string | null
           phase?: string
           prepare_entry_actor_id?: string | null
           prepare_entry_attempt_id?: string | null
@@ -11022,6 +11028,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      end_unconfirmed_video_date_start: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       expire_due_joined_video_date_handshakes_bounded: {
         Args: { p_limit?: number }
         Returns: Json
@@ -11846,6 +11861,10 @@ export type Database = {
         Returns: undefined
       }
       mark_video_date_daily_joined: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      mark_video_date_remote_seen: {
         Args: { p_session_id: string }
         Returns: Json
       }
@@ -12771,6 +12790,18 @@ export type Database = {
         }
         Returns: boolean
       }
+      video_date_session_has_confirmed_encounter: {
+        Args: {
+          p_date_started_at: string
+          p_state: string
+          p_phase: string
+          p_participant_1_joined_at: string
+          p_participant_2_joined_at: string
+          p_participant_1_remote_seen_at: string
+          p_participant_2_remote_seen_at: string
+        }
+        Returns: boolean
+      }
       video_date_session_is_active_surface: {
         Args: { p_ended_at: string; p_phase: string; p_state: string }
         Returns: boolean
@@ -12784,6 +12815,20 @@ export type Database = {
           p_participant_2_joined_at: string
           p_phase: string
           p_state: string
+        }
+        Returns: boolean
+      }
+      video_date_session_is_post_date_survey_eligible_v2: {
+        Args: {
+          p_ended_at: string
+          p_ended_reason: string
+          p_date_started_at: string
+          p_state: string
+          p_phase: string
+          p_participant_1_joined_at: string
+          p_participant_2_joined_at: string
+          p_participant_1_remote_seen_at: string
+          p_participant_2_remote_seen_at: string
         }
         Returns: boolean
       }
@@ -12828,6 +12873,10 @@ export type Database = {
         Returns: Json
       }
       video_date_transition_20260505153000_prepare_payload_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260603090000_remote_seen_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
@@ -12877,6 +12926,14 @@ export type Database = {
         }
         Returns: Json
       }
+      video_session_continue_handshake_v2_20260603090000_remote_seen_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       video_session_date_timeout_v2: {
         Args: {
           p_idempotency_key?: string
@@ -12913,6 +12970,14 @@ export type Database = {
         Returns: Json
       }
       video_session_handshake_auto_promote_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string

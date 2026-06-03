@@ -183,7 +183,7 @@ async function findPendingPostDateSurveySession(
   const nowMs = Date.now();
   const endedQuery = supabase
     .from("video_sessions")
-    .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase")
+    .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, state, phase")
     .not("ended_at", "is", null)
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .order("ended_at", { ascending: false, nullsFirst: false })
@@ -365,7 +365,7 @@ async function findDirectVideoSessionFallback(
   const query = supabase
     .from("video_sessions")
     .select(
-      "id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url"
+      "id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, daily_room_name, daily_room_url"
     )
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .is("ended_at", null)
@@ -603,7 +603,7 @@ export function useActiveSession(
 
     const { data: session, error: sessionError } = await supabase
       .from("video_sessions")
-      .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url")
+      .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, daily_room_name, daily_room_url")
       .eq("id", reg.current_room_id)
       .maybeSingle();
 

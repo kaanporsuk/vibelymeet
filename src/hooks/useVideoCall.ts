@@ -18,6 +18,7 @@ import {
 } from "@/lib/dailyCallObjectConfig";
 import {
   createDailyCallObjectGuarded,
+  readDailyMeetingState,
   registerWebVideoDateDailyCleanup,
 } from "@/lib/dailyCallInstance";
 import {
@@ -117,6 +118,8 @@ const REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 // GOP, which is the original bug we are fixing.
 const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
 const WEB_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
+const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
+const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
 
 function safeMeetingState(call: Pick<DailyCall, "meetingState"> | null | undefined): string | null {
   if (!call || typeof call.meetingState !== "function") return null;
@@ -363,6 +366,15 @@ function consumeWebDailyCallSingleton(params: {
     destroyWebDailyCallSingleton("user_changed");
     return { ok: false, reason: "user_changed" };
   }
+  if (entry.previousSessionId !== params.nextSessionId || entry.previousRoomName !== params.nextRoomName) {
+    destroyWebDailyCallSingleton("session_or_room_changed_before_consume");
+    return { ok: false, reason: "session_or_room_changed" };
+  }
+  const meetingState = readDailyMeetingState(entry.call);
+  if (meetingState !== "joined-meeting") {
+    destroyWebDailyCallSingleton("not_joined_before_consume");
+    return { ok: false, reason: "not_joined" };
+  }
   if (entry.destroyTimer) {
     clearTimeout(entry.destroyTimer);
     entry.destroyTimer = null;
@@ -374,12 +386,13 @@ function consumeWebDailyCallSingleton(params: {
     nextSessionId: params.nextSessionId,
     previousRoomName: entry.previousRoomName,
     nextRoomName: params.nextRoomName,
+    meetingState,
     idleAgeMs: Math.max(0, Date.now() - entry.parkedAtMs),
   });
   return { ok: true, entry };
 }
 
-function hasReusableWebDailyCallSingleton(params: { userId: string }): boolean {
+function hasReusableWebDailyCallSingleton(params: { userId: string; nextSessionId: string }): boolean {
   const entry = webDailyCallSingletonEntry;
   if (!entry) return false;
   if (Date.now() - entry.parkedAtMs > WEB_DAILY_CALL_SINGLETON_IDLE_MS) {
@@ -392,6 +405,15 @@ function hasReusableWebDailyCallSingleton(params: { userId: string }): boolean {
   }
   if (entry.userId !== params.userId) {
     destroyWebDailyCallSingleton("user_changed_before_preflight");
+    return false;
+  }
+  if (entry.previousSessionId !== params.nextSessionId) {
+    destroyWebDailyCallSingleton("session_changed_before_preflight");
+    return false;
+  }
+  const meetingState = readDailyMeetingState(entry.call);
+  if (meetingState !== "joined-meeting") {
+    destroyWebDailyCallSingleton("not_joined_before_preflight");
     return false;
   }
   return true;
@@ -792,6 +814,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const firstRemoteObservedRef = useRef(false);
   const localVideoReadyTrackedRef = useRef(false);
   const remoteFirstFrameTrackedRef = useRef(false);
+  const remoteSeenStampedSessionRef = useRef<string | null>(null);
+  const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalTrackIdsRef = useRef<string>("");
   const lastLocalStreamRef = useRef<MediaStream | null>(null);
   const lastRemoteTrackIdsRef = useRef<string>("");
@@ -996,6 +1020,104 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     };
   }, [isConnected, isConnecting]);
 
+  const markRemoteSeenOnServer = useCallback((source: string) => {
+    const currentOptions = optionsRef.current;
+    const sessionId = currentOptions?.roomId ?? null;
+    if (!sessionId || !currentOptions?.userId) return;
+    const eventId = currentOptions.eventId ?? null;
+    const userId = currentOptions.userId;
+    if (remoteSeenStampedSessionRef.current === sessionId) return;
+    if (remoteSeenRetryTimerRef.current) {
+      clearTimeout(remoteSeenRetryTimerRef.current);
+      remoteSeenRetryTimerRef.current = null;
+    }
+    remoteSeenStampedSessionRef.current = sessionId;
+
+    const scheduleRetry = (attemptSource: string, nextAttempt: number) => {
+      if (optionsRef.current?.roomId !== sessionId || remoteSeenRetryTimerRef.current) return;
+      remoteSeenRetryTimerRef.current = setTimeout(() => {
+        remoteSeenRetryTimerRef.current = null;
+        if (optionsRef.current?.roomId !== sessionId || remoteSeenStampedSessionRef.current === sessionId) return;
+        remoteSeenStampedSessionRef.current = sessionId;
+        stamp(`${attemptSource}_retry_${nextAttempt}`, nextAttempt);
+      }, REMOTE_SEEN_RPC_RETRY_DELAY_MS);
+    };
+
+    const handleFailure = (
+      attemptSource: string,
+      attempt: number,
+      code: string,
+      errorDetail: unknown,
+    ) => {
+      if (remoteSeenStampedSessionRef.current === sessionId) {
+        remoteSeenStampedSessionRef.current = null;
+      }
+      vdbg("mark_video_date_remote_seen_failed", {
+        sessionId,
+        eventId,
+        userId,
+        source: attemptSource,
+        code,
+        error: errorDetail,
+        attempt,
+      });
+      if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) scheduleRetry(attemptSource, attempt + 1);
+    };
+
+    function stamp(attemptSource: string, attempt: number) {
+      void Promise.resolve(
+        supabase.rpc("mark_video_date_remote_seen", { p_session_id: sessionId }),
+      )
+        .then(({ data, error }) => {
+          const payload = data as { ok?: boolean; error?: string | null } | null;
+          if (error || payload?.ok !== true) {
+            handleFailure(
+              attemptSource,
+              attempt,
+              error?.code ?? payload?.error ?? "unknown",
+              error ? { code: error.code, message: error.message } : null,
+            );
+            return;
+          }
+          if (remoteSeenRetryTimerRef.current) {
+            clearTimeout(remoteSeenRetryTimerRef.current);
+            remoteSeenRetryTimerRef.current = null;
+          }
+          vdbg("mark_video_date_remote_seen_after", {
+            sessionId,
+            eventId,
+            userId,
+            source: attemptSource,
+            participant1RemoteSeenAt:
+              typeof payload === "object" && payload ? (payload as { participant_1_remote_seen_at?: unknown }).participant_1_remote_seen_at ?? null : null,
+            participant2RemoteSeenAt:
+              typeof payload === "object" && payload ? (payload as { participant_2_remote_seen_at?: unknown }).participant_2_remote_seen_at ?? null : null,
+          });
+        })
+        .catch((error: unknown) => {
+          handleFailure(
+            attemptSource,
+            attempt,
+            "promise_rejected",
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : { message: String(error) },
+          );
+        });
+    }
+
+    stamp(source, 1);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (remoteSeenRetryTimerRef.current) {
+        clearTimeout(remoteSeenRetryTimerRef.current);
+        remoteSeenRetryTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const markRemoteFirstFrameRendered = useCallback((source: string) => {
     setRemotePlayback((prev) => {
       if (prev.firstFrameRendered) return prev;
@@ -1008,8 +1130,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     });
 
     const currentOptions = optionsRef.current;
-    if (remoteFirstFrameTrackedRef.current || !currentOptions?.roomId) return;
+    if (!currentOptions?.roomId) return;
     const sessionId = currentOptions.roomId;
+    markRemoteSeenOnServer(source);
+    if (remoteFirstFrameTrackedRef.current) return;
     remoteFirstFrameTrackedRef.current = true;
 
     const nowMs = Date.now();
@@ -1062,7 +1186,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       prewarmed_already_joined: lastPrewarmedAlreadyJoinedRef.current,
       provider_verify_skipped: entry?.value.provider_verify_skipped ?? lastProviderVerifySkippedRef.current,
     });
-  }, []);
+  }, [markRemoteSeenOnServer]);
 
   const attachTracks = useCallback(
     (participant: DailyParticipant | undefined, videoEl: HTMLVideoElement | null, isLocal: boolean) => {
@@ -1076,6 +1200,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const remoteTrackKey = isLocal ? "" : getTrackIdsKey(participant, true);
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
+      const hasRemoteVideo = !isLocal && Boolean(videoTrack);
       const hasRemoteMedia = !isLocal && (Boolean(videoTrack) || Boolean(audioTrack));
       try {
         videoEl.srcObject = stream;
@@ -1087,7 +1212,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             playRejected: hasRemoteMedia ? false : prev.playRejected,
             error: hasRemoteMedia ? undefined : prev.error,
           }));
-          if (hasRemoteMedia) {
+          if (hasRemoteVideo) {
             videoEl.addEventListener("loadeddata", () => markRemoteFirstFrameRendered("loadeddata"), { once: true });
             videoEl.addEventListener("playing", () => markRemoteFirstFrameRendered("playing"), { once: true });
           }
@@ -3049,7 +3174,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         const skipMediaPreflightForSingleton = userId
           ? Boolean(optionsRef.current?.dailyCallSingletonV2) &&
-            hasReusableWebDailyCallSingleton({ userId })
+            hasReusableWebDailyCallSingleton({ userId, nextSessionId: sessionId })
           : false;
         const mediaAllowed = skipMediaPreflightForSingleton
           ? true

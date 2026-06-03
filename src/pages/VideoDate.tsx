@@ -148,6 +148,7 @@ import type { VideoDateSafetySubmitOutcome } from "@clientShared/safety/videoDat
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
+const MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS = 15_000;
 
 function isoFromTimelineMs(value: number | null | undefined): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -359,10 +360,12 @@ type TerminalSurveySessionRow = {
   ready_gate_expires_at?: string | number | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
 };
 
 const TERMINAL_SURVEY_SESSION_SELECT =
-  "participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at";
+  "participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at";
 
 function videoDateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -413,6 +416,8 @@ function shouldOpenPostDateSurveyForTerminalSession(
     date_started_at?: string | null;
     participant_1_joined_at?: string | null;
     participant_2_joined_at?: string | null;
+    participant_1_remote_seen_at?: string | null;
+    participant_2_remote_seen_at?: string | null;
     state?: string | null;
     phase?: string | null;
   } | null,
@@ -506,6 +511,7 @@ const VideoDate = () => {
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkMutualVibeRef = useRef<((source?: string, allowRetry?: boolean) => void) | null>(null);
+  const firstRemoteFrameAtMsRef = useRef<number | null>(null);
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
   const canonicalRoomNameRef = useRef<string | null>(null);
   const hasEnteredDateFlowRef = useRef(false);
@@ -904,6 +910,20 @@ const VideoDate = () => {
       toast("Connection restored", { duration: 1800 });
     },
   });
+
+  useEffect(() => {
+    firstRemoteFrameAtMsRef.current = null;
+  }, [id]);
+
+  useEffect(() => {
+    if (!remotePlayback.firstFrameRendered) {
+      firstRemoteFrameAtMsRef.current = null;
+      return;
+    }
+    if (firstRemoteFrameAtMsRef.current == null) {
+      firstRemoteFrameAtMsRef.current = Date.now();
+    }
+  }, [remotePlayback.firstFrameRendered]);
 
   const { dupBlocked, takeOver } = useVideoDateDupTabGuard(
     id,
@@ -1763,7 +1783,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, session_seq, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
+          .select("participant_1_id, participant_2_id, event_id, session_seq, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -2156,7 +2176,7 @@ const VideoDate = () => {
       const { data, error } = await supabase
         .from("video_sessions")
         .select(
-          "handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at, ended_reason, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at, participant_1_decided_at, participant_2_decided_at",
+          "handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at, ended_reason, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_decided_at, participant_2_decided_at",
         )
         .eq("id", id)
         .maybeSingle();
@@ -3404,6 +3424,28 @@ const VideoDate = () => {
         }, 900);
       }
       return;
+    }
+
+    if (allowRetry && firstRemoteFrameAtMsRef.current != null) {
+      const mediaAge = Date.now() - firstRemoteFrameAtMsRef.current;
+      const deferMs = MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS - mediaAge;
+      if (deferMs > 0) {
+        vdbg("complete_handshake_deferred_for_remote_frame_window", {
+          sessionId: id,
+          source,
+          deferMs,
+          mediaAgeMs: mediaAge,
+        });
+        setTimingRefreshNonce((n) => n + 1);
+        if (handshakeCompletionRetryTimerRef.current) {
+          clearTimeout(handshakeCompletionRetryTimerRef.current);
+        }
+        handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+          handshakeCompletionRetryTimerRef.current = null;
+          void checkMutualVibe(`${source}_after_remote_frame_window`, false);
+        }, deferMs + 200);
+        return;
+      }
     }
 
     const scheduleRetry = (reason: string) => {

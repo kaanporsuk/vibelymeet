@@ -211,7 +211,7 @@ export function adviseVideoDateSnapshotRecovery(
     };
   }
 
-  if (snapshot.phase === "verdict") {
+  if (snapshot.phase === "verdict" && snapshotHasVerdictSurveyEvidence(snapshot)) {
     return {
       action: "go_survey",
       sessionId: snapshot.sessionId,
@@ -482,11 +482,41 @@ function snapshotPartnerHasJoined(snapshot: VideoDateSnapshotOk): boolean {
   );
 }
 
+function snapshotSelfHasRemoteSeen(snapshot: VideoDateSnapshotOk): boolean {
+  return snapshot.participants.some(
+    (participant) => participant.isSelf && nullableFiniteNumber(participant.remoteSeenAt) !== null,
+  );
+}
+
+function snapshotPartnerHasRemoteSeen(snapshot: VideoDateSnapshotOk): boolean {
+  return snapshot.participants.some(
+    (participant) => participant.isPartner && nullableFiniteNumber(participant.remoteSeenAt) !== null,
+  );
+}
+
+function snapshotHasBilateralEncounterEvidence(snapshot: VideoDateSnapshotOk): boolean {
+  return (
+    snapshotSelfHasRemoteSeen(snapshot) &&
+    snapshotPartnerHasRemoteSeen(snapshot) &&
+    snapshotSelfHasJoined(snapshot) &&
+    snapshotPartnerHasJoined(snapshot)
+  );
+}
+
+function snapshotHasVerdictSurveyEvidence(snapshot: VideoDateSnapshotOk): boolean {
+  if (snapshot.phase !== "verdict") return false;
+  if (typeof snapshot.surveyRequired === "boolean") {
+    return snapshot.surveyRequired || snapshotHasBilateralEncounterEvidence(snapshot);
+  }
+  return snapshotHasBilateralEncounterEvidence(snapshot);
+}
+
 function snapshotHasTerminalSurveyEvidence(snapshot: VideoDateSnapshotOk): boolean {
   if (snapshot.phase !== "ended" || nullableFiniteNumber(snapshot.endedAt) === null) return false;
   if (snapshot.endedReason && postDateSurveyIneligibleEndedReasons.has(snapshot.endedReason)) return false;
-  if (snapshot.endedReason && terminalSurveyRecoveryEndedReasons.has(snapshot.endedReason)) return true;
-  return snapshotSelfHasJoined(snapshot) && snapshotPartnerHasJoined(snapshot);
+  if (typeof snapshot.surveyRequired === "boolean") return snapshot.surveyRequired;
+  return snapshotHasBilateralEncounterEvidence(snapshot) &&
+    (!snapshot.endedReason || terminalSurveyRecoveryEndedReasons.has(snapshot.endedReason));
 }
 
 function nullableFiniteNumber(value: unknown): number | null {

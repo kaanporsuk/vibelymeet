@@ -229,6 +229,8 @@ const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 12;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 4_000;
 const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
+const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
+const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
 type NativeVideoDateSurfaceClaimResult = {
   canContinue: boolean;
   confirmed: boolean;
@@ -849,6 +851,8 @@ function shouldRecoverPendingPostDateSurvey(
     date_started_at?: string | null;
     participant_1_joined_at?: string | null;
     participant_2_joined_at?: string | null;
+    participant_1_remote_seen_at?: string | null;
+    participant_2_remote_seen_at?: string | null;
     state?: string | null;
     phase?: string | null;
   } | null,
@@ -887,12 +891,14 @@ type NativeTerminalSurveySessionRow = {
   date_started_at?: string | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   state?: string | null;
   phase?: string | null;
 };
 
 const NATIVE_TERMINAL_SURVEY_SESSION_SELECT =
-  'id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase';
+  'id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, state, phase';
 
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -1136,6 +1142,9 @@ export default function VideoDateScreen() {
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
+  const remoteSeenStampedSessionRef = useRef<string | null>(null);
+  const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteSeenActiveSessionRef = useRef<string | null>(sessionId ?? null);
   const localVideoReadyTrackedRef = useRef(false);
   const remoteReadableTrackedRef = useRef(false);
   const warmupTimerStartedTrackedRef = useRef<string | null>(null);
@@ -2416,6 +2425,8 @@ export default function VideoDateScreen() {
     session?.date_started_at,
     session?.participant_1_joined_at,
     session?.participant_2_joined_at,
+    session?.participant_1_remote_seen_at,
+    session?.participant_2_remote_seen_at,
   ]);
 
   const clearHandshakeGraceState = useCallback(() => {}, []);
@@ -3272,6 +3283,113 @@ export default function VideoDateScreen() {
     }
   }, [remoteParticipant, sessionId]);
 
+  const markRemoteSeenOnce = useCallback(
+    (source: string) => {
+      if (!sessionId || !user?.id) return;
+      const userId = user.id;
+      if (remoteSeenStampedSessionRef.current === sessionId) return;
+      if (remoteSeenRetryTimerRef.current) {
+        clearTimeout(remoteSeenRetryTimerRef.current);
+        remoteSeenRetryTimerRef.current = null;
+      }
+      remoteSeenStampedSessionRef.current = sessionId;
+
+      const scheduleRetry = (attemptSource: string, nextAttempt: number) => {
+        if (remoteSeenActiveSessionRef.current !== sessionId || remoteSeenRetryTimerRef.current) return;
+        remoteSeenRetryTimerRef.current = setTimeout(() => {
+          remoteSeenRetryTimerRef.current = null;
+          if (
+            remoteSeenActiveSessionRef.current !== sessionId ||
+            remoteSeenStampedSessionRef.current === sessionId
+          ) return;
+          remoteSeenStampedSessionRef.current = sessionId;
+          stamp(`${attemptSource}_retry_${nextAttempt}`, nextAttempt);
+        }, REMOTE_SEEN_RPC_RETRY_DELAY_MS);
+      };
+
+      const handleFailure = (
+        attemptSource: string,
+        attempt: number,
+        code: string,
+        errorDetail: unknown,
+      ) => {
+        if (remoteSeenStampedSessionRef.current === sessionId) {
+          remoteSeenStampedSessionRef.current = null;
+        }
+        vdbg('mark_video_date_remote_seen_failed', {
+          sessionId,
+          eventId,
+          userId,
+          source: attemptSource,
+          code,
+          error: errorDetail,
+          attempt,
+        });
+        if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) scheduleRetry(attemptSource, attempt + 1);
+      };
+
+      function stamp(attemptSource: string, attempt: number) {
+        void Promise.resolve(
+          supabase.rpc('mark_video_date_remote_seen', { p_session_id: sessionId }),
+        )
+          .then(({ data, error }) => {
+            const payload = data as {
+              ok?: boolean;
+              error?: string | null;
+              participant_1_remote_seen_at?: string | null;
+              participant_2_remote_seen_at?: string | null;
+            } | null;
+            if (error || payload?.ok !== true) {
+              handleFailure(
+                attemptSource,
+                attempt,
+                error?.code ?? payload?.error ?? 'unknown',
+                error ? { code: error.code, message: error.message } : null,
+              );
+              return;
+            }
+            if (remoteSeenRetryTimerRef.current) {
+              clearTimeout(remoteSeenRetryTimerRef.current);
+              remoteSeenRetryTimerRef.current = null;
+            }
+            vdbg('mark_video_date_remote_seen_after', {
+              sessionId,
+              eventId,
+              userId,
+              source: attemptSource,
+              participant1RemoteSeenAt: payload.participant_1_remote_seen_at ?? null,
+              participant2RemoteSeenAt: payload.participant_2_remote_seen_at ?? null,
+            });
+            void refetchVideoSession();
+          })
+          .catch((error: unknown) => {
+            handleFailure(
+              attemptSource,
+              attempt,
+              'promise_rejected',
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : { message: String(error) },
+            );
+          });
+      }
+
+      stamp(source, 1);
+    },
+    [eventId, refetchVideoSession, sessionId, user?.id],
+  );
+
+  useEffect(() => {
+    remoteSeenActiveSessionRef.current = sessionId ?? null;
+    return () => {
+      if (remoteSeenRetryTimerRef.current) {
+        clearTimeout(remoteSeenRetryTimerRef.current);
+        remoteSeenRetryTimerRef.current = null;
+      }
+      remoteSeenStampedSessionRef.current = null;
+    };
+  }, [sessionId]);
+
   useEffect(() => {
     const videoTrack = getTrack(localParticipant ?? undefined, 'video');
     const trackId = videoTrack?.id ?? null;
@@ -3357,6 +3475,7 @@ export default function VideoDateScreen() {
           activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? providerVerifySkippedRef.current,
       });
     }
+    markRemoteSeenOnce('remote_track_mounted');
     videoDateDailyDiagnostic('remote_track_mounted', {
       session_id: sessionId ?? '',
       room_name: roomNameRef.current ?? null,
@@ -3369,7 +3488,7 @@ export default function VideoDateScreen() {
       receiver_object_position: VIDEO_DATE_REMOTE_OBJECT_POSITION,
       frame_issue_hint: 'remote_layout_contains_sender_frame_without_receiver_crop',
     });
-  }, [captureProfile, remoteParticipant, sessionId, eventId, endBootstrapTiming]);
+  }, [captureProfile, remoteParticipant, sessionId, eventId, endBootstrapTiming, markRemoteSeenOnce]);
 
   useEffect(() => {
     if (!hasRemotePartner || phase !== 'handshake') return;

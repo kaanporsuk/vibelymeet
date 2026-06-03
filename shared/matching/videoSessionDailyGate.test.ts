@@ -427,6 +427,8 @@ test("pending survey recovery returns ended date session when current user has n
     ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "completed",
     date_started_at: "2026-04-24T00:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:26:55.000Z",
+    participant_2_remote_seen_at: "2026-04-24T00:26:56.000Z",
   };
 
   assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
@@ -445,6 +447,8 @@ test("pending survey recovery hides ended date sessions after 24 hours", () => {
     ended_at: "2026-04-22T23:32:59.000Z",
     ended_reason: "completed",
     date_started_at: "2026-04-22T23:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-22T23:26:55.000Z",
+    participant_2_remote_seen_at: "2026-04-22T23:26:56.000Z",
   };
 
   assert.equal(videoSessionHasPostDateSurveyTruth(row), true);
@@ -464,6 +468,8 @@ test("pending survey recovery skips ended date session once current user has fee
     ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "completed",
     date_started_at: "2026-04-24T00:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:26:55.000Z",
+    participant_2_remote_seen_at: "2026-04-24T00:26:56.000Z",
   };
 
   assert.equal(
@@ -481,6 +487,8 @@ test("pending survey recovery does not expose sessions to nonparticipants", () =
     ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "completed",
     date_started_at: "2026-04-24T00:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:26:55.000Z",
+    participant_2_remote_seen_at: "2026-04-24T00:26:56.000Z",
   };
 
   assert.equal(
@@ -498,6 +506,8 @@ test("pending survey recovery preserves reconnect-grace survey behavior", () => 
     ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "reconnect_grace_expired",
     date_started_at: "2026-04-24T00:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:26:55.000Z",
+    participant_2_remote_seen_at: "2026-04-24T00:26:56.000Z",
   };
 
   assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
@@ -507,7 +517,27 @@ test("pending survey recovery preserves reconnect-grace survey behavior", () => 
   );
 });
 
-test("pending survey recovery returns both-joined handshake timeout as established encounter", () => {
+test("pending survey recovery ignores date_started_at without bilateral remote video evidence", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:32:00.000Z",
+    ended_reason: "completed",
+    date_started_at: "2026-04-24T00:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:26:55.000Z",
+    participant_2_remote_seen_at: null,
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
+    null,
+  );
+});
+
+test("pending survey recovery ignores both-joined handshake timeout without bilateral remote video", () => {
   const row = {
     id: "session-1",
     event_id: "event-1",
@@ -518,6 +548,32 @@ test("pending survey recovery returns both-joined handshake timeout as establish
     date_started_at: null,
     participant_1_joined_at: "2026-04-24T00:30:01.000Z",
     participant_2_joined_at: "2026-04-24T00:30:02.000Z",
+    participant_1_remote_seen_at: null,
+    participant_2_remote_seen_at: null,
+    state: "ended",
+    phase: "ended",
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
+    null,
+  );
+});
+
+test("pending survey recovery returns bilateral remote-seen handshake timeout as established encounter", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:32:00.000Z",
+    ended_reason: "handshake_timeout",
+    date_started_at: null,
+    participant_1_joined_at: "2026-04-24T00:30:01.000Z",
+    participant_2_joined_at: "2026-04-24T00:30:02.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:30:03.000Z",
+    participant_2_remote_seen_at: "2026-04-24T00:30:04.000Z",
     state: "ended",
     phase: "ended",
   };
@@ -529,7 +585,7 @@ test("pending survey recovery returns both-joined handshake timeout as establish
   );
 });
 
-test("pending survey recovery returns both-joined non-mutual warm-up as established encounter", () => {
+test("pending survey recovery ignores both-joined non-mutual warm-up without bilateral remote video", () => {
   const row = {
     id: "session-1",
     event_id: "event-1",
@@ -540,14 +596,16 @@ test("pending survey recovery returns both-joined non-mutual warm-up as establis
     date_started_at: null,
     participant_1_joined_at: "2026-04-24T00:30:01.000Z",
     participant_2_joined_at: "2026-04-24T00:30:02.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:30:03.000Z",
+    participant_2_remote_seen_at: null,
     state: "ended",
     phase: "ended",
   };
 
-  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);
   assert.equal(
     pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-2", NOW_MS),
-    row,
+    null,
   );
 });
 

@@ -241,12 +241,23 @@ async function runNativeDailyCallQualityAdvisory(
     destroy?: () => void | Promise<void>;
   };
   try {
-    if (typeof callAny.preAuth === 'function') {
-      const diagnosticToken = diagnostic.token;
-      await withTimeout(
-        Promise.resolve(callAny.preAuth({ url: diagnostic.roomUrl, token: diagnosticToken })),
-        DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS,
-      );
+    if (typeof callAny.preAuth !== 'function') {
+      return { ok: false, skipped: 'preauth_api_unavailable', latencyMs: Date.now() - startedAt };
+    }
+    const diagnosticToken = diagnostic.token;
+    const preAuthReady = await withTimeout(
+      Promise.resolve(callAny.preAuth({ url: diagnostic.roomUrl, token: diagnosticToken })).then(
+        () => true,
+        () => false,
+      ),
+      DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS,
+    );
+    if (preAuthReady !== true) {
+      return {
+        ok: false,
+        skipped: preAuthReady === null ? 'preauth_timeout' : 'preauth_failed',
+        latencyMs: Date.now() - startedAt,
+      };
     }
     if (typeof callAny.testCallQuality === 'function') {
       const result = await withTimeout(
