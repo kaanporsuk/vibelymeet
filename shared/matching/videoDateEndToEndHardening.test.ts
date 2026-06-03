@@ -3056,19 +3056,27 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
     readyGateOverlay,
     /startRoomWarmupAfterReady\([\s\S]{0,80}"ready_tap_mark_ready_success"/,
   );
-  assert.match(readyGateOverlay, /WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100/);
   assert.match(readyGateOverlay, /permission_check_skipped/);
   assert.match(readyGateOverlay, /skipped_no_permissions_api/);
   assert.match(readyGateOverlay, /const \[cameraStatus, microphoneStatus\]/);
   assert.match(
     readyGateOverlay,
-    /cameraStatus\.state !== "granted"[\s\S]{0,80}microphoneStatus\.state !== "granted"/,
+    /cameraGranted = cameraStatus\.state === "granted"[\s\S]{0,120}microphoneGranted = microphoneStatus\.state === "granted"/,
   );
+  assert.match(readyGateOverlay, /if \(!cameraGranted \|\| !microphoneGranted\) return false/);
   assert.match(readyGateOverlay, /hasPriorGrantedVideoDateDeviceLabels/);
   assert.match(readyGateOverlay, /enumerateDevices/);
   assert.match(readyGateOverlay, /permission_prewarm_silent_no_permissions_api/);
-  assert.match(readyGateOverlay, /waitForMediaStreamWithTimeout/);
+  assert.match(readyGateOverlay, /ready_gate_permission_prewarm_silent_fallback_failed/);
+  assert.match(readyGateOverlay, /media = await getVideoDatePermissionPrewarmStream\(\)/);
+  assert.doesNotMatch(readyGateOverlay, /waitForMediaStreamWithTimeout/);
+  assert.doesNotMatch(readyGateOverlay, /WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS/);
   assert.match(readyGateOverlay, /stopMediaStreamTracks\(stream(?:\.stream)?\)/);
+  assert.match(
+    readyGateOverlay,
+    /if \(!permissionReady\) \{[\s\S]*ready_tap_permission_prewarm_failed_diagnostics_ok[\s\S]*setTerminalActionError\([\s\S]*return;\s*\}\s*const result = await markReady\(\);/,
+  );
+  assert.doesNotMatch(readyGateOverlay, /ready_tap_permission_unconfirmed_soft_proceed/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
   // ReadyGate prewarms (camera + preauth) but must NEVER join Daily or run a
   // solo prejoin — the real join is owned by /date (useVideoCall).
@@ -3116,8 +3124,11 @@ test("Daily lifecycle guards destroy stale calls and only reuse same-session joi
   assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("session_or_room_changed_before_consume"\)/);
   assert.match(webVideoCallHook, /const meetingState = readDailyMeetingState\(entry\.call\)/);
   assert.match(webVideoCallHook, /meetingState !== "joined-meeting"[\s\S]*destroyWebDailyCallSingleton\("not_joined_before_consume"\)/);
+  assert.match(webVideoCallHook, /function hasLiveDailyLocalCameraAndMicrophone/);
+  assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("local_media_not_live_before_consume"\)/);
   assert.match(webVideoCallHook, /hasReusableWebDailyCallSingleton\(params: \{ userId: string; nextSessionId: string \}\)/);
   assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("session_changed_before_preflight"\)/);
+  assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("local_media_not_live_before_preflight"\)/);
 
   assert.match(webDailyCallInstance, /if \(options\.failOnExternalCall && !isTerminalDailyMeetingState\(meetingState\)\)/);
   assert.match(webDailyCallInstance, /const destroyed = await destroyDailyCallObject\(sdkCallObject, options\.source, options\.onDiagnostic\)/);
