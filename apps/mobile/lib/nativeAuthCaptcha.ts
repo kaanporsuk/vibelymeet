@@ -3,10 +3,15 @@ import * as WebBrowser from 'expo-web-browser';
 
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
 const AUTH_CAPTCHA_CALLBACK_PATH = 'auth/captcha';
+export const DEFAULT_NATIVE_AUTH_CAPTCHA_TIMEOUT_MS = 30_000;
 
 export type NativeAuthCaptchaResult =
   | { ok: true; token: string | null }
   | { ok: false; message: string };
+
+export type NativeAuthCaptchaOptions = {
+  timeoutMs?: number;
+};
 
 function getNativeAuthCaptchaReturnUrl(): string {
   return Linking.createURL(AUTH_CAPTCHA_CALLBACK_PATH);
@@ -41,7 +46,39 @@ function parseCaptchaTokenFromReturn(url: string): string | null {
   }
 }
 
-export async function requestNativeAuthCaptchaToken(action: string): Promise<NativeAuthCaptchaResult> {
+async function openAuthSessionWithTimeout(
+  challengeUrl: string,
+  returnUrl: string,
+  timeoutMs: number,
+): Promise<{ result: WebBrowser.WebBrowserAuthSessionResult; timedOut: boolean }> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
+
+  const authSession = WebBrowser.openAuthSessionAsync(challengeUrl, returnUrl);
+  const timeout = new Promise<WebBrowser.WebBrowserAuthSessionResult>((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      try {
+        WebBrowser.dismissAuthSession();
+      } catch {
+        // Best effort only; the timeout still releases the app UI.
+      }
+      resolve({ type: WebBrowser.WebBrowserResultType.DISMISS });
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([authSession, timeout]);
+    return { result, timedOut };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+export async function requestNativeAuthCaptchaToken(
+  action: string,
+  options: NativeAuthCaptchaOptions = {},
+): Promise<NativeAuthCaptchaResult> {
   const returnUrl = getNativeAuthCaptchaReturnUrl();
   if (isExpoDevReturnUrl(returnUrl) && !isLocalChallengeOrigin()) {
     if (!__DEV__) {
@@ -54,9 +91,13 @@ export async function requestNativeAuthCaptchaToken(action: string): Promise<Nat
   }
 
   const challengeUrl = getNativeAuthCaptchaChallengeUrl(returnUrl, action);
+  const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_NATIVE_AUTH_CAPTCHA_TIMEOUT_MS);
 
   try {
-    const result = await WebBrowser.openAuthSessionAsync(challengeUrl, returnUrl);
+    const { result, timedOut } = await openAuthSessionWithTimeout(challengeUrl, returnUrl, timeoutMs);
+    if (timedOut) {
+      return { ok: false, message: 'Verification timed out. Please try again.' };
+    }
     if (result.type === 'cancel' || result.type === 'dismiss') {
       return { ok: false, message: 'Verification was cancelled.' };
     }

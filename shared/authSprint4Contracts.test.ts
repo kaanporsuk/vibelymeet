@@ -79,6 +79,7 @@ test("web auth collects and forwards Turnstile tokens for auth entry flows", () 
 test("native auth uses browser challenge tokens for Supabase auth calls", () => {
   const nativeCaptcha = read("apps/mobile/lib/nativeAuthCaptcha.ts");
   const nativeSignIn = read("apps/mobile/app/(auth)/sign-in.tsx");
+  const appleAuth = read("apps/mobile/lib/appleAuth.ts");
   const nativeReset = read("apps/mobile/app/(auth)/reset-password.tsx");
   const nativeAuthApi = read("apps/mobile/lib/authApi.ts");
   const nativeAccount = read("apps/mobile/app/settings/account.tsx");
@@ -91,7 +92,17 @@ test("native auth uses browser challenge tokens for Supabase auth calls", () => 
   assert.match(nativeCaptcha, /Verification is not available in this build/);
   assert.match(nativeCaptcha, /return \{ ok: true, token: null \}/);
   assert.match(nativeCaptcha, /WebBrowser\.openAuthSessionAsync\(challengeUrl, returnUrl\)/);
+  assert.match(nativeCaptcha, /DEFAULT_NATIVE_AUTH_CAPTCHA_TIMEOUT_MS = 30_000/);
+  assert.match(nativeCaptcha, /openAuthSessionWithTimeout/);
+  assert.match(nativeCaptcha, /WebBrowser\.dismissAuthSession\(\)/);
+  assert.match(nativeCaptcha, /Verification timed out\. Please try again\./);
   assert.match(nativeCaptcha, /captchaToken/);
+
+  assert.match(appleAuth, /function summarizeAppleCredentialSecret/);
+  assert.match(appleAuth, /export function buildAppleSupabaseIdTokenCredentials/);
+  assert.match(appleAuth, /access_token: input\.credential\.authorizationCode \?\? undefined/);
+  assert.match(appleAuth, /\.\.\.\(captchaToken \? \{ options: \{ captchaToken \} \} : \{\}\)/);
+  assert.doesNotMatch(appleAuth, /prefix: value\.length/);
 
   for (const action of [
     "native_phone_otp_send",
@@ -109,7 +120,19 @@ test("native auth uses browser challenge tokens for Supabase auth calls", () => 
   assert.match(nativeSignIn, /supabase\.auth\.signInWithPassword\(\{[\s\S]*options: \{ captchaToken: captcha\.token \}/);
   assert.match(nativeSignIn, /supabase\.auth\.signUp\(\{[\s\S]*captchaToken: captcha\.token/);
   assert.match(nativeSignIn, /supabase\.auth\.resend\(\{[\s\S]*captchaToken: captcha\.token/);
-  assert.match(nativeSignIn, /supabase\.auth\.signInWithIdToken\(\{[\s\S]*options: \{ captchaToken: captcha\.token \}/);
+  const appleCaptchaIndex = nativeSignIn.indexOf("requestNativeAuthCaptchaToken('native_apple_signin'");
+  const appleAuthorizeIndex = nativeSignIn.indexOf("AppleAuthentication.signInAsync");
+  assert.ok(appleCaptchaIndex > -1, "native Apple sign-in must request CAPTCHA");
+  assert.ok(appleAuthorizeIndex > appleCaptchaIndex, "native Apple CAPTCHA must run before Apple authorization");
+  assert.match(nativeSignIn, /NATIVE_APPLE_AUTH_CAPTCHA_TIMEOUT_MS = 30_000/);
+  assert.match(nativeSignIn, /NATIVE_APPLE_AUTH_SUPABASE_TIMEOUT_MS = 25_000/);
+  assert.match(nativeSignIn, /NATIVE_APPLE_AUTH_METADATA_TIMEOUT_MS = 5_000/);
+  assert.match(nativeSignIn, /addAppleAuthStageDiagnostic/);
+  assert.match(nativeSignIn, /withAppleAuthStageTimeout/);
+  assert.match(nativeSignIn, /runAppleAuthStage\([\s\S]*'supabase_exchange'[\s\S]*timeoutMs: NATIVE_APPLE_AUTH_SUPABASE_TIMEOUT_MS/);
+  assert.match(nativeSignIn, /const appleIdTokenCredentials = buildAppleSupabaseIdTokenCredentials\(\{[\s\S]*credential,[\s\S]*rawNonce,[\s\S]*captchaToken: captcha\.token/);
+  assert.match(nativeSignIn, /supabase\.auth\.signInWithIdToken\(appleIdTokenCredentials\)/);
+  assert.match(nativeSignIn, /primeCachedSession\(data\.session\)/);
   assert.match(nativeAccount, /native_settings_password_reauth/);
   assert.match(nativeAccount, /supabase\.auth\.signInWithPassword\(\{[\s\S]*options: \{ captchaToken: captcha\.token \}/);
   assert.match(nativeAuthApi, /signInWithEmail\([\s\S]*captchaToken\?: string \| null/);

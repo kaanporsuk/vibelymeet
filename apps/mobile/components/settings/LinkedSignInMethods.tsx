@@ -5,7 +5,8 @@
  *
  * METHOD SEMANTICS
  * ────────────────
- * Google / Apple  → OAuth linking via expo-web-browser + supabase.auth.linkIdentity().
+ * Google          → OAuth linking via expo-web-browser + supabase.auth.linkIdentity().
+ * Apple           → Native ID-token linking via expo-apple-authentication + supabase.auth.linkIdentity().
  * Email password  → Two explicit flows:
  *   A. Session has email (OAuth user) → "Add password" via updateUser({ password }).
  *      No confirmation email; effective immediately.
@@ -17,8 +18,9 @@
  * NATIVE OAUTH LINKING
  * ─────────────────────
  * Apple  → Native token path. expo-apple-authentication.signInAsync() produces an OIDC
- *           identity token that is passed directly to linkIdentity({ provider: 'apple', token }).
- *           No browser required; same token used by the existing Apple sign-in flow.
+ *           identity token and authorization code that are passed directly to
+ *           linkIdentity({ provider: 'apple', token, access_token, nonce }).
+ *           No browser required; same credential mapping used by Apple sign-in.
  * Google → Browser OAuth path via expo-web-browser (deliberate first-release choice).
  *           Native Google ID tokens require @react-native-google-signin, which is not in
  *           the Vibely native dependency tree. Adding it requires pod-install, Google Cloud

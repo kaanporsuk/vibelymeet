@@ -140,11 +140,14 @@ test("identity-linking distinguishes confirmed methods from pending session cont
 test("native Apple auth remains iOS-only for sign-in and linking", () => {
   const nativeSignIn = read("apps/mobile/app/(auth)/sign-in.tsx");
   const nativeLinkedMethods = read("apps/mobile/components/settings/LinkedSignInMethods.tsx");
+  const nativeIdentityLinking = read("apps/mobile/hooks/useIdentityLinking.ts");
 
   assert.match(nativeSignIn, /if \(Platform\.OS !== 'ios'\) return null/);
   assert.match(nativeSignIn, /Continue with Apple/);
   assert.match(nativeLinkedMethods, /id: 'apple'[\s\S]*isAvailable: Platform\.OS === 'ios'/);
   assert.match(nativeLinkedMethods, /const availableProviders = PROVIDERS\.filter\(p => p\.isAvailable\)/);
+  assert.match(nativeIdentityLinking, /buildAppleSupabaseIdTokenCredentials/);
+  assert.match(nativeIdentityLinking, /supabase\.auth\.linkIdentity\(buildAppleSupabaseIdTokenCredentials\(\{/);
 });
 
 test("native generic auth-return handling covers PKCE codes and token_hash verification", () => {
