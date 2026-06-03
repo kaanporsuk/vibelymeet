@@ -4350,12 +4350,6 @@ const VideoDate = () => {
       session_id: id,
       event_id: eventId ?? null,
     });
-    trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT, {
-      platform: "web",
-      session_id: id,
-      event_id: eventId ?? null,
-      source: "user_tap",
-    });
     void (async () => {
       clearPeerMissing();
       setCallStartFailure(null);

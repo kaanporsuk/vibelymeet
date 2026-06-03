@@ -86,6 +86,12 @@ import {
   adviseVideoSessionTruthRecovery,
 } from '@clientShared/matching/videoDateRecoveryAdvisor';
 import {
+  isVideoDateDailyMeetingEnded,
+  isVideoDateTokenRefreshRateLimited,
+  isVideoDateTokenRefreshTerminal,
+  videoDateTokenRefreshRetryAfterMs,
+} from '@clientShared/matching/videoDatePublicApi';
+import {
   buildVideoDateExtensionIdempotencyKey,
   buildVideoDateMutualExtensionIdempotencyKey,
 } from '@clientShared/matching/videoDateTransitionCommands';
@@ -444,6 +450,13 @@ type DailyTokenRefreshSourceAction =
   | 'daily_token_refresh_before_expiry'
   | 'daily_token_refresh_after_ejection'
   | 'daily_token_refresh_after_auth_error';
+
+type DailyTokenRefreshFailureState = {
+  kind: 'terminal' | 'rate_limited' | 'retryable';
+  error: string;
+  retryAfterMs: number | null;
+  phase: string | null;
+};
 
 function networkTierFromDailyEvent(ev: { threshold?: string; quality?: number } | undefined): 'good' | 'fair' | 'poor' {
   const q = typeof ev?.quality === 'number' ? ev.quality : 100;
@@ -1058,10 +1071,10 @@ export default function VideoDateScreen() {
   const prevLocalInDailyRef = useRef(false);
   /** True after local `call.join` succeeds until leave/cleanup. */
   const [localInDailyRoom, setLocalInDailyRoom] = useState(false);
-  /** Terminal: bounded wait elapsed + auto-retry exhausted without remote. */
+  /** Terminal: bounded wait elapsed without a remote peer. */
   const [peerMissingTerminal, setPeerMissingTerminal] = useState(false);
-  /** At most one automatic leave/rejoin when no remote (per mount + session). */
-  const noRemoteAutoRecoveryUsedRef = useRef(false);
+  /** Counts truth refreshes caused by the first-remote watchdog. No automatic rejoin is attempted. */
+  const peerMissingTruthRefreshCountRef = useRef(0);
   /** True after sync_reconnect reports ended (avoid calling handleCallEnd every poll tick). */
   const reconnectEndedHandledRef = useRef(false);
   const reconnectSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2033,6 +2046,57 @@ export default function VideoDateScreen() {
     boundHandlersRef.current = null;
   }, [sessionId, user?.id]);
 
+  const cleanupTerminalDailyCall = useCallback(
+    async (call: DailyCallObject | null, reason: string) => {
+      if (!call) return;
+      detachCallListeners(reason);
+      clearDailyTokenRefreshTimer();
+      dailyTokenRecoveryInFlightRef.current = false;
+      dailyTokenExpiresAtRef.current = null;
+      recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
+      try {
+        await call.leave();
+      } catch (_error) {
+        void _error;
+      }
+      try {
+        await destroyNativeVideoDateDailyCall(call, reason, {
+          sessionId,
+          userId: user?.id ?? null,
+          roomName: roomNameRef.current ?? null,
+        });
+      } catch (_error) {
+        void _error;
+      }
+      releaseSharedCallIfOwned(call, reason);
+      if (callRef.current === call) {
+        callRef.current = null;
+      }
+      localParticipantRef.current = null;
+      remoteParticipantRef.current = null;
+      nativeCameraSwitchInFlightRef.current = false;
+      lastNativeRemoteCameraSwitchHintIdRef.current = null;
+      activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
+      resetNativeRemoteRenderRecovery(null, reason);
+      setLocalParticipant(null);
+      setRemoteParticipant(null);
+      setLocalInDailyRoom(false);
+      setAwaitingFirstConnect(false);
+      setIsConnecting(false);
+      setIsPartnerDisconnected(false);
+      setPartnerEverJoined(false);
+      roomNameRef.current = null;
+    },
+    [
+      clearDailyTokenRefreshTimer,
+      detachCallListeners,
+      releaseSharedCallIfOwned,
+      resetNativeRemoteRenderRecovery,
+      sessionId,
+      user?.id,
+    ],
+  );
+
   const bindCallListeners = useCallback(
     (call: DailyCallObject, roomName: string | null) => {
       if (boundCallRef.current === call && boundHandlersRef.current) {
@@ -2306,6 +2370,23 @@ export default function VideoDateScreen() {
             ? String((event as { errorMsg?: unknown }).errorMsg)
             : undefined;
         addVideoDateBreadcrumb('Daily call error', 'error', { sessionId, errorMsg: msg });
+        if (isVideoDateDailyMeetingEnded(event)) {
+          clearDailyTokenRefreshTimer();
+          vdbg('daily_meeting_ended_truth_refetch', {
+            sessionId,
+            userId: user?.id ?? null,
+            roomName,
+            errorMsg: msg ?? null,
+          });
+          void refetchVideoSession();
+          setCallError('This video room has closed. Checking the latest date status...');
+          clearFirstConnectWatchdog();
+          setAwaitingFirstConnect(false);
+          setIsConnecting(false);
+          setLocalInDailyRoom(false);
+          void cleanupTerminalDailyCall(call, 'daily_meeting_ended_event');
+          return;
+        }
         const sourceAction = (msg ?? '').toLowerCase().includes('eject')
           ? 'daily_token_refresh_after_ejection'
           : 'daily_token_refresh_after_auth_error';
@@ -2372,14 +2453,17 @@ export default function VideoDateScreen() {
       });
     },
     [
+      clearDailyTokenRefreshTimer,
       clearFirstConnectWatchdog,
       clearNativeRemoteRenderRemount,
+      cleanupTerminalDailyCall,
       dailyTokenRefreshV2.enabled,
       detachCallListeners,
       releaseSharedCallIfOwned,
       endBootstrapTiming,
       eventId,
       nativeRemoteRenderDiagnostics,
+      refetchVideoSession,
       resetNativeRemoteRenderRecovery,
       scheduleNativeCameraSwitchFreshnessWatch,
       scheduleNativeRemoteRenderRemount,
@@ -2491,7 +2575,7 @@ export default function VideoDateScreen() {
       clearTimeout(handshakeCompletionRetryTimerRef.current);
       handshakeCompletionRetryTimerRef.current = null;
     }
-    noRemoteAutoRecoveryUsedRef.current = false;
+    peerMissingTruthRefreshCountRef.current = 0;
     lastLoggedPostJoinStageRef.current = null;
   }, [sessionId, user?.id, clearHandshakeGraceState]);
 
@@ -3046,7 +3130,7 @@ export default function VideoDateScreen() {
     };
   }, [sessionId, user?.id, localInDailyRoom]);
 
-  /** Bounded wait for first remote peer; one automatic leave/rejoin; then peer_missing_timeout. */
+  /** Bounded wait for first remote peer; refetch truth and surface peer-missing choices without auto-rejoin. */
   useEffect(() => {
     if (
       !localInDailyRoom ||
@@ -3066,6 +3150,7 @@ export default function VideoDateScreen() {
 
     clearFirstConnectWatchdog();
     firstConnectWatchdogRef.current = setTimeout(() => {
+      firstConnectWatchdogRef.current = null;
       const call = callRef.current;
       if (!call) return;
       const participants = call.participants();
@@ -3074,86 +3159,42 @@ export default function VideoDateScreen() {
         : [];
       if (remotes.length > 0) return;
 
-      if (!noRemoteAutoRecoveryUsedRef.current) {
-        noRemoteAutoRecoveryUsedRef.current = true;
-        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'no_remote_watchdog_recovery_start', {
-          session_id: sessionId,
-          room_name: roomNameRef.current ?? undefined,
-        });
-        videoDateDailyDiagnostic('no_remote_auto_recovery_start', {
-          session_id: sessionId,
-          room_name: roomNameRef.current ?? null,
-        });
-        void (async () => {
-          try {
-            await call.leave();
-          } catch {
-            /* ignore */
-          }
-          try {
-            await destroyNativeVideoDateDailyCall(call, 'no_remote_auto_recovery', {
-              sessionId,
-              userId: user?.id ?? null,
-              roomName: roomNameRef.current ?? null,
-            });
-          } catch {
-            /* ignore */
-          }
-          detachCallListeners('no_remote_auto_recovery');
-          releaseSharedCallIfOwned(call, 'no_remote_auto_recovery');
-          callRef.current = null;
-          vdbg('prejoin_state_localInDailyRoom', {
-            value: false,
-            sessionId,
-            userId: user?.id ?? null,
-            step: 'no_remote_auto_recovery',
-          });
-          setLocalInDailyRoom(false);
-          vdbg('prejoin_state_awaitingFirstConnect', {
-            value: false,
-            sessionId,
-            userId: user?.id ?? null,
-            step: 'no_remote_auto_recovery',
-          });
-          setAwaitingFirstConnect(false);
-          vdbg('prejoin_state_isConnecting', {
-            value: false,
-            sessionId,
-            userId: user?.id ?? null,
-            step: 'no_remote_auto_recovery',
-          });
-          setIsConnecting(false);
-          remoteParticipantRef.current = null;
-          lastNativeRemoteCameraSwitchHintIdRef.current = null;
-          resetNativeRemoteRenderRecovery(null, 'no_remote_auto_recovery');
-          setRemoteParticipant(null);
-          hasStartedJoinRef.current = false;
-          vdbg('prejoin_state_hasStartedJoinRef', {
-            value: false,
-            sessionId,
-            userId: user?.id ?? null,
-            step: 'no_remote_auto_recovery',
-          });
-          vdbg('prejoin_state_joinAttemptNonce', {
-            value: 'increment',
-            sessionId,
-            userId: user?.id ?? null,
-            step: 'no_remote_auto_recovery',
-          });
-          setJoinAttemptNonce((n) => n + 1);
-          videoDateDailyDiagnostic('no_remote_auto_recovery_complete', {
-            session_id: sessionId,
-            result: 'rejoin_scheduled',
-          });
-        })();
-        return;
-      }
+      peerMissingTruthRefreshCountRef.current += 1;
+      const truthRefreshAttempt = peerMissingTruthRefreshCountRef.current;
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'peer_missing_terminal_watchdog_fire', {
         session_id: sessionId,
         room_name: roomNameRef.current ?? undefined,
         watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
+        truth_refresh_attempt: truthRefreshAttempt,
       });
-      videoDateDailyDiagnostic('peer_missing_timeout', { session_id: sessionId, room_name: roomNameRef.current ?? null });
+      videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetch_start', {
+        session_id: sessionId,
+        room_name: roomNameRef.current ?? null,
+        truth_refresh_attempt: truthRefreshAttempt,
+      });
+      void refetchVideoSession()
+        .then(() => {
+          videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetched', {
+            session_id: sessionId,
+            room_name: roomNameRef.current ?? null,
+            ok: true,
+            truth_refresh_attempt: truthRefreshAttempt,
+          });
+        })
+        .catch((error) => {
+          videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetched', {
+            session_id: sessionId,
+            room_name: roomNameRef.current ?? null,
+            ok: false,
+            truth_refresh_attempt: truthRefreshAttempt,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      videoDateDailyDiagnostic('peer_missing_timeout', {
+        session_id: sessionId,
+        room_name: roomNameRef.current ?? null,
+        truth_refresh_attempt: truthRefreshAttempt,
+      });
       void emitNativeVideoDateClientStuckState({
         sessionId,
         eventName: 'peer_missing_terminal',
@@ -3163,7 +3204,7 @@ export default function VideoDateScreen() {
           source_action: 'first_remote_watchdog',
           reason_code: 'peer_missing_timeout',
           watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
-          auto_recovery_count: noRemoteAutoRecoveryUsedRef.current ? 1 : 0,
+          truth_refresh_attempt: truthRefreshAttempt,
         },
       });
       setPeerMissingTerminal(true);
@@ -3200,10 +3241,8 @@ export default function VideoDateScreen() {
     peerMissingTerminal,
     isPartnerDisconnected,
     user?.id,
+    refetchVideoSession,
     clearFirstConnectWatchdog,
-    releaseSharedCallIfOwned,
-    detachCallListeners,
-    resetNativeRemoteRenderRecovery,
   ]);
 
   useEffect(() => {
@@ -3685,7 +3724,7 @@ export default function VideoDateScreen() {
     setLocalInDailyRoom(false);
     setPartnerEverJoined(false);
     setPeerMissingTerminal(false);
-    noRemoteAutoRecoveryUsedRef.current = false;
+    peerMissingTruthRefreshCountRef.current = 0;
     vdbg('prejoin_state_isConnecting', {
       value: false,
       sessionId: sessionId ?? null,
@@ -5225,7 +5264,7 @@ export default function VideoDateScreen() {
     });
     setLocalInDailyRoom(false);
     setPartnerEverJoined(false);
-    noRemoteAutoRecoveryUsedRef.current = false;
+    peerMissingTruthRefreshCountRef.current = 0;
     vdbg('prejoin_state_isConnecting', {
       value: false,
       sessionId: sessionId ?? null,
@@ -6554,6 +6593,9 @@ export default function VideoDateScreen() {
         tokenResult.video_date_trace_id ??
         activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
         entryAttemptId;
+      let lastDailyTokenRefreshFailure: DailyTokenRefreshFailureState | null = null;
+      const getLastDailyTokenRefreshFailure = (): DailyTokenRefreshFailureState | null =>
+        lastDailyTokenRefreshFailure;
       const tokenDurationMs = Date.now() - dailyTokenStartedAtMs;
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
         platform: 'native',
@@ -6584,6 +6626,7 @@ export default function VideoDateScreen() {
         sourceAction: DailyTokenRefreshSourceAction,
         cause?: unknown,
       ): Promise<boolean> => {
+        lastDailyTokenRefreshFailure = null;
         const refreshStartedAtMs = Date.now();
         vdbg(sourceAction, {
           sessionId,
@@ -6601,6 +6644,17 @@ export default function VideoDateScreen() {
         const refreshed = await refreshVideoDateToken(sessionId);
         let durationMs = Date.now() - refreshStartedAtMs;
         if (refreshed.ok === false) {
+          const refreshFailure: DailyTokenRefreshFailureState = {
+            kind: isVideoDateTokenRefreshTerminal(refreshed)
+              ? 'terminal'
+              : isVideoDateTokenRefreshRateLimited(refreshed)
+                ? 'rate_limited'
+                : 'retryable',
+            error: refreshed.error,
+            retryAfterMs: videoDateTokenRefreshRetryAfterMs(refreshed),
+            phase: refreshed.phase ?? null,
+          };
+          lastDailyTokenRefreshFailure = refreshFailure;
           if (refreshed.error === 'room_not_ready') {
             vdbg('daily_token_refresh_prepare_entry_recovery_started', {
               sessionId,
@@ -6665,6 +6719,7 @@ export default function VideoDateScreen() {
                 duration_ms: durationMs,
                 latency_bucket: bucketVideoDateLatencyMs(durationMs),
               });
+              lastDailyTokenRefreshFailure = null;
               return true;
             }
             vdbg('daily_token_refresh_prepare_entry_recovery_failed', {
@@ -6687,6 +6742,8 @@ export default function VideoDateScreen() {
             sourceAction,
             reason: refreshed.error,
             retryable: refreshed.retryable ?? null,
+            retryAfterMs: refreshFailure.retryAfterMs,
+            terminal: refreshFailure.kind === 'terminal',
             durationMs,
           });
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
@@ -6706,6 +6763,12 @@ export default function VideoDateScreen() {
           return false;
         }
         if (refreshed.roomName !== tokenResult.room_name || refreshed.roomUrl !== tokenResult.room_url) {
+          lastDailyTokenRefreshFailure = {
+            kind: 'terminal',
+            error: 'token_refresh_room_mismatch',
+            retryAfterMs: null,
+            phase: refreshed.phase ?? null,
+          };
           vdbg('daily_token_refresh_room_mismatch', {
             sessionId,
             userId: user.id,
@@ -6771,7 +6834,39 @@ export default function VideoDateScreen() {
           surface: 'video_date',
         }).action === 'refresh_token'
       ) {
-        await refreshDailyTokenForJoin('daily_token_refresh_before_join');
+        const refreshedBeforeJoin = await refreshDailyTokenForJoin('daily_token_refresh_before_join');
+        const refreshFailure = getLastDailyTokenRefreshFailure();
+        if (!refreshedBeforeJoin && refreshFailure?.kind === 'terminal') {
+          vdbg('prejoin_step_prejoin_daily_room_skipped', {
+            sessionId,
+            userId: user.id,
+            reason: 'daily_token_refresh_terminal_before_join',
+            error: refreshFailure.error,
+            phase: refreshFailure.phase,
+          });
+          setCallError('This video room has closed. Checking the latest date status...');
+          void refetchVideoSession();
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          setIsConnecting(false);
+          prejoinCompleted = true;
+          return;
+        }
+        if (!refreshedBeforeJoin && refreshFailure?.kind === 'rate_limited') {
+          vdbg('prejoin_step_prejoin_daily_room_skipped', {
+            sessionId,
+            userId: user.id,
+            reason: 'daily_token_refresh_rate_limited_before_join',
+            error: refreshFailure.error,
+            retryAfterMs: refreshFailure.retryAfterMs,
+          });
+          setCallError('The video room is still opening. Try again in a moment.');
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          setIsConnecting(false);
+          prejoinCompleted = true;
+          return;
+        }
       }
 
       let idleSingletonEntry =
@@ -7049,6 +7144,38 @@ export default function VideoDateScreen() {
         try {
           const refreshed = await refreshDailyTokenForJoin(sourceAction, cause);
           if (!refreshed || callRef.current !== call || String(phaseRef.current) === 'ended') {
+            const refreshFailure = getLastDailyTokenRefreshFailure();
+            if (!refreshed && refreshFailure?.kind === 'terminal') {
+              vdbg('daily_token_refresh_terminal_truth', {
+                sessionId,
+                userId: user.id,
+                eventId: eventId || null,
+                roomName: tokenResult.room_name,
+                sourceAction,
+                error: refreshFailure.error,
+                phase: refreshFailure.phase,
+              });
+              clearDailyTokenRefreshTimer();
+              setCallError('This video room has closed. Checking the latest date status...');
+              void cleanupTerminalDailyCall(call, 'daily_token_refresh_terminal');
+              void refetchVideoSession();
+            } else if (!refreshed && refreshFailure?.kind === 'rate_limited') {
+              const retryAfterMs = refreshFailure.retryAfterMs ?? 30_000;
+              vdbg('daily_token_refresh_rate_limited', {
+                sessionId,
+                userId: user.id,
+                eventId: eventId || null,
+                roomName: tokenResult.room_name,
+                sourceAction,
+                error: refreshFailure.error,
+                retryAfterMs,
+              });
+              dailyTokenRefreshTimerRef.current = setTimeout(() => {
+                dailyTokenRefreshTimerRef.current = null;
+                void recoverDailyTokenAndRejoin(sourceAction, cause);
+              }, retryAfterMs);
+              setCallError('Connection interrupted. Reconnecting...');
+            }
             setIsConnecting(false);
             return false;
           }
@@ -7853,6 +7980,7 @@ export default function VideoDateScreen() {
     clearFirstConnectWatchdog,
     clearDailyTokenRefreshTimer,
     bindCallListeners,
+    cleanupTerminalDailyCall,
     releaseSharedCallIfOwned,
     detachCallListeners,
     refetchVideoSession,
