@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { createVideoDateDailyDiagnosticCallObjectGuarded } from '@/lib/videoDateDailyMediaConfig';
 import { registerNativeVideoDateDailyCleanup } from '@/lib/nativeDailyCallInstance';
 import {
-  resolveVideoDateReadinessGate,
+  resolveVideoDateReadinessDiagnostic,
   shouldRunVideoDateDiagnostic,
   type VideoDateReadinessStatus,
 } from '@clientShared/matching/videoDateReadinessV2';
@@ -114,8 +114,7 @@ export function useNonBlockingVideoDateReadiness(
   enabled: boolean,
 ): {
   status: VideoDateReadinessStatus;
-  canAttemptPairing: boolean;
-  reason: string | null;
+  diagnosticMessage: string | null;
   checked: boolean;
 } {
   const [status, setStatus] = useState<VideoDateReadinessStatus>('unchecked');
@@ -158,16 +157,14 @@ export function useNonBlockingVideoDateReadiness(
     if (!checked) {
       return {
         status: 'unchecked' as const,
-        canAttemptPairing: true,
-        reason: null,
+        diagnosticMessage: null,
         checked: false,
       };
     }
-    const gate = resolveVideoDateReadinessGate(status);
+    const diagnostic = resolveVideoDateReadinessDiagnostic(status);
     return {
       status,
-      canAttemptPairing: gate.canAttemptPairing,
-      reason: gate.reason,
+      diagnosticMessage: diagnostic.diagnosticMessage,
       checked,
     };
   }, [checked, status]);

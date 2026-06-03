@@ -1,29 +1,26 @@
 export type VideoDateReadinessStatus = "ready" | "warning" | "blocked" | "unchecked";
 
-export type VideoDateReadinessGate = {
+export type VideoDateReadinessDiagnostic = {
   status: VideoDateReadinessStatus;
-  canAttemptPairing: boolean;
-  reason: string | null;
+  diagnosticMessage: string | null;
 };
 
 export const VIDEO_DATE_READINESS_BLOCKED_COPY =
-  "Camera and microphone access are needed before you can pair for a video date.";
+  "Camera and microphone access are needed before you can join a video date.";
 export const VIDEO_DATE_READINESS_PENDING_COPY =
-  "Confirm camera and microphone access before pairing for a video date.";
+  "Camera and microphone access will be checked in Ready Gate.";
 export const VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS = 5 * 60 * 1000;
 
-export function resolveVideoDateReadinessGate(status: VideoDateReadinessStatus): VideoDateReadinessGate {
+export function resolveVideoDateReadinessDiagnostic(status: VideoDateReadinessStatus): VideoDateReadinessDiagnostic {
   if (status === "blocked" || status === "warning") {
     return {
       status,
-      canAttemptPairing: false,
-      reason: status === "blocked" ? VIDEO_DATE_READINESS_BLOCKED_COPY : VIDEO_DATE_READINESS_PENDING_COPY,
+      diagnosticMessage: status === "blocked" ? VIDEO_DATE_READINESS_BLOCKED_COPY : VIDEO_DATE_READINESS_PENDING_COPY,
     };
   }
   return {
     status,
-    canAttemptPairing: true,
-    reason: null,
+    diagnosticMessage: null,
   };
 }
 

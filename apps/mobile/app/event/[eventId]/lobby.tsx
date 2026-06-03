@@ -82,9 +82,6 @@ import {
   persistReadyGateSuppressionV2,
   useNonBlockingVideoDateReadiness,
 } from '@/lib/videoDateReadiness';
-import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
-import { openPermissionSettings } from '@/lib/permissionSettings';
-import { mediaPermissionMessage, mediaPermissionTitle } from '@clientShared/media/mediaPermissionResult';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canonicalVideoDateRouteLogDetail,
@@ -398,7 +395,7 @@ export default function EventLobbyScreen() {
     () => isFeatureFlagEnabledWithAlias(deckPrefetchPolishV2, deckOptimisticAliasV1),
     [deckOptimisticAliasV1, deckPrefetchPolishV2],
   );
-  const videoDateReadiness = useNonBlockingVideoDateReadiness(
+  useNonBlockingVideoDateReadiness(
     id,
     readinessV2.enabled && lobbySideEffectsEnabled,
   );
@@ -2224,49 +2221,6 @@ export default function EventLobbyScreen() {
     ? { remainingSeconds: swipeRateLimitRemainingSeconds }
     : null;
   const swipeActionsDisabled = currentSwipePending || !currentIsSwipeable || swipeRateLimited;
-  const pairingBlockedByReadiness =
-    readinessV2.enabled && !videoDateReadiness.canAttemptPairing;
-  const pairingActionsDisabled = swipeActionsDisabled;
-  const pairingReadinessMessage = pairingBlockedByReadiness
-    ? videoDateReadiness.reason ?? 'Camera and microphone access are needed before you can pair.'
-    : null;
-
-  const recoverPairingReadinessAndRetry = async (swipeType: 'vibe' | 'super_vibe') => {
-    const result = await requestNativeCameraMicrophonePermissions({
-      userId: user?.id ?? null,
-      sources: {
-        androidExisting: 'event_lobby_pairing_existing',
-        androidRequest: 'event_lobby_pairing_request',
-        nativeExisting: 'event_lobby_pairing_existing',
-        nativeRequest: 'event_lobby_pairing_request',
-      },
-      setHandoff: false,
-    });
-
-    if (result.ok) {
-      void handleSwipe(swipeType, { bypassReadiness: true });
-      return;
-    }
-
-    const needsSettings = result.mediaPermission.recoveryAction === 'open_settings';
-    show({
-      title: mediaPermissionTitle(result.mediaPermission),
-      message: mediaPermissionMessage(result.mediaPermission),
-      variant: 'warning',
-      primaryAction: needsSettings
-        ? {
-            label: 'Open Settings',
-            onPress: () => void openPermissionSettings('event_lobby_pairing_media'),
-            dismissBeforeAction: true,
-          }
-        : {
-            label: 'Try Again',
-            onPress: () => void recoverPairingReadinessAndRetry(swipeType),
-            dismissBeforeAction: true,
-          },
-      secondaryAction: { label: 'Not Now', onPress: () => {} },
-    });
-  };
 
   useEffect(() => {
     optimisticSwipeSequenceRef.current = 0;
@@ -2867,10 +2821,7 @@ export default function EventLobbyScreen() {
     </View>
   );
 
-  const handleSwipe = async (
-    swipeType: 'vibe' | 'pass' | 'super_vibe',
-    options: { bypassReadiness?: boolean } = {},
-  ) => {
+  const handleSwipe = async (swipeType: 'vibe' | 'pass' | 'super_vibe') => {
     if (
       !current ||
       pendingSwipeTargetIds.has(current.id) ||
@@ -2884,20 +2835,6 @@ export default function EventLobbyScreen() {
         message: 'Reconnect to swipe and match in the lobby.',
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    if (swipeType !== 'pass' && readinessV2.enabled && !videoDateReadiness.canAttemptPairing && !options.bypassReadiness) {
-      show({
-        title: 'Camera and mic needed',
-        message: videoDateReadiness.reason ?? 'Enable camera and microphone access before pairing for a video date.',
-        variant: 'info',
-        primaryAction: {
-          label: 'Enable Access',
-          onPress: () => void recoverPairingReadinessAndRetry(swipeType),
-          dismissBeforeAction: true,
-        },
-        secondaryAction: { label: 'Not Now', onPress: () => {} },
       });
       return;
     }
@@ -3608,14 +3545,14 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCircleSuper,
                   { backgroundColor: withAlpha(theme.neonYellow, 0.14), borderColor: withAlpha(theme.neonYellow, 0.55) },
-                  pairingActionsDisabled && styles.actionDisabled,
+                  swipeActionsDisabled && styles.actionDisabled,
                   superVibeRemaining <= 0 && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('super_vibe')}
-                disabled={pairingActionsDisabled || superVibeRemaining <= 0}
+                disabled={swipeActionsDisabled || superVibeRemaining <= 0}
                 accessibilityRole="button"
                 accessibilityLabel="Super vibe"
-                accessibilityState={{ disabled: pairingActionsDisabled || superVibeRemaining <= 0 }}
+                accessibilityState={{ disabled: swipeActionsDisabled || superVibeRemaining <= 0 }}
               >
                 <Ionicons name="star" size={24} color={theme.neonYellow} />
                 {superVibeRemaining > 0 && (
@@ -3629,13 +3566,13 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCirclePrimary,
                   { overflow: 'hidden' },
-                  pairingActionsDisabled && styles.actionDisabled,
+                  swipeActionsDisabled && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('vibe')}
-                disabled={pairingActionsDisabled}
+                disabled={swipeActionsDisabled}
                 accessibilityRole="button"
                 accessibilityLabel="Vibe"
-                accessibilityState={{ disabled: pairingActionsDisabled }}
+                accessibilityState={{ disabled: swipeActionsDisabled }}
               >
                 <LinearGradient
                   colors={[theme.tint, theme.neonPink]}
@@ -3646,23 +3583,6 @@ export default function EventLobbyScreen() {
                 <Ionicons name="heart" size={28} color="#fff" style={{ zIndex: 1 }} />
               </Pressable>
             </View>
-            {pairingReadinessMessage ? (
-              <View
-                style={[
-                  styles.readinessBadge,
-                  {
-                    backgroundColor: withAlpha(theme.neonYellow, 0.14),
-                    borderColor: withAlpha(theme.neonYellow, 0.35),
-                  },
-                ]}
-                accessibilityLiveRegion="polite"
-              >
-                <Ionicons name="alert-circle-outline" size={14} color={theme.neonYellow} />
-                <Text style={[styles.readinessBadgeText, { color: theme.neonYellow }]}>
-                  {pairingReadinessMessage}
-                </Text>
-              </View>
-            ) : null}
             <Text style={[styles.actionHint, { color: theme.textSecondary }]}>Pass · Super · Vibe</Text>
           </>
         )}
@@ -4500,25 +4420,6 @@ const styles = StyleSheet.create({
   actionCircleSuper: { width: 52, height: 52, borderRadius: 26, borderWidth: 2 },
   actionCirclePrimary: { borderWidth: 0 },
   actionDisabled: { opacity: 0.6 },
-  readinessBadge: {
-    alignSelf: 'center',
-    maxWidth: '92%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    marginTop: spacing.xs,
-  },
-  readinessBadgeText: {
-    flexShrink: 1,
-    fontSize: 11,
-    fontWeight: '700',
-    lineHeight: 15,
-    textAlign: 'left',
-  },
   actionHint: { fontSize: 10, fontWeight: '600', textAlign: 'center', letterSpacing: 0.8, marginBottom: spacing.sm },
   superVibeBadgeCount: {
     position: 'absolute',

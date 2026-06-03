@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import DailyIframe, { type DailyCall } from "@daily-co/daily-js";
 import {
   VIDEO_DATE_READINESS_BLOCKED_COPY,
-  resolveVideoDateReadinessGate,
+  resolveVideoDateReadinessDiagnostic,
   shouldRunVideoDateDiagnostic,
   type VideoDateReadinessStatus,
 } from "@clientShared/matching/videoDateReadinessV2";
@@ -19,15 +19,13 @@ type WebPermissionState = "granted" | "denied" | "prompt" | "unsupported" | "unk
 
 type NonBlockingReadiness = {
   status: VideoDateReadinessStatus;
-  canAttemptPairing: boolean;
-  reason: string | null;
+  diagnosticMessage: string | null;
   checked: boolean;
 };
 
 const initialReadiness: NonBlockingReadiness = {
   status: "unchecked",
-  canAttemptPairing: true,
-  reason: null,
+  diagnosticMessage: null,
   checked: false,
 };
 const diagnosticLastRunAtMsByEvent = new Map<string, number>();
@@ -83,11 +81,10 @@ export function useNonBlockingVideoDateReadiness(
 
   return useMemo(() => {
     if (!checked) return initialReadiness;
-    const gate = resolveVideoDateReadinessGate(status);
+    const diagnostic = resolveVideoDateReadinessDiagnostic(status);
     return {
       status,
-      canAttemptPairing: gate.canAttemptPairing,
-      reason: gate.reason,
+      diagnosticMessage: diagnostic.diagnosticMessage,
       checked,
     };
   }, [checked, status]);
