@@ -27,7 +27,11 @@ import { MutualVibeToast } from "@/components/video-date/MutualVibeToast";
 import { KeepTheVibe } from "@/components/video-date/KeepTheVibe";
 import { ReconnectionOverlay } from "@/components/video-date/ReconnectionOverlay";
 import { InCallSafetyModal } from "@/components/video-date/InCallSafetyModal";
-import { useVideoCall, type VideoCallStartFailure } from "@/hooks/useVideoCall";
+import {
+  useVideoCall,
+  type VideoCallStartFailure,
+  type VideoDateMediaPromptIntent,
+} from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
 import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
@@ -536,6 +540,8 @@ const VideoDate = () => {
   const lastForegroundReconcileAtRef = useRef(0);
   const accessLoadingWatchdogKeyRef = useRef<string | null>(null);
   const videoJoinCycleRef = useRef(0);
+  const nextVideoDateMediaPromptIntentRef =
+    useRef<VideoDateMediaPromptIntent>("auto");
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
   const manualExitInFlightRef = useRef(false);
@@ -1507,6 +1513,7 @@ const VideoDate = () => {
 
   useEffect(() => {
     videoJoinCycleRef.current = 0;
+    nextVideoDateMediaPromptIntentRef.current = "auto";
     videoJoinOutcomeByCycleRef.current = new Set();
     setHandshakeStartedAt(null);
     setCallStartFailure(null);
@@ -2393,6 +2400,8 @@ const VideoDate = () => {
     if (callStartFailure) return;
 
     setCallStarted(true);
+    const mediaPromptIntent = nextVideoDateMediaPromptIntentRef.current;
+    nextVideoDateMediaPromptIntentRef.current = "auto";
     videoJoinCycleRef.current += 1;
     const joinCycle = videoJoinCycleRef.current;
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_JOIN_ATTEMPT, {
@@ -2402,7 +2411,7 @@ const VideoDate = () => {
       is_retry: joinCycle > 1,
     });
     Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
-    startCall(id).then((result) => {
+    startCall(id, { mediaPromptIntent }).then((result) => {
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
       if (!videoJoinOutcomeByCycleRef.current.has(joinCycle)) {
@@ -4692,6 +4701,7 @@ const VideoDate = () => {
                 event_id: eventId ?? null,
                 source: "retry_tap",
               });
+              nextVideoDateMediaPromptIntentRef.current = "user_retry";
               setCallStartFailure(null);
               setHandshakeStartFailed(false);
               setCallStarted(false);

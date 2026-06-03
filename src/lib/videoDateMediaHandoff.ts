@@ -7,6 +7,7 @@ export type WebVideoDateMediaHandoffMissReason =
   | "expired"
   | "ended_video_track"
   | "missing_video_track"
+  | "ended_audio_track"
   | "missing_audio_track";
 
 type WebVideoDateMediaHandoffEntry = {
@@ -71,7 +72,9 @@ function validateEntry(entry: WebVideoDateMediaHandoffEntry, nowMs: number): Web
   const videoTracks = entry.stream.getVideoTracks();
   if (videoTracks.length === 0) return "missing_video_track";
   if (!firstLiveTrack(videoTracks)) return "ended_video_track";
-  if (entry.stream.getAudioTracks().length === 0) return "missing_audio_track";
+  const audioTracks = entry.stream.getAudioTracks();
+  if (audioTracks.length === 0) return "missing_audio_track";
+  if (!firstLiveTrack(audioTracks)) return "ended_audio_track";
   return null;
 }
 
@@ -108,7 +111,11 @@ export function setWebVideoDateMediaHandoff(params: {
 
   const invalidReason = validateEntry(entry, nowMs);
   if (invalidReason) {
-    if (invalidReason === "expired" || invalidReason === "ended_video_track") {
+    if (
+      invalidReason === "expired" ||
+      invalidReason === "ended_video_track" ||
+      invalidReason === "ended_audio_track"
+    ) {
       stopMediaStreamTracks(params.stream);
     }
     return { ok: false, reason: invalidReason };

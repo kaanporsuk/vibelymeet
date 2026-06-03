@@ -134,6 +134,19 @@ test("native Android media denial remembers don't-ask-again across passive check
   assert.match(helper, /microphoneStatus === PermissionsAndroid\.RESULTS\.GRANTED[\s\S]*\?\s*false/);
 });
 
+test("native camera and microphone requests preserve existing partial grants", () => {
+  const helper = readRepo("apps/mobile/lib/nativeMediaPermissions.ts");
+
+  assert.match(helper, /const permissionsToRequest = \[/);
+  assert.match(helper, /\.\.\.\(!camOk && !rememberedBlocked\.camera \? \[PermissionsAndroid\.PERMISSIONS\.CAMERA\] : \[\]\)/);
+  assert.match(helper, /\.\.\.\(!micOk && !rememberedBlocked\.microphone \? \[PermissionsAndroid\.PERMISSIONS\.RECORD_AUDIO\] : \[\]\)/);
+  assert.match(helper, /permissionsToRequest\.length > 0[\s\S]*PermissionsAndroid\.requestMultiple\(permissionsToRequest\)/);
+  assert.match(helper, /const cameraStatus = camOk[\s\S]*PermissionsAndroid\.RESULTS\.GRANTED[\s\S]*rememberedBlocked\.camera[\s\S]*PermissionsAndroid\.RESULTS\.NEVER_ASK_AGAIN[\s\S]*granted\[PermissionsAndroid\.PERMISSIONS\.CAMERA\]/);
+  assert.match(helper, /const microphoneStatus = micOk[\s\S]*PermissionsAndroid\.RESULTS\.GRANTED[\s\S]*rememberedBlocked\.microphone[\s\S]*PermissionsAndroid\.RESULTS\.NEVER_ASK_AGAIN[\s\S]*granted\[PermissionsAndroid\.PERMISSIONS\.RECORD_AUDIO\]/);
+  assert.match(helper, /camExisting\.status === 'granted' \|\| camExisting\.canAskAgain === false[\s\S]*await Camera\.requestCameraPermissionsAsync\(\)/);
+  assert.match(helper, /micExisting\.status === 'granted' \|\| micExisting\.canAskAgain === false[\s\S]*await Camera\.requestMicrophonePermissionsAsync\(\)/);
+});
+
 test("native profile Vibe Video library intent is not camera-gated and has file fallback", () => {
   const source = readRepo("apps/mobile/app/vibe-video-record.tsx");
 

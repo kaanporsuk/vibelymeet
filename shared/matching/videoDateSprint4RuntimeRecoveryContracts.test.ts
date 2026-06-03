@@ -166,7 +166,10 @@ test("Sprint 4 duplicate web start attempts wait for the real in-flight result",
   assert.doesNotMatch(duplicateBlock, /return \{ ok: true \}/);
   assert.match(webCall, /start_call_in_flight_resolved_joined/);
   assert.match(webCall, /start_call_in_flight_failed/);
-  assert.match(webCall, /return await startCall\(sessionId, \{ internalRetry: true \}\)/);
+  assert.match(
+    webCall,
+    /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*\}\)/,
+  );
 });
 
 test("Sprint 4 runtime recovery contracts cover timeout, reconnect, slow join, first frame, extensions, and abort cleanup", () => {

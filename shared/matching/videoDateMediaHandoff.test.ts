@@ -140,6 +140,21 @@ test("web video date media handoff fails safely for ended or incomplete streams"
     ttlMs: 1_000,
   });
   assert.deepEqual(missingAudio, { ok: false, reason: "missing_audio_track" });
+
+  const endedAudioVideo = track("video");
+  const endedAudio = track("audio", "ended");
+  const endedAudioHandoff = setWebVideoDateMediaHandoff({
+    sessionId: "session-ended-audio",
+    userId: "user-1",
+    stream: stream({ video: [endedAudioVideo], audio: [endedAudio] }),
+    captureProfile: "ideal",
+    source: "ready_gate_permission_prewarm",
+    acquiredAtMs: 100,
+    nowMs: 200,
+    ttlMs: 1_000,
+  });
+  assert.deepEqual(endedAudioHandoff, { ok: false, reason: "ended_audio_track" });
+  assert.equal((endedAudioVideo as MediaStreamTrack & { stopped: boolean }).stopped, true);
 });
 
 test("web video date media handoff releases tracks when consumed after becoming invalid", () => {
@@ -170,6 +185,37 @@ test("web video date media handoff releases tracks when consumed after becoming 
       nowMs: 250,
     }),
     { ok: false, reason: "missing_audio_track" },
+  );
+  assert.equal((videoTrack as MediaStreamTrack & { stopped: boolean }).stopped, true);
+  assert.equal((audioTrack as MediaStreamTrack & { stopped: boolean }).stopped, true);
+});
+
+test("web video date media handoff rejects audio that ends after storing", () => {
+  const videoTrack = track("video");
+  const audioTrack = track("audio");
+  const media = stream({ video: [videoTrack], audio: [audioTrack] });
+
+  const stored = setWebVideoDateMediaHandoff({
+    sessionId: "session-audio-ended-after-store",
+    userId: "user-1",
+    stream: media,
+    captureProfile: "ideal",
+    source: "ready_gate_permission_prewarm",
+    acquiredAtMs: 100,
+    nowMs: 200,
+    ttlMs: 1_000,
+  });
+  assert.equal(stored.ok, true);
+
+  audioTrack.stop();
+
+  assert.deepEqual(
+    consumeWebVideoDateMediaHandoff({
+      sessionId: "session-audio-ended-after-store",
+      userId: "user-1",
+      nowMs: 250,
+    }),
+    { ok: false, reason: "ended_audio_track" },
   );
   assert.equal((videoTrack as MediaStreamTrack & { stopped: boolean }).stopped, true);
   assert.equal((audioTrack as MediaStreamTrack & { stopped: boolean }).stopped, true);

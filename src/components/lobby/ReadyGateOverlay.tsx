@@ -147,6 +147,19 @@ function stopMediaStreamTracks(stream: MediaStream | null) {
   }
 }
 
+function firstLiveTrack(tracks: MediaStreamTrack[]): MediaStreamTrack | null {
+  return tracks.find((track) => track.readyState !== "ended") ?? null;
+}
+
+function assertLiveVideoDateCameraAndMicrophone(stream: MediaStream, source: string) {
+  if (!firstLiveTrack(stream.getVideoTracks())) {
+    throw new Error(`${source} returned no live video track`);
+  }
+  if (!firstLiveTrack(stream.getAudioTracks())) {
+    throw new Error(`${source} returned no live audio track`);
+  }
+}
+
 function hasLabeledDevice(
   devices: MediaDeviceInfo[],
   kind: MediaDeviceKind,
@@ -176,6 +189,12 @@ async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissio
       const stream = await navigator.mediaDevices.getUserMedia(
         videoDateWebMediaStreamConstraints(profile),
       );
+      try {
+        assertLiveVideoDateCameraAndMicrophone(stream, "Ready Gate permission prewarm");
+      } catch (error) {
+        stopMediaStreamTracks(stream);
+        throw error;
+      }
       return {
         stream,
         captureProfile: profile,
@@ -3330,7 +3349,7 @@ const ReadyGateOverlay = ({
                         setTerminalActionError(null);
                         const permissionReady =
                           await runPermissionPrewarm("ready_tap");
-                        if (!permissionReady && !mediaDiagnosticsAreGreen) {
+                        if (!permissionReady) {
                           setTerminalActionError(
                             "Allow camera and microphone access to join this date.",
                           );
@@ -3340,7 +3359,9 @@ const ReadyGateOverlay = ({
                               platform: "web",
                               session_id: sessionId,
                               event_id: eventId,
-                              reason: "ready_tap_permission_not_ready",
+                              reason: mediaDiagnosticsAreGreen
+                                ? "ready_tap_permission_prewarm_failed_diagnostics_ok"
+                                : "ready_tap_permission_not_ready",
                               permission_status: "unknown",
                               recovery_action: "request_permission",
                               settings_deep_link: "browser_site_settings",
@@ -3349,21 +3370,6 @@ const ReadyGateOverlay = ({
                             },
                           );
                           return;
-                        }
-                        if (!permissionReady && mediaDiagnosticsAreGreen) {
-                          trackReadyGateClientEvent(
-                            LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE,
-                            {
-                              action: "mark_ready",
-                              source_action: "ready_tap",
-                              reason:
-                                "permission_prewarm_failed_diagnostics_ok",
-                              error_code:
-                                "permission_prewarm_failed_diagnostics_ok",
-                              terminal: false,
-                              retryable: true,
-                            },
-                          );
                         }
                         const result = await markReady();
                         if (result.ok === false) {
