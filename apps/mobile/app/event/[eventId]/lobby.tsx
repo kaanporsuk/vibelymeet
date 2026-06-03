@@ -403,7 +403,19 @@ export default function EventLobbyScreen() {
     readinessV2.enabled && lobbySideEffectsEnabled,
   );
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const readyGatePressureActive = Boolean(activeSessionId);
+  const {
+    activeSession: scopedSession,
+    hydrated: sessionHydrated,
+    refetch: refetchActiveSession,
+  } = useActiveSession(user?.id, {
+    eventId: id,
+  });
+  const sameEventActiveSession = useMemo(() => {
+    if (!sessionHydrated || !id || !scopedSession || scopedSession.eventId !== id) return null;
+    return scopedSession;
+  }, [sessionHydrated, id, scopedSession]);
+  const lobbyBroadcastSessionId = scopedSession?.sessionId ?? activeSessionId;
+  const readyGatePressureActive = Boolean(activeSessionId) || sameEventActiveSession?.kind === 'ready_gate';
 
   useEffect(() => {
     if (!eventDateValue) return;
@@ -733,15 +745,6 @@ export default function EventLobbyScreen() {
   };
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
 
-  const {
-    activeSession: scopedSession,
-    hydrated: sessionHydrated,
-    refetch: refetchActiveSession,
-  } = useActiveSession(user?.id, {
-    eventId: id,
-  });
-  const lobbyBroadcastSessionId = scopedSession?.sessionId ?? activeSessionId;
-
   const navigateToDateSession = useCallback(
     (sessionIdToOpen: string, trigger: string, mode: 'replace' | 'push' = 'replace') => {
       if (isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)) {
@@ -1013,10 +1016,6 @@ export default function EventLobbyScreen() {
     [id, pathname, refetchActiveSession, user?.id]
   );
 
-  const sameEventActiveSession = useMemo(() => {
-    if (!sessionHydrated || !id || !scopedSession || scopedSession.eventId !== id) return null;
-    return scopedSession;
-  }, [sessionHydrated, id, scopedSession]);
   const queueHintEnabled =
     deckQueryEnabled &&
     Boolean(id && user?.id) &&

@@ -377,6 +377,35 @@ async function fetchByIds<T>(
   return { rows: allRows.slice(0, MAX_ROWS), truncated: allRows.length >= MAX_ROWS };
 }
 
+async function fetchRowsForSessionIds<T>(
+  service: SupabaseClientLike,
+  table: string,
+  select: string,
+  sessionIds: string[],
+  configureQuery: (query: SupabaseQueryLike) => SupabaseQueryLike,
+): Promise<QueryResult<T>> {
+  const uniqueIds = Array.from(new Set(sessionIds.filter(Boolean)));
+  const allRows: T[] = [];
+
+  for (let i = 0; i < uniqueIds.length; i += 500) {
+    const chunk = uniqueIds.slice(i, i + 500);
+    const { data, error } = await configureQuery(
+      service.from(table).select(select).in("session_id", chunk),
+    ).limit(MAX_ROWS);
+    if (error) {
+      return {
+        rows: allRows.slice(0, MAX_ROWS),
+        error: sanitizeErrorMessage(error.message),
+        truncated: allRows.length >= MAX_ROWS,
+      };
+    }
+    allRows.push(...((data ?? []) as T[]));
+    if (allRows.length >= MAX_ROWS) break;
+  }
+
+  return { rows: allRows.slice(0, MAX_ROWS), truncated: allRows.length >= MAX_ROWS };
+}
+
 function emptyRows<T>(): QueryResult<T> {
   return { rows: [], truncated: false };
 }
@@ -1061,7 +1090,7 @@ async function getNotificationOutboxHealth(
 ) {
   const sessionLookup = await getEventSessionIds(service, eventId);
   const eventSessionIds = eventId
-    ? sessionLookup.rows.map((row) => row.id).filter(Boolean).slice(0, 500)
+    ? sessionLookup.rows.map((row) => row.id).filter(Boolean)
     : null;
   const sessionFilterUnavailable = Boolean(eventId && sessionLookup.error);
   const sessionFilterTruncated = Boolean(eventId && sessionLookup.truncated);
@@ -1072,7 +1101,43 @@ async function getNotificationOutboxHealth(
   let providerFailures: QueryResult<ProviderFailureLogRow> = emptyRows();
   let providerDeadLetters: QueryResult<ProviderDeadLetterRow> = emptyRows();
 
-  if (!eventId || eventSessionIds?.length) {
+  if (eventId && eventSessionIds?.length) {
+    [providerOutbox, providerFailures, providerDeadLetters] = await Promise.all([
+      fetchRowsForSessionIds<ProviderOutboxNotificationRow>(
+        service,
+        "video_date_provider_outbox",
+        "session_id,kind,state,attempts,next_attempt_at,created_at,updated_at,last_error",
+        eventSessionIds,
+        (query) =>
+          query
+            .gte("created_at", sinceIso)
+            .in("kind", ["notification.send"])
+            .order("created_at", { ascending: false }),
+      ),
+      fetchRowsForSessionIds<ProviderFailureLogRow>(
+        service,
+        "video_date_provider_outbox_failure_log",
+        "target_kind,session_id,provider,operation,error_code,permanent,lease_lost,created_at",
+        eventSessionIds,
+        (query) =>
+          query
+            .gte("created_at", sinceIso)
+            .in("target_kind", ["outbox", "provider"])
+            .order("created_at", { ascending: false }),
+      ),
+      fetchRowsForSessionIds<ProviderDeadLetterRow>(
+        service,
+        "video_date_provider_dead_letters",
+        "target_kind,session_id,provider,operation,reason,created_at",
+        eventSessionIds,
+        (query) =>
+          query
+            .gte("created_at", sinceIso)
+            .in("target_kind", ["outbox", "provider"])
+            .order("created_at", { ascending: false }),
+      ),
+    ]);
+  } else if (!eventId) {
     let outboxQuery = service
       .from("video_date_provider_outbox")
       .select("session_id,kind,state,attempts,next_attempt_at,created_at,updated_at,last_error")
@@ -1094,12 +1159,6 @@ async function getNotificationOutboxHealth(
       .in("target_kind", ["outbox", "provider"])
       .order("created_at", { ascending: false })
       .limit(MAX_ROWS);
-
-    if (eventSessionIds?.length) {
-      outboxQuery = outboxQuery.in("session_id", eventSessionIds);
-      failureQuery = failureQuery.in("session_id", eventSessionIds);
-      deadLetterQuery = deadLetterQuery.in("session_id", eventSessionIds);
-    }
 
     [providerOutbox, providerFailures, providerDeadLetters] = await Promise.all([
       fetchRows<ProviderOutboxNotificationRow>(outboxQuery),

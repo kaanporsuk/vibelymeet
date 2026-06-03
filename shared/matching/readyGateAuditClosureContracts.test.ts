@@ -76,6 +76,10 @@ test("admin ops expose notification and outbox health without treating push tele
   assert.match(adminOps, /const pushTelemetryAffectsStatus = !eventId/);
   assert.match(adminOps, /PUSH_PROVIDER_FAILURE_STATUSES = new Set\(\["failed", "bounced"\]\)/);
   assert.match(adminOps, /PUSH_PROVIDER_FAILURE_STATUSES\.has\(status\) \|\| Boolean\(row\.error_code\)/);
+  assert.match(adminOps, /fetchRowsForSessionIds/);
+  assert.match(adminOps, /for \(let i = 0; i < uniqueIds\.length; i \+= 500\)/);
+  assert.match(adminOps, /\.select\(select\)\.in\("session_id", chunk\)/);
+  assert.doesNotMatch(adminOps, /eventSessionIds[\s\S]{0,120}slice\(0, 500\)/);
   assert.match(adminOps, /status_affects_window: pushTelemetryAffectsStatus/);
   assert.match(adminOps, /top_statuses: topStringCounts\(pushTelemetry\.rows/);
   assert.match(adminOps, /sourceError \|\| sessionFilterUnavailable \|\| sessionFilterTruncated/);

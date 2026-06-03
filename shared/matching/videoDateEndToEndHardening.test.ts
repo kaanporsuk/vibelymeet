@@ -2298,7 +2298,10 @@ test("video date button escape contracts keep web and native users routable", ()
   assert.match(nativeVideoDateRoute, /const handleAbortConnection = useCallback/);
   assert.match(nativeVideoDateRoute, /abortConnectionInFlightRef/);
   assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'ended_from_client'\)/);
+  assert.match(nativeVideoDateRoute, /let truthFetchFailed = false/);
+  assert.match(nativeVideoDateRoute, /truthFetchFailed = true/);
   assert.match(nativeVideoDateRoute, /shouldTerminalizeNativePeerMissingAbort\(truth\)/);
+  assert.match(nativeVideoDateRoute, /truthFetchFailed \|\| shouldTerminalizeNativePeerMissingAbort\(truth\)/);
   assert.match(nativeVideoDateRoute, /fetchVideoSessionDateEntryTruth\(sessionId\)/);
   assert.match(nativeVideoDateRoute, /reason_code: 'pre_date_manual_end'/);
   assert.match(nativeVideoDateRoute, /server_end_attempted: true/);
@@ -2678,6 +2681,7 @@ test("peer-missing user exit preserves the canonical partial-join terminal reaso
   );
   assert.match(nativeVideoDateRoute, /function shouldTerminalizeNativePeerMissingAbort/);
   assert.match(nativeVideoDateRoute, /Boolean\(truth\.participant_1_joined_at\) !== Boolean\(truth\.participant_2_joined_at\)/);
+  assert.match(nativeVideoDateRoute, /truthFetchFailed \|\| shouldTerminalizeNativePeerMissingAbort\(truth\)/);
   assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'partial_join_peer_timeout'\)/);
 });
 
