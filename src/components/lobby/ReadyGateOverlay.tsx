@@ -181,6 +181,19 @@ async function hasPriorGrantedVideoDateDeviceLabels(): Promise<boolean> {
   );
 }
 
+function isVideoDateCaptureStartError(error: unknown): boolean {
+  // iOS WebKit frequently rejects getUserMedia with these "could not start the
+  // source" errors when the requested capture profile is too specific (exact
+  // resolution / frameRate / aspectRatio); retrying with a simpler profile —
+  // down to bare facingMode — usually succeeds. NotAllowedError is intentionally
+  // excluded so a genuine denial surfaces instead of being retried.
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name ?? "")
+      : "";
+  return ["AbortError", "NotReadableError", "TrackStartError"].includes(name);
+}
+
 async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissionPrewarmMedia> {
   let lastConstraintError: unknown = null;
   for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
@@ -201,8 +214,10 @@ async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissio
         source: "ready_gate_permission_prewarm",
       };
     } catch (error) {
-      if (!isVideoDateCameraConstraintError(error) || profile === "fallback")
-        throw error;
+      const retryableWithSimplerProfile =
+        isVideoDateCameraConstraintError(error) ||
+        isVideoDateCaptureStartError(error);
+      if (!retryableWithSimplerProfile || profile === "fallback") throw error;
       lastConstraintError = error;
     }
   }
@@ -342,6 +357,20 @@ function mergeInspectedDiagnosticStatus(
   inspectedStatus: ReadyGateDiagnosticStatus,
   fallbackStatus: ReadyGateDiagnosticStatus | undefined,
 ): ReadyGateDiagnosticStatus {
+  // The fallback is derived from the just-observed getUserMedia failure (ground
+  // truth). A definitive failure (blocked/failed) must surface even when the
+  // current-state inspection is only a soft guess ("warning" = "permission
+  // unreadable on this browser, offer the prompt" / "unknown" / "checking").
+  // Otherwise a real denial or device failure is masked as a still-promptable
+  // row that just re-runs a getUserMedia the OS will silently reject.
+  if (
+    (fallbackStatus === "blocked" || fallbackStatus === "failed") &&
+    inspectedStatus !== "ok" &&
+    inspectedStatus !== "blocked" &&
+    inspectedStatus !== "failed"
+  ) {
+    return fallbackStatus;
+  }
   return inspectedStatus === "unknown" && fallbackStatus
     ? fallbackStatus
     : inspectedStatus;
