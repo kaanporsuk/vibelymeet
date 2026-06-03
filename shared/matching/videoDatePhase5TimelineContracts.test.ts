@@ -169,6 +169,25 @@ test("PR 5.4 terminal survey snapshots route to date recovery without losing sta
     ...baseSnapshot,
     phase: "verdict",
     room: null,
+    surveyRequired: true,
+    participants: [
+      {
+        id: "self",
+        isSelf: true,
+        isPartner: false,
+        mediaJoinedAt: baseSnapshot.phaseStartedAt,
+        remoteSeenAt: baseSnapshot.phaseStartedAt,
+        awayAt: null,
+      },
+      {
+        id: "partner",
+        isSelf: false,
+        isPartner: true,
+        mediaJoinedAt: baseSnapshot.phaseStartedAt,
+        remoteSeenAt: baseSnapshot.phaseStartedAt,
+        awayAt: null,
+      },
+    ],
   });
   assert.deepEqual(verdictRecovery, {
     action: "survey",
@@ -184,8 +203,22 @@ test("PR 5.4 terminal survey snapshots route to date recovery without losing sta
     endedAt: baseSnapshot.phaseDeadlineAt,
     endedReason: "date_timeout",
     participants: [
-      { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
-      { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+      {
+        id: "self",
+        isSelf: true,
+        isPartner: false,
+        mediaJoinedAt: baseSnapshot.phaseStartedAt,
+        remoteSeenAt: baseSnapshot.phaseStartedAt,
+        awayAt: null,
+      },
+      {
+        id: "partner",
+        isSelf: false,
+        isPartner: true,
+        mediaJoinedAt: baseSnapshot.phaseStartedAt,
+        remoteSeenAt: baseSnapshot.phaseStartedAt,
+        awayAt: null,
+      },
     ],
   });
   assert.deepEqual(terminalEncounterRecovery, {
@@ -201,6 +234,7 @@ test("PR 5.4 terminal survey snapshots route to date recovery without losing sta
     room: null,
     endedAt: baseSnapshot.phaseDeadlineAt,
     endedReason: "date_timeout",
+    surveyRequired: true,
     participants: [
       { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: null, awayAt: null },
       { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: null, awayAt: null },

@@ -1,5 +1,5 @@
 export const VIDEO_DATE_HANDSHAKE_TRUTH_SELECT =
-  "id, participant_1_id, participant_2_id, session_seq, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url";
+  "id, participant_1_id, participant_2_id, session_seq, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url";
 
 export type HandshakeDecisionAction = "vibe" | "pass";
 
@@ -10,6 +10,8 @@ export type VideoDateHandshakeTruth = {
   session_seq?: number | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   participant_1_liked?: boolean | null;
   participant_2_liked?: boolean | null;
   participant_1_decided_at?: string | null;

@@ -276,6 +276,9 @@ async function destroyNativeDailyCallObject(
     if (result.status === 'rejected') {
       throw result.error;
     }
+    if (nativeVideoDateFreshCreatedCall?.call === callObject) {
+      nativeVideoDateFreshCreatedCall = null;
+    }
     onDiagnostic?.('native_daily_guard_destroyed_idle_external_call', { source });
     return true;
   } catch (error) {
@@ -318,7 +321,15 @@ async function clearNativeExternalCallIfSafe(
     };
   }
 
-  if (options.failOnExternalCall || isBusyNativeDailyMeetingState(meetingState)) {
+  if (isBusyNativeDailyMeetingState(meetingState)) {
+    return {
+      ok: false,
+      reason: 'external_call_busy',
+      meetingState,
+    };
+  }
+
+  if (options.failOnExternalCall && !isTerminalNativeDailyMeetingState(meetingState)) {
     return {
       ok: false,
       reason: 'external_call_busy',

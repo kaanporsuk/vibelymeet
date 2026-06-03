@@ -287,6 +287,9 @@ async function destroyDailyCallObject(
     if (result.status === "rejected") {
       throw result.error;
     }
+    if (webVideoDateFreshCreatedCall?.call === callObject) {
+      webVideoDateFreshCreatedCall = null;
+    }
     onDiagnostic?.("daily_guard_destroyed_idle_external_call", { source });
     return true;
   } catch (error) {
@@ -330,7 +333,15 @@ async function clearExternalCallIfSafe(
     };
   }
 
-  if (options.failOnExternalCall || isBusyDailyMeetingState(meetingState)) {
+  if (isBusyDailyMeetingState(meetingState)) {
+    return {
+      ok: false,
+      reason: "external_call_busy",
+      meetingState,
+    };
+  }
+
+  if (options.failOnExternalCall && !isTerminalDailyMeetingState(meetingState)) {
     return {
       ok: false,
       reason: "external_call_busy",

@@ -130,7 +130,8 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(useEventDetails, /endedAt: data\.ended_at \? new Date\(data\.ended_at\) : null/);
   assert.match(webLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
   assert.match(webLobby, /const lobbyActionsEnabled = lobbyGate\.canUseLobbyActions && !showEventEndedModal/);
-  assert.match(webLobby, /useEventDeck\(\{[\s\S]*enabled: deckEnabled/);
+  assert.match(webLobby, /const deckFetchEnabled = deckEnabled && !readyGatePressureActive/);
+  assert.match(webLobby, /useEventDeck\(\{[\s\S]*enabled: deckFetchEnabled/);
   assert.match(webLobby, /useEventStatus\(\{ eventId, enabled: lobbySideEffectsEnabled \}\)/);
   assert.match(webLobby, /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/);
   assert.match(webLobby, /LobbyUnavailableState/);

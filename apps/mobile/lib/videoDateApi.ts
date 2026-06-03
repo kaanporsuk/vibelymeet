@@ -90,6 +90,9 @@ export type VideoDateSession = {
   /** First successful Daily join for each participant (server RPC after `call.join`). */
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  /** First server-stamped remote media evidence for each participant. */
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   /** Handshake Vibe decision slots. Null means the actor has not persisted a decision yet. */
   participant_1_liked?: boolean | null;
   participant_2_liked?: boolean | null;
@@ -375,7 +378,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, session_seq, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
+          'id, participant_1_id, participant_2_id, event_id, session_seq, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -494,6 +497,12 @@ export function useVideoDateSession(
             }
             if (row.participant_2_joined_at !== undefined) {
               next.participant_2_joined_at = row.participant_2_joined_at as string | null;
+            }
+            if (row.participant_1_remote_seen_at !== undefined) {
+              next.participant_1_remote_seen_at = row.participant_1_remote_seen_at as string | null;
+            }
+            if (row.participant_2_remote_seen_at !== undefined) {
+              next.participant_2_remote_seen_at = row.participant_2_remote_seen_at as string | null;
             }
             if (row.participant_1_liked !== undefined) {
               next.participant_1_liked = row.participant_1_liked as boolean | null;
@@ -829,6 +838,8 @@ export type VideoSessionDateEntryTruth = {
   ready_gate_expires_at: string | number | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   participant_1_liked?: boolean | null;
   participant_2_liked?: boolean | null;
   participant_1_decided_at?: string | null;

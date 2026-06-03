@@ -65,6 +65,8 @@ type VideoSessionDailyRoomTruth = {
   handshake_started_at?: string | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   phase?: string | null;
   ready_gate_expires_at?: string | number | null;
   ready_gate_status?: string | null;
@@ -130,6 +132,8 @@ export type VideoSessionPendingSurveyTruth = {
   date_started_at?: string | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
   phase?: string | null;
   state?: string | null;
 };
@@ -288,15 +292,20 @@ export function videoSessionHasRecoverablePostDateSurveyTruth(
 export function videoSessionHasEncounterExposureTruth(
   row: Pick<
     VideoSessionPendingSurveyTruth,
-    "date_started_at" | "participant_1_joined_at" | "participant_2_joined_at" | "phase" | "state"
+    | "date_started_at"
+    | "participant_1_joined_at"
+    | "participant_2_joined_at"
+    | "participant_1_remote_seen_at"
+    | "participant_2_remote_seen_at"
   > | null,
 ): boolean {
   return Boolean(
     row &&
+      row.participant_1_remote_seen_at &&
+      row.participant_2_remote_seen_at &&
       (row.date_started_at ||
-        row.state === "date" ||
-        row.phase === "date" ||
-        (row.participant_1_joined_at && row.participant_2_joined_at))
+        (row.participant_1_joined_at &&
+          row.participant_2_joined_at))
   );
 }
 

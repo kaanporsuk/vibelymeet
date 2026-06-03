@@ -5,7 +5,10 @@ import {
   type NativeVideoDateCaptureProfile,
   type VideoDateDailyCallObject,
 } from '@/lib/videoDateDailyMediaConfig';
-import { registerNativeVideoDateDailyCleanup } from '@/lib/nativeDailyCallInstance';
+import {
+  readNativeDailyMeetingState,
+  registerNativeVideoDateDailyCleanup,
+} from '@/lib/nativeDailyCallInstance';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import {
   buildReadyGateToDateLatencyPayload,
@@ -104,6 +107,26 @@ function keyFor(sessionId: string, userId: string): string {
 
 function entryStopped(entry: NativeDailyPrewarmEntry): boolean {
   return entry.status === 'destroyed' || entry.status === 'fallback';
+}
+
+function rejectUnusablePrewarmEntry(entry: NativeDailyPrewarmEntry): string | null {
+  try {
+    if (entry.call.isDestroyed()) return 'destroyed';
+  } catch {
+    return 'destroyed';
+  }
+
+  const meetingState = readNativeDailyMeetingState(entry.call);
+  if (entry.status === 'joined') {
+    return meetingState === 'joined-meeting' ? null : `joined_state_${meetingState ?? 'unknown'}`;
+  }
+  if (entry.status === 'joining') {
+    return meetingState === 'left-meeting' || meetingState === 'error'
+      ? `joining_state_${meetingState}`
+      : null;
+  }
+  if (meetingState === 'new' || meetingState === 'loaded') return null;
+  return `idle_state_${meetingState ?? 'unknown'}`;
 }
 
 function checkpoint(params: {
@@ -535,6 +558,11 @@ export function consumeNativeVideoDateDailyPrewarm(params: {
   if (entry.status === 'fallback' || entry.status === 'destroyed' || entry.status === 'join_failed') {
     fallbackEntry(entry, 'daily_prewarm_not_usable');
     return { ok: false, reason: 'not_usable' };
+  }
+  const unusableReason = rejectUnusablePrewarmEntry(entry);
+  if (unusableReason) {
+    fallbackEntry(entry, `daily_prewarm_call_${unusableReason}`);
+    return { ok: false, reason: 'call_not_usable' };
   }
   if (entry.destroyTimer) {
     clearTimeout(entry.destroyTimer);

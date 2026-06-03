@@ -152,6 +152,8 @@ test("Sprint 1 canonical contract separates ended sessions from pending post-dat
       date_started_at: "2026-05-25T11:55:00.000Z",
       participant_1_joined_at: "2026-05-25T11:55:05.000Z",
       participant_2_joined_at: "2026-05-25T11:55:06.000Z",
+      participant_1_remote_seen_at: "2026-05-25T11:55:07.000Z",
+      participant_2_remote_seen_at: "2026-05-25T11:55:08.000Z",
     }),
     webPath: `/date/${SESSION_ID}`,
     nativePath: `/date/${SESSION_ID}`,
@@ -251,6 +253,30 @@ test("Sprint 1 server next-surface video routes cannot override contradictory fe
     }),
     serverNextSurface: {
       action: "ready_gate",
+      eventId: EVENT_ID,
+      nextSessionId: SESSION_ID,
+    },
+    webPath: `/event/${EVENT_ID}/lobby`,
+    nativePath: `/event/${EVENT_ID}/lobby`,
+  });
+
+  assertDecisionParity({
+    label: "server survey with fetched no-remote-video truth falls back to ended",
+    expectedTarget: "ended",
+    truth: session({
+      ...PROVIDER_ROOM,
+      ended_at: "2026-05-25T12:00:01.000Z",
+      ended_reason: "date_timeout",
+      state: "ended",
+      phase: "ended",
+      date_started_at: "2026-05-25T11:55:00.000Z",
+      participant_1_joined_at: "2026-05-25T11:55:05.000Z",
+      participant_2_joined_at: "2026-05-25T11:55:06.000Z",
+      participant_1_remote_seen_at: "2026-05-25T11:55:07.000Z",
+      participant_2_remote_seen_at: null,
+    }),
+    serverNextSurface: {
+      action: "survey",
       eventId: EVENT_ID,
       nextSessionId: SESSION_ID,
     },

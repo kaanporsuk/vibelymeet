@@ -86,7 +86,7 @@ type Props = {
 
 type SurveyStep = 'verdict' | 'celebration' | 'awaiting_partner' | 'highlights' | 'safety' | 'done';
 const POST_DATE_NEXT_SESSION_TRUTH_SELECT =
-  'id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at';
+  'id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at';
 
 async function fetchPostDateNextSessionTruth(
   sessionId: string | null | undefined,

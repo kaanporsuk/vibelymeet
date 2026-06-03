@@ -228,12 +228,23 @@ async function runDailyCallQualityAdvisory(
       };
     }
     call = guarded.call;
-    if (typeof call.preAuth === "function") {
-      const diagnosticToken = diagnostic.token;
-      await withTimeout(
-        Promise.resolve(call.preAuth({ url: diagnostic.roomUrl, token: diagnosticToken })),
-        DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS,
-      );
+    if (typeof call.preAuth !== "function") {
+      return { ok: false, skipped: "preauth_api_unavailable", latencyMs: Date.now() - startedAt };
+    }
+    const diagnosticToken = diagnostic.token;
+    const preAuthReady = await withTimeout(
+      Promise.resolve(call.preAuth({ url: diagnostic.roomUrl, token: diagnosticToken })).then(
+        () => true,
+        () => false,
+      ),
+      DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS,
+    );
+    if (preAuthReady !== true) {
+      return {
+        ok: false,
+        skipped: preAuthReady === null ? "preauth_timeout" : "preauth_failed",
+        latencyMs: Date.now() - startedAt,
+      };
     }
     if (typeof call.testCallQuality !== "function") {
       return { ok: false, error: "call_quality_api_unavailable", latencyMs: Date.now() - startedAt };
