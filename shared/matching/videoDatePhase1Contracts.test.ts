@@ -151,8 +151,10 @@ test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and n
   assert.doesNotMatch(nativeReadiness, /token:\s*diagnostic\.token/);
   assert.match(nativeReadiness, /try\s*{[\s\S]+prepare_diagnostic_entry/);
   assert.match(nativeReadiness, /diagnostic_entry_invalid_response/);
-  assert.match(webLobby, /canAttemptPairing: !readinessV2\.enabled \|\| videoDateReadiness\.canAttemptPairing/);
-  assert.match(nativeLobby, /swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing/);
+  assert.match(webLobby, /useNonBlockingVideoDateReadiness\(\s*eventId,/);
+  assert.match(nativeLobby, /useNonBlockingVideoDateReadiness\(\s*id,/);
+  assert.doesNotMatch(webLobby, /canAttemptPairing|readinessBlockMessage|pairingReadinessMessage|rightSwipeDisabled/);
+  assert.doesNotMatch(nativeLobby, /canAttemptPairing|pairingReadinessMessage|options\.bypassReadiness/);
 });
 
 test("PR 1.3 deck v3 and persistent ready-gate suppression are adopted; Phase 8 uses the public deck envelope", () => {

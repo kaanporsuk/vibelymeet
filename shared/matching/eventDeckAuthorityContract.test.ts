@@ -222,7 +222,7 @@ test("web, native, and edge clients pass deck tokens and stop retrying terminal 
   assert.match(webLobby, /const removeDeckProfileAfterTerminalVisibleMark = useCallback/);
   assert.match(webLobby, /\(cachedTopProfile\.deck_token \?\? null\) !== expectedDeckToken/);
   assert.match(webLobby, /skipReason = "stale_deck_token"/);
-  assert.match(webLobby, /if \(removed && shouldTopUpVideoDateDeck\(remainingVisible\)\) \{[\s\S]*invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
+  assert.match(webLobby, /removed &&[\s\S]*shouldTopUpVideoDateDeck\(remainingVisible\) &&[\s\S]*!readyGatePressureActive[\s\S]*invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
   assert.match(webLobby, /if \(shouldRetryVisibleCardMark\(reason\)\) \{[\s\S]*scheduleRetry\(\);[\s\S]*\} else \{[\s\S]*removeDeckProfileAfterTerminalVisibleMark\(targetId, deckToken, reason\);/);
   assert.doesNotMatch(webTerminalVisibleErrorsSection, /not_current_top_card/);
   assert.match(nativeLobby, /TERMINAL_VISIBLE_CARD_MARK_ERRORS/);

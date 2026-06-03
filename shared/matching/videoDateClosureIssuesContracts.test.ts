@@ -6,7 +6,7 @@ import {
 } from "../featureFlags/videoDateV4Flags";
 import {
   VIDEO_DATE_READINESS_PENDING_COPY,
-  resolveVideoDateReadinessGate,
+  resolveVideoDateReadinessDiagnostic,
 } from "./videoDateReadinessV2";
 
 const snapshotFunction = readFileSync("supabase/functions/video-date-snapshot/index.ts", "utf8");
@@ -17,7 +17,13 @@ const swipeActionsFunction = readFileSync("supabase/functions/swipe-actions/inde
 const postDateVerdictFunction = readFileSync("supabase/functions/post-date-verdict/index.ts", "utf8");
 const webLobby = readFileSync("src/pages/EventLobby.tsx", "utf8");
 const webSwipeAction = readFileSync("src/hooks/useSwipeAction.ts", "utf8");
+const webReadyGateOverlay = readFileSync("src/components/lobby/ReadyGateOverlay.tsx", "utf8");
 const nativeLobby = readFileSync("apps/mobile/app/event/[eventId]/lobby.tsx", "utf8");
+const nativeReadyGateOverlay = readFileSync("apps/mobile/components/lobby/ReadyGateOverlay.tsx", "utf8");
+const eventDeckAuthorityMigration = readFileSync(
+  "supabase/migrations/20260601183000_event_deck_authority_contract.sql",
+  "utf8",
+);
 const flowHardeningFollowupsMigration = readFileSync(
   "supabase/migrations/20260602000000_video_date_flow_hardening_followups.sql",
   "utf8",
@@ -39,6 +45,15 @@ const monitoringRunbook = readFileSync("docs/video-date-post-release-monitoring-
 const requiredCertificationTemplate = readFileSync("docs/video-date-required-certification-template.json", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const aliasHelper = readFileSync("shared/featureFlags/featureFlagAliasResolution.ts", "utf8");
+
+function sqlFunctionSection(source: string, functionName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${functionName}`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `${functionName} definition should exist`);
+  const end = source.indexOf("$function$;", start);
+  assert.notEqual(end, -1, `${functionName} definition should be dollar-quoted`);
+  return source.slice(start, end);
+}
 
 test("legacy snapshot token issuance uses shared Daily provider reliability", () => {
   assert.match(snapshotFunction, /from "\.\.\/_shared\/video-date-provider-reliability\.ts"/);
@@ -64,15 +79,14 @@ test("legacy snapshot token issuance uses shared Daily provider reliability", ()
   assert.match(snapshotFunction, /operation: "snapshot_token"/);
 });
 
-test("warning readiness is treated as pending and cannot attempt pairing", () => {
-  const warning = resolveVideoDateReadinessGate("warning");
-  const blocked = resolveVideoDateReadinessGate("blocked");
-  const ready = resolveVideoDateReadinessGate("ready");
+test("warning readiness is diagnostics-only and does not define deck pairing eligibility", () => {
+  const warning = resolveVideoDateReadinessDiagnostic("warning");
+  const blocked = resolveVideoDateReadinessDiagnostic("blocked");
+  const ready = resolveVideoDateReadinessDiagnostic("ready");
 
-  assert.equal(warning.canAttemptPairing, false);
-  assert.equal(warning.reason, VIDEO_DATE_READINESS_PENDING_COPY);
-  assert.equal(blocked.canAttemptPairing, false);
-  assert.equal(ready.canAttemptPairing, true);
+  assert.equal(warning.diagnosticMessage, VIDEO_DATE_READINESS_PENDING_COPY);
+  assert.match(blocked.diagnosticMessage ?? "", /join a video date/);
+  assert.equal(ready.diagnosticMessage, null);
 });
 
 test("snapshot token failures surface bounded 429 retry-after without leaking token material", () => {
@@ -240,33 +254,42 @@ test("definitive cloud alignment closes anon Video Date RPC and table grants wit
   assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.video_date_credit_extension_spends FROM PUBLIC, anon, authenticated/);
 });
 
-test("web lobby keeps readiness pairing recovery reachable before swipe submission", () => {
-  assert.match(webLobby, /const pairingBlockedByReadiness =[\s\S]*readinessV2\.enabled[\s\S]*!videoDateReadiness\.canAttemptPairing/);
-  assert.match(webLobby, /const pairingControlsDisabled = swipeControlsDisabled/);
-  assert.match(webLobby, /canAttemptPairing: !readinessV2\.enabled \|\| videoDateReadiness\.canAttemptPairing/);
-  assert.match(webLobby, /disabled=\{pairingControlsDisabled \|\| superVibeRemaining <= 0\}/);
-  assert.match(webLobby, /disabled=\{pairingControlsDisabled\}/);
-  assert.match(webLobby, /rightSwipeDisabled=\{pairingControlsDisabled\}/);
-  assert.match(webLobby, /pairingReadinessMessage/);
-  assert.match(webLobby, /if \(event\.key === "ArrowLeft"\)[\s\S]*if \(swipeControlsDisabled\) return[\s\S]*else if \(event\.key === "ArrowRight"\)[\s\S]*if \(pairingControlsDisabled\) return/);
-  assert.match(webSwipeAction, /if \(swipeType !== "pass" && !canAttemptPairing\) \{[\s\S]*requestWebPairingMediaReadiness\(readinessBlockMessage\)/);
-  assert.match(webSwipeAction, /navigator\.mediaDevices\.getUserMedia\(\{ video: true, audio: true \}\)/);
-  assert.match(webSwipeAction, /stream\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+test("web lobby treats readiness as non-blocking diagnostics for deck swipes", () => {
+  assert.match(webLobby, /useNonBlockingVideoDateReadiness\(\s*eventId,/);
+  assert.match(webLobby, /disabled=\{swipeControlsDisabled \|\| superVibeRemaining <= 0\}/);
+  assert.match(webLobby, /disabled=\{swipeControlsDisabled\}/);
+  assert.match(webLobby, /onSwipeRight=\{handleVibe\}/);
+  assert.match(webLobby, /if \(event\.key === "ArrowLeft"\)[\s\S]*if \(swipeControlsDisabled\) return[\s\S]*else if \(event\.key === "ArrowRight"\)[\s\S]*if \(swipeControlsDisabled\) return/);
+  assert.match(webLobby, /if \(info\.offset\.x > threshold\) \{[\s\S]*haptics\.light\(\);[\s\S]*onSwipeRight\(\);/);
+  assert.doesNotMatch(webLobby, /pairingBlockedByReadiness|pairingControlsDisabled|pairingReadinessMessage|rightSwipeDisabled/);
+  assert.doesNotMatch(webLobby, /canAttemptPairing|readinessBlockMessage/);
+  assert.doesNotMatch(webSwipeAction, /requestWebPairingMediaReadiness|canAttemptPairing|readinessBlockMessage/);
+  assert.doesNotMatch(webSwipeAction, /navigator\.mediaDevices\.getUserMedia\(\{ video: true, audio: true \}\)/);
 });
 
-test("native lobby keeps readiness pairing recovery reachable before swipe submission", () => {
-  assert.match(nativeLobby, /const pairingBlockedByReadiness =[\s\S]*readinessV2\.enabled[\s\S]*!videoDateReadiness\.canAttemptPairing/);
-  assert.match(nativeLobby, /const pairingActionsDisabled = swipeActionsDisabled/);
-  assert.match(nativeLobby, /disabled=\{pairingActionsDisabled \|\| superVibeRemaining <= 0\}/);
-  assert.match(nativeLobby, /disabled=\{pairingActionsDisabled\}/);
+test("native lobby treats readiness as non-blocking diagnostics for deck swipes", () => {
+  assert.match(nativeLobby, /useNonBlockingVideoDateReadiness\(\s*id,/);
+  assert.match(nativeLobby, /disabled=\{swipeActionsDisabled \|\| superVibeRemaining <= 0\}/);
+  assert.match(nativeLobby, /disabled=\{swipeActionsDisabled\}/);
   assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Pass"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \}\}/);
-  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Super vibe"[\s\S]*accessibilityState=\{\{ disabled: pairingActionsDisabled \|\| superVibeRemaining <= 0 \}\}/);
-  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Vibe"[\s\S]*accessibilityState=\{\{ disabled: pairingActionsDisabled \}\}/);
-  assert.match(nativeLobby, /pairingReadinessMessage/);
-  assert.match(nativeLobby, /accessibilityLiveRegion="polite"/);
-  assert.match(nativeLobby, /recoverPairingReadinessAndRetry/);
-  assert.match(nativeLobby, /requestNativeCameraMicrophonePermissions/);
-  assert.match(nativeLobby, /if \(swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing && !options\.bypassReadiness\)/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Super vibe"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \|\| superVibeRemaining <= 0 \}\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Vibe"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \}\}/);
+  assert.doesNotMatch(nativeLobby, /pairingBlockedByReadiness|pairingActionsDisabled|pairingReadinessMessage/);
+  assert.doesNotMatch(nativeLobby, /recoverPairingReadinessAndRetry|requestNativeCameraMicrophonePermissions/);
+  assert.doesNotMatch(nativeLobby, /canAttemptPairing|options\.bypassReadiness/);
+});
+
+test("Ready Gate remains the media permission enforcement surface", () => {
+  assert.match(webReadyGateOverlay, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(webReadyGateOverlay, /ready_tap_permission_not_ready/);
+  assert.match(nativeReadyGateOverlay, /requestNativeCameraMicrophonePermissions/);
+  assert.match(nativeReadyGateOverlay, /ready_tap_permission_not_ready/);
+});
+
+test("handle_swipe_v2 does not use runtime media readiness as deck swipe eligibility", () => {
+  const handleSwipeV2 = sqlFunctionSection(eventDeckAuthorityMigration, "handle_swipe_v2");
+  assert.match(handleSwipeV2, /event_deck_validate_presented_card/);
+  assert.doesNotMatch(handleSwipeV2, /readiness_status|record_readiness_check_v2|camera|microphone/i);
 });
 
 test("canonical video-date rollout flags and compatibility aliases are documented and typed", () => {
