@@ -177,14 +177,27 @@ test("native permission metadata matches the shipped runtime prompts", () => {
   assert.match(appConfigJs, /microphonePermission: 'Vibely uses your microphone when you choose to join video dates/);
   assert.doesNotMatch(appConfigJs, /microphonePermission: 'Vibely uses your microphone when you choose optional speech captions/);
 
+  const iosBuildSettingsPlugin = read("apps/mobile/plugins/withIosNativeBuildSettings.js");
+  assert.match(iosBuildSettingsPlugin, /withEntitlementsPlist/);
+  assert.match(iosBuildSettingsPlugin, /APS_ENVIRONMENT_BUILD_SETTING = '\$\(APS_ENVIRONMENT\)'/);
+  assert.match(iosBuildSettingsPlugin, /modConfig\.modResults\['aps-environment'\] = APS_ENVIRONMENT_BUILD_SETTING/);
+  assert.match(iosBuildSettingsPlugin, /APS_ENVIRONMENT = 'development'/);
+  assert.match(iosBuildSettingsPlugin, /APS_ENVIRONMENT = 'production'/);
+
   const generatedEntitlementsPath = "apps/mobile/ios/Vibely/Vibely.entitlements";
-  if (existsSync(join(root, generatedEntitlementsPath))) {
+  if (
+    existsSync(join(root, generatedEntitlementsPath)) &&
+    gitTrackedFiles(generatedEntitlementsPath).length > 0
+  ) {
     const entitlements = read(generatedEntitlementsPath);
     assert.match(entitlements, /<key>aps-environment<\/key>\s*<string>\$\(APS_ENVIRONMENT\)<\/string>/);
   }
 
   const generatedProjectPath = "apps/mobile/ios/Vibely.xcodeproj/project.pbxproj";
-  if (existsSync(join(root, generatedProjectPath))) {
+  if (
+    existsSync(join(root, generatedProjectPath)) &&
+    gitTrackedFiles(generatedProjectPath).length > 0
+  ) {
     const project = read(generatedProjectPath);
     assert.match(project, /APS_ENVIRONMENT = development;/);
     assert.match(project, /APS_ENVIRONMENT = production;/);
