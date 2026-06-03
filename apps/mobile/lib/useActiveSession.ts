@@ -30,6 +30,7 @@ import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 import { isDateNavigationSuppressedAfterManualExit } from '@/lib/dateNavigationGuard';
+import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
@@ -493,11 +494,17 @@ export function useActiveSession(
         }
       }
 
-      const { data: session, error: sessionError } = await supabase
-        .from('video_sessions')
-        .select('id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, handshake_started_at, date_started_at, date_extra_seconds, state, phase, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, daily_room_name, daily_room_url')
-        .eq('id', reg.current_room_id)
-        .maybeSingle();
+      const startSnapshot = await fetchVideoDateStartSnapshot(reg.current_room_id as string);
+      const session = startSnapshot.ok && startSnapshot.sessionId
+        ? ({
+            ...startSnapshot.raw,
+            id: startSnapshot.sessionId,
+            event_id: startSnapshot.eventId,
+          } as Record<string, unknown>)
+        : null;
+      const sessionError = !startSnapshot.ok && startSnapshot.retryable !== false
+        ? { message: startSnapshot.error ?? 'video_date_start_snapshot_unavailable' }
+        : null;
 
       if (sessionError && __DEV__) {
         console.warn('[useActiveSession] session query failed:', sessionError.message);
@@ -520,7 +527,7 @@ export function useActiveSession(
             : null;
 
           const base = {
-            sessionId: session.id,
+            sessionId: session.id as string,
             eventId: reg.event_id as string,
             partnerName,
           };

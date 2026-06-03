@@ -2187,7 +2187,8 @@ test("native ready and date routes validate before requesting camera and microph
   assert.match(nativeReadyRoute, /setPermissionRequestEligible\(false\);[\s\S]*setPermissionsResolved\(false\);/);
   assert.match(nativeReadyRoute, /const isParticipant =[\s\S]*if \(!isParticipant\) \{[\s\S]*return;[\s\S]*\}/);
   assert.match(nativeReadyRoute, /if \(session\.ended_at\) \{[\s\S]*return;[\s\S]*\}/);
-  assert.match(nativeReadyRoute, /setEventId\(session\.event_id\);\s*setPermissionRequestEligible\(true\);\s*revealReadyUi = true;/);
+  assert.match(nativeReadyRoute, /fetchVideoDateStartSnapshot\(String\(sessionId\)\)/);
+  assert.match(nativeReadyRoute, /setEventId\(startSnapshot\.eventId\);\s*setPermissionRequestEligible\(true\);\s*revealReadyUi = true;/);
 
   const readyPermissionEffectIndex = nativeReadyRoute.indexOf(
     "if (!sessionId || !user?.id || !permissionRequestEligible) return;",
@@ -2456,9 +2457,10 @@ test("web standalone Ready Gate hosts the overlay instead of bouncing through lo
   assert.match(webReadyRedirect, /recovery\.action === "go_ready_gate"[\s\S]+setRouteState\(\{ kind: "hosting", eventId: recovery\.eventId \}\)/);
   assert.match(webReadyRedirect, /decideCanonicalVideoDateRoute/);
   assert.match(webReadyRedirect, /webPathForCanonicalVideoDateRoute/);
-  assert.match(webReadyRedirect, /if \(canonicalRoute\.target === "ready_gate"\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: session\.event_id \}\)/);
+  assert.match(webReadyRedirect, /fetchVideoDateStartSnapshot\(candidate\)/);
+  assert.match(webReadyRedirect, /if \(canonicalRoute\.target === "ready_gate"\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: startSnapshot\.eventId \}\)/);
   assert.doesNotMatch(webReadyRedirect, /READY_GATE_HOSTABLE_STATUSES/);
-  assert.match(webReadyRedirect, /\.from\("event_registrations"\)[\s\S]+\.eq\("event_id", session\.event_id\)[\s\S]+\.eq\("profile_id", user\.id\)/);
+  assert.match(webReadyRedirect, /\.from\("event_registrations"\)[\s\S]+\.eq\("event_id", startSnapshot\.eventId\)[\s\S]+\.eq\("profile_id", user\.id\)/);
   assert.match(webReadyRedirect, /queue_status: readyGateRegistration\?\.queue_status \?\? null/);
   assert.match(webReadyRedirect, /current_room_id: readyGateRegistration\?\.current_room_id \?\? null/);
   assert.doesNotMatch(webReadyRedirect, /registrationReadyGateFallback/);

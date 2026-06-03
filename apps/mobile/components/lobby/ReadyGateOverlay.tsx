@@ -2403,6 +2403,8 @@ export function ReadyGateOverlay({
                             startPrepareEntryHandoff(
                               'both_ready_observed_via_rpc_short_circuit',
                             );
+                          } else if (result.isTerminal === true) {
+                            return;
                           } else {
                             startRoomWarmupAfterReady(
                               'ready_tap_mark_ready_success',

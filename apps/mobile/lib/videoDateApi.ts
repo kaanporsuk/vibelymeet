@@ -13,12 +13,14 @@ import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
+import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import {
   clearVideoDatePushPreload,
   readVideoDatePushPreloadTimeline,
 } from '@/lib/videoDatePushPreload';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
+import { videoDateStartSnapshotToDateEntryTruth } from '@clientShared/matching/videoDateStartSnapshot';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
 import {
@@ -849,6 +851,10 @@ export type VideoSessionDateEntryTruth = {
 export async function fetchVideoSessionDateEntryTruth(
   sessionId: string
 ): Promise<VideoSessionDateEntryTruth | null> {
+  const snapshot = await fetchVideoDateStartSnapshot(sessionId);
+  const snapshotTruth = videoDateStartSnapshotToDateEntryTruth(snapshot);
+  if (snapshotTruth) return snapshotTruth as VideoSessionDateEntryTruth;
+
   const { data, error } = await supabase
     .from('video_sessions')
     .select(`${VIDEO_DATE_HANDSHAKE_TRUTH_SELECT}, event_id, date_started_at, ready_gate_status, ready_gate_expires_at`)
