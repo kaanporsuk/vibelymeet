@@ -102,7 +102,10 @@ test("native Ready Gate checks existing media permission before showing an OS pr
     assert.match(source, /const checkMediaPermissions = useCallback/);
     assert.match(source, /refresh: checkMediaPermissions/);
     assert.match(source, /const mediaPermissionNeedsSettings/);
-    assert.match(source, /const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings \? 'Open Settings' : 'Allow camera & mic'/);
+    assert.match(
+      source,
+      /const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings\s*\?\s*'Open Settings'\s*:\s*'Allow camera & mic'/,
+    );
     assert.match(source, /current\.cameraPermissionStatus === 'blocked'/);
     assert.match(source, /current\.microphonePermissionStatus === 'blocked'/);
   }

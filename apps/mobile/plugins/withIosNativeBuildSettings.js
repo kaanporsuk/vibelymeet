@@ -1,8 +1,14 @@
-const { IOSConfig, withDangerousMod, withXcodeProject } = require('expo/config-plugins');
+const {
+  IOSConfig,
+  withDangerousMod,
+  withEntitlementsPlist,
+  withXcodeProject,
+} = require('expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
 const IOS_DEPLOYMENT_TARGET = '15.1';
+const APS_ENVIRONMENT_BUILD_SETTING = '$(APS_ENVIRONMENT)';
 const ONESIGNAL_EXTENSION_TARGET = 'OneSignalNotificationServiceExtension';
 
 function unquote(value) {
@@ -17,12 +23,30 @@ function isAppOrExtensionTarget(target) {
   );
 }
 
+function isAppTarget(target) {
+  return unquote(target.productType) === 'com.apple.product-type.application';
+}
+
 function applyDeploymentTarget(project, target) {
   IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
     project,
     target.buildConfigurationList
   ).forEach(([, buildConfig]) => {
     buildConfig.buildSettings.IPHONEOS_DEPLOYMENT_TARGET = IOS_DEPLOYMENT_TARGET;
+  });
+}
+
+function applyApsEnvironmentBuildSetting(project, target) {
+  IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
+    project,
+    target.buildConfigurationList
+  ).forEach(([, buildConfig]) => {
+    const name = unquote(buildConfig.name);
+    if (name === 'Debug') {
+      buildConfig.buildSettings.APS_ENVIRONMENT = 'development';
+    } else if (name === 'Release') {
+      buildConfig.buildSettings.APS_ENVIRONMENT = 'production';
+    }
   });
 }
 
@@ -52,6 +76,11 @@ module.exports = function withIosNativeBuildSettings(config) {
     },
   ]);
 
+  config = withEntitlementsPlist(config, (modConfig) => {
+    modConfig.modResults['aps-environment'] = APS_ENVIRONMENT_BUILD_SETTING;
+    return modConfig;
+  });
+
   return withXcodeProject(config, (modConfig) => {
     const project = modConfig.modResults;
     const targetNames = new Set([
@@ -64,6 +93,9 @@ module.exports = function withIosNativeBuildSettings(config) {
       const targetName = unquote(target.name);
       if (targetNames.has(targetName) || isAppOrExtensionTarget(target)) {
         applyDeploymentTarget(project, target);
+      }
+      if (targetNames.has(targetName) && isAppTarget(target)) {
+        applyApsEnvironmentBuildSetting(project, target);
       }
     });
 
