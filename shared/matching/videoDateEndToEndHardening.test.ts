@@ -3147,6 +3147,8 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> \| null>\(null\)/);
   assert.match(webVideoCallHook, /const markRemoteSeenOnServer = useCallback/);
   assert.match(webVideoCallHook, /\.rpc\("mark_video_date_remote_seen", \{ p_session_id: sessionId \}\)/);
+  assert.doesNotMatch(webVideoCallHook, /!currentOptions\?\.userId\) return/);
+  assert.match(webVideoCallHook, /const userId = currentOptions\.userId \?\? null/);
   assert.match(webVideoCallHook, /remoteSeenStampedSessionRef\.current = null/);
   assert.match(webVideoCallHook, /\.catch\(\(error: unknown\) =>/);
   assert.match(webVideoCallHook, /handleFailure\([\s\S]*"promise_rejected"/);
