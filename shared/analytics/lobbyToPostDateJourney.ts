@@ -101,7 +101,6 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_PLAYBACK_RETRY: 'video_date_playback_retry',
   VIDEO_DATE_PLAYBACK_RECOVERED: 'video_date_playback_recovered',
   VIDEO_DATE_NO_REMOTE_WAIT_STARTED: 'video_date_no_remote_wait_started',
-  VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT: 'video_date_no_remote_recovery_attempt',
   VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED: 'video_date_no_remote_recovery_failed',
   VIDEO_DATE_NO_REMOTE_USER_EXIT: 'video_date_no_remote_user_exit',
   VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION: 'video_date_peer_missing_terminal_impression',

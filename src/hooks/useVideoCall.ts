@@ -32,6 +32,12 @@ import {
   rejectPreparedVideoDateEntry,
 } from "@/lib/videoDatePrepareEntry";
 import { refreshVideoDateToken } from "@/lib/videoDateTokenRefresh";
+import {
+  isVideoDateDailyMeetingEnded,
+  isVideoDateTokenRefreshRateLimited,
+  isVideoDateTokenRefreshTerminal,
+  videoDateTokenRefreshRetryAfterMs,
+} from "@clientShared/matching/videoDatePublicApi";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   buildReadyGateToDateLatencyPayload,
@@ -1019,7 +1025,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastLocalMountedTrackKeyRef = useRef<string>("");
   const lastRemoteMountedTrackKeyRef = useRef<string>("");
   const firstRemoteWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const noRemoteAutoRecoveryCountRef = useRef(0);
+  const peerMissingTruthRefreshCountRef = useRef(0);
   const remoteRenderValidationDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteRenderValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteRenderValidationFrameCallbackRef = useRef<number | null>(null);
@@ -3376,7 +3382,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const startNonce = startAttemptNonceRef.current;
       let dailyPrewarmConsumedForJoin = false;
       if (!opts?.internalRetry) {
-        noRemoteAutoRecoveryCountRef.current = 0;
+        peerMissingTruthRefreshCountRef.current = 0;
       }
 
       try {
@@ -3490,10 +3496,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           | "daily_token_refresh_before_expiry"
           | "daily_token_refresh_after_ejection"
           | "daily_token_refresh_after_auth_error";
+        type DailyTokenRefreshFailureState = {
+          kind: "terminal" | "rate_limited" | "retryable";
+          error: string;
+          retryAfterMs: number | null;
+          phase: string | null;
+        };
+        let lastDailyTokenRefreshFailure: DailyTokenRefreshFailureState | null = null;
+        const getLastDailyTokenRefreshFailure = (): DailyTokenRefreshFailureState | null =>
+          lastDailyTokenRefreshFailure;
         const refreshDailyTokenForJoin = async (
           sourceAction: DailyTokenRefreshSourceAction,
           cause?: unknown,
         ): Promise<boolean> => {
+          lastDailyTokenRefreshFailure = null;
           const refreshStartedAtMs = Date.now();
           vdbg(sourceAction, {
             sessionId,
@@ -3506,6 +3522,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           const refresh = await refreshVideoDateToken(sessionId);
           let durationMs = Date.now() - refreshStartedAtMs;
           if (refresh.ok === false) {
+            const refreshFailure: DailyTokenRefreshFailureState = {
+              kind: isVideoDateTokenRefreshTerminal(refresh)
+                ? "terminal"
+                : isVideoDateTokenRefreshRateLimited(refresh)
+                  ? "rate_limited"
+                  : "retryable",
+              error: refresh.error,
+              retryAfterMs: videoDateTokenRefreshRetryAfterMs(refresh),
+              phase: refresh.phase ?? null,
+            };
+            lastDailyTokenRefreshFailure = refreshFailure;
             if (refresh.error === "room_not_ready") {
               vdbg("daily_token_refresh_prepare_entry_recovery_started", {
                 sessionId,
@@ -3565,6 +3592,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   duration_ms: durationMs,
                   latency_bucket: bucketVideoDateLatencyMs(durationMs),
                 });
+                lastDailyTokenRefreshFailure = null;
                 return true;
               }
               vdbg("daily_token_refresh_prepare_entry_recovery_failed", {
@@ -3587,6 +3615,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               sourceAction,
               reason: refresh.error,
               retryable: refresh.retryable ?? null,
+              retryAfterMs: refreshFailure.retryAfterMs,
+              terminal: refreshFailure.kind === "terminal",
               durationMs,
             });
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
@@ -3607,6 +3637,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
 
           if (refresh.roomName !== roomData.room_name || refresh.roomUrl !== roomData.room_url) {
+            lastDailyTokenRefreshFailure = {
+              kind: "terminal",
+              error: "token_refresh_room_mismatch",
+              retryAfterMs: null,
+              phase: refresh.phase ?? null,
+            };
             vdbg("daily_token_refresh_room_mismatch", {
               sessionId,
               eventId: truthRow.event_id ?? eventId,
@@ -3673,7 +3709,32 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             surface: "video_date",
           }).action === "refresh_token"
         ) {
-          await refreshDailyTokenForJoin("daily_token_refresh_before_join");
+          const refreshedBeforeJoin = await refreshDailyTokenForJoin("daily_token_refresh_before_join");
+          const refreshFailure = getLastDailyTokenRefreshFailure();
+          if (!refreshedBeforeJoin && refreshFailure?.kind === "terminal") {
+            releaseAppAcquiredMedia("daily_token_refresh_terminal_before_join");
+            setIsConnecting(false);
+            return {
+              ok: false,
+              failure: {
+                kind: "SESSION_ENDED",
+                retryable: false,
+                serverCode: refreshFailure.error,
+              },
+            } as VideoCallStartResult;
+          }
+          if (!refreshedBeforeJoin && refreshFailure?.kind === "rate_limited") {
+            releaseAppAcquiredMedia("daily_token_refresh_rate_limited_before_join");
+            setIsConnecting(false);
+            return {
+              ok: false,
+              failure: {
+                kind: "DAILY_RATE_LIMIT",
+                retryable: true,
+                serverCode: refreshFailure.error,
+              },
+            } as VideoCallStartResult;
+          }
         }
 
         roomNameRef.current = roomData.room_name;
@@ -4257,7 +4318,41 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             if (!refreshed) {
               if (isCurrentDailyListener() && callObjectRef.current === activeCall) {
                 setIsConnecting(false);
-                startReconnectGrace("daily_token_refresh_failed");
+                const refreshFailure = getLastDailyTokenRefreshFailure();
+                if (refreshFailure?.kind === "terminal") {
+                  clearDailyTokenRefreshTimer();
+                  setIsConnected(false);
+                  setPeerMissing({ terminal: false });
+                  logTransportState("daily_token_refresh_terminal_truth", {
+                    sourceAction,
+                    error: refreshFailure.error,
+                    phase: refreshFailure.phase,
+                  });
+                  void cleanupCallObject("daily_token_refresh", "daily_token_refresh_terminal");
+                  void fetchVideoDateTruth(sessionId).then(({ truth }) => {
+                    vdbg("daily_token_refresh_terminal_truth_refetched", {
+                      sessionId,
+                      eventId: truthRow.event_id ?? eventId,
+                      userId,
+                      sourceAction,
+                      truth: truth ?? null,
+                    });
+                  });
+                } else if (refreshFailure?.kind === "rate_limited") {
+                  const retryAfterMs = refreshFailure.retryAfterMs ?? 30_000;
+                  logTransportState("daily_token_refresh_rate_limited", {
+                    sourceAction,
+                    error: refreshFailure.error,
+                    retryAfterMs,
+                  });
+                  dailyTokenRefreshTimerRef.current = setTimeout(() => {
+                    dailyTokenRefreshTimerRef.current = null;
+                    void recoverDailyTokenAndRejoin(sourceAction, cause);
+                  }, retryAfterMs);
+                  startReconnectGrace("daily_token_refresh_rate_limited");
+                } else {
+                  startReconnectGrace("daily_token_refresh_failed");
+                }
               }
               return false;
             }
@@ -4570,6 +4665,25 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             roomName: roomData.room_name,
             errorMsg: errorMsg ?? null,
           });
+          if (isVideoDateDailyMeetingEnded(event)) {
+            clearDailyTokenRefreshTimer();
+            logTransportState("daily_meeting_ended_truth_refetch", {
+              errorMsg: errorMsg ?? null,
+            });
+            void cleanupCallObject("daily_error", "daily_meeting_ended_event");
+            void fetchVideoDateTruth(sessionId).then(({ truth, error }) => {
+              vdbg("daily_meeting_ended_truth_refetched", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                truth: truth ?? null,
+                error: error ? { code: error.code, message: error.message } : null,
+              });
+            });
+            setIsConnecting(false);
+            setIsConnected(false);
+            return;
+          }
           const sourceAction = (errorMsg ?? "").toLowerCase().includes("eject")
             ? "daily_token_refresh_after_ejection"
             : "daily_token_refresh_after_auth_error";
@@ -5184,16 +5298,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             userId,
             roomName: roomData.room_name,
             timeoutMs: FIRST_REMOTE_TIMEOUT_MS,
-            autoRecoveryCount: noRemoteAutoRecoveryCountRef.current,
+            truthRefreshCount: peerMissingTruthRefreshCountRef.current,
           });
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_WAIT_STARTED, {
             platform: "web",
             session_id: sessionId,
             event_id: truthRow.event_id ?? eventId,
             timeout_ms: FIRST_REMOTE_TIMEOUT_MS,
-            auto_recovery_count: noRemoteAutoRecoveryCountRef.current,
+            truth_refresh_count: peerMissingTruthRefreshCountRef.current,
           });
           firstRemoteWatchdogRef.current = setTimeout(() => {
+            firstRemoteWatchdogRef.current = null;
             if (
               startAttemptNonceRef.current !== startNonce ||
               !callObjectRef.current ||
@@ -5201,38 +5316,26 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             ) {
               return;
             }
+            peerMissingTruthRefreshCountRef.current += 1;
+            const truthRefreshAttempt = peerMissingTruthRefreshCountRef.current;
             vdbg("daily_no_remote_watchdog_timeout", {
               sessionId,
               eventId: truthRow.event_id ?? eventId,
               userId,
               roomName: roomData.room_name,
-              autoRecoveryCount: noRemoteAutoRecoveryCountRef.current,
+              truthRefreshAttempt,
             });
-            if (noRemoteAutoRecoveryCountRef.current < 2) {
-              noRemoteAutoRecoveryCountRef.current += 1;
-              trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT, {
-                platform: "web",
-                session_id: sessionId,
-                event_id: truthRow.event_id ?? eventId,
-                attempt: noRemoteAutoRecoveryCountRef.current,
+            void fetchVideoDateTruth(sessionId).then(({ truth, error }) => {
+              vdbg("daily_no_remote_watchdog_truth_refetched", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                roomName: roomData.room_name,
+                truth: truth ?? null,
+                error: error ? { code: error.code, message: error.message } : null,
+                truthRefreshAttempt,
               });
-              void (async () => {
-                await cleanupCallObject("startCall", "no_remote_auto_recovery");
-                vdbg("daily_no_remote_watchdog_recovery", {
-                  sessionId,
-                  eventId: truthRow.event_id ?? eventId,
-                  userId,
-                  roomName: roomData.room_name,
-                  result: "rejoin_scheduled",
-                  attempt: noRemoteAutoRecoveryCountRef.current,
-                });
-                void startCall(sessionId, {
-                  internalRetry: true,
-                  mediaPromptIntent,
-                });
-              })();
-              return;
-            }
+            });
             setIsConnecting(false);
             setIsConnected(false);
             setPeerMissing({ terminal: true });
@@ -5240,7 +5343,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               platform: "web",
               session_id: sessionId,
               event_id: truthRow.event_id ?? eventId,
-              attempt_count: noRemoteAutoRecoveryCountRef.current,
+              truth_refresh_attempt: truthRefreshAttempt,
             });
             void emitWebVideoDateClientStuckState({
               sessionId,
@@ -5251,7 +5354,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 source_action: "first_remote_watchdog",
                 reason_code: "peer_missing_timeout",
                 watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
-                auto_recovery_count: noRemoteAutoRecoveryCountRef.current,
+                truth_refresh_attempt: truthRefreshAttempt,
               },
             });
             toast.info("They're not in the room yet. We'll keep this gentle.");

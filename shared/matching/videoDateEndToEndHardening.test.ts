@@ -2239,7 +2239,8 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoDatePage, /setTimeout\(\(\) => sendLeaveSignal\(source\), delayMs\)/);
   assert.match(webVideoCallHook, /CAMERA_PERMISSION_DENIED/);
   assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
-  assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
+  assert.match(webVideoCallHook, /peerMissingTruthRefreshCountRef/);
+  assert.match(webVideoCallHook, /daily_no_remote_watchdog_truth_refetched/);
   assert.match(webVideoCallHook, /Keeping your date state in sync/);
   assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = \[1_500, 3_000, 5_000, 10_000, 20_000, 30_000\]/);
   assert.match(sharedDailyJoinedConfirmation, /function markDailyJoinedWithBackoff/);
@@ -2699,12 +2700,17 @@ test("web and native expose clear peer-missing choices instead of toast-only tim
   assert.match(webConnectionOverlay, /keep waiting a little longer/);
   assert.match(webConnectionOverlay, /Keep waiting/);
   assert.match(webConnectionOverlay, /Try reconnecting/);
-  assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
-  assert.match(webVideoCallHook, /cleanupCallObject\("startCall", "no_remote_auto_recovery"\)/);
+  assert.match(webVideoCallHook, /peerMissingTruthRefreshCountRef\.current \+= 1/);
+  assert.match(webVideoCallHook, /daily_no_remote_watchdog_truth_refetched/);
+  assert.doesNotMatch(webVideoCallHook, /cleanupCallObject\("startCall", "no_remote_auto_recovery"\)/);
+  assert.doesNotMatch(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT/);
+  assert.match(nativeVideoDateRoute, /peerMissingTruthRefreshCountRef\.current \+= 1/);
+  assert.match(nativeVideoDateRoute, /daily_no_remote_watchdog_truth_refetched/);
+  assert.doesNotMatch(nativeVideoDateRoute, /no_remote_auto_recovery/);
   assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_WAIT_STARTED/);
-  assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT/);
   assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_RETRY_TAP/);
+  assert.doesNotMatch(webVideoDatePage, /VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT/);
   assert.match(webVideoDatePage, /endCall\("peer_missing_retry"\)/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP/);
@@ -3295,7 +3301,6 @@ test("Sprint E missing observability events are typed and wired", () => {
     "STALE_ACTIVE_SESSION_DETECTED",
     "DUPLICATE_ACTIVE_SESSION_CONFLICT",
     "VIDEO_DATE_NO_REMOTE_WAIT_STARTED",
-    "VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT",
     "VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED",
     "VIDEO_DATE_NO_REMOTE_USER_EXIT",
   ]) {

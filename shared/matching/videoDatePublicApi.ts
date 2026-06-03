@@ -30,6 +30,21 @@ export type VideoDateTokenRefreshError = {
 
 export type VideoDateTokenRefreshResult = VideoDateTokenRefreshOk | VideoDateTokenRefreshError;
 
+const VIDEO_DATE_TOKEN_REFRESH_TERMINAL_ERRORS = new Set([
+  "blocked_pair",
+  "not_participant",
+  "room_mismatch",
+  "session_not_active",
+  "session_not_found",
+  "snapshot_not_found",
+]);
+
+const VIDEO_DATE_TOKEN_REFRESH_RATE_LIMIT_ERRORS = new Set([
+  "provider_rate_limited",
+  "rate_limited",
+  "token_refresh_rate_limited",
+]);
+
 export type VideoDateQueueHint = {
   ok: boolean;
   queued: boolean;
@@ -170,6 +185,43 @@ export function isVideoDateDailyTokenFault(error: unknown): boolean {
 
 export function isVideoDateDailyTokenJoinError(error: unknown): boolean {
   return isVideoDateDailyTokenFault(error);
+}
+
+export function isVideoDateDailyMeetingEnded(error: unknown): boolean {
+  const lower = errorText(error).toLowerCase();
+  return (
+    lower.includes("meeting has ended") ||
+    lower.includes("meeting ended") ||
+    lower.includes("room has ended") ||
+    lower.includes("room ended")
+  );
+}
+
+export function videoDateTokenRefreshRetryAfterMs(
+  result: VideoDateTokenRefreshResult | null | undefined,
+): number | null {
+  if (!result || result.ok === true) return null;
+  const seconds = result.retryAfterSeconds;
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) return null;
+  return Math.min(300_000, Math.max(1_000, Math.ceil(seconds * 1000)));
+}
+
+export function isVideoDateTokenRefreshRateLimited(
+  result: VideoDateTokenRefreshResult | null | undefined,
+): boolean {
+  if (!result || result.ok === true) return false;
+  return (
+    VIDEO_DATE_TOKEN_REFRESH_RATE_LIMIT_ERRORS.has(result.error) ||
+    videoDateTokenRefreshRetryAfterMs(result) != null
+  );
+}
+
+export function isVideoDateTokenRefreshTerminal(
+  result: VideoDateTokenRefreshResult | null | undefined,
+): boolean {
+  if (!result || result.ok === true) return false;
+  if (result.retryable === false) return true;
+  return VIDEO_DATE_TOKEN_REFRESH_TERMINAL_ERRORS.has(result.error);
 }
 
 export function normalizeVideoDateTokenRefresh(payload: unknown): VideoDateTokenRefreshResult {
