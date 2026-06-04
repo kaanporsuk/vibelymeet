@@ -336,7 +336,10 @@ interface PartnerData {
 
 type CallPhase = "handshake" | "date" | "ended";
 type CompleteHandshakePayload = {
+  success?: boolean;
   state?: "date" | "ended" | "handshake";
+  code?: string | null;
+  retryable?: boolean;
   waiting_for_partner?: boolean;
   waiting_for_self?: boolean;
   local_decision_persisted?: boolean;
@@ -2309,14 +2312,16 @@ const VideoDate = () => {
           if (source === "visibilitychange") {
             const { data: returnData, error: returnError } = await supabase
               .rpc("video_date_transition", { p_session_id: id, p_action: "mark_reconnect_return" });
+            const returnPayload = returnData as { success?: boolean; code?: string | null; retryable?: boolean } | null;
+            const returnRejected = returnPayload?.success === false;
             vdbg("video_date_foreground_return_result", {
               sessionId: id,
               source,
-              ok: !returnError,
+              ok: !returnError && !returnRejected,
               payload: returnData ?? null,
               error: returnError ? { code: returnError.code, message: returnError.message } : null,
             });
-            if (!returnError) {
+            if (!returnError && !returnRejected) {
               trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
                 platform: "web",
                 session_id: id,
@@ -2330,33 +2335,45 @@ const VideoDate = () => {
                 event_id: eventId ?? null,
                 source,
                 step: "mark_reconnect_return",
-                code: returnError.code ?? null,
+                code: returnError?.code ?? returnPayload?.code ?? null,
+                retryable: returnError ? true : returnPayload?.retryable === true,
               });
             }
           }
           const { data, error } = await supabase
             .rpc("video_date_transition", { p_session_id: id, p_action: "sync_reconnect" });
+          const reconnectPayload = data as {
+            success?: boolean;
+            code?: string | null;
+            retryable?: boolean;
+            ended?: boolean;
+            state?: string | null;
+            phase?: string | null;
+          } | null;
+          const reconnectRejected = reconnectPayload?.success === false;
           vdbg("video_date_foreground_reconcile_result", {
             sessionId: id,
             source,
-            ok: !error,
+            ok: !error && !reconnectRejected,
             payload: data ?? null,
             error: error ? { code: error.code, message: error.message } : null,
           });
-          if (error) {
+          if (error || reconnectRejected) {
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
               platform: "web",
               session_id: id,
               event_id: eventId ?? null,
               source,
               step: "sync_reconnect",
-              code: error.code ?? null,
+              code: error?.code ?? reconnectPayload?.code ?? null,
+              retryable: error ? true : reconnectPayload?.retryable === true,
             });
+            if (reconnectPayload?.retryable === true) return;
           }
-          const reconnectPayload = data as { ended?: boolean; state?: string | null; phase?: string | null } | null;
           if (
             !error &&
             (reconnectPayload?.ended === true ||
+              reconnectPayload?.code === "SESSION_ENDED" ||
               reconnectPayload?.state === "ended" ||
               reconnectPayload?.phase === "ended")
           ) {
@@ -3531,6 +3548,10 @@ const VideoDate = () => {
       }
 
       const payload = result as CompleteHandshakePayload | null;
+      if (payload?.success === false && payload.retryable === true) {
+        scheduleRetry(payload.code ?? payload.reason ?? "retryable_transition_payload");
+        return;
+      }
       if (payload?.state === "date") {
         const dateTruth = (truthAfter as VideoDateHandshakeTruth | null) ?? null;
         const extraNorm = normalizedDateExtraSeconds(dateTruth?.date_extra_seconds);

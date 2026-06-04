@@ -4106,20 +4106,23 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           const args = { p_session_id: sessionId, p_action: "sync_reconnect" };
           vdbg("video_date_transition_before", { action: "sync_reconnect", args, reason });
           const { data, error } = await supabase.rpc("video_date_transition", args);
+          const payload = data as { success?: boolean; code?: string | null; retryable?: boolean } | null;
+          const failsoftRejected = payload?.success === false;
           vdbg("video_date_transition_after", {
             action: "sync_reconnect",
-            ok: !error,
+            ok: !error && !failsoftRejected,
             payload: data ?? null,
             error: error ? { code: error.code, message: error.message } : null,
             reason,
           });
-          if (error) {
+          if (error || failsoftRejected) {
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_SYNC_RECONNECT_FAILED, {
               platform: "web",
               session_id: sessionId,
               event_id: truthRow.event_id ?? eventId,
               reason,
-              code: error.code ?? null,
+              code: error?.code ?? payload?.code ?? null,
+              retryable: error ? true : payload?.retryable === true,
             });
           }
         };

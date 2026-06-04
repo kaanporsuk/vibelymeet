@@ -518,6 +518,26 @@ function isReadyGateRace(code?: string): boolean {
  *  perceives no extra latency, long enough to absorb cross-region replica lag. Two retries by
  *  design: longer windows are better handled by `recoverFromNotStartableDateTruth` redirecting. */
 const READY_GATE_RACE_RETRY_BACKOFFS_MS = [220, 320];
+const NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1600] as const;
+const NATIVE_CREATE_DATE_ROOM_RETRY_AFTER_MAX_MS = 30_000;
+
+function dailyRoomTokenRetryDelayMs(
+  result: Extract<GetDailyRoomTokenResult, { ok: false }>,
+  fallbackMs: number,
+): number {
+  const retryAfterMs =
+    typeof result.retryAfterMs === 'number' && Number.isFinite(result.retryAfterMs) && result.retryAfterMs > 0
+      ? Math.ceil(result.retryAfterMs)
+      : typeof result.retryAfterSeconds === 'number' &&
+          Number.isFinite(result.retryAfterSeconds) &&
+          result.retryAfterSeconds > 0
+        ? Math.ceil(result.retryAfterSeconds * 1000)
+        : null;
+  return Math.min(
+    Math.max(1, retryAfterMs ?? fallbackMs),
+    NATIVE_CREATE_DATE_ROOM_RETRY_AFTER_MAX_MS,
+  );
+}
 
 /**
  * Refetch backend truth and check whether the session is now Daily-startable. Used by the prejoin
@@ -4579,10 +4599,10 @@ export default function VideoDateScreen() {
         p_takeover: takeover,
         p_ttl_seconds: NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS,
       } as never);
-      const payload = data as { success?: boolean; code?: string } | null;
+      const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
       if (error || payload?.success === false) {
-        const blocked = payload?.code === 'SURFACE_CLAIM_CONFLICT';
-        setSurfaceClaimBlocked(blocked || takeover);
+        const blocked = payload?.code === 'SURFACE_CLAIM_CONFLICT' && payload.retryable !== true;
+        setSurfaceClaimBlocked(blocked);
         vdbg('native_video_date_surface_claim_result', {
           sessionId,
           userId: user.id,
@@ -4590,6 +4610,7 @@ export default function VideoDateScreen() {
           takeover,
           blocked,
           code: payload?.code ?? null,
+          retryable: payload?.retryable === true,
           error: error ? { code: error.code, message: error.message } : null,
         });
         return { canContinue: !blocked, confirmed: false };
@@ -5901,8 +5922,9 @@ export default function VideoDateScreen() {
             ok: hs.ok,
             code: hs.ok ? null : hs.code ?? null,
             message: hs.ok ? null : hs.message ?? null,
+            retryable: hs.ok ? null : hs.retryable === true,
           });
-          if (!hs.ok && isReadyGateRace(hs.code)) {
+          if (!hs.ok && (isReadyGateRace(hs.code) || hs.retryable === true)) {
             await new Promise((resolve) => setTimeout(resolve, 700));
             vdbg('prejoin_step_prejoin_enter_handshake_before', {
               sessionId,
@@ -5911,6 +5933,7 @@ export default function VideoDateScreen() {
               timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
               retryDelayMs: 700,
               previousCode: hs.code ?? null,
+              previousRetryable: hs.retryable === true,
             });
             hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
             vdbg('prejoin_step_prejoin_enter_handshake_after', {
@@ -5920,6 +5943,7 @@ export default function VideoDateScreen() {
               ok: hs.ok,
               code: hs.ok ? null : hs.code ?? null,
               message: hs.ok ? null : hs.message ?? null,
+              retryable: hs.ok ? null : hs.retryable === true,
             });
           }
         } catch (error) {
@@ -6288,6 +6312,7 @@ export default function VideoDateScreen() {
       });
       let tokenRes: GetDailyRoomTokenResult;
       let dailyTokenStartedAtMs = Date.now();
+      let dailyRoomAttemptCount = 1;
       try {
         currentStep = setPrejoinStep('daily_room');
         dailyTokenStartedAtMs = Date.now();
@@ -6468,6 +6493,7 @@ export default function VideoDateScreen() {
             const { startable } = await refetchTruthAndCheckStartable(sessionId);
             if (!startable) continue;
             try {
+              dailyRoomAttemptCount += 1;
               const retried = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS, user.id);
               if (retried.ok) {
                 tokenRes = retried;
@@ -6498,6 +6524,52 @@ export default function VideoDateScreen() {
           }
         }
       }
+      if (!tokenRes.ok && tokenRes.retryable && tokenRes.code !== 'READY_GATE_NOT_READY') {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_retryable_retry_start', {
+          session_id: sessionId,
+          user_id: user.id,
+          code: String(tokenRes.code),
+          retry_after_ms: tokenRes.retryAfterMs ?? null,
+        });
+        for (let i = 0; i < NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS.length; i += 1) {
+          if (cancelled || tokenRes.ok || !tokenRes.retryable) break;
+          const delay = dailyRoomTokenRetryDelayMs(tokenRes, NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS[i]);
+          vdbg('prejoin_step_prejoin_daily_room_retry_scheduled', {
+            sessionId,
+            userId: user.id,
+            attempt: dailyRoomAttemptCount,
+            nextAttempt: dailyRoomAttemptCount + 1,
+            code: tokenRes.code ?? null,
+            httpStatus: tokenRes.httpStatus ?? null,
+            retryAfterMs: tokenRes.retryAfterMs ?? null,
+            delayMs: delay,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, delay));
+          if (cancelled) break;
+          try {
+            dailyRoomAttemptCount += 1;
+            const retried = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS, user.id);
+            if (retried.ok) {
+              tokenRes = retried;
+              rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_retryable_retry_success', {
+                session_id: sessionId,
+                user_id: user.id,
+                attempt: dailyRoomAttemptCount,
+              });
+              break;
+            }
+            tokenRes = retried;
+            if (!retried.retryable || retried.code === 'READY_GATE_NOT_READY') break;
+          } catch (error) {
+            vdbg('prejoin_step_prejoin_daily_room_retry_error', {
+              sessionId,
+              userId: user.id,
+              attempt: dailyRoomAttemptCount,
+              error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+            });
+          }
+        }
+      }
       if (!tokenRes.ok) {
         const tokenDurationMs = Date.now() - dailyTokenStartedAtMs;
         vdbg('prejoin_step_prejoin_error', {
@@ -6508,14 +6580,19 @@ export default function VideoDateScreen() {
           code: tokenRes.code ?? null,
           httpStatus: tokenRes.httpStatus ?? null,
           serverCode: tokenRes.serverCode ?? null,
+          retryable: tokenRes.retryable,
+          retryAfterMs: tokenRes.retryAfterMs ?? null,
           entryAttemptId: tokenRes.entry_attempt_id ?? null,
           videoDateTraceId: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
+          attemptCount: dailyRoomAttemptCount,
         });
         videoDateDailyDiagnostic('token_fetch_failure', {
           session_id: sessionId,
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
           server_code: tokenRes.serverCode != null ? String(tokenRes.serverCode) : null,
+          retryable: tokenRes.retryable,
+          retry_after_ms: tokenRes.retryAfterMs ?? null,
           entry_attempt_id: tokenRes.entry_attempt_id ?? null,
           video_date_trace_id: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
@@ -6528,10 +6605,10 @@ export default function VideoDateScreen() {
           reason_code: String(tokenRes.code),
           code: String(tokenRes.code),
           failure_class: classifyDailyRoomTokenFailureClass(tokenRes.code),
-          retryable: tokenRes.code === 'READY_GATE_NOT_READY',
+          retryable: tokenRes.retryable,
           duration_ms: tokenDurationMs,
           latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
-          attempt_count: 1,
+          attempt_count: dailyRoomAttemptCount,
           entry_attempt_id: tokenRes.entry_attempt_id ?? null,
           video_date_trace_id: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
@@ -6539,6 +6616,9 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
+          retryable: tokenRes.retryable,
+          retry_after_ms: tokenRes.retryAfterMs ?? null,
+          attempt_count: dailyRoomAttemptCount,
           entry_attempt_id: tokenRes.entry_attempt_id ?? null,
           video_date_trace_id: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
@@ -6555,6 +6635,9 @@ export default function VideoDateScreen() {
             code: tokenRes.code,
             httpStatus: tokenRes.httpStatus,
             serverCode: tokenRes.serverCode,
+            retryable: tokenRes.retryable,
+            retryAfterMs: tokenRes.retryAfterMs,
+            attemptCount: dailyRoomAttemptCount,
           },
         });
         // Final fatal banner — always clear latch so user can navigate away. Without this, the
@@ -6605,7 +6688,7 @@ export default function VideoDateScreen() {
         source_action: 'daily_token_success',
         duration_ms: tokenDurationMs,
         latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
-        attempt_count: 1,
+        attempt_count: dailyRoomAttemptCount,
         entry_attempt_id: entryAttemptId,
         video_date_trace_id: videoDateTraceId,
       });
@@ -7563,7 +7646,7 @@ export default function VideoDateScreen() {
             const { data: joinedData, error: joinedError } = await supabase.rpc('mark_video_date_daily_joined', {
               p_session_id: sessionId,
             });
-            const payload = joinedData as { ok?: boolean; error?: string | null } | null;
+            const payload = joinedData as { ok?: boolean; error?: string | null; retryable?: boolean } | null;
             const ok = !joinedError && payload?.ok === true;
             const code = joinedError?.code ?? payload?.error ?? null;
             if (__DEV__) {
@@ -7579,7 +7662,7 @@ export default function VideoDateScreen() {
             return {
               ok,
               code,
-              retryable: joinedError ? true : undefined,
+              retryable: joinedError ? true : payload?.retryable === true ? true : undefined,
               error: joinedError ?? undefined,
               payload: joinedData ?? null,
             };

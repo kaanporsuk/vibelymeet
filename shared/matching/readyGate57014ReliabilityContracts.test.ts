@@ -13,9 +13,11 @@ const migration = read(
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
+const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const nativeReadyGateOverlay = read(
   "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
 );
+const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 
 test("web and native lobbies pause deck pressure while Ready Gate is active", () => {
@@ -101,4 +103,22 @@ test("mark-ready v2 keeps Ready Gate mutation decisive and auxiliary work fail-s
   assert.match(migration, /append_video_session_event_v2[\s\S]*EXCEPTION[\s\S]*'kind', 'event_append'/s);
   assert.match(migration, /video_date_outbox_enqueue_v2[\s\S]*EXCEPTION[\s\S]*'kind', 'daily_room_outbox'/s);
   assert.match(migration, /'provider_outbox_degraded', jsonb_array_length\(v_auxiliary_errors\) > 0/);
+});
+
+test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into sync recovery", () => {
+  for (const [name, source] of [
+    ["web hook", webReadyGateHook],
+    ["native api", nativeReadyGateApi],
+  ] as const) {
+    assert.match(source, /retryable\?: boolean \| null/, `${name} should expose retryable on transition results`);
+    assert.match(source, /retryable: payload\.retryable === true/, `${name} should preserve backend retryable payloads`);
+  }
+
+  for (const [name, source] of [
+    ["web overlay", webReadyGateOverlay],
+    ["native overlay", nativeReadyGateOverlay],
+  ] as const) {
+    assert.match(source, /retryable\?: boolean \| null/, `${name} timeout predicate should accept retryable`);
+    assert.match(source, /if \(input\.retryable === true\) return true/, `${name} should sync-recover retryable failures`);
+  }
 });

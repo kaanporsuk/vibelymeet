@@ -153,6 +153,7 @@ type ReadyGateSessionTruth = {
   details?: string | null;
   hint?: string | null;
   terminal?: boolean | null;
+  retryable?: boolean | null;
   server_now_ms?: string | number | null;
   serverNowMs?: string | number | null;
   server_now?: string | number | null;
@@ -183,6 +184,7 @@ type ReadyGateSyncResult =
       hint?: string | null;
       isTerminal?: boolean;
       terminal?: boolean | null;
+      retryable?: boolean | null;
     };
 
 type ReadyGateTransitionResult = ReadyGateSyncResult;
@@ -1179,6 +1181,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           hint: payload.hint ?? null,
           isTerminal: false,
           terminal: false,
+          retryable: payload.retryable === true,
         };
       }
       trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
@@ -1366,6 +1369,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           details: payload.details ?? null,
           hint: payload.hint ?? null,
           terminal: payload.terminal ?? null,
+          retryable: payload.retryable === true,
         };
       }
 

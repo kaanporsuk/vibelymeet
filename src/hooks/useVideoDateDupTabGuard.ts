@@ -64,9 +64,9 @@ export function useVideoDateDupTabGuard(sessionId: string | undefined, leaseActi
         p_ttl_seconds: SERVER_TTL_SECONDS,
       });
       if (cancelled) return;
-      const payload = data as { success?: boolean; code?: string } | null;
+      const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
       if (error || payload?.success === false) {
-        setDupBlocked(payload?.code === "SURFACE_CLAIM_CONFLICT");
+        setDupBlocked(payload?.code === "SURFACE_CLAIM_CONFLICT" && payload.retryable !== true);
         return;
       }
       setDupBlocked(false);

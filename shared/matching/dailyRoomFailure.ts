@@ -63,6 +63,7 @@ type DailyRoomFailureBody = {
   error_code?: unknown;
   error?: unknown;
   message?: unknown;
+  retryable?: unknown;
   retry_after_seconds?: unknown;
   retryAfterSeconds?: unknown;
   retry_after_ms?: unknown;
@@ -85,6 +86,13 @@ function readFailureBodyCode(data: unknown): string | undefined {
     toServerCode(body.error) ??
     toServerCode(body.message)
   );
+}
+
+function readRetryableFromBody(data: unknown): boolean | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const body = data as DailyRoomFailureBody;
+  if (typeof body.retryable === "boolean") return body.retryable;
+  return undefined;
 }
 
 function readPositiveFiniteNumber(value: unknown): number | undefined {
@@ -137,6 +145,7 @@ async function readFailureContext(
 ): Promise<{
   httpStatus?: number;
   serverCode?: string;
+  retryable?: boolean;
   retryAfterSeconds?: number;
 }> {
   if (!source || typeof source !== "object") return {};
@@ -160,6 +169,7 @@ async function readFailureContext(
       return {
         httpStatus,
         serverCode: readFailureBodyCode(parsed),
+        retryable: readRetryableFromBody(parsed),
         retryAfterSeconds:
           readRetryAfterSecondsFromBody(parsed) ?? retryAfterSeconds,
       };
@@ -236,6 +246,21 @@ export function isRetryableDailyRoomFailure(
   );
 }
 
+function isTerminalDailyRoomFailure(kind: DailyRoomFailureKind): boolean {
+  return (
+    kind === "auth" ||
+    kind === "EVENT_NOT_ACTIVE" ||
+    kind === "BLOCKED_PAIR" ||
+    kind === "ACCESS_DENIED" ||
+    kind === "SESSION_ENDED" ||
+    kind === "SESSION_NOT_FOUND" ||
+    kind === "ROOM_NOT_FOUND" ||
+    kind === "DAILY_AUTH_FAILED" ||
+    kind === "DAILY_CREDENTIALS_INVALID" ||
+    kind === "DAILY_REQUEST_REJECTED"
+  );
+}
+
 export function classifyDailyRoomTokenFailureClass(
   kind: DailyRoomFailureKind | string | null | undefined,
 ): DailyRoomFailureClass {
@@ -266,6 +291,7 @@ export async function classifyDailyRoomInvokeFailure(
   input: DailyRoomFailureInput,
 ): Promise<DailyRoomFailureClassification> {
   const bodyCode = readFailureBodyCode(input.data);
+  const bodyRetryable = readRetryableFromBody(input.data);
   const invokeError = input.invokeError as FunctionInvokeErrorShape | undefined;
   const networkError =
     input.timedOut === true ||
@@ -280,6 +306,7 @@ export async function classifyDailyRoomInvokeFailure(
     readRetryAfterSecondsFromBody(input.data) ??
     fromResponse.retryAfterSeconds ??
     fromErrorContext.retryAfterSeconds;
+  const contextRetryable = fromResponse.retryable ?? fromErrorContext.retryable;
   const kind = classifyDailyRoomFailureKind({
     action: input.action,
     httpStatus,
@@ -287,12 +314,15 @@ export async function classifyDailyRoomInvokeFailure(
     timedOut: input.timedOut,
     networkError,
   });
+  const retryable = isTerminalDailyRoomFailure(kind)
+    ? false
+    : bodyRetryable ?? contextRetryable ?? isRetryableDailyRoomFailure(kind);
 
   return {
     kind,
     httpStatus,
     serverCode,
-    retryable: isRetryableDailyRoomFailure(kind),
+    retryable,
     retryAfterSeconds,
     retryAfterMs:
       retryAfterSeconds === undefined
