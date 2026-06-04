@@ -2,6 +2,8 @@
 
 This checklist covers the Daily provider webhook that reconciles real participant join/leave events for Video Date v4.
 
+Current recovery overlay (2026-06-04): start with `docs/video-date-success-command-center.md` for active Video Date recovery state. PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied. The webhook ledger is now required evidence for active Daily co-presence: `participant_*_joined_at` alone is historical and does not override a later `participant.left` / `participant_*_away_at`.
+
 ## Endpoint
 
 - Supabase project ref: `schdyxcunwcvddlcshwd`
@@ -118,7 +120,13 @@ Use a controlled two-user video-date smoke to prove provider delivery:
 5. Confirm Daily `lastMomentPushed` becomes non-null and `failedCount` remains `0`.
 6. Confirm Supabase Dashboard Edge Function logs show accepted `participant.joined` and `participant.left` invocations for `video-date-daily-webhook`.
 7. Confirm `video_date_daily_webhook_events` contains non-secret rows for `participant.joined` and `participant.left`.
+8. Confirm `video_sessions` reflects active presence correctly:
+   - a real join stamps or preserves `participant_*_joined_at`,
+   - a later leave stamps `participant_*_away_at`,
+   - a newer real route join clears the actor's away stamp,
+   - `handshake_started_at` starts only after both participants' latest provider presence is active.
+9. Confirm `event_loop_observability_events` shows `handshake_started_after_active_daily_copresence` only after active co-presence, and `daily_join_waiting_for_active_partner` only while a partner is absent or away.
 
 ## Rebuild Implication
 
-If this webhook, secret, or provider registration is missing, video-date Daily join/leave recovery cannot be production-verified. Core room creation may still work through `daily-room`, which can hide the missing recovery ledger until reconnect/away reconciliation is needed.
+If this webhook, secret, or provider registration is missing, video-date Daily join/leave recovery and active-presence gating cannot be production-verified. Core room creation may still work through `daily-room`, which can hide the missing recovery ledger until reconnect/away reconciliation is needed.

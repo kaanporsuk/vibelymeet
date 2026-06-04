@@ -2,6 +2,8 @@
 
 Date: 2026-04-27
 
+Current recovery override (2026-06-04): this report is historical closure evidence, not current production-health proof. For active Video Date recovery, start with `docs/video-date-success-command-center.md`. PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied, and a fresh manual two-user match -> survey acceptance run is still required.
+
 ## Executive verdict
 
 Video Date hardening Sprints A-F are complete, merged to `main`, and deployed for the web/backend production path. The post-closure room-cleanup scheduler repair in PR #551 is also merged and deployed.
@@ -28,7 +30,7 @@ This addendum supersedes older handshake timing notes in this report and in earl
 Accepted contract:
 
 - `confirm_video_date_entry_prepared(...)` persists Daily room metadata and makes the session routeable without starting `handshake_started_at`.
-- `mark_video_date_daily_joined(...)` starts `handshake_started_at` only after both participant Daily join stamps exist.
+- `mark_video_date_daily_joined(...)` starts `handshake_started_at` only after both participants' latest Daily presence is active. `participant_*_joined_at` is historical evidence only and does not count if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
 - Ready Gate `both_ready` provider handoff is `45s`.
 - Expired Ready Gates are not reopened.
 - Web/native warm-up timers and Vibe/Pass controls wait for server-owned `handshake_started_at`.

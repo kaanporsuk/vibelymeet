@@ -242,12 +242,38 @@ Verification run after code changes:
 - `npx tsx shared/matching/videoDateHandoffOwnershipContract.test.ts`
 - `npx tsx shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
 - `npx tsc --noEmit -p tsconfig.app.json`
-- `supabase db push --dry-run` showed only `20260604142017_video_date_active_presence_join_guard.sql` pending and completed without applying it.
+- `supabase db push --dry-run` showed only `20260604142017_video_date_active_presence_join_guard.sql` pending and completed without applying it before the PR was published.
+
+Deployment and synchronization after PR #1190:
+
+- PR: `https://github.com/kaanporsuk/vibelymeet/pull/1190`
+- Source branch: `codex/video-date-active-presence-recovery`
+- Branch commit: `978f0ed8c0b98a0931309c4766bed0e4f047c24f`
+- Squash merge commit on `main`: `b72e487d65972566e63f508d023cf2e1e886734a`
+- Merged: `2026-06-04 14:33:06 UTC`
+- Supabase project: `schdyxcunwcvddlcshwd`
+- Migration `20260604142017_video_date_active_presence_join_guard.sql` was pushed and applied to Supabase cloud.
+- Post-deploy `SUPABASE_NO_TELEMETRY=1 supabase db push --dry-run` returned `Remote database is up to date`.
+- Direct Supabase verification confirmed:
+  - `migration_applied = true`
+  - `active_presence_guard_installed = true`
+  - `waiting_observability_installed = true`
+- Git alignment after merge:
+  - local `main`, `origin/main`, and `origin/HEAD` all pointed at `b72e487d6`.
+  - source branch was deleted locally and remotely, then pruned.
+  - working tree was clean after the merge/deploy verification.
+- PR checks passed:
+  - Phase 7 no-go guardrails
+  - Phase 8 privacy and media contracts
+  - Phase 9 playback/captions/lifecycle contracts
+  - Quick golden-path smoke
+  - Video-date golden-path smoke
+  - Vercel
+  - Vercel Preview Comments
 
 Remaining unproven:
 
 - No fresh deployed two-user run has yet proved that both users remain co-present, remote media mounts, date starts, and surveys complete.
-- The pending Supabase migration has not been pushed to production in this local code-change pass.
 - No native/mobile runtime smoke has been run after this patch.
 
 ---
@@ -275,6 +301,10 @@ It must not synchronously create/provider-verify Daily rooms or depend on networ
 
 The canonical Daily room for a video session is deterministic (`date-<sessionId-without-dashes>` style, per existing helpers). Missing row metadata must not make the route bounce forever if the canonical room can be derived safely.
 
+### Daily active co-presence is stronger than joined history
+
+`participant_1_joined_at` and `participant_2_joined_at` are historical launch evidence. They are not sufficient proof that both users are currently co-present in Daily. The latest provider presence must still be active for both users: a later Daily `participant.left` / `participant_*_away_at` makes that participant inactive until a newer join clears the away stamp. `mark_video_date_daily_joined` must start or extend the visible handshake only when both participants' latest Daily presence is active.
+
 ### Retryable is not terminal
 
 Any payload with `retryable: true` must keep the user in syncing/retrying posture. "Ready Gate changed" is reserved for true replacement, terminal expiry, or multi-tab handoff.
@@ -292,10 +322,11 @@ These are not claims that the current code is broken; they are the unproven area
 1. **No fresh successful manual E2E proof yet.** The final acceptance run must prove match -> survey completion after the latest deploy.
 2. **Production SQLSTATE history is incomplete.** Some earlier fixes were shipped without full log forensics. The newer wrappers should expose future residual SQLSTATE/message, but old failures may remain partly inferred.
 3. **Daily co-occupancy must be observed, not assumed.** Passing requires both users in the same Daily room at the same time with remote tracks mounted.
-4. **Native/mobile runtime needs physical-device smoke.** Static parity and contracts are not enough for mobile media permissions, push, app backgrounding, and route restoration.
-5. **PostHog rate-limit spam remains noisy.** It is probably not the Video Date root cause, but it can hide useful console signals and should be handled separately.
-6. **OneSignal 409 identity noise remains non-blocking but distracting.** It should not block Video Date, but provider health should stay visible.
-7. **Manual survey completion still needs proof.** Many recent fixes focused on match -> Ready Gate -> room entry; survey end-to-end persistence must be revalidated.
+4. **Static and CI checks passed after PR #1190, but they are not acceptance proof.** The deployed active-presence guard still needs a real two-user production run.
+5. **Native/mobile runtime needs physical-device smoke.** Static parity and contracts are not enough for mobile media permissions, push, app backgrounding, and route restoration.
+6. **PostHog rate-limit spam remains noisy.** It is probably not the Video Date root cause, but it can hide useful console signals and should be handled separately.
+7. **OneSignal 409 identity noise remains non-blocking but distracting.** It should not block Video Date, but provider health should stay visible.
+8. **Manual survey completion still needs proof.** Many recent fixes focused on match -> Ready Gate -> room entry; survey end-to-end persistence must be revalidated.
 
 ---
 
@@ -303,13 +334,13 @@ These are not claims that the current code is broken; they are the unproven area
 
 Run this on a fresh disposable test pair after deployment has propagated:
 
-1. Open two distinct browsers or devices with two test users.
+1. Open two distinct browsers, browser profiles, or devices with two test users. If a same-browser disposable test is used, record whether storage/profile context is shared.
 2. Register both users into the same live test event.
 3. Match them from event lobby.
 4. Let one user tap ready first; wait several seconds; then let the second user tap ready.
 5. Repeat with reversed order.
 6. Repeat with one client refreshed during Ready Gate.
-7. Repeat with one duplicate tab open and verify the duplicate-tab copy does not kill the active path.
+7. Repeat with one duplicate tab open and verify the duplicate-tab copy does not kill the active path for the other participant or the canonical session.
 8. Confirm both users land on the same `/date/:sessionId`.
 9. Confirm both users join the same Daily room.
 10. Confirm local and remote media are visible/audible or intentionally muted.
@@ -325,6 +356,8 @@ Run this on a fresh disposable test pair after deployment has propagated:
     - `daily-room`
 14. Confirm no stale "This Ready Gate changed" copy unless there is a real duplicate-tab/session replacement case.
 15. Query Supabase and Daily afterward for the exact session timeline.
+16. Confirm the Daily webhook ledger has `participant.joined` and `participant.left` rows for both users when they actually join/leave.
+17. Confirm `mark_video_date_daily_joined` logged `handshake_started_after_active_daily_copresence` only after both latest Daily presences were active, and `daily_join_waiting_for_active_partner` only when the partner's latest presence was absent or away.
 
 Pass condition: both users complete the full journey from match through survey completion without lobby cycling, stale Ready Gate invalidation, or split-room Daily behavior.
 
@@ -346,16 +379,23 @@ If Video Date fails again, collect this before changing code:
   - `video_sessions`
   - `event_registrations`
   - `video_session_commands`
+  - `video_date_surface_claims`
+  - `video_date_daily_webhook_events`
   - `video_date_provider_outbox`
   - `event_loop_observability_events`
 - Whether `daily_room_name` and `daily_room_url` were present at both-ready.
 - Whether `ready_participant_1_at` and `ready_participant_2_at` were set.
+- Whether `participant_1_joined_at`, `participant_2_joined_at`, `participant_1_away_at`, `participant_2_away_at`, `participant_1_remote_seen_at`, `participant_2_remote_seen_at`, `handshake_started_at`, and `date_started_at` support active co-presence.
+- Whether the latest Daily provider event for either participant was `participant.left` after their last `participant.joined`.
+- Whether duplicate-tab behavior came from local browser storage, server `video_date_surface_claims`, or a real same-user duplicate surface.
 - Whether any payload included:
   - `retryable_command_reopened`
   - `expiry_grace_applied`
   - `hot_path`
   - `sqlstate`
   - `legacy_mark_ready_signature_detected`
+  - `daily_join_waiting_for_active_partner`
+  - `handshake_started_after_active_daily_copresence`
 
 Do not treat "This Ready Gate changed" as a root cause. Treat it as a symptom and prove why the client selected stale terminal copy.
 
@@ -428,3 +468,5 @@ Runbooks:
   - notification auth health/classification,
   - recipient/match payload identity cleanup.
 - Recorded PR #1188, commit `c532dca0ac324d02f0749a25c06097160357fbfb`, Supabase deployment state, verification commands, and open acceptance gaps.
+- Recorded latest failed two-user session `1592aa53-f011-45ab-bcb4-e2685fe172b9`, where Ready Gate and Daily room creation succeeded but active Daily co-presence did not hold.
+- Recorded PR #1190, merge commit `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql`, post-deploy dry-run, direct remote verification, branch cleanup, and remaining manual E2E/native gaps.

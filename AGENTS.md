@@ -10,9 +10,26 @@ Main is sacred. Stashes are temporary. Branches need owners and expiry. Broad WI
 
 ## 0. Video Date Recovery Documentation Gate
 
-Before touching any Ready Gate, Video Date, Daily.co, event-lobby match handoff, notification outbox, or post-date survey code, read and update `docs/video-date-success-command-center.md`.
+Before touching any Ready Gate, Video Date, Daily.co, event-lobby match handoff, notification outbox, or post-date survey code, start with:
 
-That file is the active source of truth for the currently failing Video Date recovery effort. It must capture every material symptom, hypothesis, rejected hypothesis, session ID, migration, deployment, test, manual QA result, and unresolved gap. Do not claim Video Date is fixed from static tests alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
+- `docs/video-date-success-command-center.md`
+- `docs/active-doc-map.md`
+- `AGENTS.md`
+
+`docs/video-date-success-command-center.md` is the active source of truth for the currently failing Video Date recovery effort. It must capture every material symptom, hypothesis, rejected hypothesis, session ID, migration, deployment, test, manual QA result, and unresolved gap.
+
+Current recovery baseline: PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied to project `schdyxcunwcvddlcshwd`. That is not acceptance proof. Do not claim Video Date is fixed from static tests, CI, route entry, `both_ready`, or Daily room creation alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
+
+When investigating a Video Date failure, distinguish:
+
+- Ready Gate readiness (`ready_*`, `both_ready`)
+- routeability and lobby/date ownership
+- Daily room metadata creation
+- active Daily co-presence
+- remote media evidence
+- date start/end and survey completion
+
+`participant_1_joined_at` and `participant_2_joined_at` are historical evidence only. They do not prove active co-presence if a later Daily `participant.left` / `participant_*_away_at` exists. Inspect `video_date_daily_webhook_events`, `participant_*_away_at`, `participant_*_remote_seen_at`, `handshake_started_at`, and `date_started_at` before concluding that both users were actually together. For duplicate-tab investigations, check both the profile-scoped local lease and server `video_date_surface_claims`, and record whether the two test users shared browser storage/profile context.
 
 ## 1. No Long-Lived Stashes
 

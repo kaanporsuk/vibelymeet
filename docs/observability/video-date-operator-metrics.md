@@ -2,6 +2,8 @@
 
 This pack defines the operator-grade read model for the Vibely video-date loop. It uses existing backend truth first, plus one additive client analytics event for timer reconciliation.
 
+Current recovery overlay (2026-06-04): PR #1190 and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` make active Daily co-presence stronger than historical join stamps. Metrics that use `participant_*_joined_at` measure route/Daily join latency only; they do not prove both users remained actively co-present. For co-presence, correlate with `participant_*_away_at`, `participant_*_remote_seen_at`, `date_started_at`, and `video_date_daily_webhook_events`.
+
 ## Access Model
 
 - Supabase event-loop read models are operator/service-role only. The relevant migrations revoke `anon` and `authenticated` access and grant `service_role`.
@@ -83,6 +85,8 @@ Source:
 
 - Ready Gate opened: `event_loop_observability_events`
 - Date joined: `video_sessions.participant_1_joined_at`, `video_sessions.participant_2_joined_at`
+
+This metric is a launch-latency metric, not a co-presence metric. A later `participant_*_away_at` or Daily `participant.left` can make the joined evidence stale.
 
 SQL:
 

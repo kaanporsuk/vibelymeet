@@ -101,11 +101,19 @@ select
   daily_room_url,
   participant_1_joined_at,
   participant_2_joined_at,
+  participant_1_away_at,
+  participant_2_away_at,
+  participant_1_remote_seen_at,
+  participant_2_remote_seen_at,
+  handshake_started_at,
+  date_started_at,
   ended_at,
   ended_reason
 from public.video_sessions
 where id = '<session_id>';
 ```
+
+For current Video Date recovery, joined stamps are historical evidence only. Active Daily co-presence requires no later `participant_*_away_at` / Daily `participant.left` for either participant before the handshake starts.
 
 Registration truth:
 

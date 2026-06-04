@@ -2,6 +2,8 @@
 
 This file is historical snapshot context. For current Vibely Video Date, Ready Gate, Daily.co, event-lobby handoff, notification outbox, or post-date survey work, consult and update `docs/video-date-success-command-center.md` first.
 
+Current recovery overlay: PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied to project `schdyxcunwcvddlcshwd`. Do not use this March snapshot to claim current Video Date health. Active Daily co-presence now requires latest joined presence for both users without a later `participant.left` / `participant_*_away_at`; `participant_*_joined_at` alone is only historical evidence. A fresh manual two-user match -> survey run remains the recovery acceptance proof.
+
 # VIBELY — GOLDEN STATE TECHNICAL SNAPSHOT
 ## Complete Rebuild Reference Dossier
 ### Snapshot Date: March 10, 2026

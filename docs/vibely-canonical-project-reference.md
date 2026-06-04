@@ -59,12 +59,12 @@ Full env matrix: [native-platform-adapter-matrix.md](./native-platform-adapter-m
 
 ### 4.1 Video Date Handshake release contract
 
-Current release status: **complete and deployed** as of 2026-04-30 on Supabase project `schdyxcunwcvddlcshwd`.
+Current recovery status: the 2026-04-30 handshake release was deployed, but active Video Date recovery supersedes that closure. PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied to project `schdyxcunwcvddlcshwd`, and fresh manual match -> survey acceptance proof is still required.
 
 Durable contract for web and native:
 
 - `confirm_video_date_entry_prepared(...)` is the provider-atomic routeability step. It persists Daily metadata and makes the session routeable without starting `handshake_started_at`.
-- `mark_video_date_daily_joined(...)` stamps the authenticated participant's Daily join and starts `handshake_started_at` only after both participant join stamps exist.
+- `mark_video_date_daily_joined(...)` stamps the authenticated participant's Daily join and starts `handshake_started_at` only after both participants' latest Daily presence is active. `participant_*_joined_at` is historical evidence only and does not count if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
 - Ready Gate `both_ready` provider handoff is `45s`, and expired Ready Gates are not reopened.
 - Web and native warm-up timers and Vibe/Pass controls wait for server-owned `handshake_started_at`.
 - Daily room identity remains deterministic and session-scoped; both participants must target the same `video_sessions.id` and Daily room.
@@ -74,6 +74,7 @@ Durable contract for web and native:
 
 Release evidence:
 
+- Current active-presence migration applied: `20260604142017_video_date_active_presence_join_guard.sql`.
 - Migration applied: `20260501170000_video_date_handshake_starts_after_daily_join.sql`.
 - Edge Function redeployed: `daily-room`.
 - Required Supabase secret names were present at release check: `DAILY_API_KEY`, `DAILY_DOMAIN`, `DAILY_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
