@@ -563,6 +563,8 @@ const VideoDate = () => {
   const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptBroadcastGapSnapshotRecoveryRef = useRef<(source: string) => void>(() => {});
   const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
+  const terminalDailyStopRef = useRef<((reason: string) => void) | null>(null);
+  const terminalDailyStopRequestedRef = useRef(false);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
 
@@ -599,6 +601,11 @@ const VideoDate = () => {
     (reason: string) => {
       terminalSurveyRecoveryInFlightRef.current = true;
       setTerminalSurveyRecoveryActive(true);
+      const stopDailyForTerminal = terminalDailyStopRef.current;
+      if (!terminalDailyStopRequestedRef.current && stopDailyForTerminal) {
+        terminalDailyStopRequestedRef.current = true;
+        stopDailyForTerminal(reason);
+      }
       clearHandshakeGraceState();
       setPhase("ended");
       setTimeLeft(0);
@@ -924,6 +931,8 @@ const VideoDate = () => {
     clearPeerMissing,
     clearMediaPermissionError,
     dailyReconnectState,
+    dailyMeetingState,
+    localInDailyRoom,
     reconnectGraceTimeLeft,
     captureProfile,
   } = useVideoCall({
@@ -965,6 +974,24 @@ const VideoDate = () => {
       void recoverTerminalPostDateSurvey(source);
     },
   });
+
+  useEffect(() => {
+    terminalDailyStopRequestedRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    const stopDailyForTerminal = (reason: string) => {
+      void endCall(`terminal_survey_hard_stop:${reason}`);
+    };
+    terminalDailyStopRef.current = stopDailyForTerminal;
+    if (terminalSurveyRecoveryInFlightRef.current && !terminalDailyStopRequestedRef.current) {
+      terminalDailyStopRequestedRef.current = true;
+      stopDailyForTerminal("terminal_survey_ref_attached");
+    }
+    return () => {
+      terminalDailyStopRef.current = null;
+    };
+  }, [endCall]);
 
   useEffect(() => {
     firstRemoteFrameAtMsRef.current = null;
@@ -3133,6 +3160,38 @@ const VideoDate = () => {
       clearTimeout(lifecycleAwayTimer);
       lifecycleAwayTimer = null;
     };
+    const shouldTreatLifecycleAwayAsSoftTelemetry = (source: WebLifecycleLeaveSource) => {
+      if (source !== "visibilitychange") return false;
+      if (localInDailyRoom || isConnecting || isConnected) return true;
+      if (dailyMeetingState === "joining-meeting" || dailyMeetingState === "joined-meeting") return true;
+      return phaseRef.current === "handshake" || phaseRef.current === "date";
+    };
+    const recordSoftLifecycleTelemetry = (source: WebLifecycleLeaveSource, action: string) => {
+      vdbg("web_lifecycle_away_suppressed_active_daily", {
+        sessionId: id,
+        userId: user.id,
+        eventId: eventId ?? null,
+        source,
+        action,
+        phase: phaseRef.current,
+        dailyMeetingState,
+        localInDailyRoom,
+        isConnecting,
+        isConnected,
+      });
+      trackEvent("video_date_web_lifecycle_away_suppressed", {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+        source,
+        action,
+        phase: phaseRef.current,
+        daily_meeting_state: dailyMeetingState,
+        local_in_daily_room: localInDailyRoom,
+        connected: isConnected,
+        connecting: isConnecting,
+      });
+    };
 
     const sendLeaveSignal = (source: WebLifecycleLeaveSource) => {
       if (
@@ -3145,6 +3204,10 @@ const VideoDate = () => {
       }
       if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
+      if (shouldTreatLifecycleAwayAsSoftTelemetry(source)) {
+        recordSoftLifecycleTelemetry(source, "send_suppressed");
+        return;
+      }
       const token = leaveSignalTokenRef.current;
       if (!token) return;
       leaveSignalSentRef.current = true;
@@ -3241,6 +3304,10 @@ const VideoDate = () => {
       }
       if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
+      if (shouldTreatLifecycleAwayAsSoftTelemetry(source)) {
+        recordSoftLifecycleTelemetry(source, "schedule_suppressed");
+        return;
+      }
       const startedAt = lifecycleHiddenStartedAtRef.current ?? Date.now();
       lifecycleHiddenStartedAtRef.current = startedAt;
       const elapsedMs = Math.max(0, Date.now() - startedAt);
@@ -3330,7 +3397,19 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("freeze", handleFreeze);
     };
-  }, [id, user?.id, eventId, isConnected, showFeedback, terminalSurveyRecoveryActive, videoDateAccess, localVideoRef]);
+  }, [
+    id,
+    user?.id,
+    eventId,
+    isConnected,
+    isConnecting,
+    dailyMeetingState,
+    localInDailyRoom,
+    showFeedback,
+    terminalSurveyRecoveryActive,
+    videoDateAccess,
+    localVideoRef,
+  ]);
 
   // Record user's explicit handshake decision.
   const handleHandshakeDecision = useCallback(async (action: "vibe" | "pass"): Promise<boolean> => {

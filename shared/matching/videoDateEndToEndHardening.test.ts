@@ -2284,7 +2284,8 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoCallHook, /markDailyJoinedWithBackoff\(/);
   assert.match(webVideoCallHook, /mark_video_date_daily_joined_retry_after_failure/);
   assert.match(nativeVideoDateApi, /action: 'video_date_leave'/);
-  assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background_timeout'\)/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
@@ -3469,7 +3470,8 @@ test("native AppState background path remains statically covered for away, retur
   assert.match(nativeVideoDateRoute, /NATIVE_BACKGROUND_GRACE_MS = 12_000/);
   assert.match(nativeVideoDateRoute, /appStateBackgroundStartedAtRef/);
   assert.match(nativeVideoDateRoute, /backgroundElapsedMs >= NATIVE_BACKGROUND_GRACE_MS/);
-  assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background_timeout'\)/);
   assert.match(nativeVideoDateRoute, /cleanupDailyAndLocalState\(\)/);
   assert.match(nativeVideoDateRoute, /markReconnectReturn\(sessionId\)/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED/);

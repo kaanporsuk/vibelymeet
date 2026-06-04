@@ -4257,25 +4257,6 @@ export default function VideoDateScreen() {
             graceMs: NATIVE_BACKGROUND_GRACE_MS,
           });
           void (async () => {
-            const ok = await signalVideoDateLeave(sessionId, 'app_background');
-            if (!ok) {
-              trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED, {
-                platform: 'native',
-                session_id: sessionId,
-                event_id: eventId || null,
-                source: 'app_background',
-              });
-              void emitNativeVideoDateClientStuckState({
-                sessionId,
-                eventName: 'native_background_recovery_failed',
-                payload: {
-                  source_surface: 'video_date_native_background',
-                  source_action: 'signal_video_date_leave',
-                  reason_code: 'leave_signal_failed',
-                  source: 'app_background',
-                },
-              });
-            }
             await cleanupDailyAndLocalState();
             hasStartedJoinRef.current = false;
           })();
@@ -4323,6 +4304,25 @@ export default function VideoDateScreen() {
               graceMs: NATIVE_BACKGROUND_GRACE_MS,
             });
             void (async () => {
+              const ok = await signalVideoDateLeave(sessionId, 'app_background_timeout');
+              if (!ok) {
+                trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED, {
+                  platform: 'native',
+                  session_id: sessionId,
+                  event_id: eventId || null,
+                  source: 'app_background_timeout',
+                });
+                void emitNativeVideoDateClientStuckState({
+                  sessionId,
+                  eventName: 'native_background_recovery_failed',
+                  payload: {
+                    source_surface: 'video_date_native_background',
+                    source_action: 'signal_video_date_leave',
+                    reason_code: 'leave_signal_failed',
+                    source: 'app_background_timeout',
+                  },
+                });
+              }
               await cleanupDailyAndLocalState();
               const ended = await endVideoDate(sessionId, 'app_background_timeout');
               vdbg('native_background_timeout_end_result', {

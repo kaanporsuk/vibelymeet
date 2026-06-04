@@ -351,6 +351,83 @@ Remaining unproven:
 - The simulated short Daily leave/rejoin under 12s has not yet been run manually after deployment.
 - Native/mobile has static parity and typecheck coverage, but still needs runtime smoke.
 
+### 7. Latest failed two-user web test: repeated Daily rebuild, stale presence, and false lifecycle away authority
+
+Evidence source: chronological screenshots, Console/Network pasted text, and Supabase investigation from the latest two-user test.
+
+Identifiers:
+
+- Event: `fba940f5-b219-4f10-a046-84e86bc8cfff`
+- Video session: `83e88141-ebab-4254-869a-c69db7bdb107`
+- Canonical Daily room: `date-83e88141ebab4254869ac69db7bdb107`
+
+Observed flow:
+
+- Ready Gate and canonical Daily room handoff succeeded.
+- The failing side repeatedly entered and left the same Daily room during the first minute while the other side remained longer.
+- The users did not intentionally leave the screen, switch tabs, or background the browser.
+- Client/network evidence showed repeated `/date` work, surface claims, Daily joins, and recovery calls during the same session.
+- Backend presence was not latest-state safe enough: old `participant_*_joined_at` evidence could remain authoritative after newer leave/away evidence, and reconnect grace was not reliably cleared by later return evidence.
+- A soft browser lifecycle signal such as `web_visibilitychange` could still mark self away even while Daily was joining/joined.
+- Backend eventually ended with `reconnect_grace_expired`, even though the intended behavior for a short Daily transport/rebuild flap is local recovery first, backend grace only after confirmed local absence, and grace cancellation on real return.
+
+Interpretation:
+
+- The current failure is not a Ready Gate readiness failure and not a missing Daily room.
+- The precise failure chain is: duplicate/repeated Daily start/rebuild on one side -> provider join/leave flapping -> stale/first-join backend presence -> reconnect grace not cleared on later join/return -> soft lifecycle away over-authority -> terminalization despite both users staying in the intended flow.
+- `remote_seen` observability is useful evidence, but canonical DB remote-seen repair must succeed or retry because terminal eligibility and recovery must use canonical truth.
+
+Code changes in this branch:
+
+- `src/hooks/useVideoCall.ts`
+  - Exposes `dailyMeetingState` and `localInDailyRoom`.
+  - Reuses an existing nonterminal same-session Daily call instead of calling `leave()`/`destroy()` and rebuilding.
+  - Converts `daily_call_busy` into an internal wait/retry path before surfacing a failure.
+  - Emits append-only cleanup/reuse/busy diagnostics with room, caller, reason, meeting state, and leave/destroy flags.
+  - Keeps Daily `participant-left` behind local transport grace and retries canonical `mark_video_date_remote_seen`, with a persisted diagnostic if canonical repair exhausts.
+- `src/pages/VideoDate.tsx`
+  - Treats `visibilitychange` as soft telemetry while Daily is joining/joined or the date is in handoff/handshake/date.
+  - Keeps hard exits (`beforeunload`, non-persisted `pagehide`) authoritative.
+  - Adds a terminal survey hard-stop bridge that actively tears down Daily once survey-required terminal truth is found, even if the recovery path fires before the hook callback is attached.
+- `apps/mobile/app/date/[id].tsx`
+  - Native background now waits until native background grace expiry before sending backend leave/away, while still cleaning local Daily resources.
+- `shared/observability/videoDateClientStuckObservability.ts`
+  - Adds append-only diagnostic event names and safe fields for Daily cleanup/reuse/busy and canonical remote-seen repair failure.
+- `supabase/migrations/20260604193140_video_date_latest_presence_grace_repair.sql`
+  - Replaces the fail-soft `mark_video_date_daily_joined` base so joined timestamps advance to latest join, own away state clears, and reconnect grace clears on return.
+  - Wraps Daily webhook recording so provider joins advance latest joined time and clear reconnect grace when the join proves return; stale provider leaves cannot override newer joins.
+  - Wraps `video_date_transition` so soft lifecycle `mark_reconnect_self_away` is suppressed while the actor has active Daily presence, while explicit `daily_transport_grace_expired` remains the legitimate partner-away path through the existing warm-up wrapper.
+  - Replaces reconnect-grace expiry so it rechecks latest presence and suppresses terminalization when newer joined or remote-seen-after-away evidence proves return.
+  - Makes cleanup/reuse/busy/remote-seen repair diagnostics append-only while preserving dedupe for older stuck-state events.
+- `supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql`
+  - Replaces `mark_video_date_remote_seen` so canonical `participant_*_remote_seen_at` advances on every remote-media observation instead of preserving first-seen evidence.
+  - Returns and logs `latest_remote_seen_at`, `previous_remote_seen_at`, and `remote_seen_canonical_repaired`, addressing PR #1194 review feedback that reconnect expiry needed current remote-seen proof after a transient leave/return.
+
+Verification run in this branch:
+
+- `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `npx tsx shared/observability/videoDateClientStuckObservability.test.ts`
+- `npx tsc --noEmit --pretty false --skipLibCheck`
+- `cd apps/mobile && npm run typecheck`
+- `npm run typecheck:core`
+- `supabase db push --dry-run --linked` showed only `20260604193140_video_date_latest_presence_grace_repair.sql` pending.
+- `supabase db push --linked --yes` applied `20260604193140_video_date_latest_presence_grace_repair.sql` to project `schdyxcunwcvddlcshwd`.
+- Post-push `supabase db push --dry-run --linked` returned `Remote database is up to date`.
+- Direct remote catalog verification confirmed the migration row, latest-presence helper, `video_date_transition`, `record_video_date_daily_webhook_event_v2`, `record_video_date_client_stuck_observability`, and append-only stuck-state index predicate.
+- A follow-up review fix added and applied `20260604205645_video_date_remote_seen_latest_state.sql`; post-push dry-run returned `Remote database is up to date`, and direct catalog verification confirmed both migration rows plus latest-state `mark_video_date_remote_seen` payload fields.
+- `supabase db advisors --linked --type all --level error --fail-on error`
+
+Verification not available in this workspace:
+
+- `supabase db lint --local --fail-on error` could not run because local Postgres at `127.0.0.1:54322` is not running and Docker is not installed.
+
+Remaining unproven:
+
+- No fresh deployed two-user run has proven the new single-owned Daily start and latest-state reconnect behavior.
+- A short simulated Daily transport flap under 12s still needs production verification.
+- A real prolonged absence still needs verification to prove terminalization remains intact.
+- Native/mobile runtime smoke still needs physical-device validation.
+
 ---
 
 ## Current Architecture Decisions
@@ -378,7 +455,15 @@ The canonical Daily room for a video session is deterministic (`date-<sessionId-
 
 ### Daily active co-presence is stronger than joined history
 
-`participant_1_joined_at` and `participant_2_joined_at` are historical launch evidence. They are not sufficient proof that both users are currently co-present in Daily. The latest provider presence must still be active for both users: a later Daily `participant.left` / `participant_*_away_at` makes that participant inactive until a newer join clears the away stamp. `mark_video_date_daily_joined` must start or extend the visible handshake only when both participants' latest Daily presence is active.
+`participant_1_joined_at` and `participant_2_joined_at` are latest-state launch evidence, not first-join history. A later Daily `participant.left` / `participant_*_away_at` makes that participant inactive until a newer client/provider join clears the away stamp and clears reconnect grace. `mark_video_date_daily_joined`, Daily webhook repair, reconnect-return, and reconnect-grace expiry must all use the same latest-join-newer-than-away rule.
+
+### Daily start ownership is single-session and nonterminal-call reuse first
+
+For a given `video_session_id`, the client should have one active Daily start pipeline. A same-session, same-room, nonterminal Daily call in `joining` or `joined` state must be reused or waited on, not torn down and rebuilt. Cleanup/rebuild is reserved for terminal, mismatched, or unrecoverable call state and must emit append-only diagnostics.
+
+### Browser lifecycle is not authoritative during handoff
+
+`visibilitychange` is soft telemetry while Daily is joining/joined or while the session is in handoff, handshake, warm-up, or date. It must not call backend `mark_reconnect_self_away`. Hard exits such as real unload and non-persisted pagehide can still send leave signals. Native/mobile background uses local grace first and only sends backend away once the grace expires.
 
 ### Daily transport grace precedes backend partner-away authority
 
@@ -407,9 +492,12 @@ These are not claims that the current code is broken; they are the unproven area
 3. **Warm-up stability must be observed, not assumed.** Passing requires both users in the same Daily room at the same time, remote tracks mounted, and no backend terminalization from a short provider transport flap.
 4. **Static and CI checks passed after the warm-up stabilization patch, but they are not acceptance proof.** The deployed local-grace and terminal-survey hard-stop behavior still needs a real two-user production run.
 5. **Native/mobile runtime needs physical-device smoke.** Static parity and contracts are not enough for mobile media permissions, push, Daily transport events, app backgrounding, and route restoration.
-6. **PostHog rate-limit spam remains noisy.** It is probably not the Video Date root cause, but it can hide useful console signals and should be handled separately.
-7. **OneSignal 409 identity noise remains non-blocking but distracting.** It should not block Video Date, but provider health should stay visible.
-8. **Manual survey completion still needs proof.** Many recent fixes focused on match -> Ready Gate -> room entry; survey end-to-end persistence must be revalidated.
+6. **Latest-state presence and remote-seen migrations are applied, but behavior still needs production proof.** Cloud catalog verification confirms `20260604193140_video_date_latest_presence_grace_repair.sql` and `20260604205645_video_date_remote_seen_latest_state.sql`; the next acceptance run must prove they clear grace on return and suppress stale expiry in real Daily traffic.
+7. **Daily start ownership must be proven under real browser behavior.** Static tests assert same-session reuse, but production must show no same-session `leave()`/`destroy()` churn while joining/joined.
+8. **Soft lifecycle suppression must be proven.** The browser should not send `web_visibilitychange` self-away while Daily is active, but hard unload/pagehide should still work.
+9. **PostHog rate-limit spam remains noisy.** It is probably not the Video Date root cause, but it can hide useful console signals and should be handled separately.
+10. **OneSignal 409 identity noise remains non-blocking but distracting.** It should not block Video Date, but provider health should stay visible.
+11. **Manual survey completion still needs proof.** Many recent fixes focused on match -> Ready Gate -> room entry; survey end-to-end persistence must be revalidated.
 
 ---
 
@@ -444,6 +532,10 @@ Run this on a fresh disposable test pair after deployment has propagated:
 18. Confirm the Daily webhook ledger has `participant.joined` and `participant.left` rows for both users when they actually join/leave.
 19. Confirm `mark_video_date_daily_joined` logged `handshake_started_after_active_daily_copresence` only after both latest Daily presences were active, and `daily_join_waiting_for_active_partner` only when the partner's latest presence was absent or away.
 20. Confirm no legacy/null `mark_reconnect_partner_away` starts backend grace during fresh warm-up evidence; explicit `daily_transport_grace_expired` may start backend grace only after local transport grace expires.
+21. Confirm same-session Daily start does not repeatedly call `leave()` / `destroy()` while the call is `joining-meeting` or `joined-meeting`; if cleanup happens, inspect `daily_call_cleanup` diagnostics for `caller`, `cleanup_reason`, `meeting_state`, `leave_called`, and `destroy_called`.
+22. Confirm `web_visibilitychange` does not produce backend `mark_reconnect_self_away` during active Daily handoff/warm-up/date.
+23. Confirm provider/client return clears `reconnect_grace_ends_at` via `reconnect_grace_cleared_by_daily_join`, `reconnect_grace_cleared_by_provider_join`, or `reconnect_grace_cleared_by_return`.
+24. Confirm a real prolonged absence still ends the session with `reconnect_grace_expired`.
 
 Pass condition: both users complete the full journey from match through survey completion without lobby cycling, stale Ready Gate invalidation, or split-room Daily behavior.
 
@@ -485,6 +577,20 @@ If Video Date fails again, collect this before changing code:
   - `daily_transport_grace_expired`
   - `away_mark_suppressed`
   - `daily_transport_grace_required`
+  - `latest_joined_at`
+  - `reconnect_grace_cleared`
+  - `reconnect_grace_cleared_by_daily_join`
+  - `reconnect_grace_cleared_by_provider_join`
+  - `reconnect_grace_cleared_by_return`
+  - `mark_reconnect_self_away_suppressed_active_daily_presence`
+  - `reconnect_grace_expiry_suppressed_latest_presence`
+  - `daily_call_cleanup`
+  - `daily_call_reuse`
+  - `daily_call_busy_internal_retry`
+  - `remote_seen_canonical_repair_failed`
+  - `remote_seen_canonical_repaired`
+  - `latest_remote_seen_at`
+  - `previous_remote_seen_at`
   - `peer_missing_suppressed_remote_seen`
   - `peer_missing_suppressed_survey_truth`
 - Whether `ended_reason`, `survey_required`, `date_feedback`, and `forceSurvey` route state support immediate survey recovery.
@@ -503,6 +609,8 @@ Backend / migrations:
 - `supabase/migrations/20260604104154_ready_gate_mark_ready_grace_notification_auth.sql`
 - `supabase/migrations/20260604142017_video_date_active_presence_join_guard.sql`
 - `supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql`
+- `supabase/migrations/20260604193140_video_date_latest_presence_grace_repair.sql`
+- `supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql`
 
 Web:
 
@@ -567,3 +675,8 @@ Runbooks:
 - Recorded latest failed two-user session `aac15b03-8de7-45e2-a11b-629cdd9b5b16`, where Ready Gate and Daily room handoff succeeded briefly but a Daily `participant-left` event triggered backend reconnect/terminalization before local transport grace could absorb the flap.
 - Implemented the warm-up stabilization patch: local Daily transport grace before backend partner-away marking, explicit `daily_transport_grace_expired` reason, terminal survey hard-stop on web, ReadyRedirect force-survey state, native/mobile parity, false peer-missing suppression, and migration `20260604170438_video_date_warmup_reconnect_stability.sql`.
 - Recorded PR #1192, squash merge commit `b2a4a10ce22c2f4950b94fa6b9e49aa235c6c7fa`, Supabase migration cloud application, post-push dry-run, direct catalog verification, and branch cleanup state for the warm-up stabilization patch.
+- Recorded latest failed two-user session `83e88141-ebab-4254-869a-c69db7bdb107`, where Ready Gate and Daily room handoff succeeded but repeated Daily rebuild/join/leave churn, stale joined presence, uncleared reconnect grace, and soft lifecycle away authority caused `reconnect_grace_expired` despite users staying in flow.
+- Implemented the ultimate stabilization branch: same-session Daily call reuse, internal `daily_call_busy` retry, append-only Daily cleanup/reuse diagnostics, visibilitychange suppression while Daily is active, terminal survey hard-stop Daily teardown, native background grace-before-away, canonical remote-seen repair diagnostics, and migration `20260604193140_video_date_latest_presence_grace_repair.sql`.
+- Applied `20260604193140_video_date_latest_presence_grace_repair.sql` to Supabase project `schdyxcunwcvddlcshwd`; post-push dry-run and direct catalog verification confirmed remote alignment, and linked advisors returned no error-level issues.
+- Opened PR #1194 for the ultimate stabilization branch.
+- Addressed PR #1194 review feedback by adding `20260604205645_video_date_remote_seen_latest_state.sql`, which makes canonical remote-seen timestamps latest-state evidence; applied it to Supabase cloud, verified both migration rows and function payload fields, and reran linked advisors with no error-level issues.
