@@ -66,9 +66,9 @@ const ReadyRedirect = () => {
   );
 
   const navigateToDate = useCallback(
-    (sessionId: string, source = "ready_redirect") => {
+    (sessionId: string, source = "ready_redirect", forceSurvey = false) => {
       markVideoDateEntryPipelineStarted(sessionId);
-      navigate(`/date/${encodeURIComponent(sessionId)}`, { replace: true, state: { source } });
+      navigate(`/date/${encodeURIComponent(sessionId)}`, { replace: true, state: { source, forceSurvey } });
     },
     [navigate],
   );
@@ -106,7 +106,11 @@ const ReadyRedirect = () => {
 
         if (recovery.action === "go_date" || recovery.action === "go_survey") {
           setRouteState({ kind: "redirecting" });
-          navigateToDate(recovery.sessionId);
+          navigateToDate(
+            recovery.sessionId,
+            recovery.action === "go_survey" ? "ready_redirect_go_survey" : "ready_redirect_go_date",
+            recovery.action === "go_survey",
+          );
           return;
         }
 
@@ -207,7 +211,11 @@ const ReadyRedirect = () => {
       }
       if (canonicalRoute.target === "date" || canonicalRoute.target === "survey") {
         setRouteState({ kind: "redirecting" });
-        navigateToDate(candidate);
+        navigateToDate(
+          candidate,
+          canonicalRoute.target === "survey" ? "ready_redirect_canonical_survey" : "ready_redirect_canonical_date",
+          canonicalRoute.target === "survey",
+        );
         return;
       }
 

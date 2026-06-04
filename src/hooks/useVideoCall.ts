@@ -69,6 +69,10 @@ import {
   parseVideoDateCameraSwitchRenderHint,
 } from "@clientShared/matching/videoDateCameraSwitchRenderHint";
 import { getVideoDatePermissionHandoff } from "@clientShared/matching/videoDatePermissionHandoff";
+import {
+  videoSessionHasEncounterExposureTruth,
+  videoSessionHasPostDateSurveyTruth,
+} from "@clientShared/matching/activeSession";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -81,6 +85,7 @@ interface UseVideoCallOptions {
   onPartnerLeft?: () => void;
   onPartnerTransientDisconnect?: () => void;
   onPartnerTransientRecover?: () => void;
+  onTerminalSurveyTruth?: (source: string) => void;
   resilienceV2?: boolean;
   dailyCallSingletonV2?: boolean;
   dailyCallSingletonEligible?: boolean;
@@ -625,13 +630,19 @@ type VideoDateTruthRow = {
   id: string;
   event_id: string | null;
   ended_at: string | null;
+  ended_reason?: string | null;
   state: string | null;
   phase: string | null;
   handshake_started_at: string | null;
+  date_started_at?: string | null;
   daily_room_name: string | null;
   daily_room_url?: string | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
+  participant_1_remote_seen_at?: string | null;
+  participant_2_remote_seen_at?: string | null;
 };
 
 type DailyRoomSuccessResponse = {
@@ -3020,7 +3031,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     const { data, error } = await supabase
       .from("video_sessions")
       .select(
-        "id, event_id, ended_at, state, phase, handshake_started_at, daily_room_name, daily_room_url, ready_gate_status, ready_gate_expires_at",
+        "id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, daily_room_name, daily_room_url, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at",
       )
       .eq("id", sessionId)
       .maybeSingle();
@@ -4642,10 +4653,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               startReconnectGrace("participant_left");
             }
             setDailyReconnectState("partner_left_grace");
-            if (!reconnectPartnerAwayTriggeredRef.current) {
-              reconnectPartnerAwayTriggeredRef.current = true;
-              optionsRef.current?.onPartnerLeft?.();
-            }
+            logTransportState("daily_partner_left_deferred_until_transport_grace", {
+              reason: "participant_left",
+              graceMs: DAILY_TRANSPORT_RECONNECT_GRACE_MS,
+            });
             if (reconnectGraceActiveRef.current) {
               logTransportState("daily_transport_reconnecting", {
                 reason: "participant_left_during_grace",
@@ -5335,6 +5346,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               truthRefreshAttempt,
             });
             void fetchVideoDateTruth(sessionId).then(({ truth, error }) => {
+              if (
+                startAttemptNonceRef.current !== startNonce ||
+                !callObjectRef.current ||
+                firstRemoteObservedRef.current
+              ) {
+                return;
+              }
               vdbg("daily_no_remote_watchdog_truth_refetched", {
                 sessionId,
                 eventId: truthRow.event_id ?? eventId,
@@ -5344,29 +5362,65 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 error: error ? { code: error.code, message: error.message } : null,
                 truthRefreshAttempt,
               });
-            });
-            setIsConnecting(false);
-            setIsConnected(false);
-            setPeerMissing({ terminal: true });
-            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
-              platform: "web",
-              session_id: sessionId,
-              event_id: truthRow.event_id ?? eventId,
-              truth_refresh_attempt: truthRefreshAttempt,
-            });
-            void emitWebVideoDateClientStuckState({
-              sessionId,
-              eventName: "peer_missing_terminal",
-              latencyMs: FIRST_REMOTE_TIMEOUT_MS,
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "first_remote_watchdog",
-                reason_code: "peer_missing_timeout",
-                watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
+              const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth);
+              const hasRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth);
+              if (hasTerminalSurveyTruth || hasRemoteSeenTruth) {
+                const suppressedEventName = hasTerminalSurveyTruth
+                  ? "peer_missing_suppressed_survey_truth"
+                  : "peer_missing_suppressed_remote_seen";
+                setPeerMissing({ terminal: false });
+                setIsConnected(false);
+                setIsConnecting(true);
+                vdbg("daily_no_remote_watchdog_terminal_suppressed", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  roomName: roomData.room_name,
+                  suppressedEventName,
+                  hasTerminalSurveyTruth,
+                  hasRemoteSeenTruth,
+                  truthRefreshAttempt,
+                });
+                void emitWebVideoDateClientStuckState({
+                  sessionId,
+                  eventName: suppressedEventName,
+                  latencyMs: FIRST_REMOTE_TIMEOUT_MS,
+                  payload: {
+                    source_surface: "video_date_daily",
+                    source_action: "first_remote_watchdog",
+                    reason_code: hasTerminalSurveyTruth ? "survey_required_truth" : "remote_seen_truth",
+                    watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
+                    truth_refresh_attempt: truthRefreshAttempt,
+                  },
+                });
+                if (hasTerminalSurveyTruth) {
+                  optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
+                }
+                return;
+              }
+              setIsConnecting(false);
+              setIsConnected(false);
+              setPeerMissing({ terminal: true });
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: truthRow.event_id ?? eventId,
                 truth_refresh_attempt: truthRefreshAttempt,
-              },
+              });
+              void emitWebVideoDateClientStuckState({
+                sessionId,
+                eventName: "peer_missing_terminal",
+                latencyMs: FIRST_REMOTE_TIMEOUT_MS,
+                payload: {
+                  source_surface: "video_date_daily",
+                  source_action: "first_remote_watchdog",
+                  reason_code: "peer_missing_timeout",
+                  watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
+                  truth_refresh_attempt: truthRefreshAttempt,
+                },
+              });
+              toast.info("They're not in the room yet. We'll keep this gentle.");
             });
-            toast.info("They're not in the room yet. We'll keep this gentle.");
           }, FIRST_REMOTE_TIMEOUT_MS);
         }
 

@@ -74,6 +74,7 @@ Recent screenshots and reports showed:
 - User taps ready.
 - UI alternates between "Opening the room...", "Opening your date", "You're both here. Starting gently.", "Keeping the room open...", and back to lobby/Ready Gate.
 - In the latest report, the user sees "This Ready Gate changed. Back to browsing." and never reaches a stable Video Date.
+- In the subsequent latest report, the user did reach warm-up briefly, then bounced between `/date/:sessionId` and `/ready/:sessionId` while the backend had already moved the encounter to survey-required terminal truth.
 - Older reports showed "Still connecting your date" and repeated Daily sessions for a single attempted date.
 
 ### Console/network signals
@@ -276,6 +277,75 @@ Remaining unproven:
 - No fresh deployed two-user run has yet proved that both users remain co-present, remote media mounts, date starts, and surveys complete.
 - No native/mobile runtime smoke has been run after this patch.
 
+### 6. Latest failed two-user web test: warm-up reached, then a transport flap terminalized the session
+
+Evidence captured from chronological screenshots, Console/Network pasted text, and Supabase project `schdyxcunwcvddlcshwd`.
+
+Identifiers:
+
+- Event: `5ff63806-4e06-45f1-8391-a7a5bdd1c542`
+- Video session: `aac15b03-8de7-45e2-a11b-629cdd9b5b16`
+- Canonical Daily room: `date-aac15b038de745e2a11b629cdd9b5b16`
+
+Observed flow:
+
+- Ready Gate was not the final blocker. One `mark_ready` command hit retryable timeout/recovery behavior, then both `mark_ready` commands committed to the same canonical Daily room.
+- Daily handoff worked briefly. Both clients joined the room, both produced `remote_seen` evidence, and the warm-up UI appeared.
+- During the first seconds of co-presence, Daily emitted a `participant-left` event.
+- Web `useVideoCall` treated that provider event as partner-away authority immediately and called the backend `mark_reconnect_partner_away` path before the local Daily transport grace could absorb the flap.
+- Backend ended the session at `2026-06-04 15:06:41.574871+00` with `ended_reason = reconnect_grace_expired`.
+- Backend correctly set both event registrations to `in_survey`, but clients kept mounting `/date/:sessionId` and `/ready/:sessionId`, claiming surfaces, retrying Daily work, polling optional reads, and later emitted a false `peer_missing_terminal`.
+- Console 500s during the churn were amplifiers, not the root cause: optional/read/recovery calls should stop once terminal survey truth is known and must not block survey recovery.
+
+Interpretation:
+
+- The recovery problem has moved past Ready Gate handoff and past first Daily entry. The current primary failure is post-handoff warm-up stability plus terminal-survey recovery.
+- A raw Daily `participant-left` is not enough evidence to start backend absence grace during the first local transport window. It can be a transient Daily/media transport flap while the peer is already on the way back.
+- Once server truth says an encounter ended with survey-required evidence, `/date/:sessionId` must become the survey host immediately and synchronously stop Daily start/retry, surface claim, reconnect, broadcast, foreground, and peer-wait loops.
+
+Code changes made after this investigation:
+
+- `src/hooks/useVideoCall.ts`: Daily `participant-left` now starts the local 12s transport grace and defers `onPartnerLeft` until that grace expires. Remote participant return, participant update, or fresh remote frame clears the pending away mark. The first-remote watchdog now refetches server truth before showing terminal peer-missing UI and suppresses false terminal states when remote-seen or survey-required evidence exists.
+- `src/hooks/useReconnection.ts`: `mark_reconnect_partner_away` now sends `p_reason: "daily_transport_grace_expired"`, preserving backend reconnect semantics only after local transport grace has expired.
+- `src/pages/VideoDate.tsx`: terminal survey recovery is a hard stop. Survey-required terminal truth clears handshake/reconnect state, stops Daily and surface churn, opens `PostDateSurvey`, and treats optional profile/observability/verdict fetch failures as non-blocking unless completed feedback already exists.
+- `src/pages/ReadyRedirect.tsx`: `go_survey` and canonical survey decisions navigate to `/date/:sessionId` with `forceSurvey` route state so `VideoDate` opens survey instead of trying to restart the call.
+- `apps/mobile/app/date/[id].tsx` and `apps/mobile/lib/videoDateApi.ts`: native Daily `participant-left` now uses the same local grace before backend away marking, passes the explicit `daily_transport_grace_expired` reason, and suppresses false peer-missing terminal states when server truth already has remote-seen or survey-required evidence.
+- `shared/observability/videoDateClientStuckObservability.ts`: added `peer_missing_suppressed_remote_seen` and `peer_missing_suppressed_survey_truth` diagnostic event names.
+- `supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql`: wraps `video_date_transition` without changing the public signature. Legacy/null immediate `mark_reconnect_partner_away` calls are suppressed during early warm-up when recent bilateral joined, remote-seen, or handshake evidence exists. Explicit `p_reason = "daily_transport_grace_expired"` delegates to the base transition and still starts backend reconnect grace. The migration also allows the new suppressed peer-missing observability events.
+
+Verification run after code changes:
+
+- `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDateSprint1RouteDecisionContracts.test.ts`
+- `npx tsx shared/observability/videoDateClientStuckObservability.test.ts`
+- `npx tsx shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
+- `npm run typecheck:core`
+- `cd apps/mobile && npm run typecheck`
+- `npx tsc --noEmit -p tsconfig.app.json`
+- `npm run lint`
+- `SUPABASE_NO_TELEMETRY=1 supabase db push --dry-run --linked`
+- `SUPABASE_NO_TELEMETRY=1 supabase db push --linked --yes`
+- `SUPABASE_NO_TELEMETRY=1 supabase db push --dry-run --linked`
+- `SUPABASE_NO_TELEMETRY=1 supabase db query --linked -o json ...`
+
+Deployment and synchronization state:
+
+- Supabase migration `20260604170438_video_date_warmup_reconnect_stability.sql` is applied to project `schdyxcunwcvddlcshwd`.
+- Post-push dry-run returned `Remote database is up to date`.
+- Direct catalog verification returned:
+  - `migration_applied = true`
+  - `transition_wrapper_installed = true`
+  - `transition_base_preserved = true`
+  - `stuck_observability_installed = true`
+- No Edge Functions changed in this patch, so no Edge Function deployment was required.
+- Git branch/merge state will be recorded after final commit and merge cleanup.
+
+Remaining unproven:
+
+- No fresh deployed two-user run has yet proved stable warm-up, visible remote media through the full warm-up, date continuation/end, and survey completion.
+- The simulated short Daily leave/rejoin under 12s has not yet been run manually after deployment.
+- Native/mobile has static parity and typecheck coverage, but still needs runtime smoke.
+
 ---
 
 ## Current Architecture Decisions
@@ -305,6 +375,10 @@ The canonical Daily room for a video session is deterministic (`date-<sessionId-
 
 `participant_1_joined_at` and `participant_2_joined_at` are historical launch evidence. They are not sufficient proof that both users are currently co-present in Daily. The latest provider presence must still be active for both users: a later Daily `participant.left` / `participant_*_away_at` makes that participant inactive until a newer join clears the away stamp. `mark_video_date_daily_joined` must start or extend the visible handshake only when both participants' latest Daily presence is active.
 
+### Daily transport grace precedes backend partner-away authority
+
+A Daily `participant-left` event is first a local transport signal, not immediate canonical absence. Web and native must hold a local 12s Daily transport grace before calling `mark_reconnect_partner_away`. Only the explicit backend reason `daily_transport_grace_expired` should start server reconnect grace. Legacy/null immediate-away calls during fresh warm-up evidence should be suppressed.
+
 ### Retryable is not terminal
 
 Any payload with `retryable: true` must keep the user in syncing/retrying posture. "Ready Gate changed" is reserved for true replacement, terminal expiry, or multi-tab handoff.
@@ -312,6 +386,10 @@ Any payload with `retryable: true` must keep the user in syncing/retrying postur
 ### Terminal means stop work
 
 Once canonical truth says `ended`, `ready_gate_expired`, forfeited, or replaced, clients must cancel prewarm, permission prewarm, route preload, and Ready Gate retries.
+
+### Survey-required terminal truth is a hard stop
+
+If an ended session has survey-required encounter evidence, `/date/:sessionId` is the survey host. Clients must synchronously stop Daily start/retry, surface claiming, reconnect grace, foreground sync, route/broadcast churn, and peer-missing timers, then open `PostDateSurvey`. Optional profile, observability, and verdict reads are not allowed to block survey entry; only a confirmed completed `date_feedback` row can route away from survey.
 
 ---
 
@@ -321,9 +399,9 @@ These are not claims that the current code is broken; they are the unproven area
 
 1. **No fresh successful manual E2E proof yet.** The final acceptance run must prove match -> survey completion after the latest deploy.
 2. **Production SQLSTATE history is incomplete.** Some earlier fixes were shipped without full log forensics. The newer wrappers should expose future residual SQLSTATE/message, but old failures may remain partly inferred.
-3. **Daily co-occupancy must be observed, not assumed.** Passing requires both users in the same Daily room at the same time with remote tracks mounted.
-4. **Static and CI checks passed after PR #1190, but they are not acceptance proof.** The deployed active-presence guard still needs a real two-user production run.
-5. **Native/mobile runtime needs physical-device smoke.** Static parity and contracts are not enough for mobile media permissions, push, app backgrounding, and route restoration.
+3. **Warm-up stability must be observed, not assumed.** Passing requires both users in the same Daily room at the same time, remote tracks mounted, and no backend terminalization from a short provider transport flap.
+4. **Static and CI checks passed after the warm-up stabilization patch, but they are not acceptance proof.** The deployed local-grace and terminal-survey hard-stop behavior still needs a real two-user production run.
+5. **Native/mobile runtime needs physical-device smoke.** Static parity and contracts are not enough for mobile media permissions, push, Daily transport events, app backgrounding, and route restoration.
 6. **PostHog rate-limit spam remains noisy.** It is probably not the Video Date root cause, but it can hide useful console signals and should be handled separately.
 7. **OneSignal 409 identity noise remains non-blocking but distracting.** It should not block Video Date, but provider health should stay visible.
 8. **Manual survey completion still needs proof.** Many recent fixes focused on match -> Ready Gate -> room entry; survey end-to-end persistence must be revalidated.
@@ -346,7 +424,9 @@ Run this on a fresh disposable test pair after deployment has propagated:
 10. Confirm local and remote media are visible/audible or intentionally muted.
 11. Let the date end or end it explicitly.
 12. Complete the post-date survey on both sides.
-13. Confirm no raw 500s from:
+13. Repeat once with a simulated short Daily leave/rejoin under 12s and confirm no backend `reconnect_grace_expired` terminalization.
+14. Confirm terminal survey truth opens `PostDateSurvey` on `/date/:sessionId` without `/date` <-> `/ready` cycling or new Daily/surface churn.
+15. Confirm no raw 500s from:
     - `video_session_mark_ready_v2`
     - `ready_gate_transition`
     - `video_date_transition`
@@ -354,10 +434,11 @@ Run this on a fresh disposable test pair after deployment has propagated:
     - `mark_video_date_daily_joined`
     - `video-date-token-refresh`
     - `daily-room`
-14. Confirm no stale "This Ready Gate changed" copy unless there is a real duplicate-tab/session replacement case.
-15. Query Supabase and Daily afterward for the exact session timeline.
-16. Confirm the Daily webhook ledger has `participant.joined` and `participant.left` rows for both users when they actually join/leave.
-17. Confirm `mark_video_date_daily_joined` logged `handshake_started_after_active_daily_copresence` only after both latest Daily presences were active, and `daily_join_waiting_for_active_partner` only when the partner's latest presence was absent or away.
+16. Confirm no stale "This Ready Gate changed" copy unless there is a real duplicate-tab/session replacement case.
+17. Query Supabase and Daily afterward for the exact session timeline.
+18. Confirm the Daily webhook ledger has `participant.joined` and `participant.left` rows for both users when they actually join/leave.
+19. Confirm `mark_video_date_daily_joined` logged `handshake_started_after_active_daily_copresence` only after both latest Daily presences were active, and `daily_join_waiting_for_active_partner` only when the partner's latest presence was absent or away.
+20. Confirm no legacy/null `mark_reconnect_partner_away` starts backend grace during fresh warm-up evidence; explicit `daily_transport_grace_expired` may start backend grace only after local transport grace expires.
 
 Pass condition: both users complete the full journey from match through survey completion without lobby cycling, stale Ready Gate invalidation, or split-room Daily behavior.
 
@@ -396,6 +477,12 @@ If Video Date fails again, collect this before changing code:
   - `legacy_mark_ready_signature_detected`
   - `daily_join_waiting_for_active_partner`
   - `handshake_started_after_active_daily_copresence`
+  - `daily_transport_grace_expired`
+  - `away_mark_suppressed`
+  - `daily_transport_grace_required`
+  - `peer_missing_suppressed_remote_seen`
+  - `peer_missing_suppressed_survey_truth`
+- Whether `ended_reason`, `survey_required`, `date_feedback`, and `forceSurvey` route state support immediate survey recovery.
 
 Do not treat "This Ready Gate changed" as a root cause. Treat it as a symptom and prove why the client selected stale terminal copy.
 
@@ -410,6 +497,7 @@ Backend / migrations:
 - `supabase/migrations/20260604103000_ready_gate_mark_ready_hot_path_retry_recovery.sql`
 - `supabase/migrations/20260604104154_ready_gate_mark_ready_grace_notification_auth.sql`
 - `supabase/migrations/20260604142017_video_date_active_presence_join_guard.sql`
+- `supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql`
 
 Web:
 
@@ -441,6 +529,7 @@ Contracts:
 - `shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
 - `shared/matching/videoDateEndToEndHardening.test.ts`
 - `shared/matching/videoDateSurfaceContinuityHardening.test.ts`
+- `shared/matching/videoDateWarmupStabilityContracts.test.ts`
 - `shared/matching/phase2PaymentsDurableNotifications.test.ts`
 
 Runbooks:
@@ -470,3 +559,5 @@ Runbooks:
 - Recorded PR #1188, commit `c532dca0ac324d02f0749a25c06097160357fbfb`, Supabase deployment state, verification commands, and open acceptance gaps.
 - Recorded latest failed two-user session `1592aa53-f011-45ab-bcb4-e2685fe172b9`, where Ready Gate and Daily room creation succeeded but active Daily co-presence did not hold.
 - Recorded PR #1190, merge commit `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql`, post-deploy dry-run, direct remote verification, branch cleanup, and remaining manual E2E/native gaps.
+- Recorded latest failed two-user session `aac15b03-8de7-45e2-a11b-629cdd9b5b16`, where Ready Gate and Daily room handoff succeeded briefly but a Daily `participant-left` event triggered backend reconnect/terminalization before local transport grace could absorb the flap.
+- Implemented the warm-up stabilization patch: local Daily transport grace before backend partner-away marking, explicit `daily_transport_grace_expired` reason, terminal survey hard-stop on web, ReadyRedirect force-survey state, native/mobile parity, false peer-missing suppression, and migration `20260604170438_video_date_warmup_reconnect_stability.sql`.

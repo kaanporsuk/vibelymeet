@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -436,9 +436,14 @@ function shouldOpenPostDateSurveyForTerminalSession(
 
 const VideoDate = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const { user } = useUserProfile();
   const queryClient = useQueryClient();
+  const readyRedirectForceSurveyState =
+    location.state && typeof location.state === "object"
+      ? (location.state as { forceSurvey?: boolean; source?: string })
+      : null;
   const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
   const timelineV2 = useFeatureFlag("video_date.timeline_v2");
   const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
@@ -474,6 +479,7 @@ const VideoDate = () => {
   const [handshakeFailureCode, setHandshakeFailureCode] = useState<string | undefined>(undefined);
   const [blurAmount, setBlurAmount] = useState(20);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [terminalSurveyRecoveryActive, setTerminalSurveyRecoveryActive] = useState(false);
   const [callStarted, setCallStarted] = useState(false);
   const [callStartFailure, setCallStartFailure] = useState<VideoCallStartFailure | null>(null);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
@@ -524,6 +530,7 @@ const VideoDate = () => {
   const canonicalRoomNameRef = useRef<string | null>(null);
   const hasEnteredDateFlowRef = useRef(false);
   const surveyOpenedRef = useRef(false);
+  const terminalSurveyRecoveryInFlightRef = useRef(false);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const extensionSpendInFlightRef = useRef(false);
   const extensionSpendRetryRef = useRef<{
@@ -588,10 +595,10 @@ const VideoDate = () => {
     [id, eventId]
   );
 
-  const openPostDateSurvey = useCallback(
+  const enterTerminalSurveyHardStop = useCallback(
     (reason: string) => {
-      if (surveyOpenedRef.current) return false;
-      surveyOpenedRef.current = true;
+      terminalSurveyRecoveryInFlightRef.current = true;
+      setTerminalSurveyRecoveryActive(true);
       clearHandshakeGraceState();
       setPhase("ended");
       setTimeLeft(0);
@@ -599,8 +606,23 @@ const VideoDate = () => {
       setTimingReady(true);
       setCallStarted(false);
       setCallStartFailure(null);
-      setShowFeedback(true);
       setStatus("in_survey");
+      vdbg("terminal_survey_recovery_hard_stop", {
+        sessionId: id ?? null,
+        userId: user?.id ?? null,
+        eventId: eventId ?? null,
+        reason,
+      });
+    },
+    [clearHandshakeGraceState, eventId, id, setStatus, user?.id],
+  );
+
+  const openPostDateSurvey = useCallback(
+    (reason: string) => {
+      if (surveyOpenedRef.current) return false;
+      surveyOpenedRef.current = true;
+      enterTerminalSurveyHardStop(reason);
+      setShowFeedback(true);
       vdbg("post_date_survey_opened", { sessionId: id ?? null, reason });
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_OPENED, {
         platform: "web",
@@ -625,7 +647,7 @@ const VideoDate = () => {
       }
       return true;
     },
-    [clearHandshakeGraceState, id, eventId, setStatus, logJourney]
+    [enterTerminalSurveyHardStop, id, eventId, logJourney]
   );
 
   const hydrateTerminalSurveyContext = useCallback(
@@ -701,7 +723,14 @@ const VideoDate = () => {
         return false;
       }
 
-      const { data: verdict, error: verdictError } = await supabase
+      const hasPostDateSurveyTruth = videoSessionHasPostDateSurveyTruth(sessionRow);
+      if (hasPostDateSurveyTruth) {
+        enterTerminalSurveyHardStop(source);
+        hydrateTerminalSurveyContext(sessionRow, source);
+      }
+
+      let verdict: { id?: string | null } | null = null;
+      const { data: verdictData, error: verdictError } = await supabase
         .from("date_feedback")
         .select("id")
         .eq("session_id", id)
@@ -723,8 +752,13 @@ const VideoDate = () => {
           code: verdictError.code,
           message: verdictError.message,
         });
-        return false;
+        if (!hasPostDateSurveyTruth) {
+          return false;
+        }
+      } else {
+        verdict = verdictData ?? null;
       }
+      const verdictFetchFailed = Boolean(verdictError);
 
       const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
       vdbg("terminal_post_date_survey_recovery_checked", {
@@ -732,6 +766,8 @@ const VideoDate = () => {
         userId: user.id,
         source,
         shouldOpenSurvey,
+        hardStopApplied: hasPostDateSurveyTruth,
+        verdictFetchFailed,
         verdictId: verdict?.id ?? null,
         endedAt: sessionRow.ended_at ?? null,
         endedReason: sessionRow.ended_reason ?? null,
@@ -739,15 +775,19 @@ const VideoDate = () => {
         phase: sessionRow.phase ?? null,
         participant1Joined: Boolean(sessionRow.participant_1_joined_at),
         participant2Joined: Boolean(sessionRow.participant_2_joined_at),
+        participant1RemoteSeen: Boolean(sessionRow.participant_1_remote_seen_at),
+        participant2RemoteSeen: Boolean(sessionRow.participant_2_remote_seen_at),
       });
 
-      if (shouldOpenSurvey) {
+      if (shouldOpenSurvey || (hasPostDateSurveyTruth && verdictFetchFailed)) {
         hydrateTerminalSurveyContext(sessionRow, source);
         openPostDateSurvey(source);
         return true;
       }
 
       clearHandshakeGraceState();
+      terminalSurveyRecoveryInFlightRef.current = false;
+      setTerminalSurveyRecoveryActive(false);
       setPhase("ended");
       setTimeLeft(0);
       setShowFeedback(false);
@@ -767,6 +807,7 @@ const VideoDate = () => {
     },
     [
       clearHandshakeGraceState,
+      enterTerminalSurveyHardStop,
       hydrateTerminalSurveyContext,
       id,
       navigate,
@@ -911,6 +952,7 @@ const VideoDate = () => {
       Sentry.addBreadcrumb({ category: "video-date", message: "Partner connected", level: "info" });
     },
     onPartnerLeft: () => {
+      if (phaseRef.current === "ended" || surveyOpenedRef.current || terminalSurveyRecoveryInFlightRef.current) return;
       reconnection.startGraceWindow();
     },
     onPartnerTransientDisconnect: () => {
@@ -918,6 +960,9 @@ const VideoDate = () => {
     },
     onPartnerTransientRecover: () => {
       toast("Connection restored", { duration: 1800 });
+    },
+    onTerminalSurveyTruth: (source) => {
+      void recoverTerminalPostDateSurvey(source);
     },
   });
 
@@ -938,18 +983,25 @@ const VideoDate = () => {
   const { dupBlocked, takeOver } = useVideoDateDupTabGuard(
     id,
     user?.id,
-    videoDateAccess === "allowed" && !showFeedback && phase !== "ended",
+    videoDateAccess === "allowed" &&
+      !showFeedback &&
+      !terminalSurveyRecoveryActive &&
+      phase !== "ended",
   );
   const [showDuplicateTabConflict, setShowDuplicateTabConflict] = useState(false);
 
   const reconnection = useReconnection({
-    sessionId: videoDateAccess === "allowed" ? id : undefined,
+    sessionId:
+      videoDateAccess === "allowed" && !terminalSurveyRecoveryActive && !terminalSurveyRecoveryInFlightRef.current
+        ? id
+        : undefined,
     isConnected,
     phase,
     onReconnected: () => {
       toast("They're back! 💚", { duration: 2000 });
     },
     onGraceExpired: () => {
+      if (terminalSurveyRecoveryInFlightRef.current || surveyOpenedRef.current) return;
       toast("Your date got disconnected — we hope you enjoyed the chat! 💚", {
         duration: 3000,
       });
@@ -1521,6 +1573,9 @@ const VideoDate = () => {
     videoJoinCycleRef.current = 0;
     nextVideoDateMediaPromptIntentRef.current = "auto";
     videoJoinOutcomeByCycleRef.current = new Set();
+    surveyOpenedRef.current = false;
+    terminalSurveyRecoveryInFlightRef.current = false;
+    setTerminalSurveyRecoveryActive(false);
     setHandshakeStartedAt(null);
     setCallStartFailure(null);
     handshakeCompletionInFlightRef.current = false;
@@ -1591,6 +1646,18 @@ const VideoDate = () => {
       cancelled = true;
     };
   }, [id, user?.id, showFeedback, phase, recoverTerminalPostDateSurvey, logJourney]);
+
+  useEffect(() => {
+    if (!id || !user?.id || !readyRedirectForceSurveyState?.forceSurvey) return;
+    const source = readyRedirectForceSurveyState.source ?? "ready_redirect_force_survey";
+    void recoverTerminalPostDateSurvey(source);
+  }, [
+    id,
+    readyRedirectForceSurveyState?.forceSurvey,
+    readyRedirectForceSurveyState?.source,
+    recoverTerminalPostDateSurvey,
+    user?.id,
+  ]);
 
   useLayoutEffect(() => {
     if (!id) return;
@@ -2295,11 +2362,18 @@ const VideoDate = () => {
 
   // Browser foreground/online recovery mirrors native AppState reconciliation without polling storms.
   useEffect(() => {
-    if (!id || videoDateAccess !== "allowed" || showFeedback) return;
+    if (!id || videoDateAccess !== "allowed" || showFeedback || terminalSurveyRecoveryActive) return;
 
     const reconcile = (source: "visibilitychange" | "online") => {
       if (source === "visibilitychange" && document.visibilityState !== "visible") return;
-      if (phaseRef.current === "ended" || surveyOpenedRef.current || explicitEndRequestedRef.current !== "idle") return;
+      if (
+        phaseRef.current === "ended" ||
+        surveyOpenedRef.current ||
+        terminalSurveyRecoveryInFlightRef.current ||
+        explicitEndRequestedRef.current !== "idle"
+      ) {
+        return;
+      }
       const now = Date.now();
       if (foregroundReconcileInFlightRef.current) return;
       if (now - lastForegroundReconcileAtRef.current < 4_000) return;
@@ -2408,13 +2482,13 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
     };
-  }, [eventId, id, recoverTerminalPostDateSurvey, showFeedback, videoDateAccess]);
+  }, [eventId, id, recoverTerminalPostDateSurvey, showFeedback, terminalSurveyRecoveryActive, videoDateAccess]);
 
   // Start Daily as soon as the participant guard passes; timing hydration can finish in parallel.
   useEffect(() => {
     if (!id) return;
     if (videoDateAccess !== "allowed" || handshakeStartFailed) return;
-    if (phase === "ended") return;
+    if (phase === "ended" || showFeedback || terminalSurveyRecoveryActive || terminalSurveyRecoveryInFlightRef.current) return;
     if (dupBlocked) return;
     if (callStarted) return;
     if (callStartFailure) return;
@@ -2523,6 +2597,8 @@ const VideoDate = () => {
     videoDateAccess,
     handshakeStartFailed,
     phase,
+    showFeedback,
+    terminalSurveyRecoveryActive,
     callStarted,
     startCall,
     getRoomName,
@@ -3049,7 +3125,7 @@ const VideoDate = () => {
   }, [id]);
 
   useEffect(() => {
-    if (!id || !user?.id || videoDateAccess !== "allowed") return;
+    if (!id || !user?.id || videoDateAccess !== "allowed" || terminalSurveyRecoveryActive) return;
     let lifecycleAwayTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearLifecycleAwayTimer = () => {
@@ -3059,7 +3135,14 @@ const VideoDate = () => {
     };
 
     const sendLeaveSignal = (source: WebLifecycleLeaveSource) => {
-      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current !== "idle") return;
+      if (
+        showFeedback ||
+        surveyOpenedRef.current ||
+        terminalSurveyRecoveryInFlightRef.current ||
+        explicitEndRequestedRef.current !== "idle"
+      ) {
+        return;
+      }
       if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
       const token = leaveSignalTokenRef.current;
@@ -3148,7 +3231,14 @@ const VideoDate = () => {
     const scheduleLifecycleAway = (
       source: Extract<WebLifecycleLeaveSource, "visibilitychange" | "pagehide" | "freeze">,
     ) => {
-      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current !== "idle") return;
+      if (
+        showFeedback ||
+        surveyOpenedRef.current ||
+        terminalSurveyRecoveryInFlightRef.current ||
+        explicitEndRequestedRef.current !== "idle"
+      ) {
+        return;
+      }
       if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
       const startedAt = lifecycleHiddenStartedAtRef.current ?? Date.now();
@@ -3240,7 +3330,7 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("freeze", handleFreeze);
     };
-  }, [id, user?.id, eventId, isConnected, showFeedback, videoDateAccess, localVideoRef]);
+  }, [id, user?.id, eventId, isConnected, showFeedback, terminalSurveyRecoveryActive, videoDateAccess, localVideoRef]);
 
   // Record user's explicit handshake decision.
   const handleHandshakeDecision = useCallback(async (action: "vibe" | "pass"): Promise<boolean> => {
@@ -4326,7 +4416,7 @@ const VideoDate = () => {
   }, [eventId, id, peerMissing.terminal]);
 
   useEffect(() => {
-    if (!id || videoDateAccess !== "allowed" || showFeedback || phase === "ended") return;
+    if (!id || videoDateAccess !== "allowed" || showFeedback || terminalSurveyRecoveryActive || phase === "ended") return;
     if (mediaPermissionError) return;
     const shouldReconcileTerminalSurvey =
       peerMissing.terminal || remotePlayback.playRejected || isConnecting || !isConnected;
@@ -4335,7 +4425,7 @@ const VideoDate = () => {
     let cancelled = false;
     let inFlight = false;
     const reconcileTerminalSurvey = async (source: string) => {
-      if (cancelled || inFlight || surveyOpenedRef.current) return;
+      if (cancelled || inFlight || surveyOpenedRef.current || terminalSurveyRecoveryInFlightRef.current) return;
       if (explicitEndRequestedRef.current !== "idle") return;
       inFlight = true;
       try {
@@ -4358,6 +4448,7 @@ const VideoDate = () => {
     id,
     videoDateAccess,
     showFeedback,
+    terminalSurveyRecoveryActive,
     phase,
     mediaPermissionError,
     peerMissing.terminal,

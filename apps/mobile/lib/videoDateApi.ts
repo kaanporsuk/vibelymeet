@@ -359,7 +359,7 @@ export function useVideoDateSession(
   );
 
   const fetchSession = useCallback(async () => {
-    if (!sessionId || !userId) return;
+    if (!sessionId || !userId) return null;
     const sessionKey = `${sessionId}:${userId}`;
     currentSessionKeyRef.current = sessionKey;
     const isInitialLoad = lastCompletedSessionKeyRef.current !== sessionKey;
@@ -396,7 +396,7 @@ export function useVideoDateSession(
         setError(e?.message ?? 'Session not found');
         setSession(null);
         setPartner(null);
-        return;
+        return null;
       }
 
       const s = row as unknown as VideoDateSession;
@@ -411,7 +411,7 @@ export function useVideoDateSession(
         setError("You don't have access to this date.");
         setSession(null);
         setPartner(null);
-        return;
+        return null;
       }
 
       setSession(s);
@@ -420,7 +420,7 @@ export function useVideoDateSession(
         outcome = 'ended';
         setPhase('ended');
         setTimeLeft(0);
-        return;
+        return s;
       }
 
       const partnerId = s.participant_1_id === userId ? s.participant_2_id : s.participant_1_id;
@@ -467,6 +467,7 @@ export function useVideoDateSession(
           }
         })();
       }
+      return s;
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -963,10 +964,14 @@ export async function syncVideoDateReconnect(sessionId: string): Promise<SyncRec
   };
 }
 
-export async function markReconnectPartnerAway(sessionId: string): Promise<void> {
+export async function markReconnectPartnerAway(
+  sessionId: string,
+  reason = 'daily_transport_grace_expired',
+): Promise<void> {
   const args = {
     p_session_id: sessionId,
     p_action: 'mark_reconnect_partner_away',
+    p_reason: reason,
   };
   vdbg('video_date_transition_before', { action: 'mark_reconnect_partner_away', args });
   const { data, error } = await supabase.rpc('video_date_transition', args);
