@@ -2092,6 +2092,9 @@ export default function VideoDateScreen() {
       if (callRef.current === call) {
         callRef.current = null;
       }
+      // Provider-terminal cleanup can be followed by active backend truth; allow prejoin to rebuild.
+      hasStartedJoinRef.current = false;
+      setJoining(false);
       localParticipantRef.current = null;
       remoteParticipantRef.current = null;
       nativeCameraSwitchInFlightRef.current = false;
