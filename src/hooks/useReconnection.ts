@@ -70,11 +70,32 @@ export const useReconnection = ({
     if (error) return null;
     const p = data as {
       success?: boolean;
+      code?: string | null;
+      error?: string | null;
+      retryable?: boolean;
       reconnect_grace_ends_at?: string | null;
       ended?: boolean;
       ended_reason?: string | null;
       partner_marked_away?: boolean;
     } | null;
+    if (p?.success === false) {
+      vdbg("sync_reconnect_result", {
+        sessionId,
+        outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.RPC_ERROR,
+        code: p.code ?? null,
+        retryable: p.retryable === true,
+        error: p.error ?? null,
+      });
+      if (p.code === "SESSION_ENDED") {
+        return {
+          reconnect_grace_ends_at: null,
+          ended: true,
+          ended_reason: p.ended_reason ?? "session_ended",
+          partner_marked_away: false,
+        };
+      }
+      return null;
+    }
     return {
       reconnect_grace_ends_at: p?.reconnect_grace_ends_at ?? null,
       ended: p?.ended === true,

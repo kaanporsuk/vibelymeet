@@ -135,6 +135,79 @@ test("classifies provider-atomic persistence failures as retryable", async () =>
   assert.equal(registrationPersist.retryable, true);
 });
 
+test("honors explicit retryable fail-soft body for non-terminal prepare failures", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    data: {
+      code: "VIDEO_DATE_TRANSITION_FAILED",
+      error: "video_date_transition_failed",
+      retryable: true,
+      retry_after_ms: 1500,
+    },
+    response: new Response(
+      JSON.stringify({
+        code: "VIDEO_DATE_TRANSITION_FAILED",
+        retryable: true,
+        retry_after_ms: 1500,
+      }),
+      { status: 409 },
+    ),
+  });
+
+  assert.equal(failure.kind, "unknown");
+  assert.equal(failure.serverCode, "VIDEO_DATE_TRANSITION_FAILED");
+  assert.equal(failure.httpStatus, 409);
+  assert.equal(failure.retryable, true);
+  assert.equal(failure.retryAfterSeconds, 1.5);
+  assert.equal(failure.retryAfterMs, 1500);
+});
+
+test("terminal prepare blockers remain non-retryable even if a body says retryable", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    data: { code: "EVENT_NOT_ACTIVE", retryable: true },
+    response: new Response(
+      JSON.stringify({ code: "EVENT_NOT_ACTIVE", retryable: true }),
+      { status: 409 },
+    ),
+  });
+
+  assert.equal(failure.kind, "EVENT_NOT_ACTIVE");
+  assert.equal(failure.retryable, false);
+});
+
+test("reads retryable fail-soft fields from response body when invoke data is empty", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    response: new Response(
+      JSON.stringify({
+        code: "VIDEO_DATE_TRANSITION_FAILED",
+        retryable: true,
+        retry_after_ms: 1200,
+      }),
+      { status: 409 },
+    ),
+  });
+
+  assert.equal(failure.kind, "unknown");
+  assert.equal(failure.serverCode, "VIDEO_DATE_TRANSITION_FAILED");
+  assert.equal(failure.retryable, true);
+  assert.equal(failure.retryAfterMs, 1200);
+});
+
+test("response-only terminal blockers override retryable fail-soft fields", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    response: new Response(
+      JSON.stringify({ code: "SESSION_ENDED", retryable: true }),
+      { status: 410 },
+    ),
+  });
+
+  assert.equal(failure.kind, "SESSION_ENDED");
+  assert.equal(failure.retryable, false);
+});
+
 test("maps token failure kinds into shared analytics classes", () => {
   assert.equal(
     classifyDailyRoomTokenFailureClass("DAILY_AUTH_FAILED"),

@@ -157,7 +157,9 @@ function isReadyGateTransitionTimeoutSignal(input: {
   errorCode?: string | null;
   reason?: string | null;
   error?: string | null;
+  retryable?: boolean | null;
 }): boolean {
+  if (input.retryable === true) return true;
   const text = [input.code, input.errorCode, input.reason, input.error]
     .filter(Boolean)
     .join(' ')

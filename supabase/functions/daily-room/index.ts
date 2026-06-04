@@ -708,6 +708,7 @@ function createDateRoomRejectResponse(params: {
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
   extra?: Record<string, unknown>;
+  retryable?: boolean;
   retryAfterSeconds?: number | null;
 }) {
   logDateRoomReject({
@@ -726,6 +727,7 @@ function createDateRoomRejectResponse(params: {
       error: params.error,
       code: params.code,
       ...(params.message ? { message: params.message } : {}),
+      ...(typeof params.retryable === "boolean" ? { retryable: params.retryable } : {}),
       ...retryAfterJsonFields(params.retryAfterSeconds),
       ...(params.extra ? { details: params.extra } : {}),
     }),
@@ -1944,6 +1946,9 @@ type PrepareEntryTransitionPayload = {
   daily_room_expires_at?: string | null;
   daily_room_provider_verify_reason?: string | null;
   entry_attempt_id?: string | null;
+  retryable?: boolean;
+  retry_after_seconds?: number | null;
+  retry_after_ms?: number | null;
 };
 
 function statusForPrepareEntryCode(code?: string): number {
@@ -2478,7 +2483,13 @@ serve(async (req) => {
         p_reason: reason,
       });
       if (error || (data as { success?: boolean } | null)?.success === false) {
-        const payload = (data ?? null) as { code?: string; error?: string } | null;
+        const payload = (data ?? null) as {
+          code?: string;
+          error?: string;
+          retryable?: boolean;
+          retry_after_seconds?: number | null;
+          retry_after_ms?: number | null;
+        } | null;
         return createDateRoomRejectResponse({
           action: actionName,
           sessionId,
@@ -2489,6 +2500,9 @@ serve(async (req) => {
           corsHeaders,
           requestContext,
           detail: error ? error.message : null,
+          retryable: typeof payload?.retryable === "boolean" ? payload.retryable : error ? true : undefined,
+          retryAfterSeconds: payload?.retry_after_seconds ?? null,
+          extra: payload?.retry_after_ms == null ? undefined : { retry_after_ms: payload.retry_after_ms },
         });
       }
 
@@ -3202,7 +3216,13 @@ serve(async (req) => {
             requestContext,
             session: sessionForLog,
             detail: prepareError ? prepareError.message : null,
-            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+            retryable: typeof preparePayload?.retryable === "boolean" ? preparePayload.retryable : undefined,
+            retryAfterSeconds: preparePayload?.retry_after_seconds ?? null,
+            extra: {
+              entry_attempt_id: entryAttemptId,
+              video_date_trace_id: videoDateTraceId,
+              retry_after_ms: preparePayload?.retry_after_ms ?? null,
+            },
           });
         }
 

@@ -34,6 +34,7 @@ export type VideoDateTransitionPayload = {
   code?: string | null;
   error?: string | null;
   reason?: string | null;
+  retryable?: boolean;
   waiting_for_partner?: boolean;
   waiting_for_self?: boolean;
   local_decision_persisted?: boolean;
@@ -346,6 +347,7 @@ export async function persistHandshakeDecisionWithVerification(
       const persistedDecisionAt = actorPersistedDecisionAt(lastTruth, input.actorUserId);
       const persisted = Boolean(persistedDecisionAt) && persistedDecision === expectedDecision;
       const rpcRejected = lastPayload?.success === false;
+      const rpcRejectedRetryable = rpcRejected && lastPayload?.retryable === true;
       const truthUnavailable = !lastTruth || Boolean(truthResult.error);
       const actorMissing = Boolean(lastTruth) && slot === null;
       const retryableConsistencyMiss =
@@ -359,7 +361,7 @@ export async function persistHandshakeDecisionWithVerification(
       input.log?.("handshake_decision_rpc_after", {
         ...baseLog,
         ok: !rpcRejected && persisted,
-        retryable: truthUnavailable || retryableConsistencyMiss,
+        retryable: rpcRejectedRetryable || truthUnavailable || retryableConsistencyMiss,
         rpcPayload: lastPayload,
         error: truthResult.error ?? null,
         actorDecisionSlot: slot,
@@ -371,13 +373,32 @@ export async function persistHandshakeDecisionWithVerification(
         ...handshakeTruthLogPayload(lastTruth),
       });
 
+      const confirmedTruth = lastTruth;
+      if (persisted && slot && timestampSlot && persistedDecisionAt && confirmedTruth) {
+        return {
+          ok: true,
+          action: input.action,
+          attempts: attempt,
+          actorDecisionPersisted: true,
+          actorDecisionSlot: slot,
+          actorDecisionTimestampSlot: timestampSlot,
+          expectedDecision,
+          persistedDecision,
+          persistedDecisionAt: persistedDecisionAt as string,
+          rpcPayload: lastPayload,
+          truth: confirmedTruth,
+          state: lastPayload?.state ?? confirmedTruth.state ?? null,
+        };
+      }
+
       if (rpcRejected) {
+        if (rpcRejectedRetryable && attempt <= delays.length) continue;
         return {
           ok: false,
           action: input.action,
           attempts: attempt,
           reason: "rpc_rejected",
-          retryable: false,
+          retryable: rpcRejectedRetryable,
           actorDecisionPersisted: false,
           actorDecisionSlot: slot,
           actorDecisionTimestampSlot: timestampSlot,
@@ -430,24 +451,6 @@ export async function persistHandshakeDecisionWithVerification(
           truth: lastTruth,
           error: null,
           userMessage: userMessageForFailure("actor_not_participant"),
-        };
-      }
-
-      const confirmedTruth = lastTruth;
-      if (persisted && slot && timestampSlot && persistedDecisionAt && confirmedTruth) {
-        return {
-          ok: true,
-          action: input.action,
-          attempts: attempt,
-          actorDecisionPersisted: true,
-          actorDecisionSlot: slot,
-          actorDecisionTimestampSlot: timestampSlot,
-          expectedDecision,
-          persistedDecision,
-          persistedDecisionAt: persistedDecisionAt as string,
-          rpcPayload: lastPayload,
-          truth: confirmedTruth,
-          state: lastPayload?.state ?? confirmedTruth.state ?? null,
         };
       }
 

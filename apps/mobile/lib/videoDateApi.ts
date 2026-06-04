@@ -139,16 +139,22 @@ export type GetDailyRoomTokenResult =
       code: RoomTokenFailureCode;
       httpStatus?: number;
       serverCode?: string;
+      retryable: boolean;
+      retryAfterMs?: number;
+      retryAfterSeconds?: number;
       entry_attempt_id?: string | null;
       video_date_trace_id?: string | null;
     };
 
 export type EnterHandshakeResult =
   | { ok: true }
-  | { ok: false; code?: string; message?: string };
+  | { ok: false; code?: string; message?: string; retryable?: boolean };
 
 export type CompleteHandshakeResult = {
+  success?: boolean;
   state: 'date' | 'ended' | 'handshake';
+  code?: string | null;
+  retryable?: boolean;
   waiting_for_partner?: boolean;
   waiting_for_self?: boolean;
   local_decision_persisted?: boolean;
@@ -752,6 +758,8 @@ export async function getDailyRoomToken(sessionId: string, userId?: string | nul
     httpStatus: result.httpStatus ?? null,
     serverCode: result.code,
     classifiedCode: result.code,
+    retryable: result.retryable,
+    retryAfterMs: result.retryAfterMs ?? null,
     message: result.message ?? null,
   });
   return {
@@ -759,6 +767,9 @@ export async function getDailyRoomToken(sessionId: string, userId?: string | nul
     code: result.code as RoomTokenFailureCode,
     httpStatus: result.httpStatus,
     serverCode: result.code,
+    retryable: result.retryable,
+    retryAfterMs: result.retryAfterMs,
+    retryAfterSeconds: result.retryAfterSeconds,
     entry_attempt_id: result.entryAttemptId ?? null,
     video_date_trace_id: result.entryAttemptId ?? null,
   };
@@ -799,15 +810,16 @@ export async function enterHandshake(sessionId: string): Promise<EnterHandshakeR
   });
 
   if (error) {
-    return { ok: false, code: 'RPC_ERROR', message: error.message };
+    return { ok: false, code: error.code ?? 'RPC_ERROR', message: error.message, retryable: true };
   }
 
-  const payload = data as { success?: boolean; code?: string; error?: string } | null;
+  const payload = data as { success?: boolean; code?: string; error?: string; retryable?: boolean } | null;
   if (payload && payload.success === false) {
     return {
       ok: false,
       code: payload.code,
       message: payload.error,
+      retryable: payload.retryable === true,
     };
   }
 
@@ -916,11 +928,33 @@ export async function syncVideoDateReconnect(sessionId: string): Promise<SyncRec
   });
   if (error) return null;
   const p = data as {
+    success?: boolean;
+    code?: string | null;
+    error?: string | null;
+    retryable?: boolean;
     reconnect_grace_ends_at?: string | null;
     ended?: boolean;
     ended_reason?: string | null;
     partner_marked_away?: boolean;
   } | null;
+  if (p?.success === false) {
+    vdbg('sync_reconnect_result', {
+      sessionId,
+      outcome: 'rpc_error',
+      code: p.code ?? null,
+      retryable: p.retryable === true,
+      error: p.error ?? null,
+    });
+    if (p.code === 'SESSION_ENDED') {
+      return {
+        reconnect_grace_ends_at: null,
+        ended: true,
+        ended_reason: p.ended_reason ?? 'session_ended',
+        partner_marked_away: false,
+      };
+    }
+    return null;
+  }
   return {
     reconnect_grace_ends_at: p?.reconnect_grace_ends_at ?? null,
     ended: p?.ended === true,
@@ -1256,6 +1290,7 @@ export async function completeHandshake(
   });
   if (error) return null;
   const payload = data as Partial<CompleteHandshakeResult> | null;
+  if (payload?.success === false && payload.retryable === true) return null;
   const state = payload?.state;
   return {
     state: state === 'date' || state === 'handshake' || state === 'ended' ? state : 'ended',

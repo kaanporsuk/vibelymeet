@@ -102,6 +102,80 @@ test("transient RPC failure is retried before acknowledging Vibe", async () => {
   assert.equal(result.attempts, 2);
 });
 
+test("retryable fail-soft transition payload is retried before acknowledging Vibe", async () => {
+  let rpcCalls = 0;
+  let truthCalls = 0;
+  const result = await persistHandshakeDecisionWithVerification({
+    sessionId: "session-1",
+    actorUserId: "user-a",
+    action: "vibe",
+    retryDelaysMs: [0],
+    sleep: async () => undefined,
+    rpc: async () => {
+      rpcCalls += 1;
+      if (rpcCalls === 1) {
+        return {
+          data: {
+            success: false,
+            code: "VIDEO_DATE_TRANSITION_FAILED",
+            error: "video_date_transition_failed",
+            retryable: true,
+          },
+          error: null,
+        };
+      }
+      return { data: { success: true, state: "handshake" }, error: null };
+    },
+    fetchTruth: async () => {
+      truthCalls += 1;
+      return {
+        truth: truthCalls === 1
+          ? baseTruth
+          : {
+              ...baseTruth,
+              participant_1_liked: true,
+              participant_1_decided_at: "2026-04-24T06:02:02.000Z",
+            },
+      };
+    },
+  });
+
+  assert.equal(rpcCalls, 2);
+  assert.equal(truthCalls, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result.attempts, 2);
+});
+
+test("persisted truth wins when RPC payload reports failure after saving Vibe", async () => {
+  const result = await persistHandshakeDecisionWithVerification({
+    sessionId: "session-1",
+    actorUserId: "user-a",
+    action: "vibe",
+    retryDelaysMs: [],
+    rpc: async () => ({
+      data: {
+        success: false,
+        code: "VIDEO_DATE_TRANSITION_FAILED",
+        error: "video_date_transition_failed",
+        retryable: true,
+      },
+      error: null,
+    }),
+    fetchTruth: async () => ({
+      truth: {
+        ...baseTruth,
+        participant_1_liked: true,
+        participant_1_decided_at: "2026-04-24T06:02:02.000Z",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.actorDecisionPersisted, true);
+  assert.equal(result.persistedDecision, true);
+  assert.equal(result.attempts, 1);
+});
+
 test("one vibe and partner undecided ends at the hard deadline", () => {
   assert.deepEqual(
     completeHandshakeExpectation({
