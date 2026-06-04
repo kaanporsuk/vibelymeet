@@ -14,6 +14,8 @@ test("client stuck observability event allowlist stays sparse", () => {
     "prepare_date_entry_failed",
     "daily_join_confirmation_failed",
     "peer_missing_terminal",
+    "peer_missing_suppressed_remote_seen",
+    "peer_missing_suppressed_survey_truth",
     "native_background_recovery_started",
     "native_background_recovery_failed",
     "native_background_expired",

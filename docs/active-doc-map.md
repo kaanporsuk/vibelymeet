@@ -7,7 +7,7 @@ Purpose: Keep one current execution path visible for native launch closure and m
 
 ## Start here
 
-0. **Video Date recovery command center:** `docs/video-date-success-command-center.md` — mandatory first read/update point for all Ready Gate, Video Date, Daily, notification, and post-date survey recovery work. It records PR #1190, deployed Supabase migration `20260604142017_video_date_active_presence_join_guard.sql`, the active Daily co-presence rule, and the still-unproven manual match -> survey acceptance run.
+0. **Video Date recovery command center:** `docs/video-date-success-command-center.md` — mandatory first read/update point for all Ready Gate, Video Date, Daily, notification, and post-date survey recovery work. It records PR #1190, deployed Supabase migrations `20260604142017_video_date_active_presence_join_guard.sql` and `20260604170438_video_date_warmup_reconnect_stability.sql`, the active Daily co-presence rule, the new post-handoff warm-up stability / terminal-survey hard-stop theory, and the still-unproven manual match -> survey acceptance run.
 1. **Preflight:** from repo root run `npm run launch:preflight`, then `npm run typecheck`.
 2. **Operator execution sheet:** `docs/kaan-launch-closure-execution-sheet.md`
 3. **Canonical runbook:** `docs/native-launch-closure-master-runbook.md`
@@ -22,7 +22,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 
 | Evidence type | Canonical file |
 |---|---|
-| **Video Date active recovery command center, PR #1190 deploy state, active-presence rule, and handoff prompt (2026-06-04)** | `docs/video-date-success-command-center.md` |
+| **Video Date active recovery command center, PR #1190 deploy state, warm-up stability, terminal-survey hard-stop, and handoff prompt (2026-06-04)** | `docs/video-date-success-command-center.md` |
 | **Video Date Sprint 0 baseline and risk map (2026-05-25)** | `docs/audits/video-date-sprint0-baseline-risk-map-2026-05-25.md`; branch delta `docs/branch-deltas/video-date-sprint0-baseline-risk-map.md`; regression assertion `shared/matching/videoDateSprint0BaselineContracts.test.ts` |
 | **Branch delta (Video Dates P0/P1 closure)** | `docs/branch-deltas/fix-video-date-p0-p1-closure.md` |
 | **Full-system forensic closure audit + cleanup matrix (2026-04-14)** | `docs/audits/full-system-forensic-closure-audit-2026-04-14.md` and `docs/audits/full-system-cleanup-matrix-2026-04-14.md` |

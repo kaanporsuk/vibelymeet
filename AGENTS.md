@@ -18,7 +18,7 @@ Before touching any Ready Gate, Video Date, Daily.co, event-lobby match handoff,
 
 `docs/video-date-success-command-center.md` is the active source of truth for the currently failing Video Date recovery effort. It must capture every material symptom, hypothesis, rejected hypothesis, session ID, migration, deployment, test, manual QA result, and unresolved gap.
 
-Current recovery baseline: PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied to project `schdyxcunwcvddlcshwd`. That is not acceptance proof. Do not claim Video Date is fixed from static tests, CI, route entry, `both_ready`, or Daily room creation alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
+Current recovery baseline: PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`; Supabase migrations `20260604142017_video_date_active_presence_join_guard.sql` and `20260604170438_video_date_warmup_reconnect_stability.sql` are applied to project `schdyxcunwcvddlcshwd`. That is not acceptance proof. Do not claim Video Date is fixed from static tests, CI, route entry, `both_ready`, Daily room creation, brief warm-up UI, or a survey-required terminal row alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
 
 When investigating a Video Date failure, distinguish:
 
@@ -30,6 +30,8 @@ When investigating a Video Date failure, distinguish:
 - date start/end and survey completion
 
 `participant_1_joined_at` and `participant_2_joined_at` are historical evidence only. They do not prove active co-presence if a later Daily `participant.left` / `participant_*_away_at` exists. Inspect `video_date_daily_webhook_events`, `participant_*_away_at`, `participant_*_remote_seen_at`, `handshake_started_at`, and `date_started_at` before concluding that both users were actually together. For duplicate-tab investigations, check both the profile-scoped local lease and server `video_date_surface_claims`, and record whether the two test users shared browser storage/profile context.
+
+Current failure theory has moved to post-handoff warm-up stability and terminal-survey hard-stop. Daily `participant-left` is not immediate backend partner-away authority; web and native should wait through the local 12s Daily transport grace before calling `mark_reconnect_partner_away` with `p_reason = daily_transport_grace_expired`. If server truth says the session ended with survey-required encounter evidence, `/date/:sessionId` must stop Daily/surface/reconnect/peer-wait churn immediately and open `PostDateSurvey`.
 
 ## 1. No Long-Lived Stashes
 

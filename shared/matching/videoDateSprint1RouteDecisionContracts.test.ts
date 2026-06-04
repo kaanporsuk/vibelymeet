@@ -158,6 +158,25 @@ test("Sprint 1 canonical contract separates ended sessions from pending post-dat
     webPath: `/date/${SESSION_ID}`,
     nativePath: `/date/${SESSION_ID}`,
   });
+
+  assertDecisionParity({
+    label: "reconnect grace terminal with bilateral Daily exposure opens survey",
+    expectedTarget: "survey",
+    truth: session({
+      ...PROVIDER_ROOM,
+      ended_at: "2026-05-25T12:00:20.000Z",
+      ended_reason: "reconnect_grace_expired",
+      state: "ended",
+      phase: "ended",
+      date_started_at: null,
+      participant_1_joined_at: "2026-05-25T12:00:04.000Z",
+      participant_2_joined_at: "2026-05-25T12:00:06.000Z",
+      participant_1_remote_seen_at: "2026-05-25T12:00:07.000Z",
+      participant_2_remote_seen_at: "2026-05-25T12:00:08.000Z",
+    }),
+    webPath: `/date/${SESSION_ID}`,
+    nativePath: `/date/${SESSION_ID}`,
+  });
 });
 
 test("Sprint 1 canonical contract blocks no-provider-room date entry from stale video registration", () => {

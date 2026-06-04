@@ -329,6 +329,7 @@ export const useReconnection = ({
     const args = {
       p_session_id: sessionId,
       p_action: "mark_reconnect_partner_away",
+      p_reason: "daily_transport_grace_expired",
     };
     vdbg("video_date_transition_before", { action: "mark_reconnect_partner_away", args });
     void (async () => {
