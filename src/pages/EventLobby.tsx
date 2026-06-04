@@ -39,6 +39,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
+import { isDateEntryTransitionActive } from "@/lib/dateEntryTransitionLatch";
 import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
@@ -679,6 +680,25 @@ const EventLobby = () => {
 
   const prepareAndNavigateToDateSession = useCallback(
     (sessionId: string, source: string) => {
+      const pipelineActive = isDateEntryTransitionActive(sessionId);
+      const navigationAlreadyClaimed = dateNavigationSessionIdRef.current === sessionId;
+      if (pipelineActive || navigationAlreadyClaimed) {
+        vdbg("event_lobby_prepare_entry_suppressed", {
+          sessionId,
+          eventId,
+          source,
+          reason: pipelineActive
+            ? "date_entry_pipeline_active"
+            : "date_navigation_already_claimed",
+        });
+        navigateToDateSession(
+          sessionId,
+          pipelineActive
+            ? `${source}_date_entry_pipeline_active`
+            : `${source}_date_navigation_already_claimed`,
+        );
+        return;
+      }
       if (prepareNavigationInFlightRef.current.has(sessionId)) {
         vdbg("event_lobby_prepare_entry_suppressed", {
           sessionId,

@@ -11,6 +11,7 @@ const readyGateRouteLabelCleanupMigration = read(
   "supabase/migrations/20260522162000_video_date_ready_gate_route_label_cleanup.sql",
 );
 const webDupGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
+const webVideoDate = read("src/pages/VideoDate.tsx");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
 const sharedContinuity = read("shared/matching/postDateContinuity.ts");
@@ -36,11 +37,22 @@ test("active-session audit remains service-role-only and uses the shared active-
 });
 
 test("web duplicate-tab guard renews and releases backend surface claims", () => {
+  assert.match(webDupGuard, /storageKey\(sessionId: string, profileId: string\)/);
+  assert.match(webDupGuard, /vibely_vd_tab_lease:\$\{profileId\}:\$\{sessionId\}/);
+  assert.match(webDupGuard, /sessionId && profileId \? storageKey\(sessionId, profileId\) : null/);
+  assert.match(webVideoDate, /useVideoDateDupTabGuard\(\s*id,\s*user\?\.id,/);
   assert.match(webDupGuard, /claim_video_date_surface/);
   assert.match(webDupGuard, /release_video_date_surface_claim/);
   assert.match(webDupGuard, /p_surface:\s*"video_date"/);
   assert.match(webDupGuard, /p_takeover:\s*true/);
   assert.match(webDupGuard, /SURFACE_CLAIM_CONFLICT/);
+});
+
+test("web duplicate-tab conflicts do not auto-end an active Daily call", () => {
+  assert.match(webVideoDate, /DUPLICATE_TAB_CONFLICT_STABLE_MS/);
+  assert.match(webVideoDate, /showDuplicateTabConflict/);
+  assert.match(webVideoDate, /duplicate_tab_conflict_visible/);
+  assert.doesNotMatch(webVideoDate, /duplicate_tab_lease_blocked/);
 });
 
 test("post-date continuity is backend-resolved before client event fallback", () => {

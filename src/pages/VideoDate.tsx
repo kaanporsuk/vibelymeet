@@ -161,6 +161,7 @@ function isoFromTimelineMs(value: number | null | undefined): string | null {
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
 const VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000;
 const VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS = 2_500;
+const DUPLICATE_TAB_CONFLICT_STABLE_MS = 2_500;
 const TERMINAL_SURVEY_RECONCILE_INTERVAL_MS = 2_500;
 const TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS = [0, 350, 900, 1_600] as const;
 const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
@@ -936,8 +937,10 @@ const VideoDate = () => {
 
   const { dupBlocked, takeOver } = useVideoDateDupTabGuard(
     id,
+    user?.id,
     videoDateAccess === "allowed" && !showFeedback && phase !== "ended",
   );
+  const [showDuplicateTabConflict, setShowDuplicateTabConflict] = useState(false);
 
   const reconnection = useReconnection({
     sessionId: videoDateAccess === "allowed" ? id : undefined,
@@ -4497,20 +4500,26 @@ const VideoDate = () => {
     ],
   );
 
-  const dupLeaseNavigateRef = useRef(false);
   useEffect(() => {
-    if (!dupBlocked || !callStarted) return;
-    if (dupLeaseNavigateRef.current) return;
-    dupLeaseNavigateRef.current = true;
-    void (async () => {
-      toast.info("This date continued in another tab — closing here.", { duration: 3500 });
-      await endCall("duplicate_tab_lease_blocked");
-      setCallStarted(false);
-      const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
-      vdbgRedirect(target, "duplicate_tab_lease_blocked", { sessionId: id ?? null, eventId: eventId ?? null });
-      navigate(target);
-    })();
-  }, [dupBlocked, callStarted, endCall, navigate, eventId, id]);
+    if (!dupBlocked || videoDateAccess !== "allowed" || showFeedback) {
+      setShowDuplicateTabConflict(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowDuplicateTabConflict(true);
+      vdbg("duplicate_tab_conflict_visible", {
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+        userId: user?.id ?? null,
+        callStarted,
+      });
+    }, DUPLICATE_TAB_CONFLICT_STABLE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [callStarted, dupBlocked, eventId, id, showFeedback, user?.id, videoDateAccess]);
 
   const totalTime =
     phase === "handshake" ? HANDSHAKE_TIME : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
@@ -4813,7 +4822,7 @@ const VideoDate = () => {
   return (
     <div className="fixed inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_10%,hsl(var(--primary)/0.18),transparent_32%),radial-gradient(circle_at_50%_95%,hsl(var(--accent)/0.14),transparent_30%),hsl(var(--background))] md:flex md:items-center md:justify-center md:p-4">
       <div className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(135deg,rgba(10,10,16,0.92),rgba(5,5,9,0.98))] md:block" aria-hidden />
-      {dupBlocked && videoDateAccess === "allowed" && !showFeedback && (
+      {showDuplicateTabConflict && videoDateAccess === "allowed" && !showFeedback && (
         <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-background/95 p-6 text-center">
           <p className="text-lg font-display font-semibold text-foreground max-w-sm">
             This date is already open on another device
@@ -4822,7 +4831,14 @@ const VideoDate = () => {
             Switch here only if you want this device to take over the live call.
           </p>
           <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
-            <Button type="button" className="w-full" onClick={() => takeOver()}>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                setShowDuplicateTabConflict(false);
+                takeOver();
+              }}
+            >
               Switch here
             </Button>
             <Button

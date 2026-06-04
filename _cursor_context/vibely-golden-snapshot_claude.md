@@ -1,3 +1,7 @@
+# 2026-06-04 Video Date Recovery Note
+
+This file is historical snapshot context. For current Vibely Video Date, Ready Gate, Daily.co, event-lobby handoff, notification outbox, or post-date survey work, consult and update `docs/video-date-success-command-center.md` first.
+
 # VIBELY — GOLDEN STATE TECHNICAL SNAPSHOT
 ## Complete Rebuild Reference Dossier
 ### Snapshot Date: March 10, 2026

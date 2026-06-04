@@ -8,6 +8,12 @@ Vibely is a production social/dating app with Git, Supabase, Edge Functions, nat
 
 Main is sacred. Stashes are temporary. Branches need owners and expiry. Broad WIP becomes decision packs. Supabase is verified remotely and non-mutating first. Generated artifacts are cleaned separately. Every squash merge has a cleanup step. Every risky idea becomes a sprint, not a stash.
 
+## 0. Video Date Recovery Documentation Gate
+
+Before touching any Ready Gate, Video Date, Daily.co, event-lobby match handoff, notification outbox, or post-date survey code, read and update `docs/video-date-success-command-center.md`.
+
+That file is the active source of truth for the currently failing Video Date recovery effort. It must capture every material symptom, hypothesis, rejected hypothesis, session ID, migration, deployment, test, manual QA result, and unresolved gap. Do not claim Video Date is fixed from static tests alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
+
 ## 1. No Long-Lived Stashes
 
 Do not use Git stashes as product backlog, design memory, migration parking, native config archives, payment/auth/backend WIP storage, or audit memory.

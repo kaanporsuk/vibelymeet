@@ -5,20 +5,25 @@ const LEASE_MS = 5000;
 const TICK_MS = 2000;
 const SERVER_TTL_SECONDS = 12;
 
-function storageKey(sessionId: string) {
-  return `vibely_vd_tab_lease:${sessionId}`;
+function storageKey(sessionId: string, profileId: string) {
+  return `vibely_vd_tab_lease:${profileId}:${sessionId}`;
 }
 
 type LeasePayload = { owner: string; exp: number };
 
 /**
- * Soft duplicate-tab guard for active video dates: one browser tab holds a short-lived localStorage lease.
- * The local lease gives fast same-browser feedback; the backend claim catches duplicate devices/tabs.
+ * Soft duplicate-tab guard for active video dates: one browser tab per participant
+ * holds a short-lived localStorage lease. The local lease gives fast same-browser
+ * feedback; the backend claim catches duplicate devices/tabs.
  */
-export function useVideoDateDupTabGuard(sessionId: string | undefined, leaseActive: boolean) {
+export function useVideoDateDupTabGuard(
+  sessionId: string | undefined,
+  profileId: string | undefined,
+  leaseActive: boolean,
+) {
   const ownerRef = useRef(`vd-${Math.random().toString(36).slice(2)}`);
   const [dupBlocked, setDupBlocked] = useState(false);
-  const key = sessionId ? storageKey(sessionId) : null;
+  const key = sessionId && profileId ? storageKey(sessionId, profileId) : null;
 
   const takeOver = useCallback(() => {
     if (!key || typeof localStorage === "undefined") return;

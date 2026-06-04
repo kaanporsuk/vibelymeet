@@ -174,6 +174,10 @@ const soloPrejoinJoinGuardMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505230000_video_date_solo_prejoin_daily_join_guard.sql"),
   "utf8",
 );
+const activePresenceJoinGuardMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260604142017_video_date_active_presence_join_guard.sql"),
+  "utf8",
+);
 const handshakeDeadlineFinalizerMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260502143000_video_date_handshake_deadline_finalizer.sql"),
   "utf8",
@@ -1486,6 +1490,13 @@ test("direct client updates cannot overwrite server-owned registration lifecycle
 
 test("web lobby dedupes same-runtime prepare handoffs before date navigation", () => {
   assert.match(eventLobby, /const prepareNavigationInFlightRef = useRef<Set<string>>\(new Set\(\)\)/);
+  assert.match(eventLobby, /isDateEntryTransitionActive/);
+  assert.match(eventLobby, /date_entry_pipeline_active/);
+  assert.match(eventLobby, /date_navigation_already_claimed/);
+  assert.ok(
+    eventLobby.indexOf("date_entry_pipeline_active") < eventLobby.indexOf("prepare_entry_already_in_flight"),
+    "lobby should suppress prepare-entry when /date already owns the handoff before checking only local in-flight state",
+  );
   assert.match(eventLobby, /prepareNavigationInFlightRef\.current\.has\(sessionId\)/);
   assert.match(eventLobby, /prepare_entry_already_in_flight/);
   assert.match(eventLobby, /prepareNavigationInFlightRef\.current\.add\(sessionId\)/);
@@ -1813,6 +1824,31 @@ test("latest handshake migration starts the visible timer only after both Daily 
   assert.match(markJoinedBody, /'handshake_started_after_both_daily_joined'/);
   assert.match(markJoinedBody, /'handshake_started', v_started_handshake/);
   assert.match(markJoinedBody, /'handshake_started_at', v_row\.handshake_started_at/);
+});
+
+test("Daily join stamping requires active co-presence, not stale joined evidence", () => {
+  assert.match(
+    activePresenceJoinGuardMigration,
+    /CREATE OR REPLACE FUNCTION public\.mark_video_date_daily_joined_20260604093000_failsoft_base/,
+  );
+  assert.match(activePresenceJoinGuardMigration, /participant_1_away_at = NULL/);
+  assert.match(activePresenceJoinGuardMigration, /participant_2_away_at = NULL/);
+  assert.match(activePresenceJoinGuardMigration, /v_participant_1_active :=/);
+  assert.match(activePresenceJoinGuardMigration, /v_row\.participant_1_away_at < v_row\.participant_1_joined_at/);
+  assert.match(activePresenceJoinGuardMigration, /v_participant_2_active :=/);
+  assert.match(activePresenceJoinGuardMigration, /v_row\.participant_2_away_at < v_row\.participant_2_joined_at/);
+  assert.match(
+    activePresenceJoinGuardMigration,
+    /AND v_participant_1_active[\s\S]*AND v_participant_2_active[\s\S]*handshake_started_at = v_now/s,
+  );
+  const activeBranchStart = activePresenceJoinGuardMigration.indexOf("AND v_participant_1_active");
+  const waitingBranchStart = activePresenceJoinGuardMigration.indexOf("  ELSIF v_row.date_started_at");
+  assert.ok(activeBranchStart > 0);
+  assert.ok(waitingBranchStart > activeBranchStart);
+  const activeBranch = activePresenceJoinGuardMigration.slice(activeBranchStart, waitingBranchStart);
+  assert.doesNotMatch(activeBranch, /participant_1_joined_at IS NOT NULL[\s\S]*participant_2_joined_at IS NOT NULL/s);
+  assert.match(activePresenceJoinGuardMigration, /handshake_started_after_active_daily_copresence/);
+  assert.match(activePresenceJoinGuardMigration, /daily_join_waiting_for_active_partner/);
 });
 
 test("Daily join stamping is routeable-only so solo prejoin cannot start handshake", () => {
