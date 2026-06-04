@@ -117,7 +117,9 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.send-notification]
-verify_jwt = true
+# Self-authenticates inside the handler so service-to-service outbox calls can
+# use the service key without Supabase gateway treating it as a user JWT.
+verify_jwt = false
 
 [functions.daily-drop-actions]
 verify_jwt = true

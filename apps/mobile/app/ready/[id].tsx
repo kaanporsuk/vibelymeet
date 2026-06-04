@@ -49,6 +49,7 @@ import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
+  destroyNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
@@ -95,7 +96,9 @@ function isReadyGateTransitionTimeoutSignal(input: {
   errorCode?: string | null;
   reason?: string | null;
   error?: string | null;
+  retryable?: boolean | null;
 }): boolean {
+  if (input.retryable === true) return true;
   const text = [input.code, input.errorCode, input.reason, input.error]
     .filter(Boolean)
     .join(' ')
@@ -200,6 +203,19 @@ export default function ReadyGateScreen() {
   const guardedSyncCooldownUntilMsRef = useRef(0);
   const permissionSettingsOpenedRef = useRef(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+
+  const cancelTerminalReadyGateWork = useCallback(
+    (cancelReason: string) => {
+      readyActionInFlightRef.current = false;
+      guardedSyncCooldownUntilMsRef.current = Number.POSITIVE_INFINITY;
+      expirySyncInFlightRef.current = false;
+      expirySyncRetryAtMsRef.current = Number.POSITIVE_INFINITY;
+      const sid = sessionId ? String(sessionId) : null;
+      if (!sid || !user?.id) return;
+      destroyNativeVideoDateDailyPrewarm(sid, user.id, cancelReason);
+    },
+    [sessionId, user?.id],
+  );
 
   const guardedSyncSession = useCallback(
     async (
@@ -532,6 +548,7 @@ export default function ReadyGateScreen() {
       // Terminal / lobby fallback. Always clear latch so the new route cannot be suppressed by a
       // stale entry latch from a previous attempt.
       clearDateEntryTransition(sid);
+      cancelTerminalReadyGateWork(`ready_standalone_terminal_${startable.reason}`);
       if (
         startable.reason === 'prepare_entry_event_inactive' ||
         isReadyGatePrepareEntryNonRetryable({
@@ -545,7 +562,7 @@ export default function ReadyGateScreen() {
       router.replace(startable.recommendHref);
       return true;
     },
-    [eventId, pathname, sessionId, user?.id],
+    [cancelTerminalReadyGateWork, eventId, pathname, sessionId, user?.id],
   );
 
   useEffect(() => {
@@ -565,6 +582,7 @@ export default function ReadyGateScreen() {
     dateNavigationStartedRef.current = false;
     terminalRecoveryKeyRef.current = null;
     nonRetryablePrepareBlockerRef.current = null;
+    guardedSyncCooldownUntilMsRef.current = 0;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
     readyGateOpenedAtMsRef.current = Date.now();
@@ -775,6 +793,7 @@ export default function ReadyGateScreen() {
           rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_ended', {
             session_id: sessionId,
           });
+          cancelTerminalReadyGateWork('ready_standalone_initial_session_ended');
           await reconcileFromCanonicalTruth('initial_session_ended');
           return;
         }
@@ -973,6 +992,9 @@ export default function ReadyGateScreen() {
       const terminalKey = `${sessionId ?? 'none'}:${recovery.category}:${reason ?? errorCode ?? status}`;
       if (terminalRecoveryKeyRef.current === terminalKey) return;
       terminalRecoveryKeyRef.current = terminalKey;
+      cancelTerminalReadyGateWork(
+        `ready_standalone_forfeited_${recovery.category}`,
+      );
       rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeited', {
         session_id: sessionId ?? null,
         event_id: eventId,
@@ -999,6 +1021,7 @@ export default function ReadyGateScreen() {
     eventId,
     inactiveReason,
     isForfeited,
+    cancelTerminalReadyGateWork,
     reason,
     sessionId,
     showDialog,
@@ -1066,6 +1089,7 @@ export default function ReadyGateScreen() {
         setTerminalActionError(null);
         if (eventId) router.replace(eventLobbyHref(eventId));
         else if (sessionLookupDone) router.replace(tabsRootHref());
+        cancelTerminalReadyGateWork('ready_standalone_forfeit_terminal');
       } catch (e) {
         const fallback =
           transitionFailure ??
@@ -1092,7 +1116,14 @@ export default function ReadyGateScreen() {
         );
       }
     },
-    [eventId, forfeit, sessionId, sessionLookupDone, terminalActionPending],
+    [
+      cancelTerminalReadyGateWork,
+      eventId,
+      forfeit,
+      sessionId,
+      sessionLookupDone,
+      terminalActionPending,
+    ],
   );
 
   const syncExpiredReadyGate = useCallback(
@@ -1633,6 +1664,7 @@ export default function ReadyGateScreen() {
                             reason: result.reason,
                             error: result.error,
                             status: result.status,
+                            retryable: result.retryable,
                             platform: 'native',
                           });
                         throw new Error(transitionFailure.message);

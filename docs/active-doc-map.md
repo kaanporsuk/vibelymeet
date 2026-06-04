@@ -1,6 +1,6 @@
 # Active doc map
 
-Date: 2026-05-25
+Date: 2026-06-04
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
@@ -33,6 +33,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Launch blocker status, build ids, pass/fail updates | `docs/native-final-blocker-matrix.md` |
 | Browser/runtime proof results | `docs/browser-auth-runtime-proof-results.md` |
 | Post-audit ops checklist (Supabase vs Vercel vs manual QA) | `docs/post-audit-operational-verification-checklist.md` |
+| Google TLS certificate posture (Q2 2026 GTS/ECDSA notice) | `docs/audits/google-tls-certificate-posture-2026-06-04.md`; static guard `npm run test:google-tls-posture` |
 | Distance Visibility Stage 1 rollout and Stage 2 final enforcement | `docs/distance-visibility-stage1-rollout.md`, `docs/distance-visibility-stage2-final-enforcement.md` |
 | Activity Status privacy boundary rebuild delta | `docs/branch-deltas/fix-activity-status-privacy-boundary.md`, `docs/activity-status-privacy-verification.sql` |
 | Blocked Users server-owned safety production closure | `docs/branch-deltas/blocked-users-server-owned-safety-production-closure.md` |

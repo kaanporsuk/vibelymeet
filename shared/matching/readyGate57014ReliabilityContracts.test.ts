@@ -13,6 +13,9 @@ const migration = read(
 const hotPathMigration = read(
   "supabase/migrations/20260604103000_ready_gate_mark_ready_hot_path_retry_recovery.sql",
 );
+const graceMigration = read(
+  "supabase/migrations/20260604104154_ready_gate_mark_ready_grace_notification_auth.sql",
+);
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -22,6 +25,10 @@ const nativeReadyGateOverlay = read(
 );
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
+const sendNotification = read("supabase/functions/send-notification/index.ts");
+const swipeActions = read("supabase/functions/swipe-actions/index.ts");
+const supabaseConfig = read("supabase/config.toml");
 
 test("web and native lobbies pause deck pressure while Ready Gate is active", () => {
   assert.match(webLobby, /const readyGatePressureActive = Boolean\(/);
@@ -85,6 +92,35 @@ test("Ready Gate 57014 copy is a transient status-sync delay, not a permission d
   assert.doesNotMatch(webReadyGateOverlay, /if \(!permissionReady && mediaDiagnosticsAreGreen\)/);
 });
 
+test("retryable mark-ready failures stay in syncing copy instead of stale Ready Gate copy", () => {
+  assert.deepEqual(
+    resolveReadyGateTransitionFailureCopy({
+      action: "mark_ready",
+      reason: "session_no_longer_ready_gate_mutable",
+      retryable: true,
+      platform: "web",
+    }),
+    {
+      action: "mark_ready",
+      code: null,
+      reasonCode: "ready_gate_transition_timeout",
+      title: "Status sync delayed",
+      message: "Status sync is delayed. Retrying with the latest session status.",
+      retryable: true,
+      staleOrConflict: false,
+    },
+  );
+
+  const terminalCopy = resolveReadyGateTransitionFailureCopy({
+    action: "mark_ready",
+    reason: "session_no_longer_ready_gate_mutable",
+    retryable: false,
+    platform: "web",
+  });
+  assert.equal(terminalCopy.title, "Ready Gate changed");
+  assert.equal(terminalCopy.staleOrConflict, true);
+});
+
 test("Ready Gate 57014 migration makes sync/deck paths non-blocking", () => {
   assert.match(migration, /idx_event_registrations_profile_active_room/);
   assert.match(migration, /ready_gate_transition_20260602231752_57014_base/);
@@ -122,6 +158,40 @@ test("mark-ready v2 owns the decisive Ready Gate hot path", () => {
   assert.match(hotPathMigration, /command_finish_degraded/);
 });
 
+test("mark-ready v2 grace wrapper preserves legitimate tap intent through contention", () => {
+  assert.match(graceMigration, /CREATE OR REPLACE FUNCTION public\.video_session_mark_ready_grace_extend_v1/);
+  assert.match(graceMigration, /v_grace_window interval := interval '15 seconds'/);
+  assert.match(graceMigration, /v_grace_max_age interval := interval '45 seconds'/);
+  assert.match(graceMigration, /v_extend_until timestamptz := v_now \+ interval '15 seconds'/);
+  assert.match(graceMigration, /set_config\('lock_timeout', '800ms', true\)/);
+  assert.match(graceMigration, /set_config\('statement_timeout', '3000ms', true\)/);
+  assert.match(graceMigration, /v_existing_command_found boolean := false/);
+  assert.match(graceMigration, /v_existing_command_found := v_started_at IS NOT NULL/);
+  assert.match(graceMigration, /v_max_extend_until := v_started_at \+ v_grace_max_age/);
+  assert.match(graceMigration, /IN \('queued', 'ready', 'ready_a', 'ready_b', 'snoozed'\)/);
+  assert.match(graceMigration, /v_started_at <= vs\.ready_gate_expires_at/);
+  assert.match(graceMigration, /vs\.ready_gate_expires_at >= v_now - v_grace_window/);
+  assert.match(graceMigration, /v_now < v_max_extend_until/);
+  assert.match(graceMigration, /vs\.ready_gate_expires_at < LEAST\(v_extend_until, v_max_extend_until\)/);
+  assert.doesNotMatch(graceMigration, /vs\.ready_gate_expires_at >= v_started_at - v_grace_window/);
+  assert.match(graceMigration, /ready_gate_expires_at = GREATEST\(/);
+  assert.match(graceMigration, /LEAST\(v_extend_until, v_max_extend_until\)/);
+  assert.match(graceMigration, /mark_ready_expiry_grace_applied/);
+  assert.match(graceMigration, /ALTER FUNCTION public\.video_session_mark_ready_v2\(uuid, text, text\)[\s\S]*RENAME TO video_session_mark_ready_v2_20260604104154_grace_base/);
+  assert.match(graceMigration, /public\.video_session_mark_ready_v2_20260604104154_grace_base\(/);
+  assert.match(graceMigration, /'post_retryable'/);
+  assert.match(graceMigration, /'mark_ready_started_at'/);
+  assert.match(graceMigration, /'expiry_grace_applied'/);
+  assert.match(graceMigration, /'retryable_command_reopened'/);
+  assert.match(graceMigration, /'hot_path', true/);
+  assert.match(graceMigration, /legacy_mark_ready_signature_detected/);
+  assert.match(graceMigration, /ready_gate_transition_timeout/);
+  assert.match(graceMigration, /pre_ready_room_metadata_repaired/);
+  assert.match(graceMigration, /GRANT EXECUTE ON FUNCTION public\.video_session_mark_ready_v2\(uuid, text, text\)[\s\S]*TO authenticated, service_role/);
+  assert.doesNotMatch(graceMigration, /daily\.ensure_video_date_room/);
+  assert.doesNotMatch(graceMigration, /createDaily|Daily API|api\.daily\.co/i);
+});
+
 test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into sync recovery", () => {
   for (const [name, source] of [
     ["web hook", webReadyGateHook],
@@ -138,8 +208,51 @@ test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into s
   for (const [name, source] of [
     ["web overlay", webReadyGateOverlay],
     ["native overlay", nativeReadyGateOverlay],
+    ["native ready route", nativeReadyRoute],
   ] as const) {
     assert.match(source, /retryable\?: boolean \| null/, `${name} timeout predicate should accept retryable`);
     assert.match(source, /if \(input\.retryable === true\) return true/, `${name} should sync-recover retryable failures`);
   }
+});
+
+test("terminal Ready Gate outcomes cancel prewarm and retry churn on web and native", () => {
+  assert.match(webReadyGateOverlay, /const cancelTerminalReadyGateWork = useCallback/);
+  assert.match(webReadyGateOverlay, /prepareEntryRunIdRef\.current \+= 1/);
+  assert.match(webReadyGateOverlay, /destroyWebVideoDateDailyPrewarm\(sessionId, user\.id, reason\)/);
+  assert.match(webReadyGateOverlay, /clearWebVideoDateMediaHandoff\(sessionId, user\.id\)/);
+  assert.match(webReadyGateOverlay, /cancelTerminalReadyGateWork\(`ready_gate_stale_\$\{source\}`\)/);
+
+  assert.match(nativeReadyGateOverlay, /const cancelTerminalReadyGateWork = useCallback/);
+  assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm\(sessionId, userId, reason\)/);
+  assert.match(nativeReadyGateOverlay, /ready_gate_terminal_expired/);
+
+  assert.match(nativeReadyRoute, /destroyNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyRoute, /const cancelTerminalReadyGateWork = useCallback/);
+  assert.match(nativeReadyRoute, /guardedSyncCooldownUntilMsRef\.current = Number\.POSITIVE_INFINITY/);
+  assert.match(nativeReadyRoute, /guardedSyncCooldownUntilMsRef\.current = 0/);
+  assert.match(nativeReadyRoute, /ready_standalone_terminal_/);
+  assert.match(nativeReadyRoute, /ready_standalone_forfeited_/);
+});
+
+test("notification outbox auth failures are classified and recipient identity stays unambiguous", () => {
+  assert.match(supabaseConfig, /\[functions\.send-notification\][\s\S]{0,180}verify_jwt = false/);
+  assert.match(sendNotification, /requestBody\?\.health_check === true/);
+  assert.match(sendNotification, /authenticated_as: isServiceRole \? 'service_role' : 'user'/);
+
+  assert.match(outboxDrainer, /sendNotificationAuthHealthCheck/);
+  assert.match(outboxDrainer, /url\.searchParams\.get\("health_check"\)/);
+  assert.match(outboxDrainer, /operation: "send_notification_auth_health_check"/);
+  assert.match(outboxDrainer, /apikey: serviceKey/);
+  assert.match(outboxDrainer, /video_date_notification_auth_failure/);
+  assert.match(outboxDrainer, /notification_auth_failed_\$\{res\.status\}/);
+  assert.match(outboxDrainer, /safeProviderBodySnippet/);
+  assert.doesNotMatch(outboxDrainer, /reason: `notification_http_\$\{res\.status\}`,\s*retryAfterSeconds: res\.status >= 500/s);
+
+  assert.match(swipeActions, /const matchUserId = args\.userId === args\.actorId \? args\.targetId : args\.actorId/);
+  assert.match(swipeActions, /user_id: args\.userId/);
+  assert.match(swipeActions, /recipient_id: args\.userId/);
+  assert.match(swipeActions, /match_user_id: matchUserId/);
+  assert.match(swipeActions, /\n\s*target_id: args\.userId/);
+  assert.match(swipeActions, /swipe_target_id: args\.targetId/);
+  assert.doesNotMatch(swipeActions, /\n\s*target_id: args\.targetId/);
 });
