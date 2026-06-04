@@ -63,21 +63,29 @@ async function enqueueNotificationOutbox(
     outcome: string;
   },
 ) {
+  const matchUserId = args.userId === args.actorId ? args.targetId : args.actorId;
   const { data, error } = await serviceClient.rpc("video_date_outbox_enqueue_v2", {
     p_session_id: args.sessionId ?? null,
     p_kind: "notification.send",
     p_payload: {
       user_id: args.userId,
+      recipient_id: args.userId,
+      match_user_id: matchUserId,
       category: args.category,
       title: args.title,
       body: args.body,
-      data: args.data,
+      data: {
+        ...args.data,
+        recipient_id: args.userId,
+        match_user_id: matchUserId,
+      },
       dedupe_key: args.dedupeKey,
       source: "swipe-actions",
       event_id: args.eventId,
       session_id: args.sessionId ?? null,
       actor_id: args.actorId,
-      target_id: args.targetId,
+      target_id: args.userId,
+      swipe_target_id: args.targetId,
       swipe_type: args.swipeType,
       outcome: args.outcome,
     },

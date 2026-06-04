@@ -62,6 +62,7 @@ type WorkerRequest = {
   batch_size?: number;
   lease_seconds?: number;
   dry_run?: boolean;
+  health_check?: boolean;
   source?: string;
 };
 
@@ -145,7 +146,17 @@ function authOk(req: Request): boolean {
 }
 
 async function parseBody(req: Request): Promise<WorkerRequest> {
-  if (req.method === "GET") return {};
+  if (req.method === "GET") {
+    const url = new URL(req.url);
+    const healthParam = url.searchParams.get("health_check") ??
+      url.searchParams.get("notification_health_check") ??
+      url.searchParams.get("health");
+    return {
+      dry_run: url.searchParams.get("dry_run") === "true",
+      health_check: healthParam === "true" || healthParam === "1" || healthParam === "notification",
+      source: url.searchParams.get("source")?.slice(0, 80) || undefined,
+    };
+  }
   const text = await req.text().catch(() => "");
   if (!text.trim()) return {};
   try {
@@ -154,6 +165,7 @@ async function parseBody(req: Request): Promise<WorkerRequest> {
       batch_size: typeof parsed.batch_size === "number" ? parsed.batch_size : undefined,
       lease_seconds: typeof parsed.lease_seconds === "number" ? parsed.lease_seconds : undefined,
       dry_run: parsed.dry_run === true,
+      health_check: parsed.health_check === true || parsed.notification_health_check === true,
       source: typeof parsed.source === "string" ? parsed.source.slice(0, 80) : undefined,
     };
   } catch {
@@ -178,6 +190,15 @@ function stringField(payload: Record<string, unknown>, ...keys: string[]): strin
 
 function isObjectPayload(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function safeProviderBodySnippet(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/Key\s+[A-Za-z0-9._~+/=-]+/gi, "Key [redacted]")
+    .replace(/"Authorization"\s*:\s*"[^"]+"/gi, '"Authorization":"[redacted]"')
+    .replace(/"apikey"\s*:\s*"[^"]+"/gi, '"apikey":"[redacted]"')
+    .slice(0, 240);
 }
 
 const PERMANENT_NOTIFICATION_SUPPRESSIONS = new Set([
@@ -227,6 +248,46 @@ function notificationPayloadFailureResult(payload: Record<string, unknown> | nul
   }
 
   return { success: false, reason: detail, retryAfterSeconds: 60 };
+}
+
+async function sendNotificationAuthHealthCheck(
+  supabaseUrl: string,
+  serviceKey: string,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const res = await fetchWithTimeout(`${supabaseUrl}/functions/v1/send-notification`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+    },
+    body: JSON.stringify({
+      health_check: true,
+      source: "video-date-outbox-drainer",
+    }),
+  }, {
+    provider: "supabase",
+    operation: "send_notification_auth_health_check",
+    timeoutMs: providerFetchTimeoutMs("supabase", "send_notification_function"),
+    signal,
+  });
+  const responseText = await res.text().catch(() => "");
+  const ok = res.ok;
+  if (!ok) {
+    console.error(JSON.stringify({
+      event: "video_date_notification_auth_health_failed",
+      status: res.status,
+      reason: `notification_auth_health_http_${res.status}`,
+      body_snippet: safeProviderBodySnippet(responseText),
+    }));
+  }
+  return {
+    ok,
+    status: res.status,
+    reason: ok ? "notification_auth_health_ok" : `notification_auth_health_http_${res.status}`,
+    body_snippet: ok ? undefined : safeProviderBodySnippet(responseText),
+  };
 }
 
 function isVideoDateNotificationCategory(category: string): boolean {
@@ -650,6 +711,7 @@ async function sendNotification(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      apikey: serviceKey,
       Authorization: `Bearer ${serviceKey}`,
     },
     body: JSON.stringify(requestBody),
@@ -661,11 +723,23 @@ async function sendNotification(
   });
 
   if (!res.ok) {
+    const responseText = await res.text().catch(() => "");
+    const authFailure = res.status === 401 || res.status === 403;
+    if (authFailure) {
+      console.error(JSON.stringify({
+        event: "video_date_notification_auth_failure",
+        outbox_id: row.id,
+        session_id: row.session_id,
+        status: res.status,
+        reason: `notification_auth_failed_${res.status}`,
+        body_snippet: safeProviderBodySnippet(responseText),
+      }));
+    }
     return {
       success: false,
-      reason: `notification_http_${res.status}`,
-      retryAfterSeconds: res.status >= 500 ? 30 : 120,
-      permanent: res.status >= 400 && res.status < 500 && res.status !== 429,
+      reason: authFailure ? `notification_auth_failed_${res.status}` : `notification_http_${res.status}`,
+      retryAfterSeconds: authFailure ? 300 : res.status >= 500 ? 30 : 120,
+      permanent: authFailure || (res.status >= 400 && res.status < 500 && res.status !== 429),
     };
   }
 
@@ -802,6 +876,17 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) return json({ ok: false, error: "missing_supabase_env" }, 500);
 
   const supabase = createClient(supabaseUrl, serviceKey) as SupabaseServiceClient;
+
+  if (body.health_check) {
+    const notificationAuth = await sendNotificationAuthHealthCheck(supabaseUrl, serviceKey);
+    return json({
+      ok: notificationAuth.ok === true,
+      health_check: true,
+      worker_id: workerId,
+      notification_auth: notificationAuth,
+      latency_ms: Date.now() - startedAt,
+    }, notificationAuth.ok === true ? 200 : 503);
+  }
 
   if (body.dry_run) {
     const previewColumns = "id,session_id,kind,attempts,next_attempt_at,state,claim_expires_at,dedupe_key";

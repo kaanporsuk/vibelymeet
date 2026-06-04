@@ -1607,6 +1607,19 @@ Deno.serve(async (req) => {
     }
 
     const requestBody = await req.json()
+    if (requestBody?.health_check === true) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          success: true,
+          health_check: true,
+          authenticated_as: isServiceRole ? 'service_role' : 'user',
+          user_id: authUserId,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
     let {
       user_id,
       category,

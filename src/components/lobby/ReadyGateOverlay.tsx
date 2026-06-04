@@ -659,6 +659,28 @@ const ReadyGateOverlay = ({
     [clearPermissionPrewarmMediaReleaseTimer, eventId, sessionId, user?.id],
   );
 
+  const cancelTerminalReadyGateWork = useCallback(
+    (reason: string) => {
+      prepareEntryRunIdRef.current += 1;
+      prepareEntryHandoffStartedRef.current = false;
+      roomWarmupStartedRef.current = false;
+      clearOverlayRealtimeRecoveryTimer();
+      clearRealtimeFallbackCopy();
+      releasePermissionPrewarmMedia(reason);
+      if (user?.id) {
+        destroyWebVideoDateDailyPrewarm(sessionId, user.id, reason);
+        clearWebVideoDateMediaHandoff(sessionId, user.id);
+      }
+    },
+    [
+      clearOverlayRealtimeRecoveryTimer,
+      clearRealtimeFallbackCopy,
+      releasePermissionPrewarmMedia,
+      sessionId,
+      user?.id,
+    ],
+  );
+
   useLayoutEffect(() => {
     activeReadyGateKeyRef.current = activeReadyGateKey;
   }, [activeReadyGateKey]);
@@ -1874,6 +1896,11 @@ const ReadyGateOverlay = ({
         return;
       }
       closedRef.current = true;
+      cancelTerminalReadyGateWork(
+        reason === "timeout"
+          ? "ready_gate_terminal_expired"
+          : "ready_gate_terminal_forfeited",
+      );
       terminalActionInFlightRef.current = false;
       setTerminalActionPending(false);
       setTerminalActionError(null);
@@ -1931,6 +1958,7 @@ const ReadyGateOverlay = ({
       realtimeDegraded,
       trackReadyGateClientEvent,
       suppressDuplicateTerminal,
+      cancelTerminalReadyGateWork,
     ],
   );
 
@@ -1956,6 +1984,7 @@ const ReadyGateOverlay = ({
         return;
       }
       closedRef.current = true;
+      cancelTerminalReadyGateWork(`ready_gate_stale_${source}`);
       readyGateDebug("stale ready-gate close", {
         sessionId,
         source,
@@ -2002,6 +2031,7 @@ const ReadyGateOverlay = ({
       eventId,
       trackReadyGateClientEvent,
       suppressDuplicateTerminal,
+      cancelTerminalReadyGateWork,
     ],
   );
 
@@ -3458,6 +3488,7 @@ const ReadyGateOverlay = ({
                               reason: result.reason,
                               error: result.error,
                               status: result.status,
+                              retryable: result.retryable,
                               platform: "web",
                             });
                           throw new Error(transitionFailure.message);

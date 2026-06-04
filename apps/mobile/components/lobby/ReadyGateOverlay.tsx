@@ -254,6 +254,15 @@ export function ReadyGateOverlay({
   const [nativePermissionDiagnostics, setNativePermissionDiagnostics] =
     useState(defaultNativeReadyGatePermissionDiagnostics);
 
+  const cancelTerminalReadyGateWork = useCallback(
+    (reason: string) => {
+      prepareEntryHandoffStartedRef.current = false;
+      roomWarmupStartedRef.current = false;
+      destroyNativeVideoDateDailyPrewarm(sessionId, userId, reason);
+    },
+    [sessionId, userId],
+  );
+
   const refreshNativeMediaDiagnostics = useCallback(
     async (permission: boolean | null = hasMediaPermission) => {
       const readyGateKey = activeReadyGateKeyRef.current;
@@ -1232,6 +1241,11 @@ export function ReadyGateOverlay({
       const reason = pendingForfeitReasonRef.current ?? _reason;
       pendingForfeitReasonRef.current = null;
       closedRef.current = true;
+      cancelTerminalReadyGateWork(
+        reason === 'timeout'
+          ? 'ready_gate_terminal_expired'
+          : 'ready_gate_terminal_forfeited',
+      );
       terminalActionInFlightRef.current = false;
       setTerminalActionPending(false);
       setTerminalActionError(null);
@@ -1274,6 +1288,7 @@ export function ReadyGateOverlay({
       onLobbyUserMessage,
       suppressDuplicateTerminal,
       trackNativeReadyGateEvent,
+      cancelTerminalReadyGateWork,
     ],
   );
 
@@ -2397,6 +2412,7 @@ export function ReadyGateOverlay({
                                 reason: result.reason,
                                 error: result.error,
                                 status: result.status,
+                                retryable: result.retryable,
                                 platform: 'native',
                               });
                             throw new Error(transitionFailure.message);

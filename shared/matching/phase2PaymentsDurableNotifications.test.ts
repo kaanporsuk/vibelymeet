@@ -123,7 +123,9 @@ test("Phase 2 swipe notifications use durable outbox and drainer preserves custo
   assert.match(outboxDrainer, /notificationPayloadFailureResult/);
   assert.match(outboxDrainer, /no_player_id/);
   assert.match(outboxDrainer, /normalizedReason === "onesignal_error"/);
-  assert.match(outboxDrainer, /permanent: res\.status >= 400 && res\.status < 500 && res\.status !== 429/);
+  assert.match(outboxDrainer, /const authFailure = res\.status === 401 \|\| res\.status === 403/);
+  assert.match(outboxDrainer, /reason: authFailure \? `notification_auth_failed_\$\{res\.status\}` : `notification_http_\$\{res\.status\}`/);
+  assert.match(outboxDrainer, /permanent: authFailure \|\| \(res\.status >= 400 && res\.status < 500 && res\.status !== 429\)/);
 });
 
 test("Phase 2 shared payment normalizer drives web and native success states", () => {

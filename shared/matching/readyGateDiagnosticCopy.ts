@@ -161,6 +161,7 @@ export function resolveReadyGateTransitionFailureCopy(input: {
   reason?: string | null;
   error?: string | null;
   status?: string | null;
+  retryable?: boolean | null;
   platform?: ReadyGatePlatform;
 }): ReadyGateTransitionFailureCopy {
   const primaryCode = normalizeCode(input.code) ?? normalizeCode(input.errorCode) ?? null;
@@ -181,7 +182,7 @@ export function resolveReadyGateTransitionFailureCopy(input: {
     signal.includes("canceling statement due to statement timeout"),
   );
 
-  if (timedOut) {
+  if (timedOut || (input.action === "mark_ready" && input.retryable === true)) {
     return {
       action: input.action,
       code: primaryCode,
