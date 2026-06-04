@@ -338,7 +338,12 @@ Deployment and synchronization state:
   - `transition_base_preserved = true`
   - `stuck_observability_installed = true`
 - No Edge Functions changed in this patch, so no Edge Function deployment was required.
-- Git branch/merge state will be recorded after final commit and merge cleanup.
+- PR: `https://github.com/kaanporsuk/vibelymeet/pull/1192`
+- Source branch: `fix/video-date-warmup-stability`
+- Branch commit before squash merge: `ed75b90a99d34ff8b25d729edc90eb3cef738437`
+- Squash merge commit on `main`: `b2a4a10ce22c2f4950b94fa6b9e49aa235c6c7fa`
+- Merged: `2026-06-04 17:44:30 UTC`
+- Source branch was deleted on GitHub by the PR merge and is no longer present locally after sync.
 
 Remaining unproven:
 
@@ -561,3 +566,4 @@ Runbooks:
 - Recorded PR #1190, merge commit `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql`, post-deploy dry-run, direct remote verification, branch cleanup, and remaining manual E2E/native gaps.
 - Recorded latest failed two-user session `aac15b03-8de7-45e2-a11b-629cdd9b5b16`, where Ready Gate and Daily room handoff succeeded briefly but a Daily `participant-left` event triggered backend reconnect/terminalization before local transport grace could absorb the flap.
 - Implemented the warm-up stabilization patch: local Daily transport grace before backend partner-away marking, explicit `daily_transport_grace_expired` reason, terminal survey hard-stop on web, ReadyRedirect force-survey state, native/mobile parity, false peer-missing suppression, and migration `20260604170438_video_date_warmup_reconnect_stability.sql`.
+- Recorded PR #1192, squash merge commit `b2a4a10ce22c2f4950b94fa6b9e49aa235c6c7fa`, Supabase migration cloud application, post-push dry-run, direct catalog verification, and branch cleanup state for the warm-up stabilization patch.

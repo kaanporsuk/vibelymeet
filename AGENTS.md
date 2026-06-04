@@ -18,7 +18,7 @@ Before touching any Ready Gate, Video Date, Daily.co, event-lobby match handoff,
 
 `docs/video-date-success-command-center.md` is the active source of truth for the currently failing Video Date recovery effort. It must capture every material symptom, hypothesis, rejected hypothesis, session ID, migration, deployment, test, manual QA result, and unresolved gap.
 
-Current recovery baseline: PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`; Supabase migrations `20260604142017_video_date_active_presence_join_guard.sql` and `20260604170438_video_date_warmup_reconnect_stability.sql` are applied to project `schdyxcunwcvddlcshwd`. That is not acceptance proof. Do not claim Video Date is fixed from static tests, CI, route entry, `both_ready`, Daily room creation, brief warm-up UI, or a survey-required terminal row alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
+Current implementation baseline: PR #1192 is merged with squash commit `b2a4a10ce22c2f4950b94fa6b9e49aa235c6c7fa`; it builds on PR #1190 at `b72e487d65972566e63f508d023cf2e1e886734a`. Supabase migrations `20260604142017_video_date_active_presence_join_guard.sql` and `20260604170438_video_date_warmup_reconnect_stability.sql` are applied to project `schdyxcunwcvddlcshwd`. That is not acceptance proof. Do not claim Video Date is fixed from static tests, CI, route entry, `both_ready`, Daily room creation, brief warm-up UI, or a survey-required terminal row alone; the acceptance bar is a fresh end-to-end run from match through survey completion across the relevant web/native/mobile path.
 
 When investigating a Video Date failure, distinguish:
 
