@@ -154,6 +154,9 @@ type ReadyGateSessionTruth = {
   hint?: string | null;
   terminal?: boolean | null;
   retryable?: boolean | null;
+  retry_after_ms?: string | number | null;
+  retryAfterMs?: string | number | null;
+  commandStatus?: string | null;
   server_now_ms?: string | number | null;
   serverNowMs?: string | number | null;
   server_now?: string | number | null;
@@ -192,6 +195,8 @@ type ReadyGateTransitionResult = ReadyGateSyncResult;
 const READY_GATE_STATUS_VALUES = Object.values(ReadyGateStatus) as ReadyGateStatus[];
 const TERMINAL_READY_GATE_STATUS_VALUES: readonly ReadyGateStatus[] = TERMINAL_READY_GATE_STATUSES;
 type ReadyGateTransitionAction = "mark_ready" | "forfeit" | "snooze" | "sync";
+const MARK_READY_RETRY_DELAYS_MS = [350, 900, 1_400] as const;
+const MAX_MARK_READY_RETRY_DELAY_MS = 1_500;
 
 type ReadyGateTransitionDiagnostic = {
   sessionId: string;
@@ -221,6 +226,47 @@ function normalizeReadyGateStatus(value: unknown): ReadyGateStatus {
 
 function normalizeReadyGateTimestamp(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function readyGateTransitionRetrySleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readReadyGateMarkReadyRetryDelayMs(payload: ReadyGateSessionTruth, fallbackMs: number): number {
+  const rawDelay = payload.retry_after_ms ?? payload.retryAfterMs;
+  const numericDelay = typeof rawDelay === "number" ? rawDelay : Number(rawDelay);
+  if (!Number.isFinite(numericDelay)) return fallbackMs;
+  return Math.min(MAX_MARK_READY_RETRY_DELAY_MS, Math.max(0, Math.floor(numericDelay)));
+}
+
+function shouldRetryReadyGateMarkReadyPayload(data: unknown): data is ReadyGateSessionTruth {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+
+  const payload = data as ReadyGateSessionTruth & {
+    ok?: boolean | null;
+    success?: boolean | null;
+  };
+  const status =
+    payload.ready_gate_status ??
+    payload.status ??
+    payload.result_ready_gate_status ??
+    payload.result_status;
+  const errorCode = payload.error_code ?? payload.code ?? null;
+
+  if (payload.retryable !== true || payload.terminal === true || status === ReadyGateStatus.BothReady) {
+    return false;
+  }
+
+  return (
+    payload.success === false ||
+    payload.ok === false ||
+    payload.commandStatus === "replay_rejected" ||
+    payload.commandStatus === "rejected" ||
+    payload.reason === "mark_ready_timeout" ||
+    errorCode === "READY_GATE_TRANSITION_TIMEOUT" ||
+    errorCode === "MARK_READY_FAILED" ||
+    Boolean(payload.error)
+  );
 }
 
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
@@ -998,22 +1044,56 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     );
     // Static smoke contract: terminal actions still await
     // const { error } = await supabase.rpc("ready_gate_transition" before closing.
-    const transitionResult =
+    const callReadyGateTransitionRpc = () => (
       action === "mark_ready" && markReadyV2.enabled
-        ? await supabase.rpc("video_session_mark_ready_v2" as never, {
+        ? supabase.rpc("video_session_mark_ready_v2" as never, {
             p_session_id: sessionId,
             p_idempotency_key: buildVideoDateTransitionIdempotencyKey(sessionId, "mark_ready"),
           } as never)
         : action === "forfeit" && forfeitV2.enabled
-          ? await supabase.rpc("video_session_forfeit_v2" as never, {
+          ? supabase.rpc("video_session_forfeit_v2" as never, {
               p_session_id: sessionId,
               p_reason: "ready_gate_forfeit",
               p_idempotency_key: buildVideoDateTransitionIdempotencyKey(sessionId, "forfeit"),
             } as never)
-          : await supabase.rpc("ready_gate_transition", {
+          : supabase.rpc("ready_gate_transition", {
               p_session_id: sessionId,
               p_action: action,
-            });
+            })
+    );
+    let transitionResult = await callReadyGateTransitionRpc();
+    if (action === "mark_ready" && !transitionResult.error) {
+      for (const fallbackDelayMs of MARK_READY_RETRY_DELAYS_MS) {
+        if (!shouldRetryReadyGateMarkReadyPayload(transitionResult.data)) break;
+
+        const delayMs = readReadyGateMarkReadyRetryDelayMs(transitionResult.data, fallbackDelayMs);
+        readyGateDebug("retryable mark_ready payload; retrying deterministic command", {
+          sessionId,
+          eventId: eventId ?? null,
+          delayMs,
+          status:
+            transitionResult.data.ready_gate_status ??
+            transitionResult.data.status ??
+            transitionResult.data.result_ready_gate_status ??
+            transitionResult.data.result_status ??
+            null,
+          reason: transitionResult.data.reason ?? transitionResult.data.error ?? null,
+          code: transitionResult.data.error_code ?? transitionResult.data.code ?? null,
+          commandStatus: transitionResult.data.commandStatus ?? null,
+        });
+        await readyGateTransitionRetrySleep(delayMs);
+        if (activeReadyGateSessionIdRef.current !== sessionId) {
+          return {
+            ok: false,
+            error: "ready_gate_session_changed",
+            terminal: false,
+            retryable: false,
+          };
+        }
+        transitionResult = await callReadyGateTransitionRpc();
+        if (transitionResult.error) break;
+      }
+    }
     const { error } = transitionResult;
     const data = transitionResult.data;
     if (error) {
