@@ -9,6 +9,8 @@ This runbook covers client diagnostics for the journey:
 
 Scope is primarily **client-side** (web + native). For **server-side queue / promotion** correlation, operators may use read-only SQL on `event_loop_observability_events` (service role) as documented in `docs/observability/watchdog-no-remote-query-pack.md` — no application RPC contract is implied here.
 
+Current 2026-06-04 recovery overlay: start with `docs/video-date-success-command-center.md`. PR #1190 is deployed on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied. This changes Daily triage: `participant_*_joined_at` is historical evidence only; active co-presence requires latest joined presence for both users without a later `participant.left` / `participant_*_away_at`.
+
 ## Watchdog, no-remote, and peer-missing (native vs web)
 
 ### What “no remote” means
@@ -58,6 +60,91 @@ Document **before** proposing code changes:
 - Correlation with **`event_loop_observability_events`** outcomes (`blocked`, `conflict`) — if high, tune queue/server path before media timeouts.
 
 **Concrete query patterns and SQL snippets:** [`docs/observability/watchdog-no-remote-query-pack.md`](./observability/watchdog-no-remote-query-pack.md).
+
+## Daily Active Co-Presence And Stale Join Evidence
+
+Use this section when Ready Gate reaches `both_ready`, both users route to `/date/:sessionId`, or Daily room metadata exists, but remote media/date start fails.
+
+Expected behavior after PR #1190:
+
+- `mark_video_date_daily_joined` records the actor's join and clears that actor's away stamp for a real route join.
+- The visible handshake starts only when both participants' latest Daily presence is active.
+- If the partner's latest Daily provider event is missing or is a later `participant.left`, the RPC should stay in waiting posture and emit `daily_join_waiting_for_active_partner`.
+- `handshake_started_after_active_daily_copresence` should appear only after both latest presences are active.
+
+Read-only session shape:
+
+```sql
+select
+  id,
+  event_id,
+  participant_1_id,
+  participant_2_id,
+  daily_room_name,
+  daily_room_url,
+  ready_gate_status,
+  phase,
+  state,
+  participant_1_joined_at,
+  participant_2_joined_at,
+  participant_1_away_at,
+  participant_2_away_at,
+  participant_1_remote_seen_at,
+  participant_2_remote_seen_at,
+  handshake_started_at,
+  date_started_at,
+  ended_at,
+  ended_reason
+from public.video_sessions
+where id = '<video_session_id>';
+```
+
+Read-only Daily webhook ledger shape:
+
+```sql
+select
+  provider_event_id,
+  event_type,
+  room_name,
+  provider_user_id,
+  processing_state,
+  processing_result,
+  session_id,
+  occurred_at,
+  processed_at
+from public.video_date_daily_webhook_events
+where session_id = '<video_session_id>'
+   or room_name = '<daily_room_name>'
+order by occurred_at asc, processed_at asc;
+```
+
+Read-only observability shape:
+
+```sql
+select
+  operation,
+  outcome,
+  reason_code,
+  session_id,
+  actor_id,
+  detail,
+  created_at
+from public.event_loop_observability_events
+where session_id = '<video_session_id>'
+  and (
+    operation like '%daily_join%'
+    or operation like '%handshake%'
+    or reason_code in (
+      'daily_join_waiting_for_active_partner',
+      'handshake_started_after_active_daily_copresence'
+    )
+    or detail::text like '%daily_join_waiting_for_active_partner%'
+    or detail::text like '%handshake_started_after_active_daily_copresence%'
+  )
+order by created_at asc;
+```
+
+For duplicate-tab or lobby/date cycling reports, also inspect `video_date_surface_claims` and record whether the two test users used separate browsers/profiles or shared one browser storage context. The local lease is now profile-scoped by `profileId + sessionId`; server claims remain scoped per user/profile.
 
 ## Canonical Journey Events
 

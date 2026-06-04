@@ -225,10 +225,16 @@ select
   vs.ended_at,
   vs.ended_reason,
   vs.participant_1_joined_at,
-  vs.participant_2_joined_at
+  vs.participant_2_joined_at,
+  vs.participant_1_away_at,
+  vs.participant_2_away_at,
+  vs.participant_1_remote_seen_at,
+  vs.participant_2_remote_seen_at
 from public.video_sessions vs
 where vs.id = '<video_session_id>'::uuid;
 ```
+
+For PR #1190 and later, `participant_*_joined_at` is historical evidence only. Confirm no later `participant_*_away_at` / Daily `participant.left` exists before treating the users as actively co-present.
 
 ## Admin Video Date Ops Cross-Check
 
@@ -268,6 +274,11 @@ select
   vs.ready_gate_expires_at,
   vs.participant_1_joined_at,
   vs.participant_2_joined_at,
+  vs.participant_1_away_at,
+  vs.participant_2_away_at,
+  vs.participant_1_remote_seen_at,
+  vs.participant_2_remote_seen_at,
+  vs.date_started_at,
   least(vs.participant_1_joined_at, vs.participant_2_joined_at) as first_joined_at,
   greatest(vs.participant_1_joined_at, vs.participant_2_joined_at) as both_joined_at
 from public.video_sessions vs
@@ -281,9 +292,10 @@ limit 25;
 -- read-only: recent event-loop observability for the test event, if the operator has access
 select
   created_at,
-  event_name,
-  reason,
-  metadata
+  operation,
+  outcome,
+  reason_code,
+  detail
 from public.event_loop_observability_events
 where event_id = '<event_id>'::uuid
   and created_at >= now() - interval '24 hours'

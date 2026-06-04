@@ -1,5 +1,7 @@
 # Video Date End-to-End Hardening Runbook
 
+Current recovery overlay (2026-06-04): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied to project `schdyxcunwcvddlcshwd`, and the manual match -> survey acceptance run is still unproven.
+
 Branch: `fix/video-date-end-to-end-hardening`
 
 ## Rebuild Delta
@@ -18,7 +20,7 @@ Supabase cloud deploy is required before production use because the client now s
 - Extra Time is server-authoritative. Clients must use `added_seconds` and `date_extra_seconds` returned by `spend_video_date_credit_extension`; button-local minutes are display hints only.
 - Post-date verdict is survey-eligible only when `video_sessions.ended_at` and `date_started_at` are both present and `ended_reason` is not a pre-date/blocked/handshake failure reason.
 - Ready Gate `both_ready` extends the authoritative provider handoff to `45s` from the second ready tap, but expired gates are not reopened.
-- Provider preparation makes the date routeable and persists Daily metadata; the visible handshake timer starts only after both participants confirm Daily join through `mark_video_date_daily_joined(...)`.
+- Provider preparation makes the date routeable and persists Daily metadata; the visible handshake timer starts only after both participants have active latest Daily presence through `mark_video_date_daily_joined(...)`. `participant_*_joined_at` alone is historical evidence and does not count if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
 - Web refresh/close does not send `video_date_transition('end')`; reconnect/away semantics and server cleanup own recovery.
 - Event ending mid-date policy: do not interrupt a date that already reached `date_started_at`; prevent new promotions through event status checks, then route survey completion away from the lobby if the event is no longer live.
 
@@ -48,7 +50,7 @@ The pack checks:
 5. Both tap Ready.
 6. Verify second Ready tap → date route begins within 1–2s.
 7. Daily connects and both remote videos appear.
-8. After both Daily participants have joined, the handshake starts at 60s ±1s on both clients.
+8. After both Daily participants have active latest presence, with no later `participant.left` / `participant_*_away_at`, the handshake starts at 60s ±1s on both clients.
 9. One-sided Vibe waits into 10s grace.
 10. Both Vibe enters date.
 11. Extra Time +2min extends both clients by 120s.

@@ -1,8 +1,19 @@
 # Video Date Post-Release Monitoring Runbook
 
+Current recovery overlay (2026-06-04): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. The current deployed recovery baseline is `main` at `b72e487d65972566e63f508d023cf2e1e886734a` from PR #1190 plus Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` on project `schdyxcunwcvddlcshwd`. Static/CI checks passed, but the fresh manual two-user match -> survey acceptance run is still unproven.
+
 ## Release Baseline
 
 Use the current v4.2 baseline for live Video Date rollout, certification, and monitoring. The older PR #562-#568 baseline below is retained only as historical context for the first hardening campaign.
+
+Current 2026-06-04 recovery baseline:
+
+- Baseline main HEAD: `b72e487d65972566e63f508d023cf2e1e886734a` (`fix(video-date): stabilize active presence handoff`).
+- PR: `https://github.com/kaanporsuk/vibelymeet/pull/1190`.
+- Supabase project: `schdyxcunwcvddlcshwd`.
+- Latest applied Video Date recovery migration: `20260604142017_video_date_active_presence_join_guard.sql`.
+- Post-deploy database status: `SUPABASE_NO_TELEMETRY=1 supabase db push --dry-run` reported the remote database is up to date.
+- Acceptance caveat: no fresh deployed manual two-user match -> survey run has passed yet. Treat this runbook as monitoring guidance, not recovery closure.
 
 Current Video Date v4.2 baseline as of 2026-05-22:
 
@@ -48,7 +59,7 @@ Check:
 
 - Vercel production deployment is healthy for the release commit.
 - Supabase functions are ACTIVE for the current v4.2 surface: `daily-room`, `video-date-snapshot`, `video-date-outbox-drainer`, `video-date-deadline-finalizer`, `video-date-daily-webhook`, `video-date-orphan-room-cleanup`, `video-date-recovery-alert-dispatcher`, `synthetic-video-date-monitor`, `post-date-verdict`, `swipe-actions`, and `admin-video-date-ops`.
-- Current Video Date v4 migrations through `20260522024000_video_date_phase7_8_audit_automation_hardening.sql` are local and remote.
+- Current Video Date recovery migrations through `20260604142017_video_date_active_presence_join_guard.sql` are local and remote.
 - Daily dashboard/service status is healthy.
 - PostHog/Sentry search by `session_id` and `event_id` is ready.
 - Native build or OTA carrying the v4.2 Video Date client surface is delivered before native QA; manual native smoke is recorded through the Phase 8 ledger.
@@ -140,6 +151,10 @@ select
   participant_2_joined_at,
   participant_1_away_at,
   participant_2_away_at,
+  participant_1_remote_seen_at,
+  participant_2_remote_seen_at,
+  handshake_started_at,
+  date_started_at,
   state,
   phase,
   ended_at
@@ -213,11 +228,25 @@ Monitor Edge logs:
 - `video_date_provider_room_missing_or_expired_recovering`
 - `video_date_provider_room_metadata_recanonicalized`
 
+Monitor Supabase active-presence evidence:
+
+- `video_sessions.participant_1_joined_at`
+- `video_sessions.participant_2_joined_at`
+- `video_sessions.participant_1_away_at`
+- `video_sessions.participant_2_away_at`
+- `video_sessions.participant_1_remote_seen_at`
+- `video_sessions.participant_2_remote_seen_at`
+- `video_sessions.handshake_started_at`
+- `video_sessions.date_started_at`
+- `video_date_daily_webhook_events.event_type`
+- `event_loop_observability_events.reason_code` / `detail` values `daily_join_waiting_for_active_partner` and `handshake_started_after_active_daily_copresence`
+
 Healthy signals:
 
 - Each both-ready session has a prepare-entry attempt.
 - Prepare success includes `entry_attempt_id`.
 - Both users join the same Daily room name.
+- The latest Daily webhook state for both users is joined, not later left, before handshake starts.
 - `video_date_remote_seen` or `video_date_first_remote_frame` appears after both joins.
 
 Warning signals:
@@ -225,6 +254,7 @@ Warning signals:
 - Provider room recovery appears occasionally but succeeds.
 - `video_date_prepare_entry_failed_no_nav` appears and is followed by Ready Gate recovery.
 - Join succeeds for one user but remote is not seen within the normal waiting window.
+- `participant_*_joined_at` exists for both users but one user also has a later `participant_*_away_at`; this is stale join history, not active co-presence.
 
 Red-alert signals:
 
@@ -232,6 +262,7 @@ Red-alert signals:
 - Provider 401/403 appears for valid participants.
 - High-rate `DAILY_RATE_LIMIT`, `DAILY_PROVIDER_UNAVAILABLE`, or `DAILY_PROVIDER_ERROR`.
 - Users join different Daily room names for the same `session_id`.
+- `handshake_started_at` advances when one participant's latest provider event is `participant.left`.
 
 Immediate action for prepare entry failures:
 
@@ -252,9 +283,11 @@ Immediate action for no remote participant:
 
 1. Search both users by `session_id`.
 2. Check `video_date_daily_join_success` for both.
-3. Check `video_date_remote_seen` and `video_date_no_remote_wait_started`.
-4. Ask the missing user to reopen only once if their join is absent.
-5. If both joined and no remote is seen, escalate with room name and timestamps.
+3. Check `video_date_daily_webhook_events` in timestamp order for both `participant.joined` and later `participant.left`.
+4. Check `participant_*_away_at`, `participant_*_remote_seen_at`, `handshake_started_at`, and `date_started_at`.
+5. Check `video_date_remote_seen` and `video_date_no_remote_wait_started`.
+6. Ask the missing user to reopen only once if their latest join is absent or stale/away.
+7. If both latest presences are active and no remote is seen, escalate with room name and timestamps.
 
 ## Post-Date Survey And Verdict
 

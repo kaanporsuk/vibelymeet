@@ -19,11 +19,11 @@ It answers:
 
 This is especially important for Vibely because the migration chain is **not** purely schema DDL. It includes policy rewrites, storage changes, backfills, destructive cleanup, and test-data manipulation.
 
-### Current-state addendum (2026-04-13, updated 2026-05-22)
+### Current-state addendum (2026-04-13, updated 2026-06-04)
 
 The repo has moved well beyond the frozen/archive counts below.
 
-- Current repo migration count: **516** files under `supabase/migrations` through `20260522161000_media_derivatives_placeholders_realtime.sql` (re-baseline this line when migrations are added).
+- Current repo migration count: **605** files under `supabase/migrations` through `20260604142017_video_date_active_presence_join_guard.sql` (re-baseline this line when migrations are added).
 - Deployable Edge Functions: **71** (`supabase/functions/*/index.ts`); see `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for current config-backed inventory.
 - **2026-04-14 (Video Dates P0/P1 + credit budget):** `20260428120000_video_date_p0_p1_closure.sql` and `20260428120100_video_date_credit_extension_budget.sql` — closure evidence: `docs/branch-deltas/fix-video-date-p0-p1-closure.md`; full-system audit: `docs/audits/full-system-forensic-closure-audit-2026-04-14.md`.
 - **2026-04-14 (mechanical trust):** `src/integrations/supabase/types.ts` regenerated from linked DB; inventory recount + surface audit script — `docs/audits/mechanical-trust-closure-2026-04-14.md`.
@@ -40,6 +40,7 @@ The repo has moved well beyond the frozen/archive counts below.
 - **2026-04-18 (match calls Wave 4):** `20260418220000_expire_stale_match_calls_log.sql` — same `expire_stale_match_calls` behavior; adds `RAISE LOG` when expiry count > 0 for Postgres log visibility.
 - **2026-04-19 (match calls Wave 5):** `20260419120000_match_call_lifecycle_hardening.sql` — adds match-call join/heartbeat/provider-cleanup metadata, extends `match_call_transition` with `heartbeat`, `joined`, and `join_failed`, and updates `expire_stale_match_calls` so stale `active` rows are ended server-side instead of blocking future calls indefinitely.
 - **2026-04-23 (video date handshake grace + Daily join):** `20260430150000_video_date_handshake_grace_both_daily_joined.sql` — `video_date_transition('complete_handshake')` uses a 60s post-handshake-timer grace when both `participant_*_joined_at` are set (vs 15s otherwise); `expire_stale_video_date_phases` defers grace-based `handshake_grace_expired` cleanup briefly for the both-joined + one-sided-vibe case, capped at `handshake_started_at + 120s`.
+- **2026-06-04 (Video Date active Daily co-presence):** `20260604142017_video_date_active_presence_join_guard.sql` — PR #1190 replaces the private base of the fail-soft `mark_video_date_daily_joined` wrapper so a real route join clears the actor's away stamp and the handshake starts only when both participants' latest Daily presence is active. `participant_*_joined_at` is historical evidence only if a later Daily `participant.left` / `participant_*_away_at` exists.
 
 ---
 
@@ -780,7 +781,7 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
   - `supabase/migrations/20260501143000_video_date_partial_join_timeout.sql` — adds service-role bounded cleanup for exactly-one-joined handshakes, ending with `ended_reason = 'partial_join_peer_timeout'` after the configured recovery window; preserves no-evidence ready-gate/handshake expiry behavior.
   - `supabase/migrations/20260501144000_video_date_partial_join_observability_polish.sql` — gives the delegated cleanup helper an intentional short name and exposes stale cleanup rows in `get_video_date_session_timeline`.
   - `supabase/migrations/20260501145000_video_date_peer_missing_manual_end.sql` — wraps `video_date_transition('end')` so user-driven peer-missing exits after exactly one persisted Daily join also terminate with `partial_join_peer_timeout`; date-phase and no-evidence manual ends continue to delegate to prior behavior.
-- **Contract:** persisted `participant_1_joined_at` / `participant_2_joined_at` remains authoritative Daily joined evidence. Once either is set, ready-gate expiry must not be used as the terminal reason. Partial-join exits are not survey-eligible unless a real date phase was reached.
+- **Contract:** persisted `participant_1_joined_at` / `participant_2_joined_at` remains Daily joined history. Current active-presence recovery supersedes treating those fields as current co-presence: a later Daily `participant.left` / `participant_*_away_at` makes that participant inactive until a newer join clears it. Once either joined history exists, ready-gate expiry must not be used as the terminal reason. Partial-join exits are not survey-eligible unless a real date phase was reached.
 - **Observability:** `expire_stale_video_sessions / partial_join_peer_timeout` and `video_date_transition / partial_join_peer_manual_end` include joined/missing participant metadata and joined evidence.
 
 ---

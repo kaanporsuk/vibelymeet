@@ -179,6 +179,8 @@ Date-capable/provider-prepared fields are:
 - `date_started_at IS NOT NULL`
 - Daily joined stamps such as `participant_1_joined_at` / `participant_2_joined_at`
 
+Daily joined stamps are historical launch evidence. They are not proof of active co-presence when a later Daily `participant.left` / `participant_*_away_at` exists. Active co-presence for the visible handshake requires both participants' latest Daily presence to be joined and not stale/away.
+
 `both_ready` alone is not a date-route signal. It permits prepare-entry only.
 
 `video_date_transition('prepare_entry')` blocks inactive associated events before provider preparation. `confirm_video_date_entry_prepared` also blocks inactive unprepared rows before persisting provider-room truth.

@@ -1,5 +1,7 @@
 # Video Date Hardening Closure Handoff
 
+Current recovery override (2026-06-04): this file is historical closure provenance, not current Video Date health evidence. For active recovery work, start with `docs/video-date-success-command-center.md`. The current deployed recovery baseline is PR #1190 on `main` at `b72e487d65972566e63f508d023cf2e1e886734a` plus Supabase migration `20260604142017_video_date_active_presence_join_guard.sql`; a fresh manual two-user match -> survey run is still required before production confidence can be reclaimed.
+
 ## Final Status
 
 The video-date hardening chain is merged, synced, validated, deployed where needed, and clean on `main` at `9fe9e76ac`.
