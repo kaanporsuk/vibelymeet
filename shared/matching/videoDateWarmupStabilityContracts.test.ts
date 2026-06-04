@@ -26,6 +26,8 @@ const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const observability = read("shared/observability/videoDateClientStuckObservability.ts");
 const warmupMigration = read("supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql");
+const latestPresenceMigration = read("supabase/migrations/20260604193140_video_date_latest_presence_grace_repair.sql");
+const remoteSeenLatestMigration = read("supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql");
 
 test("web Daily participant-left waits for local transport grace before backend away mark", () => {
   const participantLeftBlock = block(
@@ -64,6 +66,12 @@ test("peer-missing watchdog suppresses terminal UI when server truth proves expo
 test("terminal survey hard-stop gates Daily start, surface claims, and route-state recovery", () => {
   assert.match(webVideoDate, /terminalSurveyRecoveryInFlightRef/);
   assert.match(webVideoDate, /terminalSurveyRecoveryActive/);
+  assert.match(webVideoDate, /terminalDailyStopRef/);
+  assert.match(webVideoDate, /terminalDailyStopRequestedRef/);
+  assert.match(webVideoDate, /const stopDailyForTerminal = terminalDailyStopRef\.current/);
+  assert.match(webVideoDate, /stopDailyForTerminal\(reason\)/);
+  assert.match(webVideoDate, /stopDailyForTerminal\("terminal_survey_ref_attached"\)/);
+  assert.match(webVideoDate, /endCall\(`terminal_survey_hard_stop:\$\{reason\}`\)/);
   assert.match(webVideoDate, /const enterTerminalSurveyHardStop = useCallback/);
   assert.match(webVideoDate, /enterTerminalSurveyHardStop\(source\)[\s\S]{0,220}hydrateTerminalSurveyContext\(sessionRow, source\)/);
   assert.match(webVideoDate, /verdictFetchFailed[\s\S]{0,220}openPostDateSurvey\(source\)/);
@@ -85,6 +93,79 @@ test("native Daily participant-left also waits for local transport grace", () =>
   assert.match(nativeDateRoute, /daily_participant_left_transport_grace_expired/);
   assert.match(nativeDateRoute, /markReconnectPartnerAway\(sessionId, 'daily_transport_grace_expired'\)/);
   assert.match(nativeVideoDateApi, /p_reason: reason/);
+});
+
+test("web Daily start is single-owned and same-session calls are reused instead of rebuilt", () => {
+  assert.match(webVideoCall, /const \[dailyMeetingState, setDailyMeetingState\] = useState<string \| null>\(null\)/);
+  assert.match(webVideoCall, /const \[localInDailyRoom, setLocalInDailyRoom\] = useState\(false\)/);
+  assert.match(webVideoCall, /isTerminalDailyMeetingState\(meetingState\)/);
+  assert.match(webVideoCall, /start_call_reuse_same_session/);
+  assert.match(webVideoCall, /same_session_call_still_active/);
+  assert.match(webVideoCall, /daily_call_busy_internal_retry/);
+  assert.match(webVideoCall, /return await startCall\(sessionId,\s*\{\s*internalRetry: true/);
+  assert.match(webVideoCall, /eventName: "daily_call_cleanup"/);
+  assert.match(webVideoCall, /leave_called/);
+  assert.match(webVideoCall, /destroy_called/);
+});
+
+test("web visibilitychange is soft telemetry while Daily is active or starting", () => {
+  const lifecycleBlock = block(
+    webVideoDate,
+    /Browser lifecycle/,
+    /Record user's explicit handshake decision/,
+  );
+
+  assert.match(lifecycleBlock, /shouldTreatLifecycleAwayAsSoftTelemetry/);
+  assert.match(lifecycleBlock, /source !== "visibilitychange"/);
+  assert.match(lifecycleBlock, /localInDailyRoom \|\| isConnecting \|\| isConnected/);
+  assert.match(lifecycleBlock, /dailyMeetingState === "joining-meeting" \|\| dailyMeetingState === "joined-meeting"/);
+  assert.match(lifecycleBlock, /web_lifecycle_away_suppressed_active_daily/);
+  assert.match(lifecycleBlock, /send_suppressed/);
+  assert.match(lifecycleBlock, /schedule_suppressed/);
+  assert.match(lifecycleBlock, /sendLeaveSignal\("beforeunload"\)/);
+  assert.match(lifecycleBlock, /sendLeaveSignal\("pagehide"\)/);
+});
+
+test("native background only sends backend away after local grace expiry", () => {
+  const backgroundBlock = block(
+    nativeDateRoute,
+    /if \(next === 'background' \|\| next === 'inactive'\)/,
+    /requestReconnectSyncRef\.current\('app_background'\)/,
+  );
+
+  assert.match(backgroundBlock, /native_background_grace_started/);
+  assert.match(backgroundBlock, /await cleanupDailyAndLocalState\(\)/);
+  assert.doesNotMatch(backgroundBlock, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.match(backgroundBlock, /signalVideoDateLeave\(sessionId, 'app_background_timeout'\)/);
+});
+
+test("latest presence migration repairs joins, soft-away, and reconnect expiry", () => {
+  assert.match(latestPresenceMigration, /CREATE OR REPLACE FUNCTION public\.video_date_latest_presence_is_active/);
+  assert.match(latestPresenceMigration, /participant_1_joined_at = GREATEST\(COALESCE\(participant_1_joined_at, v_now\), v_now\)/);
+  assert.match(latestPresenceMigration, /reconnect_grace_cleared_by_daily_join/);
+  assert.match(latestPresenceMigration, /record_video_date_daily_webhook_event_v2_20260604193140_latest_presence_base/);
+  assert.match(latestPresenceMigration, /latestPresenceRepaired/);
+  assert.match(latestPresenceMigration, /reconnect_grace_cleared_by_provider_join/);
+  assert.match(latestPresenceMigration, /mark_reconnect_self_away_suppressed_active_daily_presence/);
+  assert.match(latestPresenceMigration, /v_reason IN \('web_visibilitychange', 'web_freeze', 'app_background'\)/);
+  assert.match(latestPresenceMigration, /v_action = 'mark_reconnect_return'/);
+  assert.match(latestPresenceMigration, /reconnect_grace_expiry_suppressed_latest_presence/);
+  assert.match(latestPresenceMigration, /v_remote_seen_after_away/);
+  assert.match(latestPresenceMigration, /reason_code NOT IN \(/);
+  assert.match(latestPresenceMigration, /'daily_call_cleanup'/);
+  assert.match(latestPresenceMigration, /'remote_seen_canonical_repair_failed'/);
+});
+
+test("canonical remote-seen repair advances timestamps as latest-state evidence", () => {
+  assert.match(remoteSeenLatestMigration, /CREATE OR REPLACE FUNCTION public\.mark_video_date_remote_seen\(p_session_id uuid\)/);
+  assert.match(remoteSeenLatestMigration, /participant_1_remote_seen_at = GREATEST\(COALESCE\(participant_1_remote_seen_at, v_now\), v_now\)/);
+  assert.match(remoteSeenLatestMigration, /participant_2_remote_seen_at = GREATEST\(COALESCE\(participant_2_remote_seen_at, v_now\), v_now\)/);
+  assert.match(remoteSeenLatestMigration, /v_previous_remote_seen_at/);
+  assert.match(remoteSeenLatestMigration, /v_latest_remote_seen_at/);
+  assert.match(remoteSeenLatestMigration, /remote_seen_canonical_repaired/);
+  assert.match(remoteSeenLatestMigration, /latest_remote_seen_at/);
+  assert.match(remoteSeenLatestMigration, /previous_remote_seen_at/);
+  assert.match(remoteSeenLatestMigration, /GRANT EXECUTE ON FUNCTION public\.mark_video_date_remote_seen\(uuid\)\s+TO authenticated/);
 });
 
 test("SQL wrapper suppresses legacy immediate partner-away but preserves explicit grace expiry", () => {

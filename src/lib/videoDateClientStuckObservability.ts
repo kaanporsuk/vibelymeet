@@ -10,11 +10,13 @@ export function emitWebVideoDateClientStuckState({
   eventName,
   payload,
   latencyMs,
+  dedupe,
 }: {
   sessionId: string | null | undefined;
   eventName: VideoDateClientStuckEventName;
   payload?: VideoDateClientStuckPayload | null;
   latencyMs?: number | null;
+  dedupe?: boolean;
 }) {
   return emitVideoDateClientStuckObservability({
     client: supabase,
@@ -25,5 +27,6 @@ export function emitWebVideoDateClientStuckState({
       ...(payload ?? {}),
     },
     latencyMs,
+    dedupe,
   });
 }

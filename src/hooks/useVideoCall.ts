@@ -18,6 +18,7 @@ import {
 } from "@/lib/dailyCallObjectConfig";
 import {
   createDailyCallObjectGuarded,
+  isTerminalDailyMeetingState,
   readDailyMeetingState,
   registerWebVideoDateDailyCleanup,
 } from "@/lib/dailyCallInstance";
@@ -1014,6 +1015,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackState>(() => createRemotePlaybackState());
   const [peerMissing, setPeerMissing] = useState<PeerMissingState>({ terminal: false });
   const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
+  const [dailyMeetingState, setDailyMeetingState] = useState<string | null>(null);
+  const [localInDailyRoom, setLocalInDailyRoom] = useState(false);
   const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
   const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
   const [mediaPermissionResult, setMediaPermissionResult] = useState<MediaPermissionResult | null>(null);
@@ -1274,7 +1277,24 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         error: errorDetail,
         attempt,
       });
-      if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) scheduleRetry(attemptSource, attempt + 1);
+      if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
+        scheduleRetry(attemptSource, attempt + 1);
+        return;
+      }
+      void emitWebVideoDateClientStuckState({
+        sessionId,
+        eventName: "remote_seen_canonical_repair_failed",
+        payload: {
+          source_surface: "video_date_daily",
+          source_action: "mark_video_date_remote_seen",
+          reason_code: code,
+          code,
+          source: attemptSource,
+          attempt_count: attempt,
+          retryable: true,
+          exhausted: true,
+        },
+      });
     };
 
     function stamp(attemptSource: string, attempt: number) {
@@ -2861,6 +2881,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const sessionId = optionsRef.current?.roomId ?? null;
         const eventId = optionsRef.current?.eventId ?? null;
         const userId = optionsRef.current?.userId ?? null;
+        const meetingStateBeforeCleanup = safeMeetingState(callObject);
         const shouldParkSingleton =
           Boolean(optionsRef.current?.dailyCallSingletonV2) &&
           Boolean(optionsRef.current?.dailyCallSingletonEligible) &&
@@ -2880,6 +2901,24 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           dailyCallSingletonV2: Boolean(optionsRef.current?.dailyCallSingletonV2),
           dailyCallSingletonEligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
           willParkSingleton: shouldParkSingleton,
+          meetingState: meetingStateBeforeCleanup,
+        });
+        void emitWebVideoDateClientStuckState({
+          sessionId,
+          eventName: "daily_call_cleanup",
+          dedupe: false,
+          payload: {
+            source_surface: "video_date_daily",
+            source_action: "daily_call_cleanup_start",
+            reason_code: reason,
+            cleanup_reason: reason,
+            caller,
+            room_name: roomName ?? undefined,
+            meeting_state: meetingStateBeforeCleanup ?? undefined,
+            phase: optionsRef.current?.videoSessionState ?? undefined,
+            leave_called: Boolean(callObject),
+            destroy_called: Boolean(callObject) && !shouldParkSingleton,
+          },
         });
 
         if (callObject) {
@@ -2961,6 +3000,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         setHasPermission(null);
         setIsConnected(false);
         setIsConnecting(false);
+        setDailyMeetingState(null);
+        setLocalInDailyRoom(false);
         setNetworkTier("good");
         setRemotePlayback(createRemotePlaybackState());
         setPeerMissing({ terminal: false });
@@ -3002,6 +3043,23 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         } else {
           appAcquiredMediaRef.current = null;
         }
+        void emitWebVideoDateClientStuckState({
+          sessionId,
+          eventName: "daily_call_cleanup",
+          dedupe: false,
+          payload: {
+            source_surface: "video_date_daily",
+            source_action: "daily_call_cleanup_end",
+            reason_code: reason,
+            cleanup_reason: reason,
+            caller,
+            room_name: roomName ?? undefined,
+            meeting_state: meetingStateBeforeCleanup ?? undefined,
+            phase: optionsRef.current?.videoSessionState ?? undefined,
+            leave_called: callLeftSuccessfully,
+            destroy_called: Boolean(callObject) && !parkedSingleton,
+          },
+        });
       })();
 
       return registerWebVideoDateDailyCleanup(cleanupPromise, {
@@ -3315,7 +3373,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         await sleep(START_CALL_IN_FLIGHT_WAIT_POLL_MS);
       }
 
-      const reused = activeCallSessionIdRef.current === sessionId && Boolean(callObjectRef.current);
+      const meetingState = safeMeetingState(callObjectRef.current);
+      const reused =
+        activeCallSessionIdRef.current === sessionId &&
+        Boolean(callObjectRef.current) &&
+        !isTerminalDailyMeetingState(meetingState);
       vdbg("daily_call_reuse_decision", {
         sessionId,
         eventId,
@@ -3324,6 +3386,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         reason: reused ? "start_call_in_flight_resolved_joined" : "start_call_in_flight_resolved_without_join",
         wait_ms: Date.now() - startedAtMs,
         roomName: roomNameRef.current,
+        meetingState,
       });
 
       if (reused) return { ok: true } as VideoCallStartResult;
@@ -3346,15 +3409,44 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         return { ok: false, failure: { kind: "session_unavailable", retryable: false } } as VideoCallStartResult;
       }
       if (activeCallSessionIdRef.current === sessionId && callObjectRef.current) {
-        vdbg("daily_call_reuse_decision", {
-          sessionId,
-          eventId,
-          userId,
-          reusedCallObject: true,
-          reason: "existing_call_object_already_started",
-          roomName: roomNameRef.current,
-        });
-        return { ok: true } as VideoCallStartResult;
+        const meetingState = safeMeetingState(callObjectRef.current);
+        if (isTerminalDailyMeetingState(meetingState)) {
+          vdbg("daily_call_reuse_decision", {
+            sessionId,
+            eventId,
+            userId,
+            reusedCallObject: false,
+            reason: "existing_call_object_terminal_before_start",
+            roomName: roomNameRef.current,
+            meetingState,
+          });
+        } else {
+          setDailyMeetingState(meetingState);
+          setLocalInDailyRoom(meetingState === "joined-meeting");
+          void emitWebVideoDateClientStuckState({
+            sessionId,
+            eventName: "daily_call_reuse",
+            dedupe: false,
+            payload: {
+              source_surface: "video_date_daily",
+              source_action: "start_call_reuse_same_session",
+              reason_code: "existing_call_object_already_started",
+              room_name: roomNameRef.current ?? undefined,
+              meeting_state: meetingState ?? undefined,
+              reused: true,
+            },
+          });
+          vdbg("daily_call_reuse_decision", {
+            sessionId,
+            eventId,
+            userId,
+            reusedCallObject: true,
+            reason: "existing_call_object_already_started",
+            roomName: roomNameRef.current,
+            meetingState,
+          });
+          return { ok: true } as VideoCallStartResult;
+        }
       }
       if (!opts?.internalRetry && startCallInFlightSessionRef.current === sessionId) {
         vdbg("daily_call_reuse_decision", {
@@ -3371,6 +3463,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       setIsConnecting(true);
       setIsConnected(false);
+      setDailyMeetingState("joining-meeting");
+      setLocalInDailyRoom(false);
       setHasPermission(null);
       setMediaPermissionResult(null);
       setMediaPermissionError(null);
@@ -3398,13 +3492,45 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       try {
         if (callObjectRef.current) {
+          const meetingState = safeMeetingState(callObjectRef.current);
+          const sameActiveSession = activeCallSessionIdRef.current === sessionId;
+          if (sameActiveSession && !isTerminalDailyMeetingState(meetingState)) {
+            setDailyMeetingState(meetingState);
+            setLocalInDailyRoom(meetingState === "joined-meeting");
+            void emitWebVideoDateClientStuckState({
+              sessionId,
+              eventName: "daily_call_reuse",
+              dedupe: false,
+              payload: {
+                source_surface: "video_date_daily",
+                source_action: "start_call_reuse_before_rebuild",
+                reason_code: "same_session_call_still_active",
+                room_name: roomNameRef.current ?? undefined,
+                meeting_state: meetingState ?? undefined,
+                reused: true,
+              },
+            });
+            vdbg("daily_call_reuse_decision", {
+              sessionId,
+              eventId,
+              userId,
+              reusedCallObject: true,
+              reason: "same_session_call_still_active",
+              previousRoomName: roomNameRef.current,
+              meetingState,
+            });
+            return { ok: true } as VideoCallStartResult;
+          }
           vdbg("daily_call_reuse_decision", {
             sessionId,
             eventId,
             userId,
             reusedCallObject: false,
-            reason: "existing_call_object_rebuilt_before_start",
+            reason: sameActiveSession
+              ? "existing_same_session_terminal_rebuilt_before_start"
+              : "existing_call_object_rebuilt_before_start",
             previousRoomName: roomNameRef.current,
+            meetingState,
           });
           await cleanupCallObject("startCall", "existing_call_object_rebuild");
         } else {
@@ -3999,7 +4125,37 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             })();
         if (!callObject) {
           releaseAppAcquiredMedia("daily_guard_create_blocked");
+          if (!opts?.internalRetry) {
+            void emitWebVideoDateClientStuckState({
+              sessionId,
+              eventName: "daily_call_busy_internal_retry",
+              dedupe: false,
+              payload: {
+                source_surface: "video_date_daily",
+                source_action: "daily_call_busy_internal_retry",
+                reason_code: guardedCreateFailure ?? "external_call_busy",
+                room_name: roomData.room_name,
+                meeting_state: guardedCreateFailure ?? undefined,
+                retryable: true,
+                attempt_count: 1,
+              },
+            });
+            vdbg("daily_call_busy_internal_retry", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              reason: guardedCreateFailure ?? "external_call_busy",
+            });
+            await sleep(700);
+            return await startCall(sessionId, {
+              internalRetry: true,
+              mediaPromptIntent,
+            });
+          }
           setIsConnecting(false);
+          setDailyMeetingState(null);
+          setLocalInDailyRoom(false);
           return {
             ok: false,
             failure: {
@@ -4037,6 +4193,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         dailyPrewarmConsumedForJoin = prewarmedCall.ok === true;
         callObjectRef.current = callObject;
+        setDailyMeetingState(safeMeetingState(callObject) ?? "new");
         vdbg("daily_call_object_created", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -4385,8 +4542,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 error: leaveError instanceof Error ? { name: leaveError.name, message: leaveError.message } : String(leaveError),
               });
             }
+            setDailyMeetingState("joining-meeting");
+            setLocalInDailyRoom(false);
             await activeCall.join({ url: roomData.room_url, token: roomData.token });
             activeCallSessionIdRef.current = sessionId;
+            setDailyMeetingState(safeMeetingState(activeCall) ?? "joined-meeting");
+            setLocalInDailyRoom(true);
             setIsConnected(true);
             setIsConnecting(false);
             recoverTransport("daily_token_rejoin");
@@ -4489,6 +4650,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           if (!isCurrentDailyListener()) return;
           if (!event?.participant) return;
           if (event.participant.local) {
+            setDailyMeetingState(safeMeetingState(callObject));
+            setLocalInDailyRoom(safeMeetingState(callObject) === "joined-meeting");
             latestLocalParticipantRef.current = event.participant;
             const localKey = getTrackIdsKey(event.participant, false);
             const localKeyChanged = localKey !== lastLocalTrackIdsRef.current;
@@ -4667,6 +4830,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         bindDailyEvent("error", (event) => {
           if (!isCurrentDailyListener()) return;
+          setDailyMeetingState(safeMeetingState(callObject) ?? "error");
           console.error("[Daily] Fatal error:", event);
           const errorMsg =
             event && typeof event === "object" && "errorMsg" in event
@@ -4729,6 +4893,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         bindDailyEvent("left-meeting", () => {
           if (!isCurrentDailyListener()) return;
+          setDailyMeetingState("left-meeting");
+          setLocalInDailyRoom(false);
           clearReconnectGrace("left_meeting", false);
           clearRemoteRenderValidation({ cancelReattach: true });
           resetRemoteRenderRecoveryAttempts();
@@ -5025,6 +5191,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             joinSource: prewarmedCall.ok === true ? prewarmedCall.entry.joinSource : null,
           });
         } else {
+          setDailyMeetingState("joining-meeting");
           try {
             await callObject.join({ url: roomData.room_url, token: roomData.token });
           } catch (joinError) {
@@ -5050,6 +5217,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         setHasPermission(true);
         activeCallSessionIdRef.current = sessionId;
+        setDailyMeetingState(safeMeetingState(callObject) ?? "joined-meeting");
+        setLocalInDailyRoom(true);
         scheduleDailyTokenRefresh("daily_join_success");
         vdbg("daily_join_success", {
           sessionId,
@@ -5814,6 +5983,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     remotePlayback,
     peerMissing,
     dailyReconnectState,
+    dailyMeetingState,
+    localInDailyRoom,
     reconnectGraceTimeLeft,
     captureProfile,
     localVideoRef,
