@@ -10,6 +10,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read(
   "supabase/migrations/20260602231752_ready_gate_57014_reliability_fix.sql",
 );
+const hotPathMigration = read(
+  "supabase/migrations/20260604103000_ready_gate_mark_ready_hot_path_retry_recovery.sql",
+);
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -95,14 +98,28 @@ test("Ready Gate 57014 migration makes sync/deck paths non-blocking", () => {
   assert.doesNotMatch(migration, /cleanup_event_deck_card_reservations\s*\(/);
 });
 
-test("mark-ready v2 keeps Ready Gate mutation decisive and auxiliary work fail-soft", () => {
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.video_session_mark_ready_v2/);
-  assert.match(migration, /v_transition := public\.ready_gate_transition\(p_session_id, 'mark_ready', NULL\)/);
-  assert.match(migration, /EXCEPTION[\s\S]*WHEN query_canceled OR lock_not_available[\s\S]*mark_ready_timeout/s);
-  assert.match(migration, /v_auxiliary_errors jsonb := '\[\]'::jsonb/);
-  assert.match(migration, /append_video_session_event_v2[\s\S]*EXCEPTION[\s\S]*'kind', 'event_append'/s);
-  assert.match(migration, /video_date_outbox_enqueue_v2[\s\S]*EXCEPTION[\s\S]*'kind', 'daily_room_outbox'/s);
-  assert.match(migration, /'provider_outbox_degraded', jsonb_array_length\(v_auxiliary_errors\) > 0/);
+test("mark-ready v2 owns the decisive Ready Gate hot path", () => {
+  assert.match(hotPathMigration, /CREATE OR REPLACE FUNCTION public\.video_session_mark_ready_v2/);
+  assert.doesNotMatch(
+    hotPathMigration,
+    /v_transition := public\.ready_gate_transition\(p_session_id, 'mark_ready', NULL\)/,
+  );
+  assert.match(hotPathMigration, /v_command_status = 'replay_rejected'/);
+  assert.match(hotPathMigration, /status = 'processing'[\s\S]*result_payload = NULL/s);
+  assert.match(hotPathMigration, /ready_participant_1_at = v_new_p1_ready_at/);
+  assert.match(hotPathMigration, /ready_participant_2_at = v_new_p2_ready_at/);
+  assert.match(hotPathMigration, /daily_room_name = CASE[\s\S]*WHEN v_new_status = 'both_ready' THEN v_expected_room_name/s);
+  assert.match(hotPathMigration, /daily_room_url = CASE[\s\S]*WHEN v_new_status = 'both_ready' THEN v_url/s);
+  assert.doesNotMatch(hotPathMigration, /daily_room_name IS NULL[\s\S]*daily_room_url IS NULL/s);
+  assert.match(hotPathMigration, /WHEN query_canceled OR lock_not_available[\s\S]*mark_ready_timeout/s);
+  assert.match(hotPathMigration, /v_auxiliary_errors jsonb := '\[\]'::jsonb/);
+  assert.match(hotPathMigration, /append_video_session_event_v2[\s\S]*EXCEPTION[\s\S]*'kind', 'event_append'/s);
+  assert.match(hotPathMigration, /video_date_outbox_enqueue_v2[\s\S]*EXCEPTION[\s\S]*'kind', 'daily_room_outbox'/s);
+  assert.match(hotPathMigration, /'provider_outbox_degraded', jsonb_array_length\(v_auxiliary_errors\) > 0/);
+  assert.match(hotPathMigration, /CREATE OR REPLACE FUNCTION public\.ready_gate_transition/);
+  assert.match(hotPathMigration, /IF v_action = 'mark_ready' THEN[\s\S]*public\.video_session_mark_ready_v2/s);
+  assert.match(hotPathMigration, /expired_registration_cleanup/);
+  assert.match(hotPathMigration, /command_finish_degraded/);
 });
 
 test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into sync recovery", () => {
@@ -112,6 +129,10 @@ test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into s
   ] as const) {
     assert.match(source, /retryable\?: boolean \| null/, `${name} should expose retryable on transition results`);
     assert.match(source, /retryable: payload\.retryable === true/, `${name} should preserve backend retryable payloads`);
+    assert.match(source, /MARK_READY_RETRY_DELAYS_MS = \[350, 900, 1_400\] as const/, `${name} should retry bounded mark-ready payloads`);
+    assert.match(source, /readyGateTransitionRetrySleep/, `${name} should pause between bounded retries`);
+    assert.match(source, /shouldRetryReadyGateMarkReadyPayload\(transitionResult\.data\)/, `${name} should only retry explicit retryable payloads`);
+    assert.match(source, /buildVideoDateTransitionIdempotencyKey\(sessionId, ['"]mark_ready['"]\)/, `${name} should keep the deterministic key so backend replay recovery works`);
   }
 
   for (const [name, source] of [
