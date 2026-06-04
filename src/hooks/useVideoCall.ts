@@ -5120,7 +5120,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               "mark_video_date_daily_joined",
               joinedArgs
             );
-            const payload = joinedData as { ok?: boolean; error?: string | null } | null;
+            const payload = joinedData as
+              | { ok?: boolean; error?: string | null; retryable?: boolean }
+              | null;
             const ok = !joinedError && payload?.ok === true;
             const code = joinedError?.code ?? payload?.error ?? null;
             vdbg("mark_video_date_daily_joined_after", {
@@ -5135,8 +5137,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             });
             return {
               ok,
-              code,
-              retryable: joinedError ? true : undefined,
+              // The fail-soft RPC wrapper (20260604093000) now returns 200 +
+              // { ok:false, retryable:true } instead of a raw 500, so joinedError is
+              // null on transient backend failures. Read retryable from the payload so
+              // backoff still retries; legitimate non-retryable results (e.g.
+              // not_routeable) omit retryable and remain single-shot as before.
+              retryable: joinedError ? true : payload?.retryable === true ? true : undefined,
               error: joinedError ?? undefined,
               payload: joinedData ?? null,
             };
