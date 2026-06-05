@@ -1131,6 +1131,7 @@ export default function VideoDateScreen() {
     `vd-native-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
   );
   const surfaceClaimInFlightRef = useRef(false);
+  const surfaceClaimInFlightPromiseRef = useRef<Promise<NativeVideoDateSurfaceClaimResult> | null>(null);
   const surfaceClaimBackoffUntilRef = useRef(0);
   const surfaceClaimFailureCountRef = useRef(0);
   const enterHandshakeSucceededRef = useRef(false);
@@ -4910,11 +4911,13 @@ export default function VideoDateScreen() {
       if (takeover) {
         surfaceClaimBackoffUntilRef.current = 0;
         surfaceClaimFailureCountRef.current = 0;
-      } else if (surfaceClaimInFlightRef.current || now < surfaceClaimBackoffUntilRef.current) {
+      } else if (surfaceClaimInFlightRef.current && surfaceClaimInFlightPromiseRef.current) {
+        return surfaceClaimInFlightPromiseRef.current;
+      } else if (now < surfaceClaimBackoffUntilRef.current) {
         return { canContinue: !surfaceClaimBlockedRef.current, confirmed: false };
       }
       surfaceClaimInFlightRef.current = true;
-      try {
+      const claimPromise = (async (): Promise<NativeVideoDateSurfaceClaimResult> => {
         const { data, error } = await supabase.rpc('claim_video_date_surface' as never, {
           p_session_id: sessionId,
           p_surface: 'video_date',
@@ -4954,8 +4957,15 @@ export default function VideoDateScreen() {
           takeover,
         });
         return { canContinue: true, confirmed: true };
+      })();
+      surfaceClaimInFlightPromiseRef.current = claimPromise;
+      try {
+        return await claimPromise;
       } finally {
-        surfaceClaimInFlightRef.current = false;
+        if (surfaceClaimInFlightPromiseRef.current === claimPromise) {
+          surfaceClaimInFlightPromiseRef.current = null;
+          surfaceClaimInFlightRef.current = false;
+        }
       }
     },
     [multiDeviceV2.enabled, sessionId, setSurfaceClaimBlockedState, showFeedback, user?.id],
@@ -6619,12 +6629,12 @@ export default function VideoDateScreen() {
 
       currentStep = setPrejoinStep('surface_claim');
       const surfaceClaim = await claimNativeVideoDateSurface(false);
-      if (!surfaceClaim.canContinue) {
+      if (!surfaceClaim.canContinue || !surfaceClaim.confirmed) {
         clearDateEntryTransition(sessionId);
         vdbg('prejoin_step_prejoin_daily_room_skipped', {
           sessionId,
           userId: user.id,
-          reason: 'surface_claim_conflict',
+          reason: surfaceClaim.canContinue ? 'surface_claim_unconfirmed' : 'surface_claim_conflict',
           ...prejoinLogContext(),
         });
         vdbg('prejoin_state_isConnecting', { value: false, sessionId, userId: user.id, step: currentStep });

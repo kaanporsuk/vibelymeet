@@ -5684,7 +5684,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               if (hasTerminalSurveyTruth) {
                 setPeerMissing({ terminal: false });
                 setIsConnected(false);
-                setIsConnecting(true);
+                setIsConnecting(false);
                 vdbg("daily_no_remote_watchdog_terminal_suppressed", {
                   sessionId,
                   eventId: truthRow.event_id ?? eventId,
