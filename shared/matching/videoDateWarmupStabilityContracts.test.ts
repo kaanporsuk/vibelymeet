@@ -20,6 +20,7 @@ function block(source: string, start: RegExp, end: RegExp): string {
 
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const webVideoDate = read("src/pages/VideoDate.tsx");
+const webDupTabGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webReconnection = read("src/hooks/useReconnection.ts");
 const readyRedirect = read("src/pages/ReadyRedirect.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
@@ -28,6 +29,12 @@ const observability = read("shared/observability/videoDateClientStuckObservabili
 const warmupMigration = read("supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql");
 const latestPresenceMigration = read("supabase/migrations/20260604193140_video_date_latest_presence_grace_repair.sql");
 const remoteSeenLatestMigration = read("supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql");
+const beforeunloadLifecycleMigration = read(
+  "supabase/migrations/20260605200729_video_date_beforeunload_active_presence_repair.sql",
+);
+const remoteSeenGracePayloadMigration = read(
+  "supabase/migrations/20260605203904_video_date_remote_seen_grace_payload_preserve.sql",
+);
 
 test("web Daily participant-left waits for local transport grace before backend away mark", () => {
   const participantLeftBlock = block(
@@ -124,7 +131,7 @@ test("web Daily start is single-owned and same-session calls are reused instead 
   assert.match(webVideoCall, /daily_join_completed_by_singleton_inflight/);
 });
 
-test("web visibilitychange is soft telemetry while Daily is active or starting", () => {
+test("web lifecycle leaves are soft telemetry while Daily is active or starting", () => {
   const lifecycleBlock = block(
     webVideoDate,
     /Browser lifecycle/,
@@ -132,14 +139,29 @@ test("web visibilitychange is soft telemetry while Daily is active or starting",
   );
 
   assert.match(lifecycleBlock, /shouldTreatLifecycleAwayAsSoftTelemetry/);
-  assert.match(lifecycleBlock, /source !== "visibilitychange"/);
+  assert.match(webVideoDate, /WEB_SOFT_LIFECYCLE_LEAVE_SOURCES/);
+  assert.match(webVideoDate, /"beforeunload"/);
+  assert.match(webVideoDate, /"pagehide"/);
+  assert.match(webVideoDate, /"visibilitychange"/);
+  assert.match(webVideoDate, /"freeze"/);
+  assert.doesNotMatch(lifecycleBlock, /source !== "visibilitychange"/);
   assert.match(lifecycleBlock, /localInDailyRoom \|\| isConnecting \|\| isConnected/);
   assert.match(lifecycleBlock, /dailyMeetingState === "joining-meeting" \|\| dailyMeetingState === "joined-meeting"/);
   assert.match(lifecycleBlock, /web_lifecycle_away_suppressed_active_daily/);
   assert.match(lifecycleBlock, /send_suppressed/);
   assert.match(lifecycleBlock, /schedule_suppressed/);
-  assert.match(lifecycleBlock, /sendLeaveSignal\("beforeunload"\)/);
+  assert.match(lifecycleBlock, /beforeunload_suppressed/);
+  assert.match(lifecycleBlock, /pagehide_suppressed/);
+  assert.match(lifecycleBlock, /!softLifecycleAway && localVideoRef\.current\?\.srcObject/);
   assert.match(lifecycleBlock, /sendLeaveSignal\("pagehide"\)/);
+});
+
+test("web and native video-date surface claims survive launch route churn", () => {
+  assert.match(webDupTabGuard, /const LEASE_MS = 15_000/);
+  assert.match(webDupTabGuard, /const TICK_MS = 5_000/);
+  assert.match(webDupTabGuard, /const SERVER_TTL_SECONDS = 30/);
+  assert.match(nativeDateRoute, /const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 30/);
+  assert.match(nativeDateRoute, /const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 10_000/);
 });
 
 test("native background only sends backend away after local grace expiry", () => {
@@ -170,6 +192,20 @@ test("latest presence migration repairs joins, soft-away, and reconnect expiry",
   assert.match(latestPresenceMigration, /reason_code NOT IN \(/);
   assert.match(latestPresenceMigration, /'daily_call_cleanup'/);
   assert.match(latestPresenceMigration, /'remote_seen_canonical_repair_failed'/);
+  assert.match(beforeunloadLifecycleMigration, /video_date_transition_20260605200729_lifecycle_base/);
+  assert.match(beforeunloadLifecycleMigration, /'web_beforeunload'/);
+  assert.match(beforeunloadLifecycleMigration, /'web_pagehide'/);
+  assert.match(beforeunloadLifecycleMigration, /mark_reconnect_self_away_suppressed_active_daily_presence/);
+  assert.match(beforeunloadLifecycleMigration, /mark_video_date_remote_seen_20260605200729_grace_base/);
+  assert.match(beforeunloadLifecycleMigration, /reconnect_grace_cleared_by_remote_seen/);
+  assert.match(beforeunloadLifecycleMigration, /latest_away_reason/);
+  assert.match(beforeunloadLifecycleMigration, /surface_active_near_away/);
+  assert.match(beforeunloadLifecycleMigration, /recent_lifecycle_media/);
+  assert.match(beforeunloadLifecycleMigration, /reconnect_grace_expiry_suppressed_latest_presence/);
+  assert.match(beforeunloadLifecycleMigration, /COALESCE\(e\.detail->>'reason', e\.detail->>'p_reason'\)/);
+  assert.match(remoteSeenGracePayloadMigration, /v_base_reconnect_grace_cleared/);
+  assert.match(remoteSeenGracePayloadMigration, /v_base_reconnect_grace_cleared OR v_rows_changed > 0/);
+  assert.match(remoteSeenGracePayloadMigration, /base_reconnect_grace_cleared/);
 });
 
 test("canonical remote-seen repair advances timestamps as latest-state evidence", () => {
