@@ -1,6 +1,6 @@
 # Video Date End-to-End Hardening Runbook
 
-Current recovery overlay (2026-06-05): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; the current functional recovery baseline is PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb`. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`, and the manual match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-05): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. The last confirmed merged app `main` / `origin/main` before the confirmed-encounter stability branch was `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199; verify current Git state after the branch lands. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`, and the manual match -> survey acceptance run is still unproven.
 
 Branch: `fix/video-date-end-to-end-hardening`
 

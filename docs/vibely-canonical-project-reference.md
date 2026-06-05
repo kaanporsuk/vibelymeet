@@ -59,7 +59,7 @@ Full env matrix: [native-platform-adapter-matrix.md](./native-platform-adapter-m
 
 ### 4.1 Video Date Handshake release contract
 
-Current recovery status: the 2026-04-30 handshake release was deployed, but active Video Date recovery supersedes that closure. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb` contains the latest functional stabilization. Supabase recovery migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`, and fresh manual match -> survey acceptance proof is still required.
+Current recovery status: the 2026-04-30 handshake release was deployed, but active Video Date recovery supersedes that closure. The last confirmed merged app `main` / `origin/main` before the confirmed-encounter stability branch was `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199. Supabase recovery migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`, and fresh manual match -> survey acceptance proof is still required.
 
 Durable contract for web and native:
 
@@ -67,6 +67,7 @@ Durable contract for web and native:
 - `mark_video_date_daily_joined(...)` stamps the authenticated participant's latest Daily join, clears that actor's away state, and clears reconnect grace when return is proven. It starts `handshake_started_at` only after both participants' latest Daily presence is active. `participant_*_joined_at` is not proof if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
 - Daily provider joins must advance latest joined evidence and clear reconnect grace when they prove return; stale provider leaves must not override newer joins.
 - Canonical `mark_video_date_remote_seen(...)` advances latest remote-seen evidence on every remote-media observation.
+- Confirmed bilateral remote-media/date-entry encounters are authoritative before handshake timeout: `mark_video_date_remote_seen` and `video_session_handshake_auto_promote_v2` should promote active confirmed encounters to `date` immediately, while the deadline finalizer remains fallback-only and launch-evidence deadline extensions must grant positive time instead of returning a zero-second extension.
 - Web/native Daily `participant-left` uses local transport grace before backend partner-away. Only explicit `daily_transport_grace_expired` should start backend reconnect grace for partner absence.
 - Browser `visibilitychange` is soft telemetry during active Daily handoff/warm-up/date and should not mark self away while Daily is joining/joined.
 - A same-session, same-room Daily call in joining/joined state should be reused or waited on, not torn down and rebuilt.
@@ -80,7 +81,7 @@ Durable contract for web and native:
 
 Release evidence:
 
-- Current recovery migrations applied: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, and `20260604205645_video_date_remote_seen_latest_state.sql`.
+- Current recovery migrations applied: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, and `20260605115657_video_date_early_confirmed_encounter_promotion.sql`.
 - Migration applied: `20260501170000_video_date_handshake_starts_after_daily_join.sql`.
 - Edge Function redeployed: `daily-room`.
 - Required Supabase secret names were present at release check: `DAILY_API_KEY`, `DAILY_DOMAIN`, `DAILY_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.

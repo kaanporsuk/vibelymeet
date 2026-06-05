@@ -428,18 +428,18 @@ Remaining unproven:
 - A real prolonged absence still needs verification to prove terminalization remains intact.
 - Native/mobile runtime smoke still needs physical-device validation.
 
-### 8. Final sync state after ultimate stabilization rollout
+### 8. Superseded sync state after ultimate stabilization rollout
 
 Evidence source: direct Git, GitHub, Vercel, and Supabase verification after PR #1194 and the final documentation follow-up.
 
-Current code/deploy baseline:
+Superseded code/deploy baseline at that point:
 
 - PR #1194: `https://github.com/kaanporsuk/vibelymeet/pull/1194`
 - PR #1194 squash commit: `0a160cd975d87cd756e9c399e748810508f005cb`
 - PR #1195 final documentation follow-up: `https://github.com/kaanporsuk/vibelymeet/pull/1195`
-- Current app `main` / `origin/main`: `d2c912c873cd3c119b2296a507d5c4b05007f8a9`
+- App `main` / `origin/main` at that point: `d2c912c873cd3c119b2296a507d5c4b05007f8a9`
 - Parent workspace gitlink commit: `a50175961b64b5ec18fb5a0f5b3c7d3759ac5193`; this parent repo has no remote configured, so only the nested app repo is GitHub-pushable.
-- Production Vercel status for current app commit: success, deployment URL `https://vercel.com/okp805/vibelymeet/2W87s4V56hNCz16snCNhaPkrm89X`.
+- Production Vercel status for that app commit: success, deployment URL `https://vercel.com/okp805/vibelymeet/2W87s4V56hNCz16snCNhaPkrm89X`.
 - Source branches `fix/video-date-ultimate-stabilization` and `docs/video-date-ultimate-rollout-final` were deleted locally and remotely.
 
 Supabase cloud baseline:
@@ -461,6 +461,168 @@ Important boundary:
 
 - This confirms code, migrations, and deployment alignment. It still does not prove product recovery.
 - The next decisive proof remains a fresh disposable two-user production run from mutual match through survey completion, plus short-flap and real-prolonged-absence checks.
+
+### 9. Final sync state after confirmed-encounter deadline rescue rollout
+
+Evidence source: direct Git, GitHub, and Supabase verification after PR #1199.
+
+Current code/deploy baseline:
+
+- PR #1199: `https://github.com/kaanporsuk/vibelymeet/pull/1199`
+- PR #1199 merge commit: `ebe4690467b7956511338d94c5847b88889cd1a8`
+- PR #1196 recovery hardening commit: `359fa5c42bd5fcdefef9a8a1fca9396d96194f4f`
+- PR #1194 squash commit: `0a160cd975d87cd756e9c399e748810508f005cb`
+- Current app `main` / `origin/main`: `ebe4690467b7956511338d94c5847b88889cd1a8`
+- Source branch `codex/video-date-confirmed-encounter-rescue` was deleted on GitHub and pruned locally.
+
+Supabase cloud baseline:
+
+- Linked project: `schdyxcunwcvddlcshwd`
+- `supabase db push --linked` applied `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`.
+- `supabase migration list --linked` showed local and remote aligned through `20260605085010`.
+- `supabase db push --linked --dry-run` returned `Remote database is up to date`.
+- Direct live function verification confirmed `finalize_video_date_handshake_deadline(...)` has `has_confirmed_encounter_rescue=true`, `has_positive_extension_v2=true`, `wraps_20260605085010_base=true`, and `old_least_pattern_position=0`.
+- `supabase db lint --linked --level warning --fail-on none` completed after rerunning with telemetry disabled; it reported existing unrelated warnings and no new overlong identifier from the rescue migration.
+
+Important boundary:
+
+- This confirms code, migration, and cloud alignment for the latest rescue. It still does not prove product recovery.
+- The next decisive proof remains a fresh disposable two-user production run from mutual match through survey completion, plus short-flap and real-prolonged-absence checks.
+
+### 10. Latest failed two-user production audit: confirmed encounter existed, but the date never stabilized
+
+Evidence source: chronological screenshots, Console/Network pasted text, local source review, and read-only Supabase CLI queries against project `schdyxcunwcvddlcshwd`.
+
+Identifiers:
+
+- Event: `5dd6716f-b18b-40b1-b238-21d4eb1bf1d5`
+- Video session: `d38e4c62-3cf9-4c98-b6a5-b37b2fe36ef3`
+- Participants:
+  - `267aa05e-0802-4b87-9a7b-ff78b97fdfa7`
+  - `2a0995e1-8ec8-4a11-bdfe-0877c3383f5c`
+- Canonical Daily room: `date-d38e4c623cf94c98b6a5b37b2fe36ef3`
+
+Observed user/browser flow:
+
+- The browser entered `/date/d38e4c62-3cf9-4c98-b6a5-b37b2fe36ef3` and repeatedly showed "Opening your date."
+- The UI then alternated through "Still connecting your date", "Opening the room", a black in-call shell with controls/timer, and "Keeping your date state in sync."
+- Network evidence showed the Daily websocket opened, repeated `claim_video_date_surface`, `video_date_transition`, `video-date-snapshot`, `video_sessions` reads, and many `record_video_date_launch_latency_checkpoint` calls.
+- Console evidence included opaque 500s for `mark_video_date_daily_joined`, `record_video_date_launch_latency_checkpoint`, and `video_session_handshake_auto_promote_v2`; those were amplifiers/observability gaps, not the first boundary failure.
+- Console also showed Daily call-object warnings and a non-video OneSignal CSP image violation for `https://img.onesignal.com/...`, which should be cleaned separately because it pollutes production diagnostics.
+
+Supabase timeline:
+
+- `10:30:48.885857Z`: match created the session.
+- `10:30:51.311016Z`: participant 2 committed `mark_ready` as `ready_b`.
+- `10:30:56.028410Z`: participant 1 committed `mark_ready` as `both_ready`; payload returned the canonical Daily room URL/name, `hot_path=true`, and `retryable_command_reopened=false`.
+- `10:30:57.690724Z` and `10:30:58.209702Z`: `confirm_prepare_entry_prepared` recorded `room_metadata_persisted=true`.
+- `10:30:59.183Z`: participant 1 joined the Daily room according to webhook `3793`.
+- `10:31:01.335Z`: participant 2 joined the same Daily room according to webhook `3794`.
+- `10:31:10.377441Z`: backend started the handshake after active Daily co-presence.
+- `10:31:11.425544Z`: canonical remote-seen repair recorded `confirmed_encounter=true`.
+- `10:31:15.392304Z`: first remote frame evidence was recorded.
+- `10:31:48.723648Z`: `remote_readable` was recorded from `progressive_blur_complete`.
+- `10:31:36.802Z` / processed `10:31:41.658099Z`: participant 1 left Daily.
+- `10:31:38.533Z` / processed `10:31:46.296816Z`: participant 1 rejoined Daily.
+- `10:32:26.857Z` / processed `10:32:41.775670Z`: participant 1 left Daily again.
+- `10:32:42.235Z` / processed `10:33:44.984002Z`: participant 2 left Daily.
+- `10:34:00.555980Z`: deadline cleanup extended the handshake by launch evidence instead of promoting to `date`.
+- `10:36:00.217291Z`: the session ended as `handshake_timeout`, `survey_required=true`, `date_started_at=null`, registrations moved to `in_survey`, and no `date_feedback` rows were present.
+
+Important final row facts:
+
+- Final `state` / `phase`: `ended`
+- `ended_reason`: `handshake_timeout`
+- `date_started_at`: `null`
+- `daily_room_name` / `daily_room_url`: `null` on the final row despite canonical room metadata being returned by `mark_ready` and `room_metadata_persisted=true` during prepare-entry.
+- `participant_1_remote_seen_at`: `2026-06-05T10:31:40.856601Z`
+- `participant_2_remote_seen_at`: `2026-06-05T10:32:01.410506Z`
+- `participant_1_away_at`, `participant_2_away_at`, and `reconnect_grace_ends_at`: `null` in the final row.
+- `date_feedback`: no rows.
+
+Expected vs actual:
+
+- Ready Gate: expected both users to commit readiness once and receive the same canonical room. Actual matched expectation.
+- Daily room creation: expected both users to join the same room. Actual matched expectation.
+- Date route ownership: expected the route handoff to keep one stable Daily call object per user while React route/state churn settles. Actual diverged: observability recorded 18 `daily_call_cleanup` events from `useVideoCall.unmount` during `handshake`, including `joining-meeting` and `joined-meeting` states.
+- Daily singleton preservation: expected a same-session live remount to park/reuse without provider leave/destroy. Actual diagnostics showed `leave_called=false` and `destroy_called=false`, but no effective `parked_singleton`/reuse outcome prevented provider join/leave churn.
+- Media confirmation: expected bilateral remote-seen/first-frame/readable evidence to promote the session into `date` or keep a stable warm-up until promotion. Actual diverged: `confirmed_encounter=true` was recorded by `10:31:11Z`, but `date_started_at` stayed null.
+- Deadline rescue: expected the confirmed-encounter rescue to prevent false `handshake_timeout`. Actual rescue ran too late; by deadline cleanup, provider left events had already emptied the room, so the server extended once and later ended survey-required.
+- Terminal survey: expected survey-required terminal truth to open and complete the survey. Actual backend moved both registrations to `in_survey`, but no feedback row was persisted in this test.
+
+Root-cause assessment:
+
+- Primary client root cause: web Daily lifecycle ownership is still too sensitive to React hook/component churn. `src/hooks/useVideoCall.ts` calls cleanup from a `useEffect` whose dependency is `cleanupCallObject`; when that callback identity changes, React can run the cleanup while the user is still on the intended `/date/:sessionId` flow. This exactly matches the `useVideoCall.unmount` diagnostics during active Daily states.
+- Primary server root cause: promotion is too delayed. `video_session_handshake_auto_promote_v2` still waits for the 60-second handshake deadline before promoting, even when `video_date_session_has_confirmed_encounter(...)` is already true. This leaves the product in a long fragile handshake window after bilateral media evidence exists.
+- Deadline-rescue limitation: `finalize_video_date_handshake_deadline` can promote an active confirmed encounter at the deadline, but this test shows that deadline is not early enough. By the time cleanup ran, provider leave rows had already been processed, so the active room had been lost.
+- Room metadata integrity gap: canonical room metadata existed in command payloads and prepare-entry evidence, but the final `video_sessions` row had `daily_room_name`/`daily_room_url` null. This must be treated as an invariant failure until explained or repaired.
+- RPC observability gap: the client still surfaces raw 500s for key RPCs during handoff. These should be structured, retry-classified responses with `sqlstate`, `message`, `retryable`, and source RPC name so the UI can back off without tearing down Daily.
+
+Scoped next-change plan from this audit:
+
+- Web: make the `useVideoCall.unmount` cleanup mount-stable. Use a ref-backed cleanup function or stable-event helper so callback identity churn cannot trigger a live Daily cleanup. During same-session `handshake`/`date`, unmount cleanup should park or no-op if the current route/session still owns the date handoff.
+- Web: latch same-session Daily continuity eligibility once Daily join starts, rather than recomputing it from transient render state. The cleanup diagnostic must always include `dailyCallSingletonEligible`, `willParkSingleton`, `parked_singleton`, and the final reuse/park/destroy outcome.
+- Web: treat `external_call_busy` for the same session/room as a reuse/wait path before showing "Still connecting your date"; surface blocking UI only for different room/session or after bounded same-session recovery fails.
+- Server: add an early confirmed-encounter promotion path from `mark_video_date_remote_seen` and/or `video_session_handshake_auto_promote_v2`. Once both users have joined and both have canonical remote-seen evidence, and neither user has explicitly passed, promote to `date` immediately rather than waiting for the 60-second deadline.
+- Server: keep the deadline rescue as a fallback, but add diagnostics that record `confirmed_encounter`, `active_confirmed_encounter`, away timestamps, latest joined/remote-seen evidence, latest provider leave/join, and the exact branch selected.
+- Server: enforce canonical room metadata persistence as an invariant. A both-ready/session with a deterministic room must not end with null `daily_room_name` unless the row is intentionally anonymized, and recovery helpers should repair both active and terminal rows.
+- Web/native/mobile: treat confirmed server `date` promotion as the single warm-up/date-start source of truth; avoid resetting warm-up timers or restarting Daily after a positive promotion/extension response.
+- Native/mobile: preserve the existing native prejoin cleanup guard, but align the product invariant with web: transient navigation/focus/app lifecycle must not mark a failed date or tear down recoverable server state before grace expires or terminal truth arrives.
+- Observability/UX cleanup: add `https://img.onesignal.com` to CSP `img-src` separately, and ensure all handoff RPC failures return structured payloads instead of opaque browser 500s.
+
+Boundary:
+
+- This was an audit/investigation pass only. No code changes, migrations, deploys, web build, or native build were run.
+- The product remains unproven. The required proof is still a fresh disposable production two-user run through match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes.
+
+### 11. Implemented confirmed-encounter stability patch after session `d38e4c62`
+
+Evidence source: local code changes, focused contract/type/lint verification, and Supabase cloud apply to linked project `schdyxcunwcvddlcshwd`.
+
+Implementation branch:
+
+- Branch: `codex/video-date-confirmed-encounter-stability`
+- New Supabase migration: `20260605115657_video_date_early_confirmed_encounter_promotion.sql`
+- Cloud apply: `supabase db push --linked --yes` applied `20260605115657` successfully.
+- Post-apply remote check: `supabase migration list --linked` showed local/remote alignment through `20260605115657`.
+- Post-apply remote lint: `supabase db lint --linked --schema public --fail-on error` completed with no error-level issues; it reported existing unrelated warning-level issues and pre-existing identifier-truncation notices from older migrations.
+
+What changed:
+
+- Web Daily lifecycle now uses a ref-backed unmount cleanup, so `cleanupCallObject` callback identity churn cannot trigger `useVideoCall.unmount` cleanup while the date route is still actively settling.
+- Web same-session Daily continuity now latches once start/join begins (`start_call_requested`, active truth, call object attached, join started, join success). Cleanup eligibility no longer depends only on transient `dailyCallSingletonEligible` render props.
+- Parked same-session Daily cleanup preserves active session continuity metadata and avoids resetting the hook's connection/reconnect/media state on the parked path.
+- Supabase now has a shared `video_date_promote_confirmed_encounter_v1(...)` helper. It promotes an active `handshake` to `date` immediately when both participants have joined, both have canonical `remote_seen`, neither participant has an explicit pass, both have not already decided, and neither side has a newer away timestamp than their latest join/remote evidence.
+- `mark_video_date_remote_seen` now delegates to that helper after stamping remote media, so the second canonical remote-seen proof can start the date without waiting for the 60s deadline.
+- `video_session_handshake_auto_promote_v2` now checks the same helper before delegating to the older deadline-gated command wrapper, so confirmed bilateral media bypasses `handshake_auto_promote_not_due`.
+- `finalize_video_date_handshake_deadline` still delegates to the PR #1199 deadline rescue as fallback, but now checks the same early promotion helper first and restores canonical room metadata after the fallback path.
+- CSP now allows `https://img.onesignal.com` in `img-src` to remove a noisy non-Daily console violation from production debugging.
+
+Expected behavior after this patch:
+
+- If both users reach the same Daily room and both clients/provider surfaces produce canonical remote-seen evidence, server truth should move to `state=date`, `phase=date`, and non-null `date_started_at` immediately.
+- A later handshake finalizer should be fallback-only, not the primary date-start path after confirmed bilateral media.
+- A React remount/state-churn event during the same `/date/:sessionId` handoff should park/reuse the live Daily call rather than leave/destroy/recreate it.
+- Terminal rows should retain or restore deterministic Daily room metadata for operator forensics and survey recovery.
+
+Verification run, with no web or native build triggered:
+
+- `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDateInstantPremiumV2Contracts.test.ts`
+- `npx tsx shared/matching/videoDateDefinitiveHandoffRecovery.test.ts`
+- `npx tsx shared/matching/videoDatePhase3RemainingContracts.test.ts`
+- `npm run typecheck:core`
+- `npx eslint src/hooks/useVideoCall.ts shared/matching/videoDateWarmupStabilityContracts.test.ts shared/matching/videoDateInstantPremiumV2Contracts.test.ts shared/matching/videoDateDefinitiveHandoffRecovery.test.ts shared/matching/videoDatePhase3RemainingContracts.test.ts`
+- `supabase db push --linked --dry-run`
+- `supabase db push --linked --yes`
+- `supabase migration list --linked`
+- `supabase db lint --linked --schema public --fail-on error`
+- Live catalog/function marker query confirmed `migration_applied=true`, `mark_remote_seen_wraps_helper=true`, `mark_remote_seen_returns_flag=true`, `auto_promote_checks_helper=true`, `auto_promote_delegates_base=true`, `finalizer_delegates_base=true`, `finalizer_repairs_room_after_base=true`, `helper_records_confirmed_event=true`, and `helper_sets_date_state=true`.
+
+Boundary:
+
+- This is still not acceptance proof. The decisive proof remains a fresh disposable production two-user run through match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes.
+- If the next run fails, first inspect whether `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` returned `early_confirmed_encounter_promoted=true`, whether `confirmed_encounter_promoted_to_date` appears in `video_session_events` / `event_loop_observability_events`, and whether web cleanup rows show `same_session_daily_continuity_latched=true` with `parked_singleton=true`.
 
 ---
 
@@ -503,6 +665,10 @@ Once `/date/:sessionId` or the native date route owns a same-session active hand
 
 `mark_video_date_remote_seen` should fire when a remote Daily participant is observed through provider presence, post-join snapshots, shared-call hydration, or mounted media. Media playback events remain valuable first-frame evidence, but canonical `participant_*_remote_seen_at` must not depend solely on a browser/native media element event.
 
+### Confirmed encounters start the date before deadline fallback
+
+Once both participants have confirmed bilateral remote-media/date-entry evidence and neither side has passed or both-decided, server truth must promote the session to `date` immediately. `mark_video_date_remote_seen` and `video_session_handshake_auto_promote_v2` must both use the shared confirmed-encounter promotion invariant; the handshake deadline finalizer is fallback-only. Deadline cleanup must never end an already confirmed encounter as `handshake_timeout`, and any launch-evidence extension must grant positive remaining time; zero-second extensions are terminal races in disguise.
+
 ### Browser lifecycle is not authoritative during handoff
 
 `visibilitychange` is soft telemetry while Daily is joining/joined or while the session is in handoff, handshake, warm-up, or date. It must not call backend `mark_reconnect_self_away`. Hard exits such as real unload and non-persisted pagehide can still send leave signals. Native/mobile background uses local grace first and only sends backend away once the grace expires.
@@ -534,7 +700,7 @@ These are not claims that the current code is broken; they are the unproven area
 3. **Warm-up stability must be observed, not assumed.** Passing requires both users in the same Daily room at the same time, remote tracks mounted, and no backend terminalization from a short provider transport flap.
 4. **Static and CI checks passed after the warm-up stabilization patch, but they are not acceptance proof.** The deployed local-grace and terminal-survey hard-stop behavior still needs a real two-user production run.
 5. **Native/mobile runtime needs physical-device smoke.** Static parity and contracts are not enough for mobile media permissions, push, Daily transport events, app backgrounding, and route restoration.
-6. **Latest-state presence and remote-seen migrations are applied, but behavior still needs production proof.** Cloud catalog verification confirms `20260604193140_video_date_latest_presence_grace_repair.sql` and `20260604205645_video_date_remote_seen_latest_state.sql`; the next acceptance run must prove they clear grace on return and suppress stale expiry in real Daily traffic.
+6. **Latest-state presence, remote-seen, immediate confirmed-encounter promotion, and deadline fallback rescue migrations are applied, but behavior still needs production proof.** Cloud catalog verification confirms `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, and `20260605115657_video_date_early_confirmed_encounter_promotion.sql`; the next acceptance run must prove they clear grace on return, suppress stale expiry, promote confirmed encounters to `date` immediately after bilateral remote media, and preserve positive launch-evidence extensions in real Daily traffic.
 7. **Daily start ownership must be proven under real browser behavior.** Static tests assert same-session reuse, but production must show no same-session `leave()`/`destroy()` churn while joining/joined.
 8. **Date-route ownership and live Daily preservation are newly patched, not production-proven.** The next run must show no `/date` <-> `/ready` cycling while a same-session Daily call is joining/joined.
 9. **Soft lifecycle suppression must be proven.** The browser should not send `web_visibilitychange` self-away while Daily is active, but hard unload/pagehide should still work.
@@ -654,6 +820,8 @@ Backend / migrations:
 - `supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql`
 - `supabase/migrations/20260604193140_video_date_latest_presence_grace_repair.sql`
 - `supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql`
+- `supabase/migrations/20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`
+- `supabase/migrations/20260605115657_video_date_early_confirmed_encounter_promotion.sql`
 
 Web:
 
@@ -684,6 +852,7 @@ Contracts:
 - `shared/matching/readyGate57014ReliabilityContracts.test.ts`
 - `shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
 - `shared/matching/videoDateEndToEndHardening.test.ts`
+- `shared/matching/videoDateDefinitiveHandoffRecovery.test.ts`
 - `shared/matching/videoDateSurfaceContinuityHardening.test.ts`
 - `shared/matching/videoDateWarmupStabilityContracts.test.ts`
 - `shared/matching/phase2PaymentsDurableNotifications.test.ts`
@@ -703,7 +872,7 @@ Runbooks:
 ### 2026-06-05
 
 - Updated the recovery documentation and agent guidance after the ultimate stabilization rollout was merged and synchronized.
-- Recorded current app `main` / `origin/main` commit `d2c912c873cd3c119b2296a507d5c4b05007f8a9`, PR #1195 final documentation follow-up, successful Vercel production status, deleted rollout branches, and clean app working tree.
+- Recorded then-current app `main` / `origin/main` commit `d2c912c873cd3c119b2296a507d5c4b05007f8a9`, PR #1195 final documentation follow-up, successful Vercel production status, deleted rollout branches, and clean app working tree.
 - Recorded parent workspace gitlink commit `a50175961b64b5ec18fb5a0f5b3c7d3759ac5193`; the parent workspace has no configured remote, so GitHub push/merge verification applies to the nested `Git/vibelymeet` app repo.
 - Reverified Supabase cloud alignment: remote database up to date, migrations `20260604193140` and `20260604205645` present, latest-state presence/remote-seen/transition/reconnect functions installed, and linked advisors returned no error-level issues.
 - Clarified for future agents that the current primary work is not another broad Ready Gate rewrite. The next work should begin with fresh production evidence: prove or disprove stable Daily co-presence, local-grace behavior, reconnect grace clearing, terminal-survey hard-stop, and survey completion.
@@ -714,7 +883,7 @@ Runbooks:
 - Deep-audited the route-ownership hardening and found two remaining edge cases:
   - `/date/:sessionId` and native `/date/[id]` were marking route ownership on mount before proving the session was actually date-routeable. That could suppress legitimate Ready Gate/lobby recovery for stale direct date entries. Web and native now keep the long entry-pipeline latch on mount but only refresh date-route ownership from explicit pre-navigation handoffs or active Daily startup/date evidence.
   - A handoff marked before the user id was available could leave an anonymous ownership key alive after later user-scoped cleanup. Web and native `clearVideoDateRouteOwnership` now clear the user-scoped key, anonymous key, and any remaining keys for that session.
-- Reverified baseline state during the deep audit: nested app repo `HEAD` and `origin/main` are both `d2c912c873cd3c119b2296a507d5c4b05007f8a9`; Supabase project `schdyxcunwcvddlcshwd` migration list shows `20260604142017`, `20260604170438`, `20260604193140`, and `20260604205645` applied remotely. The first parallel CLI check hit a local Supabase telemetry rename race; rerunning with telemetry disabled succeeded.
+- Reverified then-current baseline state during the deep audit: nested app repo `HEAD` and `origin/main` were both `d2c912c873cd3c119b2296a507d5c4b05007f8a9`; Supabase project `schdyxcunwcvddlcshwd` migration list showed `20260604142017`, `20260604170438`, `20260604193140`, and `20260604205645` applied remotely. The first parallel CLI check hit a local Supabase telemetry rename race; rerunning with telemetry disabled succeeded.
 - Updated static contracts for route ownership, live Daily remount preservation, singleton join wait/reuse, and remote-seen provider-presence stamping across web/native/mobile.
 - Verification: focused contracts passed after the native compile fix, web same-session continuity flag-decoupling, route-ownership mount-scope correction, and anonymous ownership cleanup:
   - `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
@@ -774,7 +943,18 @@ Runbooks:
 - Supabase live function verification: `supabase db query --linked` against `pg_get_functiondef('public.finalize_video_date_handshake_deadline(uuid, uuid, text, text)'::regprocedure)` returned `has_confirmed_encounter_rescue=true`, `has_positive_extension_v2=true`, `wraps_20260605085010_base=true`, and `old_least_pattern_position=0`.
 - Supabase schema lint: first `supabase db lint --linked --level warning` attempt failed before querying due a CLI telemetry file rename race after concurrent CLI commands; rerun alone as `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --level warning --fail-on none` completed. It reported existing unrelated warnings and already-applied identifier-truncation notices; the new migration base name `finalize_vd_handshake_deadline_20260605085010_base` is 50 chars and does not add another overlong identifier.
 - Supabase changelog scan (`https://supabase.com/changelog.md`) showed no relevant hosted Postgres migration/PLpgSQL breaking item for this scoped wrapper migration; the visible breaking items were unrelated/self-hosted/API exposure/OAuth/pg_graphql topics.
+- Published confirmed-encounter deadline rescue PR #1199 (`https://github.com/kaanporsuk/vibelymeet/pull/1199`) and merged it into `main` at commit `ebe4690467b7956511338d94c5847b88889cd1a8`; source branch `codex/video-date-confirmed-encounter-rescue` was deleted on GitHub and pruned locally.
+- Final sync verification after PR #1199: local `main` and `origin/main` aligned at `ebe4690467b7956511338d94c5847b88889cd1a8`; Supabase project `schdyxcunwcvddlcshwd` stayed aligned through `20260605085010`, and `supabase db push --linked --dry-run` reported `Remote database is up to date`.
+- Updated active recovery guidance and related runbook overlays to the PR #1199 / `20260605085010` baseline so future agents do not start from the superseded PR #1195 assumptions. Historical rollout sections remain preserved as point-in-time evidence.
 - Boundary remains unchanged: this implementation is not proof that Video Date is fixed. Acceptance still requires a fresh disposable production two-user run after migration/deploy through match -> Ready Gate -> same Daily room -> stable bilateral media/warm-up -> date end -> survey opens and completes.
+- Investigated the latest failed production two-user session `d38e4c62-3cf9-4c98-b6a5-b37b2fe36ef3` for event `5dd6716f-b18b-40b1-b238-21d4eb1bf1d5`. Ready Gate and Daily room creation succeeded, both users joined the same Daily room, canonical remote-seen repair reached `confirmed_encounter=true`, first remote frame/readable evidence existed, and both registrations ended `in_survey`; however `date_started_at` remained null and the final session ended `handshake_timeout`.
+- Latest failure boundary: web Daily lifecycle churn still emitted repeated `useVideoCall.unmount` cleanup diagnostics during active `joining-meeting`/`joined-meeting` states, provider join/leave churn emptied the room before deadline cleanup, `video_session_handshake_auto_promote_v2` remained deadline-gated despite confirmed bilateral media, and the deadline rescue ran too late to create a stable date. The final row also had null `daily_room_name`/`daily_room_url` despite earlier room metadata evidence.
+- Current next-change plan from this audit: make web unmount cleanup mount-stable/ref-backed, latch same-session Daily continuity once join starts, make same-room `external_call_busy` a reuse/wait path, promote to `date` immediately on confirmed bilateral remote-seen plus joined evidence, add branch diagnostics to deadline cleanup, enforce canonical room metadata persistence, preserve native/mobile lifecycle parity, and structure handoff RPC failures instead of allowing opaque 500s.
+- This was an audit-only investigation update. No code changes, migrations, deploys, web build, or native build were run.
+- Implemented confirmed-encounter stability branch `codex/video-date-confirmed-encounter-stability`: web `useVideoCall` now uses ref-backed unmount cleanup and a latched same-session Daily continuity guard so React route/state churn parks live same-session Daily calls instead of tearing them down; CSP now allows `https://img.onesignal.com` to remove noisy OneSignal image violations during debugging.
+- Added and applied Supabase migration `20260605115657_video_date_early_confirmed_encounter_promotion.sql` to project `schdyxcunwcvddlcshwd`. It creates shared helper `video_date_promote_confirmed_encounter_v1(...)`, wraps `mark_video_date_remote_seen`, `video_session_handshake_auto_promote_v2`, and `finalize_video_date_handshake_deadline`, promotes active confirmed bilateral encounters to `date` before deadline fallback, and repairs canonical Daily room metadata.
+- Verification after implementation, with no web or native build run: focused Video Date contract tests, `npm run typecheck:core`, narrow ESLint on touched TS/TSX contract surfaces, `supabase db push --linked --dry-run`, `supabase db push --linked --yes`, `supabase migration list --linked`, and `supabase db lint --linked --schema public --fail-on error` all completed with the new migration aligned locally/remotely and no Supabase error-level lint findings. A live catalog/function marker query also returned true for migration application, the `mark_video_date_remote_seen` early-promotion wrapper, the auto-promote helper-before-base wrapper, the finalizer fallback wrapper, post-base room repair, and the shared helper's `confirmed_encounter_promoted_to_date` / `state = date` markers.
+- Updated active recovery guidance and runbook overlays to the `20260605115657` early-promotion invariant. Historical PR #1199 / `20260605085010` rollout evidence remains preserved as point-in-time context.
 
 ### 2026-06-04
 
@@ -809,13 +989,15 @@ Use this prompt when starting a new Codex/agent session:
 ```text
 You are continuing Vibely Video Date recovery in /Users/kaanporsuk/Documents/Vibely/Git/vibelymeet. Start by reading docs/video-date-success-command-center.md, docs/active-doc-map.md, AGENTS.md, CODEX.md, and CLAUDE.md. Treat docs/video-date-success-command-center.md as the active source of truth and update it after every material investigation, code change, migration, deploy, or manual QA result.
 
-Current app main/origin-main is expected to include PR #1196 recovery hardening code commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f plus any later documentation-only publish follow-up, with PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb containing the ultimate stabilization work. Supabase project schdyxcunwcvddlcshwd is expected to have migrations 20260604142017, 20260604170438, 20260604193140, 20260604205645, and 20260605085010 applied, and send-notification version 813 deployed on 2026-06-05 01:59:45 UTC. Verify current state before assuming it.
+The last confirmed merged app main/origin-main before the confirmed-encounter stability branch was PR #1199 merge commit ebe4690467b7956511338d94c5847b88889cd1a8. PR #1199 builds on PR #1196 recovery hardening commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f and PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb. The current recovery branch adds Supabase migration 20260605115657_video_date_early_confirmed_encounter_promotion.sql on top of migrations 20260604142017, 20260604170438, 20260604193140, 20260604205645, and 20260605085010 in project schdyxcunwcvddlcshwd. Verify current Git main/origin-main, branch/PR merge commit, `supabase migration list --linked`, `supabase db push --linked --dry-run`, and live function/catalog markers before assuming state. send-notification version 813 was deployed on 2026-06-05 01:59:45 UTC.
 
 The feature is still not proven healthy. Do not claim success from static tests, both_ready, route entry, Daily room creation, brief warm-up UI, or a terminal survey row. The required proof remains a fresh disposable two-user production run: match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes, plus a simulated short Daily leave/rejoin under 12s and a real prolonged absence terminalization check.
 
-Current theory: Ready Gate and Daily room creation have generally succeeded; the remaining risk is post-handoff stability and terminal recovery. The implemented fixes enforce same-session Daily start ownership/reuse, live same-session Daily remount preservation without leave/destroy, short-lived date-route ownership from explicit handoff or active Daily/date evidence to suppress stale Ready Gate/lobby bounces, local Daily transport grace before backend partner-away, soft browser lifecycle handling during active Daily, latest-state joined/away presence, canonical remote_seen latest-state repair from provider presence/media evidence, reconnect grace clearing on return, reconnect expiry recheck, false peer-missing suppression, and terminal-survey hard-stop on /date/:sessionId.
+Current theory: Ready Gate and Daily room creation have generally succeeded; the remaining risk is post-handoff stability and terminal recovery. The implemented fixes enforce same-session Daily start ownership/reuse, ref-backed live same-session Daily remount preservation without leave/destroy, short-lived date-route ownership from explicit handoff or active Daily/date evidence to suppress stale Ready Gate/lobby bounces, local Daily transport grace before backend partner-away, soft browser lifecycle handling during active Daily, latest-state joined/away presence, canonical remote_seen latest-state repair from provider presence/media evidence, immediate confirmed-encounter promotion to date from `mark_video_date_remote_seen` / `video_session_handshake_auto_promote_v2`, confirmed-encounter deadline fallback rescue, positive launch-evidence deadline extension, surface-claim backoff, reconnect grace clearing on return, reconnect expiry recheck, false peer-missing suppression, and terminal-survey hard-stop on /date/:sessionId.
 
-Before changing code, inspect the latest failed or acceptance session with Supabase/Daily evidence in order. Capture event_id, video_session_id, both user IDs, Ready Gate payloads, video_session_commands, video_date_daily_webhook_events, video_date_surface_claims, event_loop_observability_events, Daily room/session IDs, participant joined/left order, participant_*_away_at, participant_*_remote_seen_at, reconnect_grace_ends_at, ended_reason, survey_required, date_feedback rows, and any RPC response bodies with sqlstate/message/hot_path/expiry_grace_applied/retryable_command_reopened/daily_transport_grace_expired/away_mark_suppressed/reconnect_grace_cleared/latest_remote_seen_at.
+Latest failed production audit before the early-promotion patch: session d38e4c62-3cf9-4c98-b6a5-b37b2fe36ef3 for event 5dd6716f-b18b-40b1-b238-21d4eb1bf1d5 proved the remaining failure was no longer Ready Gate or room creation. Both users joined the same Daily room, canonical remote_seen reached confirmed_encounter=true, first remote frame/readable evidence existed, and both users ended in survey, but date_started_at stayed null and the session ended handshake_timeout. The patched boundaries are web Daily lifecycle cleanup during same-session React churn, deadline-gated auto-promotion despite confirmed encounter, deadline rescue running after provider leave churn, null final canonical room metadata, and OneSignal CSP diagnostic noise. Same-room external_call_busy reuse remains a secondary watch item if the next run stalls before Daily room entry.
 
-If the next run fails, decide precisely which boundary diverged from expected behavior: Ready Gate hot path, date route ownership, Daily start ownership, provider join/leave ledger, canonical remote_seen repair, lifecycle-away suppression, reconnect grace clearing/expiry, terminal survey hard-stop, or survey persistence. Propose scoped changes only after that evidence is collected.
+Before changing code, inspect the latest failed or acceptance session with Supabase/Daily evidence in order. Capture event_id, video_session_id, both user IDs, Ready Gate payloads, video_session_commands, video_date_daily_webhook_events, video_date_surface_claims, event_loop_observability_events, Daily room/session IDs, participant joined/left order, participant_*_away_at, participant_*_remote_seen_at, reconnect_grace_ends_at, ended_reason, survey_required, date_feedback rows, and any RPC response bodies with sqlstate/message/hot_path/expiry_grace_applied/retryable_command_reopened/daily_transport_grace_expired/away_mark_suppressed/reconnect_grace_cleared/latest_remote_seen_at/early_confirmed_encounter_promoted/promotion_reason/confirmed_encounter_promoted_to_date/confirmed_encounter_deadline_rescue/handshake_deadline_extended_for_launch_evidence_v2/surface_claim_backoff/same_session_daily_continuity_latched/parked_singleton.
+
+If the next run fails, decide precisely which boundary diverged from expected behavior: Ready Gate hot path, date route ownership, Daily start ownership, same-session Daily remount parking/reuse, provider join/leave ledger, canonical remote_seen repair, immediate confirmed-encounter promotion, confirmed-encounter deadline fallback rescue, positive launch-evidence extension, lifecycle-away suppression, reconnect grace clearing/expiry, terminal survey hard-stop, or survey persistence. Propose scoped changes only after that evidence is collected.
 ```

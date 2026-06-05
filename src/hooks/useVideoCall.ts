@@ -1099,6 +1099,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const startAttemptNonceRef = useRef(0);
   const startCallInFlightSessionRef = useRef<string | null>(null);
   const activeCallSessionIdRef = useRef<string | null>(null);
+  const sameSessionDailyContinuityLatchedRef = useRef<{
+    sessionId: string;
+    latchedAtMs: number;
+    source: string;
+  } | null>(null);
   const latestLocalParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const cameraSwitchInFlightRef = useRef(false);
@@ -1133,6 +1138,38 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
+
+  const latchSameSessionDailyContinuity = useCallback((sessionId: string, source: string) => {
+    const existing = sameSessionDailyContinuityLatchedRef.current;
+    if (existing?.sessionId === sessionId) return;
+    sameSessionDailyContinuityLatchedRef.current = {
+      sessionId,
+      latchedAtMs: Date.now(),
+      source,
+    };
+    vdbg("daily_call_same_session_continuity_latched", {
+      sessionId,
+      source,
+    });
+  }, []);
+
+  const clearSameSessionDailyContinuity = useCallback((sessionId: string | null, source: string) => {
+    const existing = sameSessionDailyContinuityLatchedRef.current;
+    if (!existing) return;
+    if (sessionId && existing.sessionId !== sessionId) return;
+    sameSessionDailyContinuityLatchedRef.current = null;
+    vdbg("daily_call_same_session_continuity_cleared", {
+      sessionId: sessionId ?? existing.sessionId,
+      source,
+      previousSource: existing.source,
+      ageMs: Math.max(0, Date.now() - existing.latchedAtMs),
+    });
+  }, []);
+
+  const hasSameSessionDailyContinuity = useCallback((sessionId: string | null) => {
+    if (!sessionId) return false;
+    return sameSessionDailyContinuityLatchedRef.current?.sessionId === sessionId;
+  }, []);
 
   const clearDailyEventListeners = useCallback((reason: string) => {
     const cleanups = dailyEventListenerCleanupsRef.current;
@@ -2931,14 +2968,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const userId = optionsRef.current?.userId ?? null;
         const meetingStateBeforeCleanup = safeMeetingState(callObject);
         const phaseBeforeCleanup = optionsRef.current?.videoSessionState ?? null;
+        const sameSessionDailyContinuity =
+          Boolean(optionsRef.current?.dailyCallSingletonEligible) ||
+          hasSameSessionDailyContinuity(sessionId);
         const shouldParkLiveSingleton =
-          Boolean(optionsRef.current?.dailyCallSingletonEligible) &&
+          sameSessionDailyContinuity &&
           Boolean(callObject) &&
           Boolean(userId) &&
           caller === "useVideoCall.unmount" &&
           reason === "component_unmount" &&
           phaseBeforeCleanup !== "ended" &&
-          (meetingStateBeforeCleanup === "joined-meeting" || meetingStateBeforeCleanup === "joining-meeting");
+          !isTerminalDailyMeetingState(meetingStateBeforeCleanup);
         let callLeftSuccessfully = false;
         let parkedSingleton = false;
 
@@ -2950,7 +2990,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           roomName,
           hasCallObject: Boolean(callObject),
           dailyCallSingletonEligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
-          sameSessionDailyContinuity: Boolean(optionsRef.current?.dailyCallSingletonEligible),
+          sameSessionDailyContinuity,
+          sameSessionDailyContinuityLatched: hasSameSessionDailyContinuity(sessionId),
           willParkSingleton: shouldParkLiveSingleton,
           singletonParkingMode: shouldParkLiveSingleton ? "live_same_session_remount" : null,
           meetingState: meetingStateBeforeCleanup,
@@ -2968,6 +3009,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             room_name: roomName ?? undefined,
             meeting_state: meetingStateBeforeCleanup ?? undefined,
             phase: phaseBeforeCleanup ?? undefined,
+            same_session_daily_continuity: sameSessionDailyContinuity,
+            same_session_daily_continuity_latched: hasSameSessionDailyContinuity(sessionId),
             leave_called: Boolean(callObject) && !shouldParkLiveSingleton,
             destroy_called: Boolean(callObject) && !shouldParkLiveSingleton,
             parked_singleton: shouldParkLiveSingleton,
@@ -3034,54 +3077,59 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
           callObjectRef.current = null;
         }
-        activeCallSessionIdRef.current = null;
+        if (!parkedSingleton) {
+          activeCallSessionIdRef.current = null;
+          clearSameSessionDailyContinuity(sessionId, `daily_call_cleanup:${reason}`);
+        }
         clearDailyTokenRefreshTimer();
         dailyTokenRecoveryInFlightRef.current = false;
 
         if (localVideoRef.current) localVideoRef.current.srcObject = null;
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-        setLocalStream(null);
-        setHasPermission(null);
-        setIsConnected(false);
-        setIsConnecting(false);
-        setDailyMeetingState(null);
-        setLocalInDailyRoom(false);
-        setNetworkTier("good");
-        setRemotePlayback(createRemotePlaybackState());
-        setPeerMissing({ terminal: false });
-        clearRemoteRenderValidation({ cancelReattach: true });
-        clearReconnectGraceTimers();
-        reconnectGraceActiveRef.current = false;
-        reconnectPartnerAwayTriggeredRef.current = false;
-        reconnectSyncRequestedRef.current = false;
-        resetRemoteRenderRecoveryAttempts();
-        lastRemoteRenderParticipantIdRef.current = null;
-        activePreparedEntryCacheRef.current = null;
-        activePreparedEntryCacheHitRef.current = null;
-        dailyJoinStartedAtMsRef.current = null;
-        lastMediaHandoffUsedRef.current = false;
-        lastMediaHandoffMissReasonRef.current = null;
-        lastDailyPrewarmConsumedRef.current = false;
-        lastPrewarmedJoinInFlightRef.current = false;
-        lastPrewarmedAlreadyJoinedRef.current = false;
-        lastProviderVerifySkippedRef.current = null;
-        localVideoReadyTrackedRef.current = false;
-        remoteFirstFrameTrackedRef.current = false;
-        setDailyReconnectState("connected");
-        setReconnectGraceTimeLeft(0);
-        firstRemoteObservedRef.current = false;
-        clearFirstRemoteWatchdog();
-        lastLocalTrackIdsRef.current = "";
-        lastLocalStreamRef.current = null;
-        lastRemoteTrackIdsRef.current = "";
-        lastRemoteStreamRef.current = null;
-        lastLocalMountedTrackKeyRef.current = "";
-        lastRemoteMountedTrackKeyRef.current = "";
-        latestLocalParticipantRef.current = undefined;
-        latestRemoteParticipantRef.current = undefined;
-        cameraSwitchInFlightRef.current = false;
-        lastRemoteCameraSwitchHintIdRef.current = null;
-        activeRemoteCameraSwitchRenderWatchRef.current = null;
+        if (!parkedSingleton) {
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+          setLocalStream(null);
+          setHasPermission(null);
+          setIsConnected(false);
+          setIsConnecting(false);
+          setDailyMeetingState(null);
+          setLocalInDailyRoom(false);
+          setNetworkTier("good");
+          setRemotePlayback(createRemotePlaybackState());
+          setPeerMissing({ terminal: false });
+          clearRemoteRenderValidation({ cancelReattach: true });
+          clearReconnectGraceTimers();
+          reconnectGraceActiveRef.current = false;
+          reconnectPartnerAwayTriggeredRef.current = false;
+          reconnectSyncRequestedRef.current = false;
+          resetRemoteRenderRecoveryAttempts();
+          lastRemoteRenderParticipantIdRef.current = null;
+          activePreparedEntryCacheRef.current = null;
+          activePreparedEntryCacheHitRef.current = null;
+          dailyJoinStartedAtMsRef.current = null;
+          lastMediaHandoffUsedRef.current = false;
+          lastMediaHandoffMissReasonRef.current = null;
+          lastDailyPrewarmConsumedRef.current = false;
+          lastPrewarmedJoinInFlightRef.current = false;
+          lastPrewarmedAlreadyJoinedRef.current = false;
+          lastProviderVerifySkippedRef.current = null;
+          localVideoReadyTrackedRef.current = false;
+          remoteFirstFrameTrackedRef.current = false;
+          setDailyReconnectState("connected");
+          setReconnectGraceTimeLeft(0);
+          firstRemoteObservedRef.current = false;
+          clearFirstRemoteWatchdog();
+          lastLocalTrackIdsRef.current = "";
+          lastLocalStreamRef.current = null;
+          lastRemoteTrackIdsRef.current = "";
+          lastRemoteStreamRef.current = null;
+          lastLocalMountedTrackKeyRef.current = "";
+          lastRemoteMountedTrackKeyRef.current = "";
+          latestLocalParticipantRef.current = undefined;
+          latestRemoteParticipantRef.current = undefined;
+          cameraSwitchInFlightRef.current = false;
+          lastRemoteCameraSwitchHintIdRef.current = null;
+          activeRemoteCameraSwitchRenderWatchRef.current = null;
+        }
         if (!parkedSingleton) {
           releaseAppAcquiredMedia("daily_call_cleanup");
         } else {
@@ -3100,6 +3148,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             room_name: roomName ?? undefined,
             meeting_state: meetingStateBeforeCleanup ?? undefined,
             phase: phaseBeforeCleanup ?? undefined,
+            same_session_daily_continuity: sameSessionDailyContinuity,
+            same_session_daily_continuity_latched: hasSameSessionDailyContinuity(sessionId),
             leave_called: callLeftSuccessfully,
             destroy_called: Boolean(callObject) && !parkedSingleton,
             parked_singleton: parkedSingleton,
@@ -3123,9 +3173,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [
       clearDailyEventListeners,
       clearDailyTokenRefreshTimer,
+      clearSameSessionDailyContinuity,
       clearFirstRemoteWatchdog,
       clearReconnectGraceTimers,
       clearRemoteRenderValidation,
+      hasSameSessionDailyContinuity,
       releaseAppAcquiredMedia,
       resetRemoteRenderRecoveryAttempts,
     ]
@@ -3435,13 +3487,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         meetingState,
       });
 
-      if (reused) return { ok: true } as VideoCallStartResult;
+      if (reused) {
+        latchSameSessionDailyContinuity(sessionId, "start_call_in_flight_resolved_joined");
+        return { ok: true } as VideoCallStartResult;
+      }
       return {
         ok: false,
         failure: { kind: "start_call_in_flight_failed", retryable: true },
       } as VideoCallStartResult;
     },
-    [],
+    [latchSameSessionDailyContinuity],
   );
 
   const startCall = useCallback(
@@ -3467,6 +3522,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             meetingState,
           });
         } else {
+          latchSameSessionDailyContinuity(sessionId, "start_call_existing_active_call");
           setDailyMeetingState(meetingState);
           setLocalInDailyRoom(meetingState === "joined-meeting");
           void emitWebVideoDateClientStuckState({
@@ -3506,6 +3562,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         return waitForInFlightStartCall(sessionId, eventId, userId);
       }
       startCallInFlightSessionRef.current = sessionId;
+      latchSameSessionDailyContinuity(sessionId, "start_call_requested");
 
       setIsConnecting(true);
       setIsConnected(false);
@@ -3541,6 +3598,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           const meetingState = safeMeetingState(callObjectRef.current);
           const sameActiveSession = activeCallSessionIdRef.current === sessionId;
           if (sameActiveSession && !isTerminalDailyMeetingState(meetingState)) {
+            latchSameSessionDailyContinuity(sessionId, "start_call_same_session_reuse");
             setDailyMeetingState(meetingState);
             setLocalInDailyRoom(meetingState === "joined-meeting");
             void emitWebVideoDateClientStuckState({
@@ -3608,12 +3666,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
 
         if (truthRow.ended_at) {
+          clearSameSessionDailyContinuity(sessionId, "truth_ended_before_start");
           setIsConnecting(false);
           return {
             ok: false,
             failure: { kind: "SESSION_ENDED", retryable: false },
           } as VideoCallStartResult;
         }
+        latchSameSessionDailyContinuity(sessionId, "date_entry_truth_active");
 
         vdbg("video_date_transition_skipped", {
           action: "sync_reconnect_enter_handshake",
@@ -4243,6 +4303,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         dailyPrewarmConsumedForJoin = prewarmedCall.ok === true;
         callObjectRef.current = callObject;
+        latchSameSessionDailyContinuity(sessionId, "daily_call_object_attached");
         setDailyMeetingState(safeMeetingState(callObject) ?? "new");
         vdbg("daily_call_object_created", {
           sessionId,
@@ -5169,6 +5230,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         const dailyJoinStartedAtMs = Date.now();
         dailyJoinStartedAtMsRef.current = dailyJoinStartedAtMs;
+        latchSameSessionDailyContinuity(sessionId, "daily_join_started");
         const prepareToJoinStartMs = Math.max(0, dailyJoinStartedAtMs - roomResult.cacheEntry.prepareFinishedAtMs);
         const joinStartLatencyContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -5294,6 +5356,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         setHasPermission(true);
         activeCallSessionIdRef.current = sessionId;
+        latchSameSessionDailyContinuity(sessionId, "daily_join_success");
         setDailyMeetingState(safeMeetingState(callObject) ?? "joined-meeting");
         setLocalInDailyRoom(true);
         scheduleDailyTokenRefresh("daily_join_success");
@@ -5758,12 +5821,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [
       acquireDateRoom,
       attachTracks,
+      clearSameSessionDailyContinuity,
       cleanupCallObject,
       clearDailyEventListeners,
       clearDailyTokenRefreshTimer,
       clearFirstRemoteWatchdog,
       clearReconnectGraceTimers,
       fetchVideoDateTruth,
+      latchSameSessionDailyContinuity,
       logTrackMounted,
       markRemoteSeenOnServer,
       needsTrackReattach,
@@ -6044,11 +6109,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     waitForLocalCameraSwitchCommit,
   ]);
 
+  const cleanupCallObjectRef = useRef(cleanupCallObject);
+  useEffect(() => {
+    cleanupCallObjectRef.current = cleanupCallObject;
+  }, [cleanupCallObject]);
+
   useEffect(() => {
     return () => {
-      void cleanupCallObject("useVideoCall.unmount", "component_unmount");
+      void cleanupCallObjectRef.current("useVideoCall.unmount", "component_unmount");
     };
-  }, [cleanupCallObject]);
+  }, []);
 
   /** Stable getter for the canonical room name after startCall succeeds. */
   const getRoomName = useCallback(() => roomNameRef.current, []);

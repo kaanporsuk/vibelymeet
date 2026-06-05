@@ -1,6 +1,6 @@
 # Video Date Hardening Closure Handoff
 
-Current recovery override (2026-06-05): this file is historical closure provenance, not current Video Date health evidence. For active recovery work, start with `docs/video-date-success-command-center.md`. The current app baseline is `main` / `origin/main` at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb` contains the latest functional stabilization. Supabase recovery migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`. A fresh manual two-user match -> survey run is still required before production confidence can be reclaimed.
+Current recovery override (2026-06-05): this file is historical closure provenance, not current Video Date health evidence. For active recovery work, start with `docs/video-date-success-command-center.md`. The last confirmed merged app `main` / `origin/main` before the confirmed-encounter stability branch was `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199; verify current Git state after the branch lands. Supabase recovery migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. A fresh manual two-user match -> survey run is still required before production confidence can be reclaimed.
 
 ## Final Status
 

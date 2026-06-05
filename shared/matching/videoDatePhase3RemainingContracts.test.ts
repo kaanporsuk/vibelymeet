@@ -16,6 +16,10 @@ const handshakeDeadlineFinalizerMigration = readFileSync(
   join(root, "supabase/migrations/20260503090000_video_date_encounter_survey_and_pair_guard.sql"),
   "utf8",
 );
+const earlyConfirmedEncounterPromotionMigration = readFileSync(
+  join(root, "supabase/migrations/20260605115657_video_date_early_confirmed_encounter_promotion.sql"),
+  "utf8",
+);
 const surveyContinuityMigration = readFileSync(
   join(root, "supabase/migrations/20260503110000_video_date_survey_continuity_cleanup.sql"),
   "utf8",
@@ -100,6 +104,18 @@ test("deadline wrappers avoid poisoning idempotency before server deadlines are 
   assert.match(
     timeout,
     /FOR UPDATE;[\s\S]+'reason', 'date_timeout_not_due'[\s\S]+v_begin := public\.video_session_command_begin_v2\(/,
+  );
+});
+
+test("confirmed encounter promotion bypasses client deadline not-due wrappers", () => {
+  assert.match(earlyConfirmedEncounterPromotionMigration, /CREATE OR REPLACE FUNCTION public\.video_date_promote_confirmed_encounter_v1/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /public\.video_date_session_has_confirmed_encounter/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /confirmed_encounter_promoted_to_date/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /public\.video_date_promote_confirmed_encounter_v1\([\s\S]+p_session_id[\s\S]+v_actor[\s\S]+'video_session_handshake_auto_promote_v2'[\s\S]+true/);
+  assert.ok(
+    earlyConfirmedEncounterPromotionMigration.indexOf("video_date_promote_confirmed_encounter_v1(") <
+      earlyConfirmedEncounterPromotionMigration.indexOf("vs_handshake_auto_promote_20260605115657_base("),
+    "auto-promote wrapper must test confirmed media before delegating to not-due/deadline idempotency",
   );
 });
 
