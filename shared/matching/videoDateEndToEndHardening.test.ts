@@ -2008,7 +2008,10 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.match(nativeVideoDateRoute, /pendingPostDateSurveyDue/);
   assert.match(nativeVideoDateRoute, /if \(!pendingPostDateSurveyDue\) return false/);
   assert.match(nativeVideoDateRoute, /if \(recoveredPartnerId\) setPartnerId\(recoveredPartnerId\)/);
-  assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('ended_route_guard', vs\)/);
+  assert.match(
+    nativeVideoDateRoute,
+    /truthDecision === 'ended' \|\|[\s\S]*recovery\.action === 'show_terminal' \|\|[\s\S]*recovery\.action === 'go_survey'[\s\S]*setDateEntryPermissionEligible\(false\);[\s\S]*openNativePostDateSurveyFromTerminalTruth\([\s\S]*recovery\.action === 'go_survey' \? 'go_survey_route_guard' : 'ended_route_guard',[\s\S]*vs,/,
+  );
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('terminal_session_recovery', session\)/);
   assert.match(nativeVideoDateRoute, /const openNativePostDateSurvey = useCallback/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_SURVEY_OPENED/);
@@ -2020,16 +2023,25 @@ test("native date route opens recovered pending surveys after current_room_id is
 });
 
 test("native terminal route guard keeps an already-open post-date survey mounted", () => {
-  const endedGuardIndex = nativeVideoDateRoute.indexOf("if (truthDecision === 'ended') {");
+  const endedGuardIndex = nativeVideoDateRoute.indexOf("truthDecision === 'ended' ||");
+  const showTerminalGuardIndex = nativeVideoDateRoute.indexOf("recovery.action === 'show_terminal' ||", endedGuardIndex);
+  const goSurveyGuardIndex = nativeVideoDateRoute.indexOf("recovery.action === 'go_survey'", showTerminalGuardIndex);
   const openSurveyIndex = nativeVideoDateRoute.indexOf(
-    "const openedSurvey = await openNativePostDateSurveyFromTerminalTruth('ended_route_guard', vs);",
+    "const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(",
     endedGuardIndex,
+  );
+  const reasonIndex = nativeVideoDateRoute.indexOf(
+    "recovery.action === 'go_survey' ? 'go_survey_route_guard' : 'ended_route_guard'",
+    openSurveyIndex,
   );
   const openedSurveyBranchIndex = nativeVideoDateRoute.indexOf("if (openedSurvey) {", openSurveyIndex);
   const openedSurveyReturnIndex = nativeVideoDateRoute.indexOf("return;", openedSurveyBranchIndex);
   const bounceIndex = nativeVideoDateRoute.indexOf("route_bounced_to_lobby", openedSurveyReturnIndex);
   assert.ok(endedGuardIndex >= 0);
+  assert.ok(showTerminalGuardIndex > endedGuardIndex);
+  assert.ok(goSurveyGuardIndex > showTerminalGuardIndex);
   assert.ok(openSurveyIndex > endedGuardIndex);
+  assert.ok(reasonIndex > openSurveyIndex);
   assert.ok(openedSurveyBranchIndex > openSurveyIndex);
   assert.ok(openedSurveyReturnIndex > openedSurveyBranchIndex);
   assert.ok(bounceIndex > openedSurveyReturnIndex);
@@ -2248,7 +2260,7 @@ test("native ready and date routes validate before requesting camera and microph
 
   assert.match(nativeVideoDateRoute, /dateEntryPermissionEligible/);
   assert.match(nativeVideoDateRoute, /if \(!getVideoSessionPartnerIdForUser\(vs, user\.id\)\) \{[\s\S]*setDateEntryPermissionEligible\(false\);/);
-  assert.match(nativeVideoDateRoute, /if \(truthDecision === 'ended'\) \{[\s\S]*setDateEntryPermissionEligible\(false\);[\s\S]*openNativePostDateSurveyFromTerminalTruth\('ended_route_guard', vs\)/);
+  assert.match(nativeVideoDateRoute, /truthDecision === 'ended' \|\|[\s\S]*recovery\.action === 'show_terminal' \|\|[\s\S]*recovery\.action === 'go_survey'[\s\S]*setDateEntryPermissionEligible\(false\);[\s\S]*openNativePostDateSurveyFromTerminalTruth\([\s\S]*recovery\.action === 'go_survey' \? 'go_survey_route_guard' : 'ended_route_guard',[\s\S]*vs,/);
   assert.match(nativeVideoDateRoute, /if \(canAttemptDaily \|\| truthDecision === 'navigate_date'\) \{\s*setDateEntryPermissionEligible\(true\);/);
   assert.match(nativeVideoDateRoute, /session\.ended_at \|\|\s*!dateEntryPermissionEligible \|\|/);
 

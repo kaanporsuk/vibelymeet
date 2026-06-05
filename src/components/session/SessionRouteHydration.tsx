@@ -35,16 +35,61 @@ export function SessionRouteHydration() {
   const { user } = useUserProfile();
   const { activeSession, hydrated } = useSessionHydration();
   const lastReadyGateRedirectKey = useRef<string | null>(null);
+  const lastActiveVideoRedirectKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user?.id || !hydrated) return;
 
     const m = location.pathname.match(/^\/date\/([^/]+)\/?$/);
+    const sessionIdFromUrl = m?.[1] ?? null;
     if (!m) {
       lastReadyGateRedirectKey.current = null;
-      return;
     }
-    const sessionIdFromUrl = m[1];
+
+    if (activeSession?.kind === "video" && activeSession.sessionId) {
+      if (sessionIdFromUrl !== activeSession.sessionId) {
+        const forceSurvey = activeSession.queueStatus === "in_survey";
+        const key = [
+          activeSession.sessionId,
+          activeSession.queueStatus,
+          location.pathname,
+          forceSurvey ? "force_survey" : "active_video",
+        ].join(":");
+        if (lastActiveVideoRedirectKey.current === key) return;
+        lastActiveVideoRedirectKey.current = key;
+        const target = `/date/${encodeURIComponent(activeSession.sessionId)}`;
+        routeHydrationDebug("redirecting to active video date owner", {
+          sessionId: activeSession.sessionId,
+          eventId: activeSession.eventId,
+          queueStatus: activeSession.queueStatus,
+          forceSurvey,
+          target,
+          currentPath: location.pathname,
+        });
+        vdbg("route_hydration_active_video_redirect", {
+          sessionId: activeSession.sessionId,
+          userId: user.id,
+          eventId: activeSession.eventId,
+          queueStatus: activeSession.queueStatus,
+          forceSurvey,
+          currentPath: location.pathname,
+          target,
+        });
+        navigate(target, {
+          replace: true,
+          state: {
+            source: "session_route_hydration_active_video",
+            forceSurvey,
+          },
+        });
+        return;
+      }
+      lastActiveVideoRedirectKey.current = null;
+    } else {
+      lastActiveVideoRedirectKey.current = null;
+    }
+
+    if (!sessionIdFromUrl) return;
 
     if (activeSession?.sessionId !== sessionIdFromUrl || activeSession.kind !== "ready_gate") return;
 

@@ -14,10 +14,10 @@
  * | *(null)* | — | No session CTA; deep links use async server reconcile. |
  * | `syncing` | `/event/[eventId]/lobby` | Queued mutual — lobby convergence; **not** a live Daily call. |
  * | `ready_gate` | `/ready/[sessionId]` | Ready Gate surface. |
- * | `video` | `/date/[sessionId]` | Handshake / `in_date` — Daily date stack. |
+ * | `video` | `/date/[sessionId]` | Handshake, `in_date`, or terminal `in_survey` recovery — Date stack owns Daily and survey. |
  *
- * **Ended / terminal:** not modeled as `ActiveSession`. Guards on date/ready/native hydration own
- * redirect to `eventLobbyHref` or `tabsRootHref` using `video_sessions.ended_at` and registration rows.
+ * **Ended / terminal:** `in_survey` is modeled as `ActiveSession.kind === 'video'` so the Date
+ * stack can recover the post-date survey. Non-survey ended rows are still handled by route guards.
  */
 import type { Href } from 'expo-router';
 import type { ActiveSession } from './useActiveSession';

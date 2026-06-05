@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { router, usePathname } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useSessionHydration } from '@/context/SessionHydrationContext';
-import { hrefForCanonicalVideoDateRoute } from '@/lib/activeSessionRoutes';
+import { hrefForCanonicalVideoDateRoute, videoDateHref } from '@/lib/activeSessionRoutes';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
@@ -26,15 +26,39 @@ export function NativeSessionRouteHydration() {
   const { user } = useAuth();
   const { activeSession, hydrated } = useSessionHydration();
   const lastReadyKey = useRef<string | null>(null);
+  const lastActiveVideoKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user?.id || !hydrated || !pathname) return;
     const m = pathname.match(/\/date\/([^/]+)/);
+    const sid = m?.[1] ?? null;
     if (!m) {
       lastReadyKey.current = null;
-      return;
     }
-    const sid = m[1];
+
+    if (activeSession?.kind === 'video' && activeSession.sessionId) {
+      if (sid !== activeSession.sessionId) {
+        const key = `${activeSession.sessionId}:${activeSession.queueStatus}:${pathname}`;
+        if (lastActiveVideoKey.current === key) return;
+        lastActiveVideoKey.current = key;
+        const target = videoDateHref(activeSession.sessionId);
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'active_video_route_owner_redirect', {
+          session_id: activeSession.sessionId,
+          event_id: activeSession.eventId,
+          queue_status: activeSession.queueStatus,
+          pathname,
+          target: String(target),
+          force_survey: activeSession.queueStatus === 'in_survey',
+        });
+        router.replace(target);
+        return;
+      }
+      lastActiveVideoKey.current = null;
+    } else {
+      lastActiveVideoKey.current = null;
+    }
+
+    if (!sid) return;
 
     if (activeSession?.sessionId !== sid || activeSession.kind !== 'ready_gate') return;
 

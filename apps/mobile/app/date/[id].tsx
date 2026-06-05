@@ -2890,9 +2890,16 @@ export default function VideoDateScreen() {
         readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         dateRouteOwned,
       });
-      if (truthDecision === 'ended') {
+      if (
+        truthDecision === 'ended' ||
+        recovery.action === 'show_terminal' ||
+        recovery.action === 'go_survey'
+      ) {
         setDateEntryPermissionEligible(false);
-        const openedSurvey = await openNativePostDateSurveyFromTerminalTruth('ended_route_guard', vs);
+        const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(
+          recovery.action === 'go_survey' ? 'go_survey_route_guard' : 'ended_route_guard',
+          vs,
+        );
         if (cancelled) return;
         if (openedSurvey) {
           return;

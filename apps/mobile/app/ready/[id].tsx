@@ -716,6 +716,7 @@ export default function ReadyGateScreen() {
                 sessionId: recovery.sessionId,
                 pathname,
                 mode: 'replace',
+                force: true,
                 onSuppressed: ({ reason: suppressReason, target }) => {
                   rcBreadcrumb(
                     RC_CATEGORY.readyGate,
