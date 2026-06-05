@@ -1,6 +1,6 @@
 # Video Date Post-Release Monitoring Runbook
 
-Current recovery overlay (2026-06-05): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. The last confirmed merged deployed app baseline before the confirmed-encounter stability branch was `main` / `origin/main` at `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199; verify current Git and deployment state after the branch lands. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. Static/CI/cloud checks passed, but the fresh manual two-user match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-05): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; verify current Git and deployment state before assuming no docs-only follow-up sits on top. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. Static/CI/cloud checks passed, but the fresh manual two-user match -> survey acceptance run is still unproven.
 
 ## Release Baseline
 
@@ -8,7 +8,8 @@ Use the current v4.2 baseline for live Video Date rollout, certification, and mo
 
 Current 2026-06-05 recovery baseline:
 
-- Last confirmed merged app main before the early-promotion branch: `ebe4690467b7956511338d94c5847b88889cd1a8` (PR #1199 merge). Verify the current merge commit after the confirmed-encounter stability branch lands.
+- Functional Video Date code baseline: `fbca4996a096273914ee650b556ba7994477aa5e` (PR #1200 merge).
+- Confirmed-encounter stability PR: `https://github.com/kaanporsuk/vibelymeet/pull/1200`.
 - Confirmed-encounter deadline rescue PR: `https://github.com/kaanporsuk/vibelymeet/pull/1199`.
 - Prior recovery hardening PR: `https://github.com/kaanporsuk/vibelymeet/pull/1196`.
 - Functional stabilization PR: `https://github.com/kaanporsuk/vibelymeet/pull/1194`.
