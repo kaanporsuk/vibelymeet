@@ -242,6 +242,7 @@ const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 4_000;
 const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
+const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
 type NativeVideoDateSurfaceClaimResult = {
   canContinue: boolean;
   confirmed: boolean;
@@ -1124,7 +1125,7 @@ export default function VideoDateScreen() {
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const localParticipantRef = useRef<DailyParticipant | null>(null);
   const remoteParticipantRef = useRef<DailyParticipant | null>(null);
-  const markRemoteSeenOnceRef = useRef<((source: string) => void) | null>(null);
+  const markRemoteSeenOnServerRef = useRef<((source: string) => void) | null>(null);
   const nativeCameraSwitchInFlightRef = useRef(false);
   const nativeRemoteRenderRemountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nativeCameraSwitchFreshnessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1182,7 +1183,8 @@ export default function VideoDateScreen() {
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
-  const remoteSeenStampedSessionRef = useRef<string | null>(null);
+  const remoteSeenInFlightSessionRef = useRef<string | null>(null);
+  const remoteSeenLastStampRef = useRef<{ sessionId: string; stampedAtMs: number } | null>(null);
   const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteSeenActiveSessionRef = useRef<string | null>(sessionId ?? null);
   const localVideoReadyTrackedRef = useRef(false);
@@ -2231,7 +2233,7 @@ export default function VideoDateScreen() {
           setPartnerEverJoined(true);
           setIsPartnerDisconnected(false);
           setIsConnecting(false);
-          markRemoteSeenOnceRef.current?.('participant_joined');
+          markRemoteSeenOnServerRef.current?.('participant_joined');
           remoteParticipantRef.current = p;
           resetNativeRemoteRenderRecovery(p, 'participant_joined');
           setRemoteParticipant(p);
@@ -2296,7 +2298,7 @@ export default function VideoDateScreen() {
               latency_bucket: latencyPayload.latency_bucket,
             });
           }
-          markRemoteSeenOnceRef.current?.('participant_updated');
+          markRemoteSeenOnServerRef.current?.('participant_updated');
           setPartnerEverJoined(true);
           setIsPartnerDisconnected(false);
           const nextTrackKey = nativeRemoteRenderTrackKey(p);
@@ -3374,21 +3376,19 @@ export default function VideoDateScreen() {
 	            truth_refresh_attempt: truthRefreshAttempt,
 	          });
 	          const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth ?? null);
-	          const hasRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth ?? null);
-	          if (hasTerminalSurveyTruth || hasRemoteSeenTruth) {
-	            const suppressedEventName = hasTerminalSurveyTruth
-	              ? 'peer_missing_suppressed_survey_truth'
-	              : 'peer_missing_suppressed_remote_seen';
+	          const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth ?? null);
+	          if (hasTerminalSurveyTruth) {
+	            const suppressedEventName = 'peer_missing_suppressed_survey_truth';
 	            setPeerMissingTerminal(false);
 	            setCallError(null);
-	            setAwaitingFirstConnect(!hasTerminalSurveyTruth);
-	            setIsConnecting(!hasTerminalSurveyTruth);
+	            setAwaitingFirstConnect(false);
+	            setIsConnecting(false);
 	            videoDateDailyDiagnostic('peer_missing_terminal_suppressed', {
 	              session_id: sessionId,
 	              room_name: roomNameRef.current ?? null,
 	              event_name: suppressedEventName,
 	              has_terminal_survey_truth: hasTerminalSurveyTruth,
-	              has_remote_seen_truth: hasRemoteSeenTruth,
+	              has_historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
 	              truth_refresh_attempt: truthRefreshAttempt,
 	            });
 	            void emitNativeVideoDateClientStuckState({
@@ -3398,14 +3398,13 @@ export default function VideoDateScreen() {
 	              payload: {
 	                source_surface: 'video_date_daily',
 	                source_action: 'first_remote_watchdog',
-	                reason_code: hasTerminalSurveyTruth ? 'survey_required_truth' : 'remote_seen_truth',
+	                reason_code: 'survey_required_truth',
 	                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
 	                truth_refresh_attempt: truthRefreshAttempt,
+	                historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
 	              },
 	            });
-	            if (hasTerminalSurveyTruth) {
-	              void openNativePostDateSurveyFromTerminalTruth('peer_missing_watchdog_survey_truth', truth ?? null);
-	            }
+	            void openNativePostDateSurveyFromTerminalTruth('peer_missing_watchdog_survey_truth', truth ?? null);
 	            return;
 	          }
 	          markPeerMissingTerminal();
@@ -3515,16 +3514,27 @@ export default function VideoDateScreen() {
     }
   }, [remoteParticipant, sessionId]);
 
-  const markRemoteSeenOnce = useCallback(
+  const markRemoteSeenOnServer = useCallback(
     (source: string) => {
       if (!sessionId || !user?.id) return;
       const userId = user.id;
-      if (remoteSeenStampedSessionRef.current === sessionId) return;
+      if (remoteSeenInFlightSessionRef.current === sessionId) return;
+      const nowMs = Date.now();
+      const lastStamp = remoteSeenLastStampRef.current;
+      const forceRestamp =
+        source === 'participant_joined' || source === 'post_join_snapshot' || source === 'shared_call_snapshot';
+      if (
+        !forceRestamp &&
+        lastStamp?.sessionId === sessionId &&
+        nowMs - lastStamp.stampedAtMs < REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS
+      ) {
+        return;
+      }
       if (remoteSeenRetryTimerRef.current) {
         clearTimeout(remoteSeenRetryTimerRef.current);
         remoteSeenRetryTimerRef.current = null;
       }
-      remoteSeenStampedSessionRef.current = sessionId;
+      remoteSeenInFlightSessionRef.current = sessionId;
 
       const scheduleRetry = (attemptSource: string, nextAttempt: number) => {
         if (remoteSeenActiveSessionRef.current !== sessionId || remoteSeenRetryTimerRef.current) return;
@@ -3532,9 +3542,9 @@ export default function VideoDateScreen() {
           remoteSeenRetryTimerRef.current = null;
           if (
             remoteSeenActiveSessionRef.current !== sessionId ||
-            remoteSeenStampedSessionRef.current === sessionId
+            remoteSeenInFlightSessionRef.current === sessionId
           ) return;
-          remoteSeenStampedSessionRef.current = sessionId;
+          remoteSeenInFlightSessionRef.current = sessionId;
           stamp(`${attemptSource}_retry_${nextAttempt}`, nextAttempt);
         }, REMOTE_SEEN_RPC_RETRY_DELAY_MS);
       };
@@ -3545,8 +3555,8 @@ export default function VideoDateScreen() {
         code: string,
         errorDetail: unknown,
       ) => {
-        if (remoteSeenStampedSessionRef.current === sessionId) {
-          remoteSeenStampedSessionRef.current = null;
+        if (remoteSeenInFlightSessionRef.current === sessionId) {
+          remoteSeenInFlightSessionRef.current = null;
         }
         vdbg('mark_video_date_remote_seen_failed', {
           sessionId,
@@ -3601,6 +3611,10 @@ export default function VideoDateScreen() {
               clearTimeout(remoteSeenRetryTimerRef.current);
               remoteSeenRetryTimerRef.current = null;
             }
+            if (remoteSeenInFlightSessionRef.current === sessionId) {
+              remoteSeenInFlightSessionRef.current = null;
+            }
+            remoteSeenLastStampRef.current = { sessionId, stampedAtMs: Date.now() };
             vdbg('mark_video_date_remote_seen_after', {
               sessionId,
               eventId,
@@ -3629,13 +3643,13 @@ export default function VideoDateScreen() {
   );
 
   useEffect(() => {
-    markRemoteSeenOnceRef.current = markRemoteSeenOnce;
+    markRemoteSeenOnServerRef.current = markRemoteSeenOnServer;
     return () => {
-      if (markRemoteSeenOnceRef.current === markRemoteSeenOnce) {
-        markRemoteSeenOnceRef.current = null;
+      if (markRemoteSeenOnServerRef.current === markRemoteSeenOnServer) {
+        markRemoteSeenOnServerRef.current = null;
       }
     };
-  }, [markRemoteSeenOnce]);
+  }, [markRemoteSeenOnServer]);
 
   useEffect(() => {
     remoteSeenActiveSessionRef.current = sessionId ?? null;
@@ -3644,7 +3658,8 @@ export default function VideoDateScreen() {
         clearTimeout(remoteSeenRetryTimerRef.current);
         remoteSeenRetryTimerRef.current = null;
       }
-      remoteSeenStampedSessionRef.current = null;
+      remoteSeenInFlightSessionRef.current = null;
+      remoteSeenLastStampRef.current = null;
     };
   }, [sessionId]);
 
@@ -3733,7 +3748,7 @@ export default function VideoDateScreen() {
           activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? providerVerifySkippedRef.current,
       });
     }
-    markRemoteSeenOnce('remote_track_mounted');
+    markRemoteSeenOnServer('remote_track_mounted');
     videoDateDailyDiagnostic('remote_track_mounted', {
       session_id: sessionId ?? '',
       room_name: roomNameRef.current ?? null,
@@ -3746,7 +3761,7 @@ export default function VideoDateScreen() {
       receiver_object_position: VIDEO_DATE_REMOTE_OBJECT_POSITION,
       frame_issue_hint: 'remote_layout_contains_sender_frame_without_receiver_crop',
     });
-  }, [captureProfile, remoteParticipant, sessionId, eventId, endBootstrapTiming, markRemoteSeenOnce]);
+  }, [captureProfile, remoteParticipant, sessionId, eventId, endBootstrapTiming, markRemoteSeenOnServer]);
 
   useEffect(() => {
     if (!hasRemotePartner || phase !== 'handshake') return;
@@ -5812,7 +5827,7 @@ export default function VideoDateScreen() {
         if (remotes.length > 0) {
           const remote = remotes[0] as DailyParticipant;
           clearPartnerAwayAfterTransportGrace('shared_call_snapshot');
-          markRemoteSeenOnceRef.current?.('shared_call_snapshot');
+          markRemoteSeenOnServerRef.current?.('shared_call_snapshot');
           remoteParticipantRef.current = remote;
           resetNativeRemoteRenderRecovery(remote, 'shared_call_snapshot');
           setRemoteParticipant(remote);

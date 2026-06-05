@@ -1800,9 +1800,7 @@ const VideoDate = () => {
       callStarted ||
       localInDailyRoom ||
       dailyMeetingState === "joining-meeting" ||
-      dailyMeetingState === "joined-meeting" ||
-      phase === "handshake" ||
-      phase === "date";
+      dailyMeetingState === "joined-meeting";
     if (!shouldOwnDateRoute) return;
     const refreshDateRouteOwnership = () => {
       markVideoDateRouteOwned(id, user.id);
