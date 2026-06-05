@@ -438,6 +438,27 @@ test("pending survey recovery returns ended date session when current user has n
   );
 });
 
+test("pending survey recovery includes post-encounter partner absence endings", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:32:00.000Z",
+    ended_reason: "partner_absent_after_confirmed_encounter",
+    date_started_at: "2026-04-24T00:27:00.000Z",
+    participant_1_remote_seen_at: "2026-04-24T00:26:55.000Z",
+    participant_2_remote_seen_at: "2026-04-24T00:26:56.000Z",
+  };
+
+  assert.equal(videoSessionHasPostDateSurveyTruth(row), true);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-2", NOW_MS),
+    row,
+  );
+});
+
 test("pending survey recovery hides ended date sessions after 24 hours", () => {
   const row = {
     id: "session-1",

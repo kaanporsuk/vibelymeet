@@ -84,6 +84,8 @@ type SafetyInterlockCheck = {
 type SessionRoomRow = {
   id: string;
   daily_room_name: string | null;
+  daily_room_provider_deleted_at?: string | null;
+  daily_room_provider_delete_reason?: string | null;
   ended_at: string | null;
   state: string | null;
   phase: string | null;
@@ -435,7 +437,7 @@ async function fetchSessionsByRoom(
     );
     const { data, error } = await supabase
       .from("video_sessions")
-      .select("id,daily_room_name,ended_at,state,phase")
+      .select("id,daily_room_name,daily_room_provider_deleted_at,daily_room_provider_delete_reason,ended_at,state,phase")
       .in("daily_room_name", chunk);
 
     if (error) throw new Error(`video_session_lookup_failed:${error.message}`);
@@ -559,21 +561,25 @@ async function checkSafetyInterlock(
   return parsed.ok ? parsed : { ...parsed, blocked: true };
 }
 
-async function clearTerminalRoomMetadata(
+async function markTerminalRoomProviderDeleted(
   supabase: SupabaseServiceClient,
   session: SessionRoomRow | null,
   roomName: string,
+  reason: string,
 ): Promise<void> {
   if (!session?.id || !isTerminalSession(session)) return;
   const { error } = await supabase
     .from("video_sessions")
-    .update({ daily_room_name: null, daily_room_url: null })
+    .update({
+      daily_room_provider_deleted_at: new Date().toISOString(),
+      daily_room_provider_delete_reason: `orphan_cleanup:${reason}`.slice(0, 160),
+    })
     .eq("id", session.id)
     .eq("daily_room_name", roomName);
 
   if (error) {
     console.error(
-      "video-date-orphan-room-cleanup clear_metadata_error",
+      "video-date-orphan-room-cleanup mark_provider_deleted_error",
       JSON.stringify({
         sessionId: session.id,
         roomName,
@@ -832,7 +838,7 @@ Deno.serve(async (req) => {
       }
 
       deleted += 1;
-      await clearTerminalRoomMetadata(supabase, session, room.name);
+      await markTerminalRoomProviderDeleted(supabase, session, room.name, reason);
       await recordAudit(supabase, {
         room,
         session,

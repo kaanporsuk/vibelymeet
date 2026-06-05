@@ -87,6 +87,18 @@ const SAFE_PAYLOAD_KEYS = new Set([
   "leave_called",
   "destroy_called",
   "reused",
+  "same_session_daily_continuity",
+  "same_session_daily_continuity_latched",
+  "daily_call_singleton_eligible",
+  "will_park_singleton",
+  "willParkSingleton",
+  "parked_singleton",
+  "singleton_parking_mode",
+  "active_call_session_id_matches",
+  "route_owned",
+  "call_object_present",
+  "truth_refresh_attempt",
+  "historical_remote_seen_truth",
 ]);
 
 const SAFE_STRING_PATTERN = /^[A-Za-z0-9_.:-]+$/;

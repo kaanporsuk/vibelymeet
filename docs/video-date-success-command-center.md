@@ -75,6 +75,7 @@ Recent screenshots and reports showed:
 - UI alternates between "Opening the room...", "Opening your date", "You're both here. Starting gently.", "Keeping the room open...", and back to lobby/Ready Gate.
 - In the latest report, the user sees "This Ready Gate changed. Back to browsing." and never reaches a stable Video Date.
 - In the subsequent latest report, the user did reach warm-up briefly, then bounced between `/date/:sessionId` and `/ready/:sessionId` while the backend had already moved the encounter to survey-required terminal truth.
+- In the latest post-PR #1200 test, the session reached `date` and showed a live date UI, but the peer disappeared after Daily leave events. The session ended survey-eligible, one participant stayed `in_survey`, the other was later overwritten to `offline`, and no `date_feedback` rows were created.
 - Older reports showed "Still connecting your date" and repeated Daily sessions for a single attempted date.
 
 ### Console/network signals
@@ -305,12 +306,12 @@ Interpretation:
 
 Code changes made after this investigation:
 
-- `src/hooks/useVideoCall.ts`: Daily `participant-left` now starts the local 12s transport grace and defers `onPartnerLeft` until that grace expires. Remote participant return, participant update, or fresh remote frame clears the pending away mark. The first-remote watchdog now refetches server truth before showing terminal peer-missing UI and suppresses false terminal states when remote-seen or survey-required evidence exists.
+- `src/hooks/useVideoCall.ts`: Daily `participant-left` now starts the local 12s transport grace and defers `onPartnerLeft` until that grace expires. Remote participant return, participant update, or fresh remote frame clears the pending away mark. The first-remote watchdog now refetches server truth before showing terminal peer-missing UI. Current invariant: survey-required terminal truth suppresses peer-missing and opens survey; historical remote-seen/encounter proof does not prove the peer is currently present.
 - `src/hooks/useReconnection.ts`: `mark_reconnect_partner_away` now sends `p_reason: "daily_transport_grace_expired"`, preserving backend reconnect semantics only after local transport grace has expired.
 - `src/pages/VideoDate.tsx`: terminal survey recovery is a hard stop. Survey-required terminal truth clears handshake/reconnect state, stops Daily and surface churn, opens `PostDateSurvey`, and treats optional profile/observability/verdict fetch failures as non-blocking unless completed feedback already exists.
 - `src/pages/ReadyRedirect.tsx`: `go_survey` and canonical survey decisions navigate to `/date/:sessionId` with `forceSurvey` route state so `VideoDate` opens survey instead of trying to restart the call.
-- `apps/mobile/app/date/[id].tsx` and `apps/mobile/lib/videoDateApi.ts`: native Daily `participant-left` now uses the same local grace before backend away marking, passes the explicit `daily_transport_grace_expired` reason, and suppresses false peer-missing terminal states when server truth already has remote-seen or survey-required evidence.
-- `shared/observability/videoDateClientStuckObservability.ts`: added `peer_missing_suppressed_remote_seen` and `peer_missing_suppressed_survey_truth` diagnostic event names.
+- `apps/mobile/app/date/[id].tsx` and `apps/mobile/lib/videoDateApi.ts`: native Daily `participant-left` now uses the same local grace before backend away marking, passes the explicit `daily_transport_grace_expired` reason, and follows the same peer-missing invariant as web.
+- `shared/observability/videoDateClientStuckObservability.ts`: added peer-missing survey/legacy diagnostic event names and safe payload fields for same-session Daily continuity, singleton parking, truth refresh attempts, and historical remote-seen truth.
 - `supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql`: wraps `video_date_transition` without changing the public signature. Legacy/null immediate `mark_reconnect_partner_away` calls are suppressed during early warm-up when recent bilateral joined, remote-seen, or handshake evidence exists. Explicit `p_reason = "daily_transport_grace_expired"` delegates to the base transition and still starts backend reconnect grace. The migration also allows the new suppressed peer-missing observability events.
 
 Verification run after code changes:
@@ -645,6 +646,60 @@ Important boundary:
 
 - This still is not manual acceptance proof. The required proof remains a fresh disposable production two-user run from match through survey completion.
 
+### 13. Latest failed test after PR #1200: date started, then terminal survey lifecycle broke
+
+Evidence source: attached chronological screenshots/network panels, local code audit, and live Supabase project `schdyxcunwcvddlcshwd`.
+
+Identifiers:
+
+- Event: `6c9c647f-242b-463c-8b24-0896f02677e5`
+- Video session: `782f5eb6-497f-4fd8-9898-2f47cf939751`
+- Canonical Daily room: `date-782f5eb6497f4fd898982f47cf939751`
+- Participants: `267aa05e-0802-4b87-9a7b-ff78b97fdfa7` and `2a0995e1-8ec8-4a11-bdfe-0877c3383f5c`
+
+Observed Supabase timeline:
+
+- `2026-06-05T13:25:28.016704Z`: participant 2 committed `mark_ready`, session moved to `ready_b`.
+- `2026-06-05T13:25:32.046417Z`: participant 1 committed `mark_ready`, session moved to `both_ready`, with Daily room metadata returned.
+- `2026-06-05T13:25:47.508Z` and `2026-06-05T13:25:48.257Z`: Daily provider reported both participants joined the same canonical room.
+- `2026-06-05T13:25:50.242506Z`: `confirmed_encounter_promoted_to_date` fired, with `date_started_at = 2026-06-05T13:25:51.75678Z`. Ready Gate, room creation, remote-seen, and early date promotion worked.
+- `2026-06-05T13:26:27.495401Z` and `2026-06-05T13:26:29.940336Z`: canonical remote-seen evidence existed for both participants.
+- `2026-06-05T13:26:48Z` through `13:27:02Z`: Daily provider reported participant 1 left twice and participant 2 left once; the backend reconciled those leaves.
+- `2026-06-05T13:28:09.710Z`: only participant 2 rejoined the Daily room. There was no later participant 1 provider join.
+- `2026-06-05T13:30:53.723208Z`: `date_timeout` ended the session with `survey_required=true`; `date_feedback` remained empty.
+- Final row originally had `date_started_at` and bilateral remote-seen truth, but `daily_room_name` and `daily_room_url` were null. Final registrations diverged: participant 1 remained `in_survey`; participant 2 was later overwritten to `offline` at `2026-06-05T13:35:14.884865Z`.
+- Post-fix cloud verification repaired and preserved this terminal row as `daily_room_name=date-782f5eb6497f4fd898982f47cf939751` and `daily_room_url=https://vibelyapp.daily.co/date-782f5eb6497f4fd898982f47cf939751` with `daily_room_provider_verify_reason=canonical_room_metadata_recovered_after_outbox_drainer_v2`. After the cleanup-worker hardening deploy, provider deletion is tracked separately through `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason=room_cleanup:provider_room_deleted` instead of erasing room metadata.
+
+Interpretation:
+
+- The failure boundary moved again. This was not Ready Gate, Daily room creation, remote-seen repair, or confirmed-encounter promotion. The date started.
+- Historical remote-seen evidence proved the encounter happened, but did not prove the missing peer was currently present after the provider leave/rejoin sequence. The old peer-missing suppression theory was too broad.
+- `date_timeout` was technically survey-eligible, but using the normal timeout reason after a post-encounter peer disappearance made the client wait for the wrong path and left one side vulnerable to `update_participant_status(..., 'offline')` overwriting `in_survey`.
+- Terminal forensics were weaker than they should be because `video_session_date_timeout_v2` did not repair/return canonical Daily room metadata after terminal transition/replay, and the old cleanup/outbox workers used null `daily_room_name` / `daily_room_url` as the provider-room-deleted marker.
+
+Implementation plan from this audit:
+
+- Web/native/mobile first-remote watchdogs should suppress peer-missing only for terminal survey truth. Historical encounter proof should log `daily_no_remote_watchdog_historical_truth_requires_current_peer`, surface terminal peer-missing, and then end as a post-encounter absence when date truth exists.
+- Web/native/mobile manual peer-missing exits after confirmed encounter truth should call end with `partner_absent_after_confirmed_encounter`, which remains post-date survey eligible.
+- `update_participant_status` should keep `in_survey` sticky for survey-eligible ended sessions until that user has a `date_feedback` row. The old 30-second protection window is insufficient.
+- `video_session_date_timeout_v2` should repair canonical Daily room metadata for already-ended/replay/post-transition terminal rows and include `daily_room_name` / `daily_room_url` in returned payloads and terminal events.
+- Cleanup/outbox workers should never null terminal `daily_room_name` / `daily_room_url`. Provider room deletion must be represented by `daily_room_provider_deleted_at` and `daily_room_provider_delete_reason`, so support/debug forensics stay canonical after Daily provider cleanup.
+- Observability must keep the new safe fields needed to tell same-session Daily parking, route ownership, current call object state, truth refresh attempts, and historical remote-seen truth apart.
+
+Implemented and cloud-applied for this section:
+
+- Supabase migration `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql` replaces `update_participant_status` and `video_session_date_timeout_v2` with the sticky-survey and terminal-room-repair behavior above.
+- Supabase migration `20260605143637_video_date_terminal_room_metadata_backfill.sql` records the initial helper-loop backfill. It proved the repair path could reconstruct canonical Daily room metadata, but later evidence showed old cleanup workers could re-null the same terminal fields.
+- Supabase migration `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql` performs a bounded direct backfill for already-ended, survey-eligible rows with missing/non-canonical Daily metadata.
+- Supabase migration `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql` adds `daily_room_provider_deleted_at` and `daily_room_provider_delete_reason`, plus a pending-cleanup partial index, so provider deletion can be tracked without erasing terminal forensics.
+- Supabase migrations `20260605145926_video_date_terminal_room_metadata_final_repair.sql` and `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql` re-repair terminal rows after the cleanup worker fix and mark historically provider-deleted rooms.
+- Supabase migration `20260605152058_video_date_pending_survey_registration_repair.sql` restores pre-hardening registrations that were already downgraded to `browsing` / `idle` / `offline` while still pointing at an ended survey-eligible session with no feedback.
+- Edge Functions `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup` now stamp provider-delete markers instead of nulling `daily_room_name` / `daily_room_url`.
+- Live cloud verification after the fixed workers had time to run showed zero remaining ended survey-eligible terminal-room candidates, while the repaired rows still retained canonical `daily_room_name` / `daily_room_url` and had provider-delete markers. Follow-up verification also restored both affected failed-session registrations to `in_survey` with zero feedback rows.
+- Web `src/hooks/useVideoCall.ts` and `src/pages/VideoDate.tsx` now enforce current-peer-vs-historical-encounter separation and request `partner_absent_after_confirmed_encounter` after peer-missing terminal UI when date truth exists.
+- Native/mobile `apps/mobile/app/date/[id].tsx` now mirrors the web peer-missing and post-encounter absence behavior.
+- Shared contracts now pin this incident through `shared/matching/videoDateTerminalSurveyLifecycleHardening.test.ts`, `shared/matching/videoSessionDailyGate.test.ts`, and updated warm-up/review follow-up tests.
+
 ---
 
 ## Current Architecture Decisions
@@ -686,6 +741,10 @@ Once `/date/:sessionId` or the native date route owns a same-session active hand
 
 `mark_video_date_remote_seen` should fire when a remote Daily participant is observed through provider presence, post-join snapshots, shared-call hydration, or mounted media. Media playback events remain valuable first-frame evidence, but canonical `participant_*_remote_seen_at` must not depend solely on a browser/native media element event.
 
+### Historical encounter proof is not current peer presence
+
+`participant_*_remote_seen_at`, `date_started_at`, and confirmed-encounter events prove the date happened and make terminal survey recovery eligible. They do not prove the remote peer is still in the current Daily room after later leave/rejoin churn. First-remote and peer-missing watchdogs may suppress terminal UI only when server truth is already survey-required; otherwise they must treat the peer as currently missing and use post-encounter absence handling when date truth exists.
+
 ### Confirmed encounters start the date before deadline fallback
 
 Once both participants have confirmed bilateral remote-media/date-entry evidence and neither side has passed or both-decided, server truth must promote the session to `date` immediately. `mark_video_date_remote_seen` and `video_session_handshake_auto_promote_v2` must both use the shared confirmed-encounter promotion invariant; the handshake deadline finalizer is fallback-only. Deadline cleanup must never end an already confirmed encounter as `handshake_timeout`, and any launch-evidence extension must grant positive remaining time; zero-second extensions are terminal races in disguise.
@@ -710,6 +769,14 @@ Once canonical truth says `ended`, `ready_gate_expired`, forfeited, or replaced,
 
 If an ended session has survey-required encounter evidence, `/date/:sessionId` is the survey host. Clients must synchronously stop Daily start/retry, surface claiming, reconnect grace, foreground sync, route/broadcast churn, and peer-missing timers, then open `PostDateSurvey`. Optional profile, observability, and verdict reads are not allowed to block survey entry; only a confirmed completed `date_feedback` row can route away from survey.
 
+### Survey status is sticky until feedback
+
+Client presence writes must not move a participant from `in_survey` to `browsing`, `idle`, or `offline` while a survey-eligible ended session exists for that event/user and the user has no `date_feedback` row. This is not a short grace window; it is a lifecycle invariant.
+
+### Terminal rows retain Daily room forensics
+
+Terminal timeout/replay/already-ended paths must repair deterministic Daily room metadata when possible and return `daily_room_name` / `daily_room_url`. Null terminal room metadata makes later support analysis and room cleanup harder and should be treated as a repairable invariant violation. Daily provider cleanup must stamp `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason` and leave terminal room metadata intact.
+
 ---
 
 ## Open Gaps And Risks
@@ -728,6 +795,9 @@ These are not claims that the current code is broken; they are the unproven area
 10. **PostHog rate-limit spam remains noisy.** It is probably not the Video Date root cause, but it can hide useful console signals and should be handled separately.
 11. **OneSignal 409 identity noise remains non-blocking but distracting.** It should not block Video Date, but provider health should stay visible.
 12. **Manual survey completion still needs proof.** Many recent fixes focused on match -> Ready Gate -> room entry; survey end-to-end persistence must be revalidated.
+13. **Post-encounter peer absence needs production proof.** The latest failed test reached `date`, then one peer disappeared. Web/native/mobile now distinguish historical encounter proof from current peer presence and end confirmed peer absence as `partner_absent_after_confirmed_encounter`; a fresh two-user run must prove both users still reach survey.
+14. **Sticky survey lifecycle needs production proof.** Cloud function markers prove `update_participant_status` now protects pending survey rows until feedback exists; a fresh run must prove normal web/native/mobile lifecycle writes no longer knock either participant out of survey.
+15. **Terminal Daily room repair has cloud data proof, but still needs runtime proof.** Cloud verification restored the failed session and found zero remaining ended survey-eligible rows with missing/non-canonical Daily metadata. A fresh run must prove terminal `date_timeout` and replay/already-ended responses preserve or repair `daily_room_name` / `daily_room_url` naturally.
 
 ---
 
@@ -765,6 +835,8 @@ Run this on a fresh disposable test pair after deployment has propagated:
 21. Confirm same-session Daily start does not repeatedly call `leave()` / `destroy()` while the call is `joining-meeting` or `joined-meeting`; if cleanup happens, inspect `daily_call_cleanup` diagnostics for `caller`, `cleanup_reason`, `meeting_state`, `leave_called`, and `destroy_called`.
 22. Confirm `web_visibilitychange` does not produce backend `mark_reconnect_self_away` during active Daily handoff/warm-up/date.
 23. Confirm provider/client return clears `reconnect_grace_ends_at` via `reconnect_grace_cleared_by_daily_join`, `reconnect_grace_cleared_by_provider_join`, or `reconnect_grace_cleared_by_return`.
+24. Simulate post-encounter peer disappearance after `date_started_at`; confirm the remaining user sees peer-missing, the server ends with a survey-eligible reason, both registrations remain `in_survey` until feedback, and both users can complete survey.
+25. Confirm terminal rows retain deterministic Daily room metadata after timeout/replay/already-ended paths.
 24. Confirm a real prolonged absence still ends the session with `reconnect_grace_expired`.
 
 Pass condition: both users complete the full journey from match through survey completion without lobby cycling, stale Ready Gate invalidation, or split-room Daily behavior.
@@ -821,8 +893,15 @@ If Video Date fails again, collect this before changing code:
   - `remote_seen_canonical_repaired`
   - `latest_remote_seen_at`
   - `previous_remote_seen_at`
-  - `peer_missing_suppressed_remote_seen`
+  - `peer_missing_suppressed_remote_seen` (legacy allow-list only; current logic should not suppress peer-missing from historical encounter proof)
   - `peer_missing_suppressed_survey_truth`
+  - `daily_no_remote_watchdog_historical_truth_requires_current_peer`
+  - `partner_absent_after_confirmed_encounter`
+  - `historical_remote_seen_truth`
+  - `truth_refresh_attempt`
+  - `daily_call_singleton_eligible`
+  - `will_park_singleton`
+  - `parked_singleton`
 - Whether `ended_reason`, `survey_required`, `date_feedback`, and `forceSurvey` route state support immediate survey recovery.
 
 Do not treat "This Ready Gate changed" as a root cause. Treat it as a symptom and prove why the client selected stale terminal copy.
@@ -843,6 +922,16 @@ Backend / migrations:
 - `supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql`
 - `supabase/migrations/20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`
 - `supabase/migrations/20260605115657_video_date_early_confirmed_encounter_promotion.sql`
+- `supabase/migrations/20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`
+- `supabase/migrations/20260605143637_video_date_terminal_room_metadata_backfill.sql`
+- `supabase/migrations/20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`
+- `supabase/migrations/20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`
+- `supabase/migrations/20260605145926_video_date_terminal_room_metadata_final_repair.sql`
+- `supabase/migrations/20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`
+- `supabase/migrations/20260605152058_video_date_pending_survey_registration_repair.sql`
+- `supabase/functions/video-date-outbox-drainer/index.ts`
+- `supabase/functions/video-date-room-cleanup/index.ts`
+- `supabase/functions/video-date-orphan-room-cleanup/index.ts`
 
 Web:
 
@@ -851,6 +940,8 @@ Web:
 - `src/pages/VideoDate.tsx`
 - `src/hooks/useVideoCall.ts`
 - `src/hooks/useVideoDateDupTabGuard.ts`
+- `shared/matching/videoDateTerminalSurveyLifecycleHardening.test.ts`
+- `shared/matching/videoSessionDailyGate.test.ts`
 
 Native/mobile:
 
@@ -957,7 +1048,7 @@ Runbooks:
 - Hardened web/native/mobile clients for the repaired deadline contract. Web `VideoDate.tsx` and native `apps/mobile/app/date/[id].tsx` now treat positive `state=handshake, extended=true` responses as real deadline extensions, clear stale retry keys, refresh local countdowns, and avoid immediately retrying an already-repaired deadline. Warm-up `warmup_timer_started` telemetry is session-deduped so server-side `handshake_started_at` repairs do not create repeated timer-start metrics.
 - Hardened surface-claim churn across web and native/mobile. `useVideoDateDupTabGuard` and native `/date/[id]` now use single-flight plus bounded backoff for retryable/unknown `claim_video_date_surface` failures while preserving hard duplicate-surface blocking on non-retryable `SURFACE_CLAIM_CONFLICT`. This addresses the secondary 500 retry storm evidence without letting optional ownership telemetry force users out of an active handoff.
 - CTO audit follow-up found and fixed one native parity bug in the surface-claim backoff path: a skipped renewal during in-flight/backoff could clear visible duplicate-device blocking even though the server conflict had not been released. Native now mirrors the blocked state into `surfaceClaimBlockedRef`, uses a ref-backed setter, and returns `canContinue` from the latest blocked truth when a renewal is intentionally skipped.
-- Reconciled peer-missing suppression contracts with the active recovery theory. Web/native first-remote watchdogs now emit `peer_missing_suppressed_remote_seen` when canonical encounter exposure exists, continue to emit `peer_missing_suppressed_survey_truth` for survey-required terminal truth, and only open the terminal survey for survey truth. The stale review-followup test that rejected remote-seen suppression was updated to the current source of truth.
+- Reconciled peer-missing suppression contracts with the active recovery theory at the time. This was later superseded by the `782f5eb6-497f-4fd8-9898-2f47cf939751` audit: historical remote-seen/encounter exposure proves survey eligibility, not current peer presence. Current web/native first-remote watchdogs suppress peer-missing only for survey-required terminal truth.
 - Tidied generated local output: removed the top-level untracked `dist/` directory left by earlier local work. A post-cleanup scan found no top-level generated `dist`, `.next`, `.turbo`, `coverage`, or `build` folders; the only untracked file is the intended migration `supabase/migrations/20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`.
 - Verification after implementation, with no web or native build run: `npx tsx shared/matching/videoDateDefinitiveHandoffRecovery.test.ts`, `npx tsx shared/matching/videoDateSurfaceContinuityHardening.test.ts`, `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`, `npx tsx shared/matching/reviewComments1188_1197Followups.test.ts`, `npx tsx shared/observability/videoDateClientStuckObservability.test.ts`, `node --import tsx --test shared/matching/videoDate*.test.ts` (570 tests: 568 pass, 2 expected env-gated RLS skips), `npm run test:video-date-ux-contracts`, `npm run typecheck:core`, `cd apps/mobile && npm run typecheck`, `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, and `git diff --check` all passed.
 - Supabase cloud apply: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked` applied `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql` to project `schdyxcunwcvddlcshwd`. Post-apply `supabase migration list --linked` shows local/remote aligned through `20260605085010`, and `supabase db push --linked --dry-run` reports `Remote database is up to date`.
@@ -976,6 +1067,10 @@ Runbooks:
 - Added and applied Supabase migration `20260605115657_video_date_early_confirmed_encounter_promotion.sql` to project `schdyxcunwcvddlcshwd`. It creates shared helper `video_date_promote_confirmed_encounter_v1(...)`, wraps `mark_video_date_remote_seen`, `video_session_handshake_auto_promote_v2`, and `finalize_video_date_handshake_deadline`, promotes active confirmed bilateral encounters to `date` before deadline fallback, and repairs canonical Daily room metadata.
 - Verification after implementation, with no web or native build run: focused Video Date contract tests, `npm run typecheck:core`, narrow ESLint on touched TS/TSX contract surfaces, `supabase db push --linked --dry-run`, `supabase db push --linked --yes`, `supabase migration list --linked`, and `supabase db lint --linked --schema public --fail-on error` all completed with the new migration aligned locally/remotely and no Supabase error-level lint findings. A live catalog/function marker query also returned true for migration application, the `mark_video_date_remote_seen` early-promotion wrapper, the auto-promote helper-before-base wrapper, the finalizer fallback wrapper, post-base room repair, and the shared helper's `confirmed_encounter_promoted_to_date` / `state = date` markers.
 - Updated active recovery guidance and runbook overlays to the `20260605115657` early-promotion invariant. Historical PR #1199 / `20260605085010` rollout evidence remains preserved as point-in-time context.
+- Investigated latest failed production test session `782f5eb6-497f-4fd8-9898-2f47cf939751` for event `6c9c647f-242b-463c-8b24-0896f02677e5`. Ready Gate, Daily room creation, bilateral provider joins, canonical remote-seen, and early confirmed-encounter promotion all worked; the session reached `date` at `2026-06-05T13:25:51.75678Z`. The failure was post-date-start lifecycle: both users left Daily around `13:26:48Z`, only participant 2 rejoined at `13:28:09.710Z`, `date_timeout` ended survey-eligible at `13:30:53.723208Z`, final Daily room metadata was null, `date_feedback` had no rows, participant 1 stayed `in_survey`, and participant 2 was later overwritten to `offline`.
+- Implemented terminal survey lifecycle hardening in migrations `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, web `useVideoCall`, web `VideoDate`, native/mobile `/date/[id]`, shared observability, cleanup/outbox Edge Functions, and new/updated contracts. The current invariant is sticky survey until feedback, pending-survey registration repair, terminal room metadata repair/preservation, provider-delete marker tracking, and current-peer-vs-historical-encounter separation.
+- Applied all seven terminal-survey lifecycle migrations to Supabase project `schdyxcunwcvddlcshwd`; post-push dry-run reported remote up to date, live function marker query confirmed sticky-survey and terminal-room-repair clauses, linked public-schema lint returned no error-level findings, and the failed session `782f5eb6-497f-4fd8-9898-2f47cf939751` now has canonical `daily_room_name`/`daily_room_url`.
+- Backfill learning: helper-based migration `20260605143637` repaired rows, but the old cleanup/outbox workers could re-null terminal room fields because they used null metadata as a provider-delete marker. The final fix adds explicit marker columns, redeploys `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup`, reruns final repair/marker migrations, and verifies zero remaining terminal-room metadata candidates while repaired rows stay preserved and marked. The sticky-survey function prevents future status downgrades, but already-downgraded live registrations required `20260605152058` to restore `in_survey` where no feedback exists.
 
 ### 2026-06-04
 
@@ -993,7 +1088,7 @@ Runbooks:
 - Recorded latest failed two-user session `1592aa53-f011-45ab-bcb4-e2685fe172b9`, where Ready Gate and Daily room creation succeeded but active Daily co-presence did not hold.
 - Recorded PR #1190, merge commit `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql`, post-deploy dry-run, direct remote verification, branch cleanup, and remaining manual E2E/native gaps.
 - Recorded latest failed two-user session `aac15b03-8de7-45e2-a11b-629cdd9b5b16`, where Ready Gate and Daily room handoff succeeded briefly but a Daily `participant-left` event triggered backend reconnect/terminalization before local transport grace could absorb the flap.
-- Implemented the warm-up stabilization patch: local Daily transport grace before backend partner-away marking, explicit `daily_transport_grace_expired` reason, terminal survey hard-stop on web, ReadyRedirect force-survey state, native/mobile parity, false peer-missing suppression, and migration `20260604170438_video_date_warmup_reconnect_stability.sql`.
+- Implemented the warm-up stabilization patch: local Daily transport grace before backend partner-away marking, explicit `daily_transport_grace_expired` reason, terminal survey hard-stop on web, ReadyRedirect force-survey state, native/mobile parity, peer-missing survey recovery guard, and migration `20260604170438_video_date_warmup_reconnect_stability.sql`. Later audit `782f5eb6-497f-4fd8-9898-2f47cf939751` narrowed the guard so historical remote-seen proof no longer suppresses current peer-missing.
 - Recorded PR #1192, squash merge commit `b2a4a10ce22c2f4950b94fa6b9e49aa235c6c7fa`, Supabase migration cloud application, post-push dry-run, direct catalog verification, and branch cleanup state for the warm-up stabilization patch.
 - Recorded latest failed two-user session `83e88141-ebab-4254-869a-c69db7bdb107`, where Ready Gate and Daily room handoff succeeded but repeated Daily rebuild/join/leave churn, stale joined presence, uncleared reconnect grace, and soft lifecycle away authority caused `reconnect_grace_expired` despite users staying in flow.
 - Implemented the ultimate stabilization branch: same-session Daily call reuse, internal `daily_call_busy` retry, append-only Daily cleanup/reuse diagnostics, visibilitychange suppression while Daily is active, terminal survey hard-stop Daily teardown, native background grace-before-away, canonical remote-seen repair diagnostics, and migration `20260604193140_video_date_latest_presence_grace_repair.sql`.
@@ -1010,15 +1105,15 @@ Use this prompt when starting a new Codex/agent session:
 ```text
 You are continuing Vibely Video Date recovery in /Users/kaanporsuk/Documents/Vibely/Git/vibelymeet. Start by reading docs/video-date-success-command-center.md, docs/active-doc-map.md, AGENTS.md, CODEX.md, and CLAUDE.md. Treat docs/video-date-success-command-center.md as the active source of truth and update it after every material investigation, code change, migration, deploy, or manual QA result.
 
-Functional Video Date code landed in PR #1200 at merge commit fbca4996a096273914ee650b556ba7994477aa5e. PR #1200 builds on PR #1199 merge commit ebe4690467b7956511338d94c5847b88889cd1a8, PR #1196 recovery hardening commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f, and PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb. Supabase project schdyxcunwcvddlcshwd is expected to have migrations 20260604142017, 20260604170438, 20260604193140, 20260604205645, 20260605085010, and 20260605115657 applied. Verify current Git main/origin-main, `supabase migration list --linked`, `supabase db push --linked --dry-run`, and live function/catalog markers before assuming state. send-notification version 813 was deployed on 2026-06-05 01:59:45 UTC.
+Current recovery work builds on PR #1200 merge commit fbca4996a096273914ee650b556ba7994477aa5e, PR #1199 merge commit ebe4690467b7956511338d94c5847b88889cd1a8, PR #1196 recovery hardening commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f, and PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb. Supabase project schdyxcunwcvddlcshwd has migrations 20260604142017, 20260604170438, 20260604193140, 20260604205645, 20260605085010, 20260605115657, 20260605135616, 20260605143637, 20260605144003, 20260605145306, 20260605145926, 20260605150130, and 20260605152058 applied as of the 2026-06-05 terminal-survey lifecycle pass; `supabase db push --linked --dry-run` reported remote up to date. `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup` were redeployed to preserve terminal room metadata and stamp provider-delete markers. Verify current Git main/origin-main, `supabase migration list --linked`, `supabase db push --linked --dry-run`, and live function/catalog markers before assuming state. send-notification version 813 was deployed on 2026-06-05 01:59:45 UTC.
 
 The feature is still not proven healthy. Do not claim success from static tests, both_ready, route entry, Daily room creation, brief warm-up UI, or a terminal survey row. The required proof remains a fresh disposable two-user production run: match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes, plus a simulated short Daily leave/rejoin under 12s and a real prolonged absence terminalization check.
 
-Current theory: Ready Gate and Daily room creation have generally succeeded; the remaining risk is post-handoff stability and terminal recovery. The implemented fixes enforce same-session Daily start ownership/reuse, ref-backed live same-session Daily remount preservation without leave/destroy, short-lived date-route ownership from explicit handoff or active Daily/date evidence to suppress stale Ready Gate/lobby bounces, local Daily transport grace before backend partner-away, soft browser lifecycle handling during active Daily, latest-state joined/away presence, canonical remote_seen latest-state repair from provider presence/media evidence, immediate confirmed-encounter promotion to date from `mark_video_date_remote_seen` / `video_session_handshake_auto_promote_v2`, confirmed-encounter deadline fallback rescue, positive launch-evidence deadline extension, surface-claim backoff, reconnect grace clearing on return, reconnect expiry recheck, false peer-missing suppression, and terminal-survey hard-stop on /date/:sessionId.
+Current theory: Ready Gate, Daily room creation, canonical remote_seen, and immediate confirmed-encounter date promotion can succeed. The remaining risk is post-date-start peer absence and terminal survey lifecycle. The implemented fixes enforce same-session Daily start ownership/reuse, ref-backed live same-session Daily remount preservation without leave/destroy, short-lived date-route ownership from explicit handoff or active Daily/date evidence to suppress stale Ready Gate/lobby bounces, local Daily transport grace before backend partner-away, soft browser lifecycle handling during active Daily, latest-state joined/away presence, canonical remote_seen latest-state repair from provider presence/media evidence, immediate confirmed-encounter promotion to date from `mark_video_date_remote_seen` / `video_session_handshake_auto_promote_v2`, confirmed-encounter deadline fallback rescue, positive launch-evidence deadline extension, surface-claim backoff, reconnect grace clearing on return, reconnect expiry recheck, survey-only peer-missing suppression, sticky `in_survey` until feedback, repair of already downgraded pending-survey registrations, terminal Daily room repair/preservation, provider-delete markers that do not null Daily room metadata, post-encounter peer absence reason `partner_absent_after_confirmed_encounter`, and terminal-survey hard-stop on /date/:sessionId.
 
-Latest failed production audit before the early-promotion patch: session d38e4c62-3cf9-4c98-b6a5-b37b2fe36ef3 for event 5dd6716f-b18b-40b1-b238-21d4eb1bf1d5 proved the remaining failure was no longer Ready Gate or room creation. Both users joined the same Daily room, canonical remote_seen reached confirmed_encounter=true, first remote frame/readable evidence existed, and both users ended in survey, but date_started_at stayed null and the session ended handshake_timeout. The patched boundaries are web Daily lifecycle cleanup during same-session React churn, deadline-gated auto-promotion despite confirmed encounter, deadline rescue running after provider leave churn, null final canonical room metadata, and OneSignal CSP diagnostic noise. Same-room external_call_busy reuse remains a secondary watch item if the next run stalls before Daily room entry.
+Latest failed production audit after PR #1200: session 782f5eb6-497f-4fd8-9898-2f47cf939751 for event 6c9c647f-242b-463c-8b24-0896f02677e5 proved the remaining failure is no longer Ready Gate, room creation, remote_seen, or early date promotion. The session reached `date_started_at=2026-06-05T13:25:51.75678Z`, both users later left Daily, only participant 2 rejoined, `date_timeout` ended survey-eligible, no `date_feedback` rows existed, participant 1 stayed `in_survey`, and participant 2 was overwritten to `offline`. Before the terminal-survey lifecycle fix the final Daily room metadata was null; migration `20260605144003` repaired it, old cleanup workers re-nullified metadata, then migrations `20260605145306`, `20260605145926`, and `20260605150130` plus redeployed cleanup/outbox functions made the repair durable. Migration `20260605152058` repaired the already-overwritten participant 2 registration back to `in_survey` while no feedback exists. Live verification now shows `date-782f5eb6497f4fd898982f47cf939751` / `https://vibelyapp.daily.co/date-782f5eb6497f4fd898982f47cf939751` preserved with provider-delete markers, zero remaining ended survey-eligible room-metadata candidates, and both failed-session registrations in `in_survey`. The patched boundaries are historical encounter proof vs current peer presence, survey status persistence, pending-survey registration repair, terminal room metadata repair/preservation, cleanup marker semantics, and post-encounter absence handling.
 
-Before changing code, inspect the latest failed or acceptance session with Supabase/Daily evidence in order. Capture event_id, video_session_id, both user IDs, Ready Gate payloads, video_session_commands, video_date_daily_webhook_events, video_date_surface_claims, event_loop_observability_events, Daily room/session IDs, participant joined/left order, participant_*_away_at, participant_*_remote_seen_at, reconnect_grace_ends_at, ended_reason, survey_required, date_feedback rows, and any RPC response bodies with sqlstate/message/hot_path/expiry_grace_applied/retryable_command_reopened/daily_transport_grace_expired/away_mark_suppressed/reconnect_grace_cleared/latest_remote_seen_at/early_confirmed_encounter_promoted/promotion_reason/confirmed_encounter_promoted_to_date/confirmed_encounter_deadline_rescue/handshake_deadline_extended_for_launch_evidence_v2/surface_claim_backoff/same_session_daily_continuity_latched/parked_singleton.
+Before changing code, inspect the latest failed or acceptance session with Supabase/Daily evidence in order. Capture event_id, video_session_id, both user IDs, Ready Gate payloads, video_session_commands, video_date_daily_webhook_events, video_date_surface_claims, event_loop_observability_events, Daily room/session IDs, participant joined/left order, participant_*_away_at, participant_*_remote_seen_at, reconnect_grace_ends_at, ended_reason, survey_required, date_feedback rows, event_registrations queue_status/current_room_id, final daily_room_name/url, daily_room_provider_deleted_at/delete_reason, and any RPC response bodies with sqlstate/message/hot_path/expiry_grace_applied/retryable_command_reopened/daily_transport_grace_expired/away_mark_suppressed/reconnect_grace_cleared/latest_remote_seen_at/early_confirmed_encounter_promoted/promotion_reason/confirmed_encounter_promoted_to_date/confirmed_encounter_deadline_rescue/handshake_deadline_extended_for_launch_evidence_v2/surface_claim_backoff/same_session_daily_continuity_latched/parked_singleton/historical_remote_seen_truth/truth_refresh_attempt/partner_absent_after_confirmed_encounter.
 
-If the next run fails, decide precisely which boundary diverged from expected behavior: Ready Gate hot path, date route ownership, Daily start ownership, same-session Daily remount parking/reuse, provider join/leave ledger, canonical remote_seen repair, immediate confirmed-encounter promotion, confirmed-encounter deadline fallback rescue, positive launch-evidence extension, lifecycle-away suppression, reconnect grace clearing/expiry, terminal survey hard-stop, or survey persistence. Propose scoped changes only after that evidence is collected.
+If the next run fails, decide precisely which boundary diverged from expected behavior: Ready Gate hot path, date route ownership, Daily start ownership, same-session Daily remount parking/reuse, provider join/leave ledger, canonical remote_seen repair, immediate confirmed-encounter promotion, confirmed-encounter deadline fallback rescue, positive launch-evidence extension, lifecycle-away suppression, reconnect grace clearing/expiry, current-peer detection, post-encounter absence ending, sticky survey status, pending-survey registration repair, terminal room repair/preservation, cleanup marker semantics, terminal survey hard-stop, or survey persistence. Propose scoped changes only after that evidence is collected.
 ```

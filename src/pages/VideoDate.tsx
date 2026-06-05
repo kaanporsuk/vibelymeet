@@ -173,7 +173,11 @@ const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
 const REMOTE_DATE_VIDEO_CLASS = "w-full h-full object-contain object-center";
 
-type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout" | "date_timeout";
+type VideoDateEndReason =
+  | "ended_from_client"
+  | "partial_join_peer_timeout"
+  | "partner_absent_after_confirmed_encounter"
+  | "date_timeout";
 type VideoDateManualExitStepStatus = "completed" | "failed" | "timed_out";
 
 type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
@@ -570,6 +574,7 @@ const VideoDate = () => {
   const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
   const terminalDailyStopRef = useRef<((reason: string) => void) | null>(null);
   const terminalDailyStopRequestedRef = useRef(false);
+  const postEncounterPeerMissingEndRequestedRef = useRef<string | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
 
@@ -1802,7 +1807,9 @@ const VideoDate = () => {
       callStarted ||
       localInDailyRoom ||
       dailyMeetingState === "joining-meeting" ||
-      dailyMeetingState === "joined-meeting";
+      dailyMeetingState === "joined-meeting" ||
+      Boolean(dateStartedAt) ||
+      videoSessionHasEncounterExposureTruth(handshakeTruth);
     if (!shouldOwnDateRoute) return;
     const refreshDateRouteOwnership = () => {
       markVideoDateRouteOwned(id, user.id);
@@ -1818,6 +1825,8 @@ const VideoDate = () => {
   }, [
     callStarted,
     dailyMeetingState,
+    dateStartedAt,
+    handshakeTruth,
     id,
     isConnected,
     isConnecting,
@@ -4407,6 +4416,56 @@ const VideoDate = () => {
     handleCallEndRef.current = handleCallEnd;
   }, [handleCallEnd]);
 
+  useEffect(() => {
+    if (
+      !id ||
+      !peerMissing.terminal ||
+      showFeedback ||
+      terminalSurveyRecoveryActive ||
+      explicitEndRequestedRef.current !== "idle"
+    ) {
+      return;
+    }
+
+    const confirmedEncounter =
+      phaseRef.current === "date" ||
+      Boolean(dateStartedAt) ||
+      videoSessionHasEncounterExposureTruth(handshakeTruth);
+    if (!confirmedEncounter) return;
+
+    const key = `${id}:partner_absent_after_confirmed_encounter`;
+    if (postEncounterPeerMissingEndRequestedRef.current === key) return;
+    postEncounterPeerMissingEndRequestedRef.current = key;
+
+    vdbg("post_encounter_peer_missing_terminal_end_requested", {
+      sessionId: id,
+      userId: user?.id ?? null,
+      eventId: eventId ?? null,
+      phase: phaseRef.current,
+      dateStartedAt,
+      hasEncounterExposureTruth: videoSessionHasEncounterExposureTruth(handshakeTruth),
+    });
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+      source_surface: "video_date_route",
+      source_action: "post_encounter_peer_missing_terminal_end",
+      reason_code: "partner_absent_after_confirmed_encounter",
+    });
+    void handleCallEnd("partner_absent_after_confirmed_encounter");
+  }, [
+    dateStartedAt,
+    eventId,
+    handleCallEnd,
+    handshakeTruth,
+    id,
+    peerMissing.terminal,
+    showFeedback,
+    terminalSurveyRecoveryActive,
+    user?.id,
+  ]);
+
   const resolveVideoDateExitTarget = useCallback(
     (overrideEventId?: string | null) => {
       const destinationEventId = overrideEventId ?? eventId;
@@ -4722,8 +4781,17 @@ const VideoDate = () => {
         source: "peer_missing_back_to_lobby",
       });
     }
+    const hasDateEntryTruth =
+      hasEnteredDateFlowRef.current ||
+      phaseRef.current === "date" ||
+      Boolean(dateStartedAt) ||
+      videoSessionHasEncounterExposureTruth(handshakeTruth);
+    if (hasDateEntryTruth) {
+      void handleLeave({ reason: "partner_absent_after_confirmed_encounter" });
+      return;
+    }
     void handlePreDateExit({ reason: "partial_join_peer_timeout", source: "peer_missing_back_to_lobby" });
-  }, [eventId, handlePreDateExit, id]);
+  }, [dateStartedAt, eventId, handleLeave, handlePreDateExit, handshakeTruth, id]);
 
   useEffect(() => {
     if (phase === "date" || phase === "ended") {

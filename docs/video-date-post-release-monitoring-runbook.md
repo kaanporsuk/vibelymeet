@@ -1,6 +1,6 @@
 # Video Date Post-Release Monitoring Runbook
 
-Current recovery overlay (2026-06-05): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; verify current Git and deployment state before assuming no docs-only follow-up sits on top. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. Static/CI/cloud checks passed, but the fresh manual two-user match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-05): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; current terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions. Verify current Git and deployment state before assuming no docs-only follow-up sits on top. Static/CI/cloud checks passed for prior baselines, but the fresh manual two-user match -> survey acceptance run is still unproven.
 
 ## Release Baseline
 
@@ -14,9 +14,9 @@ Current 2026-06-05 recovery baseline:
 - Prior recovery hardening PR: `https://github.com/kaanporsuk/vibelymeet/pull/1196`.
 - Functional stabilization PR: `https://github.com/kaanporsuk/vibelymeet/pull/1194`.
 - Supabase project: `schdyxcunwcvddlcshwd`.
-- Latest applied Video Date recovery migrations: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, and `20260605115657_video_date_early_confirmed_encounter_promotion.sql`.
+- Latest applied/expected Video Date recovery migrations: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, `20260605115657_video_date_early_confirmed_encounter_promotion.sql`, `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`.
 - Post-deploy database status: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` reported the remote database is up to date.
-- Supabase schema lint completed after the latest migration with no error-level issues; warning-level items were pre-existing and unrelated to the early-promotion migration.
+- Supabase schema lint completed after the latest migration with no error-level issues; warning-level items were pre-existing and unrelated to the terminal-survey lifecycle migrations.
 - Acceptance caveat: no fresh deployed manual two-user match -> survey run has passed yet. Treat this runbook as monitoring guidance, not recovery closure.
 
 Current Video Date v4.2 baseline as of 2026-05-22:
@@ -63,7 +63,7 @@ Check:
 
 - Vercel production deployment is healthy for the release commit.
 - Supabase functions are ACTIVE for the current v4.2 surface: `daily-room`, `video-date-snapshot`, `video-date-outbox-drainer`, `video-date-deadline-finalizer`, `video-date-daily-webhook`, `video-date-orphan-room-cleanup`, `video-date-recovery-alert-dispatcher`, `synthetic-video-date-monitor`, `post-date-verdict`, `swipe-actions`, and `admin-video-date-ops`.
-- Current Video Date recovery migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are local and remote.
+- Current Video Date recovery migrations through `20260605152058_video_date_pending_survey_registration_repair.sql` are local and remote, and `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup` should be deployed with provider-delete markers instead of room-metadata nulling.
 - Daily dashboard/service status is healthy.
 - PostHog/Sentry search by `session_id` and `event_id` is ready.
 - Native build or OTA carrying the v4.2 Video Date client surface is delivered before native QA; manual native smoke is recorded through the Phase 8 ledger.
@@ -342,6 +342,8 @@ Warning signals:
 Red-alert signals:
 
 - User with ended date and no feedback cannot recover survey.
+- A user with survey-eligible ended date truth is moved from `in_survey` to `offline`, `idle`, or `browsing` before feedback.
+- Terminal `video_sessions.daily_room_name` / `daily_room_url` is null even though a deterministic Daily room existed for the date.
 - `date_feedback` exists but UI still asks the same user to submit.
 - Mutual match creation contradicts blocked/reported state.
 - Home shows an active-date banner for a session that is ended, older than the 24-hour survey recovery window, or already has that user's `date_feedback`.
@@ -352,7 +354,9 @@ Immediate action for pending survey not recovered:
 2. Confirm `date_started_at` and `ended_at` exist.
 3. Confirm no `date_feedback` row exists for that user.
 4. Confirm route emits no `video_date_survey_recovered`.
-5. Escalate as a recovery regression with session id, user id, and current `event_registrations` snapshot.
+5. Confirm `event_registrations.queue_status` is still `in_survey`; if it is not, inspect `update_participant_status` timing and lifecycle writes.
+6. Confirm terminal `daily_room_name` / `daily_room_url` are present or repaired.
+7. Escalate as a recovery regression with session id, user id, and current `event_registrations` snapshot.
 
 Immediate read-only check for a false home active-session banner:
 
@@ -385,7 +389,7 @@ order by er.last_active_at desc nulls last;
 
 Interpretation:
 
-- `queue_status = in_survey` should show the home feedback banner only when `vs.ended_at` and `vs.date_started_at` exist, `df.id` is null, and `vs.ended_at` is within 24 hours.
+- `queue_status = in_survey` should show the home feedback banner only when `vs.ended_at` and `vs.date_started_at` exist, `df.id` is null, and `vs.ended_at` is within 24 hours. It should not be overwritten by later lifecycle `offline` writes until feedback exists.
 - Old ended sessions, sessions with existing feedback, and stale non-ended sessions should emit `stale_active_session_detected` and not show active-date copy.
 
 ## After Event Cleanup
