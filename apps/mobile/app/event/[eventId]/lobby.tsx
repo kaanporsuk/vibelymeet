@@ -416,8 +416,13 @@ export default function EventLobbyScreen() {
     if (!sessionHydrated || !id || !scopedSession || scopedSession.eventId !== id) return null;
     return scopedSession;
   }, [sessionHydrated, id, scopedSession]);
+  const sameEventActiveSessionQueueStatus =
+    (sameEventActiveSession as { queueStatus?: unknown } | null)?.queueStatus ?? null;
   const lobbyBroadcastSessionId = scopedSession?.sessionId ?? activeSessionId;
-  const readyGatePressureActive = Boolean(activeSessionId) || sameEventActiveSession?.kind === 'ready_gate';
+  const readyGatePressureActive =
+    Boolean(activeSessionId) ||
+    sameEventActiveSession?.kind === 'ready_gate' ||
+    sameEventActiveSession?.kind === 'video';
 
   useEffect(() => {
     if (!eventDateValue) return;
@@ -748,8 +753,14 @@ export default function EventLobbyScreen() {
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
 
   const navigateToDateSession = useCallback(
-    (sessionIdToOpen: string, trigger: string, mode: 'replace' | 'push' = 'replace') => {
-      if (isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)) {
+    (
+      sessionIdToOpen: string,
+      trigger: string,
+      mode: 'replace' | 'push' = 'replace',
+      options: { force?: boolean } = {},
+    ) => {
+      const forceNavigation = options.force === true;
+      if (!forceNavigation && isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)) {
         vdbg('lobby_navigate_to_date_suppressed', {
           trigger,
           eventId: id,
@@ -842,6 +853,7 @@ export default function EventLobbyScreen() {
               sessionId: sessionIdToOpen,
               pathname,
               mode,
+              force: forceNavigation,
             });
             return;
           }
@@ -903,6 +915,7 @@ export default function EventLobbyScreen() {
           sessionId: sessionIdToOpen,
           pathname,
           mode,
+          force: forceNavigation,
           onSuppressed: ({ reason: suppressReason, target }) => {
             vdbg('lobby_navigate_to_date_suppressed', {
               trigger,
@@ -1487,6 +1500,15 @@ export default function EventLobbyScreen() {
   const openReadyGateWithSession = useCallback(
     (sessionId: string, trigger = 'unknown') => {
       if (lastOpenedSessionRef.current === sessionId) return;
+      if (sameEventActiveSession?.kind === 'video' && sameEventActiveSession.sessionId === sessionId) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_open_suppressed_by_video_session_ownership', {
+          session_id: sessionId,
+          event_id: id,
+          trigger,
+          queue_status: sameEventActiveSessionQueueStatus,
+        });
+        return;
+      }
       if (isVideoDateRouteOwned(sessionId, user?.id ?? null)) {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_open_suppressed_by_date_route_ownership', {
           session_id: sessionId,
@@ -1538,6 +1560,43 @@ export default function EventLobbyScreen() {
           });
           const decision = canonicalRoute.legacyDecision;
           const canAttemptDaily = canonicalRoute.canAttemptDaily;
+          if (canonicalRoute.target === 'survey') {
+            if (lastOpenedSessionRef.current === sessionId) {
+              lastOpenedSessionRef.current = null;
+              setActiveSessionId((current) => (current === sessionId ? null : current));
+            }
+            rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
+              session_id: sessionId,
+              event_id: id,
+              decision,
+              can_attempt_daily: canAttemptDaily,
+              ...canonicalLog,
+              canonical_reason: canonicalRoute.reason,
+              routed_to: 'survey',
+              source: `ready_gate_open_${trigger}`,
+            });
+            navigateToDateSession(sessionId, `ready_gate_open_${trigger}_pending_survey`, 'replace', {
+              force: true,
+            });
+            return;
+          }
+          if (canonicalRoute.target === 'ended') {
+            if (lastOpenedSessionRef.current === sessionId) {
+              lastOpenedSessionRef.current = null;
+              setActiveSessionId((current) => (current === sessionId ? null : current));
+            }
+            rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
+              session_id: sessionId,
+              event_id: id,
+              decision,
+              can_attempt_daily: canAttemptDaily,
+              ...canonicalLog,
+              canonical_reason: canonicalRoute.reason,
+              routed_to: 'ended',
+              source: `ready_gate_open_${trigger}`,
+            });
+            return;
+          }
           if (canonicalRoute.target === 'date') {
             if (lastOpenedSessionRef.current !== sessionId) {
               vdbg('lobby_date_route_decision_suppressed_stale_ready_gate_open', {
@@ -1605,7 +1664,16 @@ export default function EventLobbyScreen() {
         }
       })();
     },
-    [id, isReadyGateManualExitSuppressed, navigateToDateSession, scheduleDeckRefresh, user?.id]
+    [
+      id,
+      isReadyGateManualExitSuppressed,
+      navigateToDateSession,
+      sameEventActiveSession?.kind,
+      sameEventActiveSession?.sessionId,
+      sameEventActiveSessionQueueStatus,
+      scheduleDeckRefresh,
+      user?.id,
+    ]
   );
 
   const suppressReadyGateAfterManualExit = useCallback((sessionId: string) => {
@@ -1679,23 +1747,32 @@ export default function EventLobbyScreen() {
       activeSessionExists: Boolean(sameEventActiveSession),
       activeSessionKind: sameEventActiveSession?.kind ?? null,
       activeSessionId: sameEventActiveSession?.sessionId ?? null,
-      activeSessionQueueStatus: (sameEventActiveSession as { queueStatus?: unknown } | null)?.queueStatus ?? null,
+      activeSessionQueueStatus: sameEventActiveSessionQueueStatus,
     });
     if (sameEventActiveSession?.sessionId) {
       logVdbgSessionStage('lobby_mount_active_session_detail', sameEventActiveSession.sessionId, {
         eventId: id,
         activeSessionKind: sameEventActiveSession.kind,
-        activeSessionQueueStatus: (sameEventActiveSession as { queueStatus?: unknown }).queueStatus ?? null,
+        activeSessionQueueStatus: sameEventActiveSessionQueueStatus,
       });
     }
     if (sameEventActiveSession?.kind === 'video') {
-      navigateToDateSession(sameEventActiveSession.sessionId, 'active_session_hydration', 'replace');
+      navigateToDateSession(sameEventActiveSession.sessionId, 'active_session_hydration', 'replace', {
+        force: sameEventActiveSessionQueueStatus === 'in_survey',
+      });
       return;
     }
     if (sameEventActiveSession?.kind === 'ready_gate') {
       openReadyGateWithSession(sameEventActiveSession.sessionId, 'active_session_hydration');
     }
-  }, [sessionHydrated, id, sameEventActiveSession, openReadyGateWithSession, navigateToDateSession]);
+  }, [
+    sessionHydrated,
+    id,
+    sameEventActiveSession,
+    sameEventActiveSessionQueueStatus,
+    openReadyGateWithSession,
+    navigateToDateSession,
+  ]);
 
   /**
    * Queued mutual match: promotion may lag realtime. Re-run `drain_match_queue` with adaptive backoff
@@ -1813,10 +1890,13 @@ export default function EventLobbyScreen() {
           if (newData.event_id !== id) return;
           const queueStatus = newData.queue_status as string | undefined;
           const currentRoomId = newData.current_room_id as string | null | undefined;
-          if (
-            (queueStatus === 'in_handshake' || queueStatus === 'in_date') &&
-            currentRoomId
-          ) {
+          if (queueStatus === 'in_survey' && currentRoomId) {
+            navigateToDateSession(currentRoomId, 'registration_realtime_pending_survey', 'replace', {
+              force: true,
+            });
+            return;
+          }
+          if ((queueStatus === 'in_handshake' || queueStatus === 'in_date') && currentRoomId) {
             navigateToDateSession(currentRoomId, 'registration_realtime', 'replace');
             return;
           }
@@ -1828,6 +1908,7 @@ export default function EventLobbyScreen() {
             queueStatus === 'in_ready_gate' ||
             queueStatus === 'in_handshake' ||
             queueStatus === 'in_date' ||
+            queueStatus === 'in_survey' ||
             currentRoomId
           ) {
             const { data: latestReg } = await supabase
@@ -1836,6 +1917,15 @@ export default function EventLobbyScreen() {
               .eq('event_id', id)
               .eq('profile_id', user.id)
               .maybeSingle();
+            if (
+              latestReg?.queue_status === 'in_survey' &&
+              latestReg.current_room_id
+            ) {
+              navigateToDateSession(latestReg.current_room_id, 'registration_realtime_refetch_pending_survey', 'replace', {
+                force: true,
+              });
+              return;
+            }
             if (
               (latestReg?.queue_status === 'in_handshake' || latestReg?.queue_status === 'in_date') &&
               latestReg.current_room_id
@@ -1890,6 +1980,17 @@ export default function EventLobbyScreen() {
         eventId: id,
         truth: session,
       });
+      if (routeDecision.target === 'survey') {
+        setActiveSessionId((current) => (current === sid ? null : current));
+        navigateToDateSession(session.id as string, 'video_session_update_pending_survey', 'replace', {
+          force: true,
+        });
+        return;
+      }
+      if (routeDecision.target === 'ended') {
+        setActiveSessionId((current) => (current === sid ? null : current));
+        return;
+      }
       if (routeDecision.target === 'date') {
         navigateToDateSession(session.id as string, 'video_session_update_both_ready', 'replace');
         return;
@@ -1921,6 +2022,17 @@ export default function EventLobbyScreen() {
         eventId: id,
         truth: session,
       });
+      if (routeDecision.target === 'survey') {
+        setActiveSessionId((current) => (current === sid ? null : current));
+        navigateToDateSession(sid, 'video_session_insert_pending_survey', 'replace', {
+          force: true,
+        });
+        return;
+      }
+      if (routeDecision.target === 'ended') {
+        setActiveSessionId((current) => (current === sid ? null : current));
+        return;
+      }
       if (routeDecision.target === 'date') {
         navigateToDateSession(sid, 'video_session_insert_both_ready', 'replace');
         return;

@@ -48,10 +48,11 @@ export function navigateToDateSessionGuarded(params: {
   sessionId: string;
   pathname: string | null | undefined;
   mode?: DateNavMode;
+  force?: boolean;
   onSuppressed?: (payload: { reason: DateNavReason; target: Href }) => void;
   onNavigate?: (payload: { target: Href; mode: DateNavMode }) => void;
 }): boolean {
-  const { sessionId, pathname, mode = 'replace', onSuppressed, onNavigate } = params;
+  const { sessionId, pathname, mode = 'replace', force = false, onSuppressed, onNavigate } = params;
   const target = videoDateHref(sessionId);
   const onDateRouteForSession = activeDateSessionIdFromPath(pathname) === sessionId;
 
@@ -60,6 +61,7 @@ export function navigateToDateSessionGuarded(params: {
     pathname: pathname ?? null,
     target_href: String(target),
     mode,
+    force,
     on_date_route_for_session: onDateRouteForSession,
     last_nav_session_id: lastDateNav?.sessionId ?? null,
     last_nav_replace_invoked: lastDateNav?.routerReplaceInvoked ?? null,
@@ -79,7 +81,7 @@ export function navigateToDateSessionGuarded(params: {
 
   const now = Date.now();
 
-  if (isDateNavigationSuppressedAfterManualExit(sessionId)) {
+  if (!force && isDateNavigationSuppressedAfterManualExit(sessionId)) {
     onSuppressed?.({ reason: 'recent_manual_exit', target });
     rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_nav_suppressed', {
       session_id: sessionId,
@@ -92,6 +94,7 @@ export function navigateToDateSessionGuarded(params: {
 
   // Deduplicate burst navigations (multiple realtime events firing within DUPLICATE_BURST_MS).
   if (
+    !force &&
     lastDateNav?.sessionId === sessionId &&
     now - lastDateNav.ts < DUPLICATE_BURST_MS
   ) {
@@ -102,6 +105,7 @@ export function navigateToDateSessionGuarded(params: {
       pathname: pathname ?? null,
       target_href: String(target),
       ms_since_last_nav: now - lastDateNav.ts,
+      force,
     });
     return false;
   }

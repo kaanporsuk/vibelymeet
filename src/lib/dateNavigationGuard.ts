@@ -5,6 +5,10 @@ export type DateNavigationSuppressReason =
   | "recent_duplicate_navigation"
   | "recent_manual_exit";
 
+export type DateNavigationClaimOptions = {
+  force?: boolean;
+};
+
 const DUPLICATE_NAVIGATION_MS = 15_000;
 const MANUAL_EXIT_SUPPRESSION_MS = 5 * 60_000;
 const MANUAL_EXIT_STORAGE_KEY = "vibely:manual-video-date-exits:v1";
@@ -88,19 +92,26 @@ export function isDateNavigationSuppressedAfterManualExit(sessionId: string): bo
 
 export function claimDateNavigation(
   sessionId: string,
-  pathname: string | null | undefined
+  pathname: string | null | undefined,
+  options: DateNavigationClaimOptions = {},
 ): { ok: true } | { ok: false; reason: DateNavigationSuppressReason } {
   if (!sessionId) return { ok: false, reason: "recent_duplicate_navigation" };
+  const force = options.force === true;
+
   if (activeDateSessionIdFromPath(pathname) === sessionId) {
     return { ok: false, reason: "already_on_same_date_route" };
   }
 
-  if (isDateNavigationSuppressedAfterManualExit(sessionId)) {
+  if (!force && isDateNavigationSuppressedAfterManualExit(sessionId)) {
     return { ok: false, reason: "recent_manual_exit" };
   }
 
   const now = nowMs();
-  if (lastDateNavigation?.sessionId === sessionId && now - lastDateNavigation.ts < DUPLICATE_NAVIGATION_MS) {
+  if (
+    !force &&
+    lastDateNavigation?.sessionId === sessionId &&
+    now - lastDateNavigation.ts < DUPLICATE_NAVIGATION_MS
+  ) {
     return { ok: false, reason: "recent_duplicate_navigation" };
   }
 

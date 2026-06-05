@@ -174,7 +174,11 @@ function logVdbgSessionStage(message: string, sessionId: string, data?: Record<s
     });
 }
 
-function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "in_date" {
+function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "in_date" | "in_survey" {
+  return status === "in_handshake" || status === "in_date" || status === "in_survey";
+}
+
+function isDailyEntryQueueStatus(status: unknown): status is "in_handshake" | "in_date" {
   return status === "in_handshake" || status === "in_date";
 }
 
@@ -335,7 +339,8 @@ const EventLobby = () => {
   const readyGatePressureActive = Boolean(
     activeSessionId ||
       dateNavigationSessionId ||
-      (sameEventScopedSession?.kind === "ready_gate" && sameEventScopedSession.sessionId)
+      (sameEventScopedSession?.kind === "ready_gate" && sameEventScopedSession.sessionId) ||
+      (sameEventScopedSession?.kind === "video" && sameEventScopedSession.sessionId)
   );
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({ queuedCount: 0, visibleCount: 0 });
   const deckFetchEnabled = deckEnabled && !readyGatePressureActive;
@@ -536,6 +541,18 @@ const EventLobby = () => {
 
   const openReadyGateSession = useCallback((sessionId: string, source: string) => {
     if (!sessionId || dateNavigationSessionIdRef.current) return;
+    if (scopedSessionKind === "video" && scopedSessionId === sessionId) {
+      vdbg("ready_gate_open_suppressed_by_video_session_ownership", {
+        sessionId,
+        eventId,
+        source,
+        userId: user?.id ?? null,
+        activeSessionKind: scopedSessionKind,
+        activeSessionQueueStatus: scopedSessionQueueStatus,
+      });
+      scheduleLobbyConvergenceRefresh(sessionId, `${source}_video_session_ownership`, 0);
+      return;
+    }
     if (isVideoDateRouteOwned(sessionId, user?.id ?? null)) {
       vdbg("ready_gate_open_suppressed_by_date_route_ownership", {
         sessionId,
@@ -578,6 +595,8 @@ const EventLobby = () => {
     lobbyGate.kind,
     scheduleLobbyConvergenceRefresh,
     scopedSessionId,
+    scopedSessionKind,
+    scopedSessionQueueStatus,
     user?.id,
   ]);
 
@@ -655,16 +674,23 @@ const EventLobby = () => {
   ]);
 
   const navigateToDateSession = useCallback(
-    (sessionId: string, source: string) => {
+    (
+      sessionId: string,
+      source: string,
+      options: { force?: boolean; forceSurvey?: boolean } = {},
+    ) => {
       if (!sessionId) return;
-      if (dateNavigationSessionIdRef.current === sessionId) return;
-      const claim = claimDateNavigation(sessionId, location.pathname);
+      const force = options.force === true || options.forceSurvey === true;
+      if (!force && dateNavigationSessionIdRef.current === sessionId) return;
+      const claim = claimDateNavigation(sessionId, location.pathname, { force });
       if (claim.ok === false) {
         vdbg("lobby_navigate_to_date_suppressed", {
           trigger: source,
           sessionId,
           eventId,
           reason: claim.reason,
+          force,
+          forceSurvey: options.forceSurvey === true,
           currentPath: location.pathname,
           target: `/date/${sessionId}`,
         });
@@ -688,7 +714,10 @@ const EventLobby = () => {
           source_action: source,
         });
       }
-      navigate(`/date/${sessionId}`, { replace: true });
+      navigate(`/date/${sessionId}`, {
+        replace: true,
+        state: options.forceSurvey === true ? { source, forceSurvey: true } : { source },
+      });
     },
     [eventId, location.pathname, navigate, user?.id]
   );
@@ -1159,7 +1188,11 @@ const EventLobby = () => {
       return;
     }
     if (scopedSessionKind === "video" && scopedSessionId) {
-      navigateToDateSession(scopedSessionId, "active_session_hydration");
+      navigateToDateSession(
+        scopedSessionId,
+        "active_session_hydration",
+        scopedSessionQueueStatus === "in_survey" ? { force: true, forceSurvey: true } : {},
+      );
       return;
     }
     if (scopedSessionKind === "ready_gate" && scopedSessionId) {
@@ -1246,7 +1279,20 @@ const EventLobby = () => {
           const currentRoomId =
             typeof newData.current_room_id === "string" ? newData.current_room_id : null;
 
-          if (isActiveDateQueueStatus(queueStatus) && currentRoomId) {
+          if (queueStatus === "in_survey" && currentRoomId) {
+            lobbyDebug("same-session pending survey detected from registration realtime", {
+              sessionId: currentRoomId,
+              queueStatus,
+            });
+            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_pending_survey");
+            navigateToDateSession(currentRoomId, "registration_realtime_pending_survey", {
+              force: true,
+              forceSurvey: true,
+            });
+            return;
+          }
+
+          if (isDailyEntryQueueStatus(queueStatus) && currentRoomId) {
             lobbyDebug("same-session active date detected from registration realtime", {
               sessionId: currentRoomId,
               queueStatus,
@@ -1276,7 +1322,14 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, scheduleLobbyConvergenceRefresh]);
+  }, [
+    user?.id,
+    eventId,
+    prepareAndNavigateToDateSession,
+    navigateToDateSession,
+    openReadyGateSession,
+    scheduleLobbyConvergenceRefresh,
+  ]);
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
@@ -1305,6 +1358,30 @@ const EventLobby = () => {
         sourceSurface: "event_lobby",
         sourceAction: source,
       });
+
+      if (routeDecision.target === "survey") {
+        lobbyDebug("same-session pending survey detected from participant-scoped video session realtime", {
+          sessionId,
+          state: session.state,
+          phase: session.phase,
+          readyGateStatus: session.ready_gate_status,
+          readyGateExpiresAt: session.ready_gate_expires_at,
+          ...canonicalLog,
+        });
+        clearReadyGateSession(`${source}_pending_survey`);
+        scheduleLobbyConvergenceRefresh(sessionId, `${source}_pending_survey`);
+        navigateToDateSession(sessionId, `${source}_pending_survey`, {
+          force: true,
+          forceSurvey: true,
+        });
+        return;
+      }
+
+      if (routeDecision.target === "ended") {
+        clearReadyGateSession(`${source}_ended`);
+        scheduleLobbyConvergenceRefresh(sessionId, `${source}_ended`);
+        return;
+      }
 
       if (routeDecision.target === "date") {
         lobbyDebug("same-session active date detected from participant-scoped video session realtime", {
@@ -1366,7 +1443,9 @@ const EventLobby = () => {
   }, [
     user?.id,
     eventId,
+    clearReadyGateSession,
     prepareAndNavigateToDateSession,
+    navigateToDateSession,
     openReadyGateSession,
     scheduleLobbyConvergenceRefresh,
     deckPrefetchPolishEnabled,
