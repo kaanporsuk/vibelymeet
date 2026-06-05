@@ -239,6 +239,8 @@ const NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
 const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 12;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 4_000;
+const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS = 1_000;
+const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_MAX_MS = 15_000;
 const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
@@ -247,6 +249,13 @@ type NativeVideoDateSurfaceClaimResult = {
   canContinue: boolean;
   confirmed: boolean;
 };
+
+function nextNativeSurfaceClaimBackoffMs(failureCount: number) {
+  return Math.min(
+    NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_MAX_MS,
+    NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS * 2 ** Math.min(failureCount, 4),
+  );
+}
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -1010,6 +1019,11 @@ export default function VideoDateScreen() {
   const [captureProfile, setCaptureProfile] = useState<NativeVideoDateCaptureProfile>('ideal');
   const [isAbortingConnection, setIsAbortingConnection] = useState(false);
   const [surfaceClaimBlocked, setSurfaceClaimBlocked] = useState(false);
+  const surfaceClaimBlockedRef = useRef(false);
+  const setSurfaceClaimBlockedState = useCallback((value: boolean) => {
+    surfaceClaimBlockedRef.current = value;
+    setSurfaceClaimBlocked(value);
+  }, []);
   const [surfaceClaimTakeoverBusy, setSurfaceClaimTakeoverBusy] = useState(false);
 
   const handleSessionBroadcastEvent = useCallback(
@@ -1111,6 +1125,9 @@ export default function VideoDateScreen() {
   const videoDateClientInstanceIdRef = useRef(
     `vd-native-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
   );
+  const surfaceClaimInFlightRef = useRef(false);
+  const surfaceClaimBackoffUntilRef = useRef(0);
+  const surfaceClaimFailureCountRef = useRef(0);
   const enterHandshakeSucceededRef = useRef(false);
   const handleCallEndRef = useRef<((source?: 'local_end' | 'server_end') => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
@@ -3377,8 +3394,10 @@ export default function VideoDateScreen() {
 	          });
 	          const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth ?? null);
 	          const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth ?? null);
-	          if (hasTerminalSurveyTruth) {
-	            const suppressedEventName = 'peer_missing_suppressed_survey_truth';
+	          if (hasTerminalSurveyTruth || hasHistoricalRemoteSeenTruth) {
+	            const suppressedEventName = hasTerminalSurveyTruth
+	              ? 'peer_missing_suppressed_survey_truth'
+	              : 'peer_missing_suppressed_remote_seen';
 	            setPeerMissingTerminal(false);
 	            setCallError(null);
 	            setAwaitingFirstConnect(false);
@@ -3398,13 +3417,15 @@ export default function VideoDateScreen() {
 	              payload: {
 	                source_surface: 'video_date_daily',
 	                source_action: 'first_remote_watchdog',
-	                reason_code: 'survey_required_truth',
+	                reason_code: hasTerminalSurveyTruth ? 'survey_required_truth' : 'remote_seen_truth',
 	                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
 	                truth_refresh_attempt: truthRefreshAttempt,
 	                historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
 	              },
 	            });
-	            void openNativePostDateSurveyFromTerminalTruth('peer_missing_watchdog_survey_truth', truth ?? null);
+	            if (hasTerminalSurveyTruth) {
+	              void openNativePostDateSurveyFromTerminalTruth('peer_missing_watchdog_survey_truth', truth ?? null);
+	            }
 	            return;
 	          }
 	          markPeerMissingTerminal();
@@ -4808,42 +4829,64 @@ export default function VideoDateScreen() {
   const claimNativeVideoDateSurface = useCallback(
     async (takeover = false): Promise<NativeVideoDateSurfaceClaimResult> => {
       if (!multiDeviceV2.enabled || !sessionId || !user?.id || showFeedback || phaseRef.current === 'ended') {
-        setSurfaceClaimBlocked(false);
+        surfaceClaimBackoffUntilRef.current = 0;
+        surfaceClaimFailureCountRef.current = 0;
+        setSurfaceClaimBlockedState(false);
         return { canContinue: true, confirmed: true };
       }
-      const { data, error } = await supabase.rpc('claim_video_date_surface' as never, {
-        p_session_id: sessionId,
-        p_surface: 'video_date',
-        p_client_instance_id: videoDateClientInstanceIdRef.current,
-        p_takeover: takeover,
-        p_ttl_seconds: NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS,
-      } as never);
-      const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
-      if (error || payload?.success === false) {
-        const blocked = payload?.code === 'SURFACE_CLAIM_CONFLICT' && payload.retryable !== true;
-        setSurfaceClaimBlocked(blocked);
+      const now = Date.now();
+      if (takeover) {
+        surfaceClaimBackoffUntilRef.current = 0;
+        surfaceClaimFailureCountRef.current = 0;
+      } else if (surfaceClaimInFlightRef.current || now < surfaceClaimBackoffUntilRef.current) {
+        return { canContinue: !surfaceClaimBlockedRef.current, confirmed: false };
+      }
+      surfaceClaimInFlightRef.current = true;
+      try {
+        const { data, error } = await supabase.rpc('claim_video_date_surface' as never, {
+          p_session_id: sessionId,
+          p_surface: 'video_date',
+          p_client_instance_id: videoDateClientInstanceIdRef.current,
+          p_takeover: takeover,
+          p_ttl_seconds: NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS,
+        } as never);
+        const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
+        if (error || payload?.success === false) {
+          const blocked = payload?.code === 'SURFACE_CLAIM_CONFLICT' && payload.retryable !== true;
+          setSurfaceClaimBlockedState(blocked);
+          if (!blocked) {
+            surfaceClaimFailureCountRef.current += 1;
+            surfaceClaimBackoffUntilRef.current =
+              Date.now() + nextNativeSurfaceClaimBackoffMs(surfaceClaimFailureCountRef.current);
+          }
+          vdbg('native_video_date_surface_claim_result', {
+            sessionId,
+            userId: user.id,
+            ok: false,
+            takeover,
+            blocked,
+            code: payload?.code ?? null,
+            retryable: payload?.retryable === true,
+            backoffUntil: blocked ? null : surfaceClaimBackoffUntilRef.current,
+            error: error ? { code: error.code, message: error.message } : null,
+          });
+          return { canContinue: !blocked, confirmed: false };
+        }
+        surfaceClaimBackoffUntilRef.current = 0;
+        surfaceClaimFailureCountRef.current = 0;
+        setSurfaceClaimBlockedState(false);
         vdbg('native_video_date_surface_claim_result', {
           sessionId,
           userId: user.id,
-          ok: false,
+          ok: true,
           takeover,
-          blocked,
-          code: payload?.code ?? null,
-          retryable: payload?.retryable === true,
-          error: error ? { code: error.code, message: error.message } : null,
         });
-        return { canContinue: !blocked, confirmed: false };
+        return { canContinue: true, confirmed: true };
+      } finally {
+        surfaceClaimInFlightRef.current = false;
       }
-      setSurfaceClaimBlocked(false);
-      vdbg('native_video_date_surface_claim_result', {
-        sessionId,
-        userId: user.id,
-        ok: true,
-        takeover,
-      });
-      return { canContinue: true, confirmed: true };
     },
-    [multiDeviceV2.enabled, sessionId, showFeedback, user?.id],
+    [multiDeviceV2.enabled, sessionId, setSurfaceClaimBlockedState, showFeedback, user?.id],
   );
 
   const handleSwitchDeviceHere = useCallback(async () => {
@@ -4852,7 +4895,7 @@ export default function VideoDateScreen() {
     try {
       const claim = await claimNativeVideoDateSurface(true);
       if (claim.confirmed) {
-        setSurfaceClaimBlocked(false);
+        setSurfaceClaimBlockedState(false);
         hasStartedJoinRef.current = false;
         vdbg('native_video_date_surface_takeover_retry', {
           sessionId: sessionId ?? null,
@@ -4863,7 +4906,7 @@ export default function VideoDateScreen() {
     } finally {
       setSurfaceClaimTakeoverBusy(false);
     }
-  }, [claimNativeVideoDateSurface, sessionId, surfaceClaimTakeoverBusy, user?.id]);
+  }, [claimNativeVideoDateSurface, sessionId, setSurfaceClaimBlockedState, surfaceClaimTakeoverBusy, user?.id]);
 
   const handleLeaveBlockedSurface = useCallback(async () => {
     try {
@@ -4893,7 +4936,7 @@ export default function VideoDateScreen() {
       !showFeedback &&
       (phase === 'handshake' || phase === 'date');
     if (!activeVideoSurface) {
-      setSurfaceClaimBlocked(false);
+      setSurfaceClaimBlockedState(false);
       return;
     }
     let cancelled = false;
@@ -4922,7 +4965,7 @@ export default function VideoDateScreen() {
         } as never);
       }
     };
-  }, [claimNativeVideoDateSurface, multiDeviceV2.enabled, phase, sessionId, showFeedback, user?.id]);
+  }, [claimNativeVideoDateSurface, multiDeviceV2.enabled, phase, sessionId, setSurfaceClaimBlockedState, showFeedback, user?.id]);
 
   const handleHandshakeDecision = useCallback(async (action: 'vibe' | 'pass'): Promise<boolean> => {
     if (!sessionId || !user?.id) return false;
@@ -8445,6 +8488,30 @@ export default function VideoDateScreen() {
 
         if (result.state === 'handshake') {
           clearHandshakeGraceState();
+          const positiveExtensionSeconds =
+            result.extended === true &&
+            typeof result.seconds_remaining === 'number' &&
+            Number.isFinite(result.seconds_remaining) &&
+            result.seconds_remaining > 0
+              ? Math.ceil(result.seconds_remaining)
+              : null;
+          if (positiveExtensionSeconds !== null) {
+            if (handshakeCompletionRetryTimerRef.current) {
+              clearTimeout(handshakeCompletionRetryTimerRef.current);
+              handshakeCompletionRetryTimerRef.current = null;
+            }
+            handshakeCompletionDeadlineKeyRef.current = null;
+            setLocalTimeLeft(positiveExtensionSeconds);
+            vdbg('complete_handshake_extension_applied', {
+              sessionId,
+              source,
+              seconds_remaining: positiveExtensionSeconds,
+              extension_started_at: result.extension_started_at ?? null,
+              reason: result.reason ?? null,
+            });
+            await refetchVideoSession();
+            return;
+          }
           vdbg('complete_handshake_uncertain', {
             sessionId,
             source,
@@ -9092,7 +9159,7 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (!sessionId || !handshakeTimerStarted || phase !== 'handshake') return;
-    const key = `${sessionId}:${session?.handshake_started_at ?? 'phase_not_handshake'}`;
+    const key = `${sessionId}:warmup_timer_started`;
     if (warmupTimerStartedTrackedRef.current === key) return;
     warmupTimerStartedTrackedRef.current = key;
     const latencyContext = recordReadyGateToDateLatencyCheckpoint({

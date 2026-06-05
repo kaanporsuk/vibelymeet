@@ -53,6 +53,24 @@ test("web duplicate-tab guard renews and releases backend surface claims", () =>
   assert.match(webDupGuard, /p_surface:\s*"video_date"/);
   assert.match(webDupGuard, /p_takeover:\s*true/);
   assert.match(webDupGuard, /SURFACE_CLAIM_CONFLICT/);
+  assert.match(webDupGuard, /serverClaimInFlightRef/);
+  assert.match(webDupGuard, /serverClaimBackoffUntilRef/);
+  assert.match(webDupGuard, /nextServerClaimBackoffMs/);
+  assert.match(webDupGuard, /payload\.retryable !== true/);
+  assert.match(webDupGuard, /Date\.now\(\) \+ nextServerClaimBackoffMs/);
+
+  assert.match(nativeDateRoute, /NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS/);
+  assert.match(nativeDateRoute, /surfaceClaimInFlightRef/);
+  assert.match(nativeDateRoute, /surfaceClaimBackoffUntilRef/);
+  assert.match(nativeDateRoute, /surfaceClaimBlockedRef/);
+  assert.match(nativeDateRoute, /nextNativeSurfaceClaimBackoffMs/);
+  assert.match(nativeDateRoute, /payload\.retryable !== true/);
+  assert.match(nativeDateRoute, /Date\.now\(\) \+ nextNativeSurfaceClaimBackoffMs/);
+  assert.match(nativeDateRoute, /return \{ canContinue: !surfaceClaimBlockedRef\.current, confirmed: false \}/);
+  assert.doesNotMatch(
+    nativeDateRoute,
+    /surfaceClaimInFlightRef\.current \|\| now < surfaceClaimBackoffUntilRef\.current\) \{[\s\S]{0,120}setSurfaceClaimBlockedState\(false\)/,
+  );
 });
 
 test("web duplicate-tab conflicts do not auto-end an active Daily call", () => {

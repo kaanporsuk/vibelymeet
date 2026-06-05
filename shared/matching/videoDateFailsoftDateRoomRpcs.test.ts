@@ -118,7 +118,7 @@ test("native surface claim does not block takeover on transient fail-soft errors
     nativeDateRoute,
     /const blocked = payload\?\.code === 'SURFACE_CLAIM_CONFLICT' && payload\.retryable !== true/,
   );
-  assert.match(nativeDateRoute, /setSurfaceClaimBlocked\(blocked\)/);
+  assert.match(nativeDateRoute, /setSurfaceClaimBlockedState\(blocked\)/);
   assert.doesNotMatch(nativeDateRoute, /setSurfaceClaimBlocked\(blocked \|\| takeover\)/);
   assert.match(nativeDateRoute, /retryable: payload\?\.retryable === true/);
 });

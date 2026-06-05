@@ -4,12 +4,18 @@ import { supabase } from "@/integrations/supabase/client";
 const LEASE_MS = 5000;
 const TICK_MS = 2000;
 const SERVER_TTL_SECONDS = 12;
+const SERVER_CLAIM_BACKOFF_BASE_MS = 1000;
+const SERVER_CLAIM_BACKOFF_MAX_MS = 15000;
 
 function storageKey(sessionId: string, profileId: string) {
   return `vibely_vd_tab_lease:${profileId}:${sessionId}`;
 }
 
 type LeasePayload = { owner: string; exp: number };
+
+function nextServerClaimBackoffMs(failureCount: number) {
+  return Math.min(SERVER_CLAIM_BACKOFF_MAX_MS, SERVER_CLAIM_BACKOFF_BASE_MS * 2 ** Math.min(failureCount, 4));
+}
 
 /**
  * Soft duplicate-tab guard for active video dates: one browser tab per participant
@@ -22,6 +28,9 @@ export function useVideoDateDupTabGuard(
   leaseActive: boolean,
 ) {
   const ownerRef = useRef(`vd-${Math.random().toString(36).slice(2)}`);
+  const serverClaimInFlightRef = useRef(false);
+  const serverClaimBackoffUntilRef = useRef(0);
+  const serverClaimFailureCountRef = useRef(0);
   const [dupBlocked, setDupBlocked] = useState(false);
   const key = sessionId && profileId ? storageKey(sessionId, profileId) : null;
 
@@ -29,6 +38,8 @@ export function useVideoDateDupTabGuard(
     if (!key || typeof localStorage === "undefined") return;
     const payload: LeasePayload = { owner: ownerRef.current, exp: Date.now() + LEASE_MS };
     localStorage.setItem(key, JSON.stringify(payload));
+    serverClaimBackoffUntilRef.current = 0;
+    serverClaimFailureCountRef.current = 0;
     if (sessionId) {
       void supabase.rpc("claim_video_date_surface", {
         p_session_id: sessionId,
@@ -43,6 +54,8 @@ export function useVideoDateDupTabGuard(
 
   useEffect(() => {
     if (!key || typeof window === "undefined" || !leaseActive) {
+      serverClaimBackoffUntilRef.current = 0;
+      serverClaimFailureCountRef.current = 0;
       setDupBlocked(false);
       return;
     }
@@ -61,20 +74,35 @@ export function useVideoDateDupTabGuard(
 
     const claimServerSurface = async () => {
       if (!sessionId) return;
-      const { data, error } = await supabase.rpc("claim_video_date_surface", {
-        p_session_id: sessionId,
-        p_surface: "video_date",
-        p_client_instance_id: owner,
-        p_takeover: false,
-        p_ttl_seconds: SERVER_TTL_SECONDS,
-      });
-      if (cancelled) return;
-      const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
-      if (error || payload?.success === false) {
-        setDupBlocked(payload?.code === "SURFACE_CLAIM_CONFLICT" && payload.retryable !== true);
-        return;
+      const now = Date.now();
+      if (serverClaimInFlightRef.current || now < serverClaimBackoffUntilRef.current) return;
+      serverClaimInFlightRef.current = true;
+      try {
+        const { data, error } = await supabase.rpc("claim_video_date_surface", {
+          p_session_id: sessionId,
+          p_surface: "video_date",
+          p_client_instance_id: owner,
+          p_takeover: false,
+          p_ttl_seconds: SERVER_TTL_SECONDS,
+        });
+        if (cancelled) return;
+        const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
+        const blocked = payload?.code === "SURFACE_CLAIM_CONFLICT" && payload.retryable !== true;
+        if (error || payload?.success === false) {
+          setDupBlocked(blocked);
+          if (!blocked) {
+            serverClaimFailureCountRef.current += 1;
+            serverClaimBackoffUntilRef.current =
+              Date.now() + nextServerClaimBackoffMs(serverClaimFailureCountRef.current);
+          }
+          return;
+        }
+        serverClaimFailureCountRef.current = 0;
+        serverClaimBackoffUntilRef.current = 0;
+        setDupBlocked(false);
+      } finally {
+        serverClaimInFlightRef.current = false;
       }
-      setDupBlocked(false);
     };
 
     const tick = () => {

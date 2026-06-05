@@ -351,6 +351,8 @@ type CompleteHandshakePayload = {
   partner_decision_persisted?: boolean;
   grace_expires_at?: string;
   seconds_remaining?: number;
+  extended?: boolean;
+  extension_started_at?: string | null;
   already_ended?: boolean;
   reason?: string | null;
   survey_required?: boolean;
@@ -3846,6 +3848,40 @@ const VideoDate = () => {
         setShowMutualToast(true);
       } else if (payload?.state === "handshake") {
         clearHandshakeGraceState();
+        const positiveExtensionSeconds =
+          payload.extended === true &&
+          typeof payload.seconds_remaining === "number" &&
+          Number.isFinite(payload.seconds_remaining) &&
+          payload.seconds_remaining > 0
+            ? Math.ceil(payload.seconds_remaining)
+            : null;
+        if (positiveExtensionSeconds !== null) {
+          const extensionStartedAt =
+            typeof payload.extension_started_at === "string"
+              ? payload.extension_started_at
+              : typeof (truthAfter as VideoDateHandshakeTruth | null)?.handshake_started_at === "string"
+                ? (truthAfter as VideoDateHandshakeTruth).handshake_started_at
+                : null;
+          if (handshakeCompletionRetryTimerRef.current) {
+            clearTimeout(handshakeCompletionRetryTimerRef.current);
+            handshakeCompletionRetryTimerRef.current = null;
+          }
+          handshakeCompletionDeadlineKeyRef.current = null;
+          if (extensionStartedAt) {
+            setHandshakeStartedAt(extensionStartedAt);
+          }
+          setPhase("handshake");
+          setTimeLeft(positiveExtensionSeconds);
+          setTimingRefreshNonce((n) => n + 1);
+          vdbg("complete_handshake_extension_applied", {
+            sessionId: id,
+            source,
+            seconds_remaining: positiveExtensionSeconds,
+            extension_started_at: extensionStartedAt,
+            reason: payload.reason ?? null,
+          });
+          return;
+        }
         scheduleRetry("handshake_deadline_not_terminal");
         return;
       } else {
@@ -4864,7 +4900,7 @@ const VideoDate = () => {
 
   useEffect(() => {
     if (!id || !handshakeTimerStarted || phase !== "handshake") return;
-    const key = `${id}:${handshakeStartedAt ?? "phase_not_handshake"}`;
+    const key = `${id}:warmup_timer_started`;
     if (warmupTimerStartedTrackedRef.current === key) return;
     warmupTimerStartedTrackedRef.current = key;
     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
