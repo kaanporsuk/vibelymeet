@@ -582,6 +582,8 @@ Evidence source: local code changes, focused contract/type/lint verification, an
 Implementation branch:
 
 - Branch: `codex/video-date-confirmed-encounter-stability`
+- PR: `https://github.com/kaanporsuk/vibelymeet/pull/1200`
+- PR #1200 merge commit: `fbca4996a096273914ee650b556ba7994477aa5e`
 - New Supabase migration: `20260605115657_video_date_early_confirmed_encounter_promotion.sql`
 - Cloud apply: `supabase db push --linked --yes` applied `20260605115657` successfully.
 - Post-apply remote check: `supabase migration list --linked` showed local/remote alignment through `20260605115657`.
@@ -623,6 +625,25 @@ Boundary:
 
 - This is still not acceptance proof. The decisive proof remains a fresh disposable production two-user run through match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes.
 - If the next run fails, first inspect whether `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` returned `early_confirmed_encounter_promoted=true`, whether `confirmed_encounter_promoted_to_date` appears in `video_session_events` / `event_loop_observability_events`, and whether web cleanup rows show `same_session_daily_continuity_latched=true` with `parked_singleton=true`.
+
+### 12. Final sync after PR #1200 confirmed-encounter stability merge
+
+Evidence source: GitHub PR status, local Git sync, and Supabase remote checks after merging PR #1200.
+
+Current code/cloud state:
+
+- PR #1200: `https://github.com/kaanporsuk/vibelymeet/pull/1200`
+- PR #1200 merge commit: `fbca4996a096273914ee650b556ba7994477aa5e`
+- Source branch `codex/video-date-confirmed-encounter-stability` was deleted on GitHub and pruned locally.
+- Local `main` and `origin/main` aligned at `fbca4996a096273914ee650b556ba7994477aa5e` immediately after the PR #1200 merge. A docs-only follow-up may sit on top of this functional baseline; verify current HEAD before quoting it.
+- Supabase project `schdyxcunwcvddlcshwd` stayed aligned through `20260605115657`, and `supabase db push --linked --dry-run` reported `Remote database is up to date`.
+- `supabase db lint --linked --schema public --fail-on error` completed with no error-level issues; only existing unrelated warning-level issues and older identifier-truncation notices were reported.
+- Live function marker verification confirmed the migration row, early-promotion helper, `mark_video_date_remote_seen` wrapper, `video_session_handshake_auto_promote_v2` wrapper, deadline finalizer fallback wrapper, post-base room repair, and `confirmed_encounter_promoted_to_date` / `state = date` helper markers are installed.
+- PR checks passed before merge: Vercel, Phase 7 no-go guardrails, Phase 8 privacy/media contracts, Phase 9 playback/captions/lifecycle contracts, Quick golden-path smoke, and Video-date golden-path smoke.
+
+Important boundary:
+
+- This still is not manual acceptance proof. The required proof remains a fresh disposable production two-user run from match through survey completion.
 
 ---
 
@@ -989,7 +1010,7 @@ Use this prompt when starting a new Codex/agent session:
 ```text
 You are continuing Vibely Video Date recovery in /Users/kaanporsuk/Documents/Vibely/Git/vibelymeet. Start by reading docs/video-date-success-command-center.md, docs/active-doc-map.md, AGENTS.md, CODEX.md, and CLAUDE.md. Treat docs/video-date-success-command-center.md as the active source of truth and update it after every material investigation, code change, migration, deploy, or manual QA result.
 
-The last confirmed merged app main/origin-main before the confirmed-encounter stability branch was PR #1199 merge commit ebe4690467b7956511338d94c5847b88889cd1a8. PR #1199 builds on PR #1196 recovery hardening commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f and PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb. The current recovery branch adds Supabase migration 20260605115657_video_date_early_confirmed_encounter_promotion.sql on top of migrations 20260604142017, 20260604170438, 20260604193140, 20260604205645, and 20260605085010 in project schdyxcunwcvddlcshwd. Verify current Git main/origin-main, branch/PR merge commit, `supabase migration list --linked`, `supabase db push --linked --dry-run`, and live function/catalog markers before assuming state. send-notification version 813 was deployed on 2026-06-05 01:59:45 UTC.
+Functional Video Date code landed in PR #1200 at merge commit fbca4996a096273914ee650b556ba7994477aa5e. PR #1200 builds on PR #1199 merge commit ebe4690467b7956511338d94c5847b88889cd1a8, PR #1196 recovery hardening commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f, and PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb. Supabase project schdyxcunwcvddlcshwd is expected to have migrations 20260604142017, 20260604170438, 20260604193140, 20260604205645, 20260605085010, and 20260605115657 applied. Verify current Git main/origin-main, `supabase migration list --linked`, `supabase db push --linked --dry-run`, and live function/catalog markers before assuming state. send-notification version 813 was deployed on 2026-06-05 01:59:45 UTC.
 
 The feature is still not proven healthy. Do not claim success from static tests, both_ready, route entry, Daily room creation, brief warm-up UI, or a terminal survey row. The required proof remains a fresh disposable two-user production run: match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes, plus a simulated short Daily leave/rejoin under 12s and a real prolonged absence terminalization check.
 
