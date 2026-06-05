@@ -752,7 +752,9 @@ Runbooks:
   - `npm run test:video-date-ux-contracts`
   - `npm run test:video-date-v4`
 - Read-only Supabase baseline sanity check: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` confirmed local/remote alignment through the expected Video Date migrations `20260604142017`, `20260604170438`, `20260604193140`, and `20260604205645`. The installed Supabase CLI is `2.104.0`; the first parallel version probe hit the known local telemetry rename race, and the sequential telemetry-opted-out rerun succeeded.
-- Current local working tree is intentionally modified with the above audit fixes and documentation updates; no commit, web build, native build, deployment, or migration was run in this pass.
+- Published recovery hardening PR #1196 (`https://github.com/kaanporsuk/vibelymeet/pull/1196`) and squash-merged it into `main` at commit `359fa5c42bd5fcdefef9a8a1fca9396d96194f4f`; source branch `codex/video-date-stability-cloud-sync` was deleted on GitHub and pruned locally.
+- Deployed the changed Supabase Edge Function `send-notification` to cloud project `schdyxcunwcvddlcshwd` with explicit `--no-verify-jwt` so its service-to-service auth contract remains unchanged. `supabase functions list --project-ref schdyxcunwcvddlcshwd` showed `send-notification` active at version `813`, updated `2026-06-05 01:59:45 UTC`.
+- Post-deploy Supabase verification: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --dry-run --linked` returned `Remote database is up to date`, and `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` still showed local/remote alignment through `20260604205645`. No migration was applied, and no web or native build was run.
 - Boundary remains unchanged: these checks do not prove Video Date is fixed. Acceptance still requires a fresh disposable production two-user run through match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> survey opens and completes.
 
 ### 2026-06-04
@@ -788,7 +790,7 @@ Use this prompt when starting a new Codex/agent session:
 ```text
 You are continuing Vibely Video Date recovery in /Users/kaanporsuk/Documents/Vibely/Git/vibelymeet. Start by reading docs/video-date-success-command-center.md, docs/active-doc-map.md, AGENTS.md, CODEX.md, and CLAUDE.md. Treat docs/video-date-success-command-center.md as the active source of truth and update it after every material investigation, code change, migration, deploy, or manual QA result.
 
-Current app main/origin-main is expected to be d2c912c873cd3c119b2296a507d5c4b05007f8a9 after PR #1195, with PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb containing the ultimate stabilization work. Supabase project schdyxcunwcvddlcshwd is expected to have migrations 20260604142017, 20260604170438, 20260604193140, and 20260604205645 applied. Verify current state before assuming it.
+Current app main/origin-main is expected to include PR #1196 recovery hardening code commit 359fa5c42bd5fcdefef9a8a1fca9396d96194f4f plus any later documentation-only publish follow-up, with PR #1194 squash commit 0a160cd975d87cd756e9c399e748810508f005cb containing the ultimate stabilization work. Supabase project schdyxcunwcvddlcshwd is expected to have migrations 20260604142017, 20260604170438, 20260604193140, and 20260604205645 applied, and send-notification version 813 deployed on 2026-06-05 01:59:45 UTC. Verify current state before assuming it.
 
 The feature is still not proven healthy. Do not claim success from static tests, both_ready, route entry, Daily room creation, brief warm-up UI, or a terminal survey row. The required proof remains a fresh disposable two-user production run: match -> Ready Gate -> same Daily room -> stable bilateral remote media/warm-up -> date end -> post-date survey opens and completes, plus a simulated short Daily leave/rejoin under 12s and a real prolonged absence terminalization check.
 
