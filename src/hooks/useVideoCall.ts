@@ -3011,10 +3011,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             phase: phaseBeforeCleanup ?? undefined,
             same_session_daily_continuity: sameSessionDailyContinuity,
             same_session_daily_continuity_latched: hasSameSessionDailyContinuity(sessionId),
+            daily_call_singleton_eligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
+            will_park_singleton: shouldParkLiveSingleton,
             leave_called: Boolean(callObject) && !shouldParkLiveSingleton,
             destroy_called: Boolean(callObject) && !shouldParkLiveSingleton,
             parked_singleton: shouldParkLiveSingleton,
             singleton_parking_mode: shouldParkLiveSingleton ? "live_same_session_remount" : undefined,
+            call_object_present: Boolean(callObject),
           },
         });
 
@@ -3150,10 +3153,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             phase: phaseBeforeCleanup ?? undefined,
             same_session_daily_continuity: sameSessionDailyContinuity,
             same_session_daily_continuity_latched: hasSameSessionDailyContinuity(sessionId),
+            daily_call_singleton_eligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
+            will_park_singleton: shouldParkLiveSingleton,
             leave_called: callLeftSuccessfully,
             destroy_called: Boolean(callObject) && !parkedSingleton,
             parked_singleton: parkedSingleton,
             singleton_parking_mode: parkedSingleton && shouldParkLiveSingleton ? "live_same_session_remount" : undefined,
+            call_object_present: Boolean(callObject),
           },
         });
       })();
@@ -5675,10 +5681,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
               const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth);
               const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth);
-              if (hasTerminalSurveyTruth || hasHistoricalRemoteSeenTruth) {
-                const suppressedEventName = hasTerminalSurveyTruth
-                  ? "peer_missing_suppressed_survey_truth"
-                  : "peer_missing_suppressed_remote_seen";
+              if (hasTerminalSurveyTruth) {
                 setPeerMissing({ terminal: false });
                 setIsConnected(false);
                 setIsConnecting(true);
@@ -5687,32 +5690,39 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   eventId: truthRow.event_id ?? eventId,
                   userId,
                   roomName: roomData.room_name,
-                  suppressedEventName,
+                  suppressedEventName: "peer_missing_suppressed_survey_truth",
                   hasTerminalSurveyTruth,
                   hasHistoricalRemoteSeenTruth,
                   truthRefreshAttempt,
                 });
                 void emitWebVideoDateClientStuckState({
                   sessionId,
-                  eventName: suppressedEventName,
+                  eventName: "peer_missing_suppressed_survey_truth",
                   latencyMs: FIRST_REMOTE_TIMEOUT_MS,
                   payload: {
                     source_surface: "video_date_daily",
                     source_action: "first_remote_watchdog",
-                    reason_code: hasTerminalSurveyTruth ? "survey_required_truth" : "remote_seen_truth",
+                    reason_code: "survey_required_truth",
                     watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
                     truth_refresh_attempt: truthRefreshAttempt,
                     historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
                   },
                 });
-                if (hasTerminalSurveyTruth) {
-                  optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
-                }
+                optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
                 return;
               }
               setIsConnecting(false);
               setIsConnected(false);
               setPeerMissing({ terminal: true });
+              if (hasHistoricalRemoteSeenTruth) {
+                vdbg("daily_no_remote_watchdog_historical_truth_requires_current_peer", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  roomName: roomData.room_name,
+                  truthRefreshAttempt,
+                });
+              }
               trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
                 platform: "web",
                 session_id: sessionId,

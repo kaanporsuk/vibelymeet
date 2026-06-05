@@ -8139,6 +8139,8 @@ export type Database = {
         Row: {
           daily_room_expires_at: string | null
           daily_room_name: string | null
+          daily_room_provider_delete_reason: string | null
+          daily_room_provider_deleted_at: string | null
           daily_room_provider_verify_reason: string | null
           daily_room_url: string | null
           daily_room_verified_at: string | null
@@ -8190,6 +8192,8 @@ export type Database = {
         Insert: {
           daily_room_expires_at?: string | null
           daily_room_name?: string | null
+          daily_room_provider_delete_reason?: string | null
+          daily_room_provider_deleted_at?: string | null
           daily_room_provider_verify_reason?: string | null
           daily_room_url?: string | null
           daily_room_verified_at?: string | null
@@ -8241,6 +8245,8 @@ export type Database = {
         Update: {
           daily_room_expires_at?: string | null
           daily_room_name?: string | null
+          daily_room_provider_delete_reason?: string | null
+          daily_room_provider_deleted_at?: string | null
           daily_room_provider_verify_reason?: string | null
           daily_room_url?: string | null
           daily_room_verified_at?: string | null

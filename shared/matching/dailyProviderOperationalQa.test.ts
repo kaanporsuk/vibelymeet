@@ -314,7 +314,10 @@ test("native Video Date Daily create paths use guarded singleton recovery", () =
 
 test("web Ready Gate prepare handoff can recover after prepare failure or exception", () => {
   assert.match(webReadyGateOverlay, /prepareEntryHandoffStartedRef\.current = true/);
-  assert.match(webReadyGateOverlay, /suppressDuplicateNav\(prepareEntryHandoffStartedRef\.current \? "prepare_entry_inflight" : "date_navigation_inflight"\)/);
+  assert.match(
+    webReadyGateOverlay,
+    /suppressDuplicateNav\(\s*prepareEntryHandoffStartedRef\.current\s*\?\s*"prepare_entry_inflight"\s*:\s*"date_navigation_inflight",?\s*\)/,
+  );
   assert.match(webReadyGateOverlay, /void startWebVideoDateDailyPrewarm\(\{[^}]*source: "ready_gate_prepare_success"/);
   assert.match(webReadyGateOverlay, /ready_gate_daily_prewarm_prepare_success_failed/);
   assert.doesNotMatch(webReadyGateOverlay, /const prewarm = await startWebVideoDateDailyPrewarm\(\{[^}]*source: "ready_gate_prepare_success"/);

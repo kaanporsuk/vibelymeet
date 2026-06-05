@@ -29,6 +29,7 @@ const CLEANUP_MAX_RETRY_SLEEP_SECONDS = numericEnv("VIDEO_DATE_ROOM_CLEANUP_MAX_
 type VideoDateCleanupRow = {
   id: string;
   daily_room_name: string | null;
+  daily_room_provider_deleted_at?: string | null;
   ended_at: string | null;
   ended_reason: string | null;
   date_started_at: string | null;
@@ -74,7 +75,10 @@ type CleanupUpdateBuilder = {
 type CleanupSupabaseClient = {
   rpc(functionName: string, params: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message?: string } | null }>;
   from(table: "video_sessions"): {
-    update(values: { daily_room_name: null; daily_room_url: null }): CleanupUpdateBuilder;
+    update(values: {
+      daily_room_provider_deleted_at: string;
+      daily_room_provider_delete_reason: string;
+    }): CleanupUpdateBuilder;
   };
 };
 
@@ -314,11 +318,15 @@ async function markRoomCleaned(
   sessionId: string,
   roomName: string,
   endedAt: string | null,
+  reason: string,
 ): Promise<boolean> {
   if (!endedAt) return false;
   const { data, error } = await supabase
     .from("video_sessions")
-    .update({ daily_room_name: null, daily_room_url: null })
+    .update({
+      daily_room_provider_deleted_at: new Date().toISOString(),
+      daily_room_provider_delete_reason: `room_cleanup:${reason}`.slice(0, 160),
+    })
     .eq("id", sessionId)
     .eq("daily_room_name", roomName)
     .eq("ended_at", endedAt)
@@ -382,10 +390,11 @@ serve(async (req) => {
   const { data: rows, error } = await supabase
     .from("video_sessions")
     .select(
-      "id, daily_room_name, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
+      "id, daily_room_name, daily_room_provider_deleted_at, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
     )
     .not("ended_at", "is", null)
     .not("daily_room_name", "is", null)
+    .is("daily_room_provider_deleted_at", null)
     .lte("ended_at", cutoffIso)
     .order("ended_at", { ascending: true })
     .limit(40);
@@ -435,7 +444,7 @@ serve(async (req) => {
 
     const presence = await getDailyRoomPresence(supabase, name);
     if (presence.ok && !presence.exists) {
-      const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
+      const marked = await markRoomCleaned(supabase, row.id, name, endedAt, "provider_room_missing");
       if (marked) alreadyCleaned++;
       console.log(
         JSON.stringify({
@@ -502,7 +511,7 @@ serve(async (req) => {
 
     const finalPresence = await getDailyRoomPresence(supabase, name);
     if (finalPresence.ok && !finalPresence.exists) {
-      const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
+      const marked = await markRoomCleaned(supabase, row.id, name, endedAt, "provider_room_missing_second_check");
       if (marked) alreadyCleaned++;
       console.log(
         JSON.stringify({
@@ -566,8 +575,7 @@ serve(async (req) => {
 
     const deleteResult = await deleteDailyRoom(supabase, name);
     if (deleteResult.ok) {
-      // Clear the room reference so this row is not re-processed.
-      const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
+      const marked = await markRoomCleaned(supabase, row.id, name, endedAt, "provider_room_deleted");
       if (marked) deleted++;
     } else {
       deleteFailed++;

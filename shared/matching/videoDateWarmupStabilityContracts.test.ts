@@ -49,16 +49,19 @@ test("web Daily participant-left waits for local transport grace before backend 
   assert.match(webReconnection, /p_reason: "daily_transport_grace_expired"/);
 });
 
-test("peer-missing watchdog suppresses terminal UI when server truth proves exposure or survey", () => {
+test("peer-missing watchdog suppresses terminal UI only when server truth requires survey", () => {
   assert.match(webVideoCall, /videoSessionHasPostDateSurveyTruth\(truth\)/);
   assert.match(webVideoCall, /videoSessionHasEncounterExposureTruth\(truth\)/);
-  assert.match(webVideoCall, /peer_missing_suppressed_remote_seen/);
   assert.match(webVideoCall, /peer_missing_suppressed_survey_truth/);
+  assert.match(webVideoCall, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
   assert.match(webVideoCall, /onTerminalSurveyTruth\?\.\("peer_missing_watchdog_survey_truth"\)/);
+  assert.doesNotMatch(webVideoCall, /hasTerminalSurveyTruth \|\| hasHistoricalRemoteSeenTruth/);
   assert.match(nativeDateRoute, /videoSessionHasPostDateSurveyTruth\(truth \?\? null\)/);
   assert.match(nativeDateRoute, /videoSessionHasEncounterExposureTruth\(truth \?\? null\)/);
   assert.match(nativeDateRoute, /peer_missing_terminal_suppressed/);
+  assert.match(nativeDateRoute, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
   assert.match(nativeDateRoute, /openNativePostDateSurveyFromTerminalTruth\('peer_missing_watchdog_survey_truth'/);
+  assert.doesNotMatch(nativeDateRoute, /hasTerminalSurveyTruth \|\| hasHistoricalRemoteSeenTruth/);
   assert.match(observability, /"peer_missing_suppressed_remote_seen"/);
   assert.match(observability, /"peer_missing_suppressed_survey_truth"/);
 });

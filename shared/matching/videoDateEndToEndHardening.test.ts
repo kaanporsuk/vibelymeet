@@ -1280,8 +1280,9 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
   assert.match(videoDateRoomCleanupFunction, /cleanup_delete_failed/);
   assert.match(
     videoDateRoomCleanupFunction,
-    /select\(\s*"id, daily_room_name, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase"/,
+    /select\(\s*"id, daily_room_name, daily_room_provider_deleted_at, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase"/,
   );
+  assert.match(videoDateRoomCleanupFunction, /\.is\("daily_room_provider_deleted_at", null\)/);
   assert.match(
     videoDateRoomCleanupFunction,
     /function providerFailureReason\(status: number \| null\): string \{[\s\S]*status === 429[\s\S]*provider_rate_limited[\s\S]*status >= 500[\s\S]*provider_unavailable/s,
@@ -1295,7 +1296,7 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
   assert.doesNotMatch(videoDateRoomCleanupFunction, /(?<!WithTimeout)fetch\(/);
   assert.match(
     videoDateRoomCleanupFunction,
-    /function markRoomCleaned\([\s\S]*endedAt: string \| null[\s\S]*if \(!endedAt\) return false/s,
+    /function markRoomCleaned\([\s\S]*endedAt: string \| null,[\s\S]*reason: string,[\s\S]*if \(!endedAt\) return false/s,
   );
   assert.match(
     videoDateRoomCleanupFunction,
@@ -1308,8 +1309,18 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
   assert.match(videoDateRoomCleanupFunction, /if \(!hasTerminalCleanupState\(row\)\)[\s\S]*continue;/s);
   assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && presence\.activeCount > 0\)[\s\S]*continue;/s);
   assert.match(videoDateRoomCleanupFunction, /if \(!presence\.ok\)[\s\S]*cleanup_deferred_provider_check_failed[\s\S]*continue;/s);
-  assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && !presence\.exists\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
-  assert.match(videoDateRoomCleanupFunction, /const deleteResult = await deleteDailyRoom\(supabase, name\);[\s\S]*if \(deleteResult\.ok\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /if \(presence\.ok && !presence\.exists\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt, "provider_room_missing"\)/s,
+  );
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /markRoomCleaned\(supabase, row\.id, name, endedAt, "provider_room_missing_second_check"\)/,
+  );
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /const deleteResult = await deleteDailyRoom\(supabase, name\);[\s\S]*if \(deleteResult\.ok\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt, "provider_room_deleted"\)/s,
+  );
   assert.match(videoDateRoomCleanupFunction, /provider_rate_limited: providerRateLimited/);
   assert.match(videoDateRoomCleanupFunction, /status: responseStatus/);
   assert.doesNotMatch(videoDateRoomCleanupFunction, /cleanup_hard_delete_after_provider_check_failed/);

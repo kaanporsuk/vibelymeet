@@ -2,7 +2,7 @@
 
 Date: 2026-04-27
 
-Current recovery override (2026-06-05): this report is historical closure evidence, not current production-health proof. For active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; verify current Git state before assuming no docs-only follow-up sits on top. Supabase recovery migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied, and a fresh manual two-user match -> survey acceptance run is still required.
+Current recovery override (2026-06-05): this report is historical closure evidence, not current production-health proof. For active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; current terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions. Verify current Git/Supabase state before assuming deployment, and a fresh manual two-user match -> survey acceptance run is still required.
 
 ## Executive verdict
 

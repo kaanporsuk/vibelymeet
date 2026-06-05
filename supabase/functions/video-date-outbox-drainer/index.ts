@@ -83,6 +83,8 @@ type VideoSessionRoomRow = {
   daily_room_url: string | null;
   daily_room_verified_at?: string | null;
   daily_room_expires_at?: string | null;
+  daily_room_provider_deleted_at?: string | null;
+  daily_room_provider_delete_reason?: string | null;
   ended_at: string | null;
   state: string | null;
   phase: string | null;
@@ -630,7 +632,7 @@ async function deleteVideoDateRoom(
   if (sessionId) {
     const { data, error } = await supabase
       .from("video_sessions")
-      .select("id,daily_room_name,daily_room_url,ended_at,state,phase")
+      .select("id,daily_room_name,daily_room_url,daily_room_provider_deleted_at,daily_room_provider_delete_reason,ended_at,state,phase")
       .eq("id", sessionId)
       .maybeSingle();
     if (error) return { success: false, reason: "session_lookup_failed", retryAfterSeconds: 30 };
@@ -638,6 +640,12 @@ async function deleteVideoDateRoom(
     roomName = roomName ?? session?.daily_room_name ?? null;
     if (session && !session.ended_at && session.state !== "ended" && session.phase !== "ended") {
       return { success: false, reason: "delete_deferred_active_session", retryAfterSeconds: 60 };
+    }
+    const terminalSession = Boolean(
+      session && (session.ended_at || session.state === "ended" || session.phase === "ended"),
+    );
+    if (terminalSession && session?.daily_room_provider_deleted_at) {
+      return { success: true, reason: "provider_room_already_marked_deleted" };
     }
   }
 
@@ -648,7 +656,10 @@ async function deleteVideoDateRoom(
     if (sessionId && session && (session.ended_at || session.state === "ended" || session.phase === "ended")) {
       await supabase
         .from("video_sessions")
-        .update({ daily_room_name: null, daily_room_url: null })
+        .update({
+          daily_room_provider_deleted_at: new Date().toISOString(),
+          daily_room_provider_delete_reason: `outbox_drainer:${outcome}`.slice(0, 160),
+        })
         .eq("id", sessionId)
         .eq("daily_room_name", roomName);
     }

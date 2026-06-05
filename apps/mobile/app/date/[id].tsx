@@ -945,6 +945,11 @@ type NativeTerminalSurveySessionRow = {
   phase?: string | null;
 };
 
+type NativeVideoDateEndReason =
+  | 'ended_from_client'
+  | 'partner_absent_after_confirmed_encounter'
+  | 'date_timeout';
+
 const NATIVE_TERMINAL_SURVEY_SESSION_SELECT =
   'id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, state, phase';
 
@@ -1211,6 +1216,7 @@ export default function VideoDateScreen() {
   const resilienceModeTrackedKeyRef = useRef<string | null>(null);
   const resilienceDailyAdaptationKeyRef = useRef<string | null>(null);
   const abortConnectionInFlightRef = useRef(false);
+  const postEncounterPeerMissingEndRequestedRef = useRef<string | null>(null);
   const warmupChoiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dailyTokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dailyTokenRecoveryInFlightRef = useRef(false);
@@ -3342,105 +3348,107 @@ export default function VideoDateScreen() {
         room_name: roomNameRef.current ?? null,
         truth_refresh_attempt: truthRefreshAttempt,
       });
-	      const markPeerMissingTerminal = () => {
-	        videoDateDailyDiagnostic('peer_missing_timeout', {
-	          session_id: sessionId,
-	          room_name: roomNameRef.current ?? null,
-	          truth_refresh_attempt: truthRefreshAttempt,
-	        });
-	        void emitNativeVideoDateClientStuckState({
-	          sessionId,
-	          eventName: 'peer_missing_terminal',
-	          latencyMs: FIRST_CONNECT_TIMEOUT_MS,
-	          payload: {
-	            source_surface: 'video_date_daily',
-	            source_action: 'first_remote_watchdog',
-	            reason_code: 'peer_missing_timeout',
-	            watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
-	            truth_refresh_attempt: truthRefreshAttempt,
-	          },
-	        });
-	        setPeerMissingTerminal(true);
-	        vdbg('prejoin_state_awaitingFirstConnect', {
-	          value: false,
-	          sessionId,
-	          userId: user?.id ?? null,
-	          step: 'peer_missing_timeout',
-	        });
-	        setAwaitingFirstConnect(false);
-	        vdbg('prejoin_state_isConnecting', {
-	          value: false,
-	          sessionId,
-	          userId: user?.id ?? null,
-	          step: 'peer_missing_timeout',
-	        });
-	        setIsConnecting(false);
-	        vdbg('prejoin_state_callError', {
-	          value: 'They may need a little more time.',
-	          sessionId,
-	          userId: user?.id ?? null,
-	          step: 'peer_missing_timeout',
-	        });
-	        setCallError('They may need a little more time.');
-	      };
+      const markPeerMissingTerminal = () => {
+        videoDateDailyDiagnostic('peer_missing_timeout', {
+          session_id: sessionId,
+          room_name: roomNameRef.current ?? null,
+          truth_refresh_attempt: truthRefreshAttempt,
+        });
+        void emitNativeVideoDateClientStuckState({
+          sessionId,
+          eventName: 'peer_missing_terminal',
+          latencyMs: FIRST_CONNECT_TIMEOUT_MS,
+          payload: {
+            source_surface: 'video_date_daily',
+            source_action: 'first_remote_watchdog',
+            reason_code: 'peer_missing_timeout',
+            watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
+            truth_refresh_attempt: truthRefreshAttempt,
+          },
+        });
+        setPeerMissingTerminal(true);
+        vdbg('prejoin_state_awaitingFirstConnect', {
+          value: false,
+          sessionId,
+          userId: user?.id ?? null,
+          step: 'peer_missing_timeout',
+        });
+        setAwaitingFirstConnect(false);
+        vdbg('prejoin_state_isConnecting', {
+          value: false,
+          sessionId,
+          userId: user?.id ?? null,
+          step: 'peer_missing_timeout',
+        });
+        setIsConnecting(false);
+        vdbg('prejoin_state_callError', {
+          value: 'They may need a little more time.',
+          sessionId,
+          userId: user?.id ?? null,
+          step: 'peer_missing_timeout',
+        });
+        setCallError('They may need a little more time.');
+      };
 
-	      void refetchVideoSession()
-	        .then((truth) => {
-	          videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetched', {
-	            session_id: sessionId,
-	            room_name: roomNameRef.current ?? null,
-	            ok: true,
-	            truth_refresh_attempt: truthRefreshAttempt,
-	          });
-	          const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth ?? null);
-	          const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth ?? null);
-	          if (hasTerminalSurveyTruth || hasHistoricalRemoteSeenTruth) {
-	            const suppressedEventName = hasTerminalSurveyTruth
-	              ? 'peer_missing_suppressed_survey_truth'
-	              : 'peer_missing_suppressed_remote_seen';
-	            setPeerMissingTerminal(false);
-	            setCallError(null);
-	            setAwaitingFirstConnect(false);
-	            setIsConnecting(false);
-	            videoDateDailyDiagnostic('peer_missing_terminal_suppressed', {
-	              session_id: sessionId,
-	              room_name: roomNameRef.current ?? null,
-	              event_name: suppressedEventName,
-	              has_terminal_survey_truth: hasTerminalSurveyTruth,
-	              has_historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
-	              truth_refresh_attempt: truthRefreshAttempt,
-	            });
-	            void emitNativeVideoDateClientStuckState({
-	              sessionId,
-	              eventName: suppressedEventName,
-	              latencyMs: FIRST_CONNECT_TIMEOUT_MS,
-	              payload: {
-	                source_surface: 'video_date_daily',
-	                source_action: 'first_remote_watchdog',
-	                reason_code: hasTerminalSurveyTruth ? 'survey_required_truth' : 'remote_seen_truth',
-	                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
-	                truth_refresh_attempt: truthRefreshAttempt,
-	                historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
-	              },
-	            });
-	            if (hasTerminalSurveyTruth) {
-	              void openNativePostDateSurveyFromTerminalTruth('peer_missing_watchdog_survey_truth', truth ?? null);
-	            }
-	            return;
-	          }
-	          markPeerMissingTerminal();
-	        })
-	        .catch((error) => {
-	          videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetched', {
-	            session_id: sessionId,
-	            room_name: roomNameRef.current ?? null,
-	            ok: false,
-	            truth_refresh_attempt: truthRefreshAttempt,
-	            error: error instanceof Error ? error.message : String(error),
-	          });
-	          markPeerMissingTerminal();
-	        });
-	    }, FIRST_CONNECT_TIMEOUT_MS);
+      void refetchVideoSession()
+        .then((truth) => {
+          videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetched', {
+            session_id: sessionId,
+            room_name: roomNameRef.current ?? null,
+            ok: true,
+            truth_refresh_attempt: truthRefreshAttempt,
+          });
+          const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth ?? null);
+          const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth ?? null);
+          if (hasTerminalSurveyTruth) {
+            setPeerMissingTerminal(false);
+            setCallError(null);
+            setAwaitingFirstConnect(false);
+            setIsConnecting(false);
+            videoDateDailyDiagnostic('peer_missing_terminal_suppressed', {
+              session_id: sessionId,
+              room_name: roomNameRef.current ?? null,
+              event_name: 'peer_missing_suppressed_survey_truth',
+              has_terminal_survey_truth: hasTerminalSurveyTruth,
+              has_historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
+              truth_refresh_attempt: truthRefreshAttempt,
+            });
+            void emitNativeVideoDateClientStuckState({
+              sessionId,
+              eventName: 'peer_missing_suppressed_survey_truth',
+              latencyMs: FIRST_CONNECT_TIMEOUT_MS,
+              payload: {
+                source_surface: 'video_date_daily',
+                source_action: 'first_remote_watchdog',
+                reason_code: 'survey_required_truth',
+                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
+                truth_refresh_attempt: truthRefreshAttempt,
+                historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
+              },
+            });
+            void openNativePostDateSurveyFromTerminalTruth('peer_missing_watchdog_survey_truth', truth ?? null);
+            return;
+          }
+          if (hasHistoricalRemoteSeenTruth) {
+            videoDateDailyDiagnostic('daily_no_remote_watchdog_historical_truth_requires_current_peer', {
+              session_id: sessionId,
+              room_name: roomNameRef.current ?? null,
+              truth_refresh_attempt: truthRefreshAttempt,
+            });
+          }
+          markPeerMissingTerminal();
+        })
+        .catch((error) => {
+          videoDateDailyDiagnostic('daily_no_remote_watchdog_truth_refetched', {
+            session_id: sessionId,
+            room_name: roomNameRef.current ?? null,
+            ok: false,
+            truth_refresh_attempt: truthRefreshAttempt,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          markPeerMissingTerminal();
+        });
+    }, FIRST_CONNECT_TIMEOUT_MS);
 
     return () => clearFirstConnectWatchdog();
   }, [
@@ -3451,12 +3459,12 @@ export default function VideoDateScreen() {
     sessionId,
     peerMissingTerminal,
     isPartnerDisconnected,
-	    user?.id,
-	    eventId,
-	    refetchVideoSession,
-	    openNativePostDateSurveyFromTerminalTruth,
-	    clearFirstConnectWatchdog,
-	  ]);
+    user?.id,
+    eventId,
+    refetchVideoSession,
+    openNativePostDateSurveyFromTerminalTruth,
+    clearFirstConnectWatchdog,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !localInDailyRoom) return;
@@ -4045,9 +4053,13 @@ export default function VideoDateScreen() {
   const handleCallEnd = useCallback(
     async (
       source: 'local_end' | 'server_end' = 'local_end',
-      reason: 'ended_from_client' | 'date_timeout' = 'ended_from_client',
+      reason: NativeVideoDateEndReason = 'ended_from_client',
     ) => {
-      const dateWasEstablished = dateEstablishedRef.current;
+      const dateWasEstablished =
+        dateEstablishedRef.current ||
+        phaseRef.current === 'date' ||
+        reason === 'partner_absent_after_confirmed_encounter' ||
+        videoSessionHasEncounterExposureTruth(session);
       const emitConfirmedEndedAnalytics = () => {
         if (sessionId && !videoDateEndedRef.current) {
           videoDateEndedRef.current = true;
@@ -4127,12 +4139,43 @@ export default function VideoDateScreen() {
       confirmNativeTerminalPostDateRecovery,
       refetchVideoSession,
       eventId,
+      session,
     ],
   );
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
   }, [handleCallEnd]);
+
+  useEffect(() => {
+    if (!peerMissingTerminal || !sessionId || showFeedback) return;
+    const confirmedEncounter =
+      dateEstablishedRef.current ||
+      phaseRef.current === 'date' ||
+      videoSessionHasEncounterExposureTruth(session);
+    if (!confirmedEncounter) return;
+
+    const key = `${sessionId}:partner_absent_after_confirmed_encounter`;
+    if (postEncounterPeerMissingEndRequestedRef.current === key) return;
+    postEncounterPeerMissingEndRequestedRef.current = key;
+
+    vdbg('post_encounter_peer_missing_terminal_end_requested', {
+      sessionId,
+      userId: user?.id ?? null,
+      eventId,
+      phase: phaseRef.current,
+      hasEncounterExposureTruth: videoSessionHasEncounterExposureTruth(session),
+    });
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      source_surface: 'video_date_route',
+      source_action: 'post_encounter_peer_missing_terminal_end',
+      reason_code: 'partner_absent_after_confirmed_encounter',
+    });
+    void handleCallEnd('local_end', 'partner_absent_after_confirmed_encounter');
+  }, [eventId, handleCallEnd, peerMissingTerminal, session, sessionId, showFeedback, user?.id]);
 
   const clearReconnectSyncTimer = useCallback(() => {
     if (!reconnectSyncTimerRef.current) return;
@@ -4754,6 +4797,28 @@ export default function VideoDateScreen() {
               error: error instanceof Error ? error.message : String(error),
             });
           }
+          const confirmedEncounter =
+            dateEstablishedRef.current ||
+            truth?.date_started_at ||
+            truth?.state === 'date' ||
+            truth?.phase === 'date' ||
+            videoSessionHasEncounterExposureTruth(truth);
+          if (confirmedEncounter) {
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              room_name: roomNameRef.current ?? null,
+              source_surface: 'video_date_route',
+              source_action: 'peer_missing_back_to_lobby',
+              outcome: 'server_end_attempted',
+              reason_code: 'partner_absent_after_confirmed_encounter',
+              server_end_attempted: true,
+              truth_fetch_failed: truthFetchFailed,
+            });
+            await handleCallEnd('local_end', 'partner_absent_after_confirmed_encounter');
+            return;
+          }
           if (truthFetchFailed || shouldTerminalizeNativePeerMissingAbort(truth)) {
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
               platform: 'native',
@@ -4823,7 +4888,7 @@ export default function VideoDateScreen() {
         abortConnectionInFlightRef.current = false;
       }
     },
-    [cleanupForAbortWithoutServerEnd, eventId, sessionId]
+    [cleanupForAbortWithoutServerEnd, eventId, handleCallEnd, sessionId]
   );
 
   const claimNativeVideoDateSurface = useCallback(

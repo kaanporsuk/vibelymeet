@@ -1,6 +1,6 @@
 # Video Date End-to-End Hardening Runbook
 
-Current recovery overlay (2026-06-05): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; verify current Git state before assuming no docs-only follow-up sits on top. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`, and the manual match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-05): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; current terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions that preserve terminal room metadata and stamp provider-delete markers. Verify current Git/Supabase state before assuming deployment, and treat the manual match -> survey acceptance run as still unproven until a fresh test completes.
 
 Branch: `fix/video-date-end-to-end-hardening`
 
@@ -25,6 +25,10 @@ Supabase cloud deploy is required before production use because the client now s
 - Daily `participant-left` is local transport evidence first. Backend `mark_reconnect_partner_away` should happen only after local transport grace expires with `p_reason = daily_transport_grace_expired`.
 - Browser `visibilitychange` is soft telemetry during active Daily handoff/warm-up/date and should not mark self away while Daily is joining/joined.
 - Ended sessions with survey-required encounter evidence must open `PostDateSurvey` on `/date/:sessionId` and stop Daily start/retry, surface claim, reconnect, and peer-missing loops.
+- Historical remote-seen/date-entry proof makes an ended session survey-eligible, but it must not suppress current peer-missing UI after later Daily leave/rejoin churn. Only terminal survey truth suppresses peer-missing.
+- After `date_started_at`, peer absence should terminalize with survey-eligible `partner_absent_after_confirmed_encounter` instead of pre-date `partial_join_peer_timeout`.
+- `in_survey` is sticky until the current user submits `date_feedback`; client `offline`/`idle`/`browsing` status writes must not clear it while a survey-eligible ended session is pending.
+- Terminal timeout/replay/already-ended responses should preserve or repair `daily_room_name` / `daily_room_url`; cleanup workers must stamp `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason` instead of nulling room metadata, already-ended survey-eligible rows with missing/non-canonical Daily metadata were repaired and marker-backfilled through `20260605150130`, and pre-hardening downgraded registrations still pointing at pending surveys were restored through `20260605152058`.
 - Web refresh/close does not send `video_date_transition('end')`; reconnect/away semantics and server cleanup own recovery.
 - Event ending mid-date policy: do not interrupt a date that already reached `date_started_at`; prevent new promotions through event status checks, then route survey completion away from the lobby if the event is no longer live.
 
@@ -72,6 +76,8 @@ The pack checks:
 21. Simulate a short Daily leave/rejoin under 12s and confirm backend reconnect grace does not terminalize the session.
 22. Simulate a real prolonged absence and confirm backend reconnect grace ends the session correctly.
 23. Confirm no `/date` <-> `/ready` cycling after terminal survey truth; `/date/:sessionId` should host survey recovery.
+24. Simulate post-encounter peer disappearance after `date_started_at`; confirm `partner_absent_after_confirmed_encounter` or another survey-eligible terminal path, sticky `in_survey`, and survey completion for both users.
+25. Confirm terminal rows keep deterministic Daily room metadata for support forensics.
 
 ## Validation Commands
 

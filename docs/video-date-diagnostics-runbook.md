@@ -9,7 +9,7 @@ This runbook covers client diagnostics for the journey:
 
 Scope is primarily **client-side** (web + native). For **server-side queue / promotion** correlation, operators may use read-only SQL on `event_loop_observability_events` (service role) as documented in `docs/observability/watchdog-no-remote-query-pack.md` — no application RPC contract is implied here.
 
-Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; verify current Git state before assuming no docs-only follow-up sits on top. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, and terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`.
+Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; the current terminal-survey lifecycle hardening adds migrations `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup`. Verify current Git state and Supabase migration state before assuming deployment. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, historical encounter proof must not suppress current peer-missing, `in_survey` must survive client offline writes until feedback, pre-hardening downgraded registrations still pointing at pending surveys must be repaired to `in_survey`, terminal room metadata should remain canonical for ended survey-eligible sessions, provider deletion belongs in `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason`, and terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`.
 
 ## Watchdog, no-remote, and peer-missing (native vs web)
 
@@ -31,6 +31,7 @@ Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command
 1. **`first_remote_observed`** or **`remote_track_mounted`** before terminal peer-missing → **delayed join**, not a missing partner.
 2. **`no_remote_watchdog_recovery_start`** followed by **`first_remote_observed`** → **successful recovery** after one automatic rejoin attempt (native).
 3. **`peer_missing_terminal_watchdog_fire`** with no prior remote diagnostics → user-facing **peer-missing terminal**; confirm whether partner opened the date route (PostHog / route journey) and whether promotion rows exist for `session_id` (Supabase observability table).
+4. **`daily_no_remote_watchdog_historical_truth_requires_current_peer`** means the server can prove the encounter happened, but the client still could not see a current remote peer. This should not be treated as a false positive; inspect provider leave/rejoin order and post-encounter absence handling.
 
 ### Incident triage — order of operations
 
@@ -76,6 +77,9 @@ Expected behavior after the current recovery migrations:
 - Browser `web_visibilitychange` should not produce backend `mark_reconnect_self_away` while Daily is joining/joined or the session is in handoff/warm-up/date.
 - If canonical terminal truth is `ended + survey_required`, `/date/:sessionId` should open survey and stop Daily start, surface claim, reconnect, and peer-missing loops.
 - If both sides have confirmed remote-media/date-entry evidence and neither side has passed or both-decided, `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` should promote the session to `date` immediately; deadline finalization is only a fallback and must never end that encounter as `handshake_timeout`.
+- After `date_started_at`, a missing peer is a post-encounter absence, not a pre-date partial join. Web/native/mobile should end it with `partner_absent_after_confirmed_encounter` when they need to terminalize manually.
+- `update_participant_status` must not overwrite `in_survey` to `offline`/`idle`/`browsing` while the user still has a survey-eligible ended session and no `date_feedback` row.
+- Terminal timeout/replay/already-ended paths should preserve or repair deterministic `daily_room_name` and `daily_room_url` for support forensics.
 
 Read-only session shape:
 
@@ -99,7 +103,8 @@ select
   handshake_started_at,
   date_started_at,
   ended_at,
-  ended_reason
+  ended_reason,
+  session_seq
 from public.video_sessions
 where id = '<video_session_id>';
 ```
@@ -153,8 +158,35 @@ where session_id = '<video_session_id>'
     or detail::text like '%daily_call_cleanup%'
     or detail::text like '%daily_call_reuse%'
     or detail::text like '%remote_seen_canonical%'
+    or detail::text like '%historical_remote_seen_truth%'
+    or detail::text like '%partner_absent_after_confirmed_encounter%'
   )
 order by created_at asc;
+```
+
+Read-only post-date survey lifecycle shape:
+
+```sql
+select
+  er.profile_id,
+  er.queue_status,
+  er.current_room_id,
+  er.last_active_at,
+  vs.id as session_id,
+  vs.date_started_at,
+  vs.ended_at,
+  vs.ended_reason,
+  vs.daily_room_name,
+  vs.daily_room_url,
+  df.id as feedback_id
+from public.event_registrations er
+join public.video_sessions vs
+  on vs.id = er.current_room_id
+left join public.date_feedback df
+  on df.session_id = vs.id
+ and df.user_id = er.profile_id
+where vs.id = '<video_session_id>'
+order by er.profile_id;
 ```
 
 For duplicate-tab or lobby/date cycling reports, also inspect `video_date_surface_claims` and record whether the two test users used separate browsers/profiles or shared one browser storage context. The local lease is now profile-scoped by `profileId + sessionId`; server claims remain scoped per user/profile.
