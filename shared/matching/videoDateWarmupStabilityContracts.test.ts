@@ -104,8 +104,17 @@ test("web Daily start is single-owned and same-session calls are reused instead 
   assert.match(webVideoCall, /daily_call_busy_internal_retry/);
   assert.match(webVideoCall, /return await startCall\(sessionId,\s*\{\s*internalRetry: true/);
   assert.match(webVideoCall, /eventName: "daily_call_cleanup"/);
-  assert.match(webVideoCall, /leave_called/);
-  assert.match(webVideoCall, /destroy_called/);
+  assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000/);
+  assert.match(webVideoCall, /parkingMode: "live_same_session_remount"/);
+  assert.doesNotMatch(webVideoCall, /warm_handoff/);
+  assert.match(webVideoCall, /sameSessionDailyContinuity: Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
+  assert.match(webVideoCall, /const singletonCall =\s*userId\s*\?\s*consumeWebDailyCallSingleton/);
+  assert.match(webVideoCall, /const skipMediaPreflightForSingleton = userId\s*\?\s*hasReusableWebDailyCallSingleton/);
+  assert.match(webVideoCall, /daily_call_live_remount_leave_destroy_skipped_for_singleton/);
+  assert.match(webVideoCall, /leave_called: Boolean\(callObject\) && !shouldParkLiveSingleton/);
+  assert.match(webVideoCall, /destroy_called: Boolean\(callObject\) && !shouldParkLiveSingleton/);
+  assert.match(webVideoCall, /daily_join_skipped_singleton_already_joined/);
+  assert.match(webVideoCall, /daily_join_completed_by_singleton_inflight/);
 });
 
 test("web visibilitychange is soft telemetry while Daily is active or starting", () => {

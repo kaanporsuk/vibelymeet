@@ -295,11 +295,18 @@ test("notification deep-link payloads remain URL-based and native-compatible", (
   assert.match(sendNotification, /data && typeof data\.url === ['"]string['"]/);
   assert.match(sendNotification, /data && typeof data\.deep_link === ['"]string['"]/);
   assert.match(sendNotification, /osData\.deep_link = deepLink/);
+  assert.match(sendNotification, /const RAW_APP_URL = Deno\.env\.get\('APP_URL'\) \|\| CANONICAL_APP_ORIGIN/);
+  assert.match(sendNotification, /const APP_URL = canonicalOutboundAppUrl\(RAW_APP_URL\)/);
+  assert.match(sendNotification, /function canonicalOutboundAppUrl\(raw: string\)/);
+  assert.match(sendNotification, /if \(url\.origin === NON_CANONICAL_APEX_ORIGIN\) return CANONICAL_APP_ORIGIN/);
+  assert.match(sendNotification, /return new URL\(RAW_APP_URL\)\.origin/);
   assert.match(sendNotification, /url:\s*webPath !== ['"]\/["'] \? `\$\{APP_URL\}\$\{webPath\}` : APP_URL/);
+  assert.match(sendNotification, /const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN\.replace\(':\/\/www\.', ':\/\/'\)/);
   assert.match(nativeDeepLink, /additionalData\.url/);
   assert.match(nativeDeepLink, /additionalData\.deep_link/);
   assert.match(nativeDeepLink, /additionalData\.deepLink/);
   assert.match(nativeDeepLink, /launchURL/);
+  assert.match(nativeDeepLink, /const NON_CANONICAL_NOTIFICATION_APEX_ORIGIN = CANONICAL_NOTIFICATION_ORIGIN\.replace\(':\/\/www\.', ':\/\/'\)/);
   assert.match(nativeDeepLink, /resolveNotificationHref/);
   assert.match(nativeDeepLink, /reconcileHrefWithRegistration/);
   assert.match(nativeDeepLink, /notification_tap_reconcile_failed/);

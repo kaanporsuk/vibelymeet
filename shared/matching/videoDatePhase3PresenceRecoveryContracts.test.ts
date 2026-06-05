@@ -134,7 +134,10 @@ test("Phase 3 broadcast gap recovery retries snapshots without token leakage", (
   }
   assert.match(webVideoDate, /attemptBroadcastGapSnapshotRecoveryRef/);
   assert.match(nativeVideoDate, /retryBroadcastGapRecovery\('app_foreground'\)/);
-  assert.match(webVideoCall, /setIsConnecting\(false\);\s+startReconnectGrace\("daily_token_refresh_failed"\)/);
+  assert.match(
+    webVideoCall,
+    /if \(!refreshed\) \{[\s\S]*?setIsConnecting\(false\);[\s\S]*?startReconnectGrace\("daily_token_refresh_failed"\);[\s\S]*?return false;/,
+  );
   assert.match(webReadyGate, /retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery/);
   assert.match(webReadyGateOverlay, /retryBroadcastGapRecovery/);
   assert.match(webReadyGateOverlay, /visibility_resume/);

@@ -71,9 +71,11 @@ function isEntryReadyForNotificationDeepLink(
   return entryState.state === 'complete';
 }
 
-const CANONICAL_NOTIFICATION_ORIGINS = new Set([
-  'https://www.vibelymeet.com',
-  'https://vibelymeet.com',
+const CANONICAL_NOTIFICATION_ORIGIN = 'https://www.vibelymeet.com';
+const NON_CANONICAL_NOTIFICATION_APEX_ORIGIN = CANONICAL_NOTIFICATION_ORIGIN.replace('://www.', '://');
+const ALLOWED_NOTIFICATION_ORIGINS = new Set([
+  CANONICAL_NOTIFICATION_ORIGIN,
+  NON_CANONICAL_NOTIFICATION_APEX_ORIGIN,
 ]);
 const NATIVE_NOTIFICATION_SCHEMES = new Set([
   'com.vibelymeet.vibely',
@@ -90,7 +92,7 @@ function pathFromUrlLike(raw: string): string | null {
   try {
     const u = new URL(trimmed);
     if (u.protocol === 'http:' || u.protocol === 'https:') {
-      if (!CANONICAL_NOTIFICATION_ORIGINS.has(u.origin)) return null;
+      if (!ALLOWED_NOTIFICATION_ORIGINS.has(u.origin)) return null;
       return normalizeNotificationAppPath(`${u.pathname || '/'}${u.search}${u.hash}`, 'native');
     }
 

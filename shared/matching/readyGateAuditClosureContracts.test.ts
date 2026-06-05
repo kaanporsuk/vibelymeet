@@ -24,7 +24,7 @@ test("web and native Ready Gate surfaces render shared vibe chips from existing 
   }
 
   assert.match(webOverlay, /let cancelled = false;[\s\S]+setPartnerPhotos\(null\);[\s\S]+setPartnerAvatarUrl\(null\);[\s\S]+setSharedVibes\(\[\]\);/);
-  assert.match(webOverlay, /if \(cancelled \|\| !session\) return;/);
+  assert.match(webOverlay, /if \(cancelled \|\| !snapshot\.ok \|\| !snapshot\.partnerId\) return;/);
   assert.match(webOverlay, /if \(cancelled\) return;[\s\S]+profile_vibes/);
   assert.match(webOverlay, /toLowerCase\(\)/);
   assert.match(webOverlay, /sharedVibes\.map/);

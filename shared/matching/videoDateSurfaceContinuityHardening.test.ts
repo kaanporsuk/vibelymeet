@@ -11,9 +11,16 @@ const readyGateRouteLabelCleanupMigration = read(
   "supabase/migrations/20260522162000_video_date_ready_gate_route_label_cleanup.sql",
 );
 const webDupGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
+const webLobby = read("src/pages/EventLobby.tsx");
 const webVideoDate = read("src/pages/VideoDate.tsx");
+const readyRedirect = read("src/pages/ReadyRedirect.tsx");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
+const webDateEntryLatch = read("src/lib/dateEntryTransitionLatch.ts");
+const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
+const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
+const nativeDateEntryLatch = read("apps/mobile/lib/dateEntryTransitionLatch.ts");
 const sharedContinuity = read("shared/matching/postDateContinuity.ts");
 const postDateVerdictFunction = read("supabase/functions/post-date-verdict/index.ts");
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
@@ -53,6 +60,43 @@ test("web duplicate-tab conflicts do not auto-end an active Daily call", () => {
   assert.match(webVideoDate, /showDuplicateTabConflict/);
   assert.match(webVideoDate, /duplicate_tab_conflict_visible/);
   assert.doesNotMatch(webVideoDate, /duplicate_tab_lease_blocked/);
+});
+
+test("date-route ownership suppresses stale Ready Gate and lobby bounces on web and native", () => {
+  for (const latch of [webDateEntryLatch, nativeDateEntryLatch]) {
+    assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 90_000/);
+    assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS = 30_000/);
+    assert.match(latch, /VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS = 30_000/);
+    assert.match(latch, /Math\.min\(ttl, VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS\)/);
+    assert.match(latch, /export function markVideoDateRouteOwned/);
+    assert.match(latch, /export function isVideoDateRouteOwned/);
+    assert.match(latch, /export function clearVideoDateRouteOwnership/);
+    assert.match(latch, /routeOwnership\.delete\(routeOwnershipKey\(sessionId, null\)\)/);
+  }
+
+  assert.doesNotMatch(webVideoDate, /markVideoDateRouteOwned\(id, user\?\.id \?\? null\)/);
+  assert.match(webVideoDate, /videoDateAccess !== "allowed"[\s\S]{0,900}markVideoDateRouteOwned\(id, user\.id\)/);
+  assert.match(webVideoDate, /window\.setInterval\([\s\S]{0,160}VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/);
+  assert.match(webVideoDate, /date_route_bounce_suppressed_by_route_ownership/);
+  assert.match(webVideoDate, /date_guard_ready_gate_bounce_suppressed_by_route_ownership/);
+  assert.match(webVideoDate, /date_guard_canonical_ready_bounce_suppressed_by_route_ownership/);
+  assert.match(webVideoDate, /date_guard_lobby_bounce_suppressed_by_route_ownership/);
+  assert.match(webVideoDate, /clearVideoDateRouteOwnership\(id, user\?\.id \?\? null\)/);
+  assert.match(webLobby, /ready_gate_open_suppressed_by_date_route_ownership/);
+  assert.match(webLobby, /date_route_ownership_active/);
+  assert.match(readyRedirect, /ready_redirect_route_ownership/);
+  assert.match(readyRedirect, /ready_redirect_canonical_route_ownership/);
+
+  assert.doesNotMatch(nativeDateRoute, /markVideoDateRouteOwned\(sessionId, user\?\.id \?\? null\)/);
+  assert.match(nativeDateRoute, /!dateEntryPermissionEligible[\s\S]{0,900}markVideoDateRouteOwned\(sessionId, user\.id\)/);
+  assert.match(nativeDateRoute, /setInterval\([\s\S]{0,160}VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/);
+  assert.doesNotMatch(nativeDateRoute, /phaseRef\.current === 'handshake'[\s\S]{0,220}markVideoDateRouteOwned\(sessionId, user\.id\)/);
+  assert.match(nativeDateRoute, /date_guard_ready_bounce_suppressed_by_route_ownership/);
+  assert.match(nativeDateRoute, /date_guard_lobby_bounce_suppressed_by_route_ownership/);
+  assert.match(nativeDateRoute, /clearVideoDateRouteOwnership\(sessionId, user\?\.id \?\? null\)/);
+  assert.match(nativeLobby, /date_route_decision_suppressed_by_ownership/);
+  assert.match(nativeLobby, /ready_gate_open_suppressed_by_date_route_ownership/);
+  assert.match(nativeReadyRoute, /standalone_ready_redirect_suppressed_by_date_route_ownership/);
 });
 
 test("post-date continuity is backend-resolved before client event fallback", () => {

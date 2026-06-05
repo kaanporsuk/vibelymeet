@@ -19,9 +19,10 @@ const supabase = createClient(
 
 const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID')!
 const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY')!
-const APP_URL = Deno.env.get('APP_URL') || 'https://www.vibelymeet.com'
 const CANONICAL_APP_ORIGIN = 'https://www.vibelymeet.com'
-const NON_CANONICAL_APEX_ORIGIN = 'https://vibelymeet.com'
+const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN.replace('://www.', '://')
+const RAW_APP_URL = Deno.env.get('APP_URL') || CANONICAL_APP_ORIGIN
+const APP_URL = canonicalOutboundAppUrl(RAW_APP_URL)
 const SAFE_NOTIFICATION_ROUTE_SEGMENT = /^[A-Za-z0-9_-]{1,128}$/
 const PUSH_STATIC_APP_PATHS = new Set([
   '/',
@@ -40,9 +41,19 @@ const PUSH_STATIC_APP_PATHS = new Set([
 ])
 const PUSH_DYNAMIC_SINGLE_SEGMENT_ROUTES = new Set(['chat', 'date', 'events', 'ready', 'user'])
 
+function canonicalOutboundAppUrl(raw: string): string {
+  try {
+    const url = new URL(raw)
+    if (url.origin === NON_CANONICAL_APEX_ORIGIN) return CANONICAL_APP_ORIGIN
+    return url.origin || CANONICAL_APP_ORIGIN
+  } catch {
+    return CANONICAL_APP_ORIGIN
+  }
+}
+
 function configuredAppOrigin(): string {
   try {
-    return new URL(APP_URL).origin
+    return new URL(RAW_APP_URL).origin
   } catch {
     return CANONICAL_APP_ORIGIN
   }

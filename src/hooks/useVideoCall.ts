@@ -88,7 +88,6 @@ interface UseVideoCallOptions {
   onPartnerTransientRecover?: () => void;
   onTerminalSurveyTruth?: (source: string) => void;
   resilienceV2?: boolean;
-  dailyCallSingletonV2?: boolean;
   dailyCallSingletonEligible?: boolean;
   dailyTokenRefreshV2?: boolean;
 }
@@ -130,7 +129,9 @@ const REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 // a natural keyframe arrives causes the receiver to go black until the next
 // GOP, which is the original bug we are fixing.
 const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
-const WEB_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
+const WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000;
+const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_MS = 8_000;
+const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_POLL_MS = 150;
 
 export type VideoDateMediaPromptIntent = "auto" | "user_retry";
 
@@ -474,7 +475,9 @@ type WebDailyCallSingletonEntry = {
   appAcquiredMedia: AppAcquiredVideoDateMedia | null;
   previousSessionId: string | null;
   previousRoomName: string | null;
+  parkingMode: "live_same_session_remount";
   parkedAtMs: number;
+  idleMs: number;
   destroyTimer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -488,6 +491,11 @@ function destroyWebDailyCallSingleton(reason: string) {
   void registerWebVideoDateDailyCleanup(
     Promise.resolve()
       .then(async () => {
+        try {
+          await Promise.resolve(entry.call.leave());
+        } catch {
+          // Best effort: destroy below still releases the Daily instance.
+        }
         await Promise.resolve(entry.call.destroy());
       })
       .finally(() => {
@@ -504,6 +512,7 @@ function destroyWebDailyCallSingleton(reason: string) {
     reason,
     previousSessionId: entry.previousSessionId,
     previousRoomName: entry.previousRoomName,
+    parkingMode: entry.parkingMode,
     hadAppAcquiredMedia: Boolean(entry.appAcquiredMedia),
   });
 }
@@ -522,6 +531,8 @@ function parkWebDailyCallSingleton(params: {
   } else if (webDailyCallSingletonEntry?.destroyTimer) {
     clearTimeout(webDailyCallSingletonEntry.destroyTimer);
   }
+  const parkingMode: WebDailyCallSingletonEntry["parkingMode"] = "live_same_session_remount";
+  const idleMs = WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS;
   const entry: WebDailyCallSingletonEntry = {
     call: params.call,
     userId: params.userId,
@@ -529,21 +540,24 @@ function parkWebDailyCallSingleton(params: {
     appAcquiredMedia: params.appAcquiredMedia,
     previousSessionId: params.previousSessionId,
     previousRoomName: params.previousRoomName,
+    parkingMode,
     parkedAtMs: Date.now(),
+    idleMs,
     destroyTimer: null,
   };
   entry.destroyTimer = setTimeout(() => {
     if (webDailyCallSingletonEntry?.call === params.call) {
       destroyWebDailyCallSingleton("idle_timeout");
     }
-  }, WEB_DAILY_CALL_SINGLETON_IDLE_MS);
+  }, idleMs);
   webDailyCallSingletonEntry = entry;
   vdbg("daily_call_singleton_parked", {
     platform: "web",
     reason: params.reason,
+    parkingMode,
     previousSessionId: params.previousSessionId,
     previousRoomName: params.previousRoomName,
-    idleMs: WEB_DAILY_CALL_SINGLETON_IDLE_MS,
+    idleMs,
   });
 }
 
@@ -551,10 +565,10 @@ function consumeWebDailyCallSingleton(params: {
   userId: string;
   nextSessionId: string;
   nextRoomName: string;
-}): { ok: true; entry: WebDailyCallSingletonEntry } | { ok: false; reason: string } {
+}): { ok: true; entry: WebDailyCallSingletonEntry; meetingState: string | null } | { ok: false; reason: string } {
   const entry = webDailyCallSingletonEntry;
   if (!entry) return { ok: false, reason: "missing_singleton" };
-  if (Date.now() - entry.parkedAtMs > WEB_DAILY_CALL_SINGLETON_IDLE_MS) {
+  if (Date.now() - entry.parkedAtMs > entry.idleMs) {
     destroyWebDailyCallSingleton("expired_before_consume");
     return { ok: false, reason: "expired_before_consume" };
   }
@@ -571,11 +585,11 @@ function consumeWebDailyCallSingleton(params: {
     return { ok: false, reason: "session_or_room_changed" };
   }
   const meetingState = readDailyMeetingState(entry.call);
-  if (meetingState !== "joined-meeting") {
+  if (meetingState !== "joined-meeting" && meetingState !== "joining-meeting") {
     destroyWebDailyCallSingleton("not_joined_before_consume");
     return { ok: false, reason: "not_joined" };
   }
-  if (!hasLiveDailyLocalCameraAndMicrophone(entry.call)) {
+  if (meetingState === "joined-meeting" && !hasLiveDailyLocalCameraAndMicrophone(entry.call)) {
     destroyWebDailyCallSingleton("local_media_not_live_before_consume");
     return { ok: false, reason: "local_media_not_live" };
   }
@@ -591,15 +605,16 @@ function consumeWebDailyCallSingleton(params: {
     previousRoomName: entry.previousRoomName,
     nextRoomName: params.nextRoomName,
     meetingState,
+    parkingMode: entry.parkingMode,
     idleAgeMs: Math.max(0, Date.now() - entry.parkedAtMs),
   });
-  return { ok: true, entry };
+  return { ok: true, entry, meetingState };
 }
 
 function hasReusableWebDailyCallSingleton(params: { userId: string; nextSessionId: string }): boolean {
   const entry = webDailyCallSingletonEntry;
   if (!entry) return false;
-  if (Date.now() - entry.parkedAtMs > WEB_DAILY_CALL_SINGLETON_IDLE_MS) {
+  if (Date.now() - entry.parkedAtMs > entry.idleMs) {
     destroyWebDailyCallSingleton("expired_before_preflight");
     return false;
   }
@@ -616,11 +631,11 @@ function hasReusableWebDailyCallSingleton(params: { userId: string; nextSessionI
     return false;
   }
   const meetingState = readDailyMeetingState(entry.call);
-  if (meetingState !== "joined-meeting") {
+  if (meetingState !== "joined-meeting" && meetingState !== "joining-meeting") {
     destroyWebDailyCallSingleton("not_joined_before_preflight");
     return false;
   }
-  if (!hasLiveDailyLocalCameraAndMicrophone(entry.call)) {
+  if (meetingState === "joined-meeting" && !hasLiveDailyLocalCameraAndMicrophone(entry.call)) {
     destroyWebDailyCallSingleton("local_media_not_live_before_preflight");
     return false;
   }
@@ -714,6 +729,21 @@ function withTimeout<T>(operation: string, promise: Promise<T>, timeoutMs: numbe
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDailyMeetingState(
+  call: DailyCall,
+  expectedState: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const meetingState = readDailyMeetingState(call);
+    if (meetingState === expectedState) return true;
+    if (isTerminalDailyMeetingState(meetingState)) return false;
+    await sleep(WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_POLL_MS);
+  }
+  return readDailyMeetingState(call) === expectedState;
 }
 
 function normalizeCameraFacingMode(value: unknown): VideoDateCameraFacingMode | null {
@@ -2882,12 +2912,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const eventId = optionsRef.current?.eventId ?? null;
         const userId = optionsRef.current?.userId ?? null;
         const meetingStateBeforeCleanup = safeMeetingState(callObject);
-        const shouldParkSingleton =
-          Boolean(optionsRef.current?.dailyCallSingletonV2) &&
+        const phaseBeforeCleanup = optionsRef.current?.videoSessionState ?? null;
+        const shouldParkLiveSingleton =
           Boolean(optionsRef.current?.dailyCallSingletonEligible) &&
           Boolean(callObject) &&
           Boolean(userId) &&
-          (caller === "endCall" || reason === "component_unmount");
+          caller === "useVideoCall.unmount" &&
+          reason === "component_unmount" &&
+          phaseBeforeCleanup !== "ended" &&
+          (meetingStateBeforeCleanup === "joined-meeting" || meetingStateBeforeCleanup === "joining-meeting");
         let callLeftSuccessfully = false;
         let parkedSingleton = false;
 
@@ -2898,9 +2931,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId,
           roomName,
           hasCallObject: Boolean(callObject),
-          dailyCallSingletonV2: Boolean(optionsRef.current?.dailyCallSingletonV2),
           dailyCallSingletonEligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
-          willParkSingleton: shouldParkSingleton,
+          sameSessionDailyContinuity: Boolean(optionsRef.current?.dailyCallSingletonEligible),
+          willParkSingleton: shouldParkLiveSingleton,
+          singletonParkingMode: shouldParkLiveSingleton ? "live_same_session_remount" : null,
           meetingState: meetingStateBeforeCleanup,
         });
         void emitWebVideoDateClientStuckState({
@@ -2915,9 +2949,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             caller,
             room_name: roomName ?? undefined,
             meeting_state: meetingStateBeforeCleanup ?? undefined,
-            phase: optionsRef.current?.videoSessionState ?? undefined,
-            leave_called: Boolean(callObject),
-            destroy_called: Boolean(callObject) && !shouldParkSingleton,
+            phase: phaseBeforeCleanup ?? undefined,
+            leave_called: Boolean(callObject) && !shouldParkLiveSingleton,
+            destroy_called: Boolean(callObject) && !shouldParkLiveSingleton,
+            parked_singleton: shouldParkLiveSingleton,
+            singleton_parking_mode: shouldParkLiveSingleton ? "live_same_session_remount" : undefined,
           },
         });
 
@@ -2926,24 +2962,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           clearDailyTokenRefreshTimer();
           dailyTokenRecoveryInFlightRef.current = false;
           clearDailyEventListeners("daily_call_cleanup");
-          try {
-            vdbg("daily_call_leave_before", { caller, reason, sessionId, eventId, roomName });
-            await callObject.leave();
-            callLeftSuccessfully = true;
-            vdbg("daily_call_leave_after", { caller, reason, sessionId, eventId, roomName, ok: true });
-          } catch (error) {
-            vdbg("daily_call_leave_after", {
-              caller,
-              reason,
-              sessionId,
-              eventId,
-              roomName,
-              ok: false,
-              error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-            });
-          }
-
-          if (shouldParkSingleton && userId && callLeftSuccessfully) {
+          if (shouldParkLiveSingleton && userId) {
             parkWebDailyCallSingleton({
               call: callObject,
               userId,
@@ -2954,25 +2973,32 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               reason,
             });
             parkedSingleton = true;
-            vdbg("daily_call_destroy_skipped_for_singleton", {
+            vdbg("daily_call_live_remount_leave_destroy_skipped_for_singleton", {
               caller,
               reason,
               sessionId,
               eventId,
               roomName,
-              ok: true,
+              meetingState: meetingStateBeforeCleanup,
             });
           } else {
-            if (shouldParkSingleton && !callLeftSuccessfully) {
-              vdbg("daily_call_singleton_park_skipped", {
+            try {
+              vdbg("daily_call_leave_before", { caller, reason, sessionId, eventId, roomName });
+              await callObject.leave();
+              callLeftSuccessfully = true;
+              vdbg("daily_call_leave_after", { caller, reason, sessionId, eventId, roomName, ok: true });
+            } catch (error) {
+              vdbg("daily_call_leave_after", {
                 caller,
                 reason,
                 sessionId,
                 eventId,
                 roomName,
-                skipReason: "leave_failed",
+                ok: false,
+                error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
               });
             }
+
             try {
               await Promise.resolve(callObject.destroy());
               vdbg("daily_call_destroy", { caller, reason, sessionId, eventId, roomName, ok: true });
@@ -3055,9 +3081,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             caller,
             room_name: roomName ?? undefined,
             meeting_state: meetingStateBeforeCleanup ?? undefined,
-            phase: optionsRef.current?.videoSessionState ?? undefined,
+            phase: phaseBeforeCleanup ?? undefined,
             leave_called: callLeftSuccessfully,
             destroy_called: Boolean(callObject) && !parkedSingleton,
+            parked_singleton: parkedSingleton,
+            singleton_parking_mode: parkedSingleton && shouldParkLiveSingleton ? "live_same_session_remount" : undefined,
           },
         });
       })();
@@ -3581,8 +3609,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
 
         const skipMediaPreflightForSingleton = userId
-          ? Boolean(optionsRef.current?.dailyCallSingletonV2) &&
-            hasReusableWebDailyCallSingleton({ userId, nextSessionId: sessionId })
+          ? hasReusableWebDailyCallSingleton({ userId, nextSessionId: sessionId })
           : false;
         const mediaAllowed = skipMediaPreflightForSingleton
           ? true
@@ -3878,18 +3905,22 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         let captureProfileForCall = captureProfileRef.current;
         const singletonCall =
-          userId && optionsRef.current?.dailyCallSingletonV2
+          userId
             ? consumeWebDailyCallSingleton({
                 userId,
                 nextSessionId: sessionId,
                 nextRoomName: roomData.room_name,
               })
-            : { ok: false as const, reason: "flag_disabled" };
+            : { ok: false as const, reason: "missing_user" };
         if (singletonCall.ok === true) {
           captureProfileForCall = singletonCall.entry.captureProfile;
           captureProfileRef.current = singletonCall.entry.captureProfile;
           setCaptureProfile(singletonCall.entry.captureProfile);
         }
+        const singletonAlreadyJoined =
+          singletonCall.ok === true && singletonCall.meetingState === "joined-meeting";
+        const singletonJoinInFlight =
+          singletonCall.ok === true && singletonCall.meetingState === "joining-meeting";
         let prewarmedCall = singletonCall.ok
           ? { ok: false as const, reason: "daily_call_singleton_reused" }
           : userId
@@ -4038,8 +4069,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
           prewarmedJoinPromise = prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
           lastDailyPrewarmConsumedRef.current = prewarmedCall.ok === true;
-          lastPrewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
-          lastPrewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined);
+          lastPrewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined || singletonAlreadyJoined;
+          lastPrewarmedJoinInFlightRef.current =
+            Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) || singletonJoinInFlight;
         };
         refreshPrewarmJoinState();
         const acquiredMedia = appAcquiredMediaRef.current;
@@ -4206,8 +4238,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           dailyCallSingletonReused: singletonCall.ok === true,
           dailyCallSingletonPreviousSessionId:
             singletonCall.ok === true ? singletonCall.entry.previousSessionId : null,
-          reusedJoinedCallObject: prewarmedAlreadyJoined,
-          reusedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+          dailyCallSingletonParkingMode:
+            singletonCall.ok === true ? singletonCall.entry.parkingMode : null,
+          reusedJoinedCallObject: prewarmedAlreadyJoined || singletonAlreadyJoined,
+          reusedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) || singletonJoinInFlight,
           appAcquiredMediaUsed:
             singletonCall.ok === false && hasAppAcquiredMediaTracks && prewarmedCall.ok === false,
           prewarmFallbackReason: prewarmedCall.ok === false ? prewarmedCall.reason : null,
@@ -4637,6 +4671,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 latency_bucket: latencyPayload.latency_bucket,
               });
             }
+            markRemoteSeenOnServer("participant_joined");
             setIsConnected(true);
             setIsConnecting(false);
             setPeerMissing({ terminal: false });
@@ -4718,6 +4753,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 latency_bucket: latencyPayload.latency_bucket,
               });
             }
+            markRemoteSeenOnServer("participant_updated");
             const remoteKey = getTrackIdsKey(event.participant, true);
             const remoteKeyChanged = remoteKey !== lastRemoteTrackIdsRef.current;
             let remoteRenderValidationSource = remoteKeyChanged
@@ -5168,11 +5204,34 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           media_handoff_used: lastMediaHandoffUsedRef.current,
           media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
           daily_prewarm_consumed: prewarmedCall.ok === true,
-          prewarmed_join_in_flight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
-          prewarmed_already_joined: prewarmedAlreadyJoined,
+          prewarmed_join_in_flight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) || singletonJoinInFlight,
+          prewarmed_already_joined: prewarmedAlreadyJoined || singletonAlreadyJoined,
+          daily_call_singleton_reused: singletonCall.ok === true,
           provider_verify_skipped: roomData.provider_verify_skipped ?? null,
         });
-        if (prewarmedAlreadyJoined) {
+        if (singletonAlreadyJoined) {
+          vdbg("daily_join_skipped_singleton_already_joined", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            parkingMode: singletonCall.ok === true ? singletonCall.entry.parkingMode : null,
+          });
+        } else if (singletonJoinInFlight) {
+          const singletonJoinOk = await waitForDailyMeetingState(
+            callObject,
+            "joined-meeting",
+            WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_MS,
+          );
+          if (!singletonJoinOk) throw new Error("daily_singleton_join_wait_failed");
+          vdbg("daily_join_completed_by_singleton_inflight", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            parkingMode: singletonCall.ok === true ? singletonCall.entry.parkingMode : null,
+          });
+        } else if (prewarmedAlreadyJoined) {
           vdbg("daily_join_skipped_prewarmed_already_joined", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
@@ -5274,8 +5333,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           media_handoff_used: lastMediaHandoffUsedRef.current,
           media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
           daily_prewarm_consumed: prewarmedCall.ok === true,
-          prewarmed_join_in_flight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
-          prewarmed_already_joined: prewarmedAlreadyJoined,
+          prewarmed_join_in_flight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) || singletonJoinInFlight,
+          prewarmed_already_joined: prewarmedAlreadyJoined || singletonAlreadyJoined,
+          daily_call_singleton_reused: singletonCall.ok === true,
           provider_verify_skipped: roomData.provider_verify_skipped ?? null,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOINED, {
@@ -5472,6 +5532,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setIsConnected(true);
           setIsConnecting(false);
           setPeerMissing({ terminal: false });
+          markRemoteSeenOnServer("post_join_snapshot");
           toast.success("You're both here. Starting gently.");
           optionsRef.current?.onPartnerJoined?.();
           attachTracks(remoteParticipants[0], remoteVideoRef.current, false);
@@ -5684,6 +5745,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       clearReconnectGraceTimers,
       fetchVideoDateTruth,
       logTrackMounted,
+      markRemoteSeenOnServer,
       needsTrackReattach,
       preflightMediaPermission,
       releaseAppAcquiredMedia,

@@ -1,6 +1,6 @@
 # Video Date End-to-End Hardening Runbook
 
-Current recovery overlay (2026-06-04): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. PR #1190 is merged on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied to project `schdyxcunwcvddlcshwd`, and the manual match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-05): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; the current functional recovery baseline is PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb`. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`, and the manual match -> survey acceptance run is still unproven.
 
 Branch: `fix/video-date-end-to-end-hardening`
 
@@ -20,7 +20,11 @@ Supabase cloud deploy is required before production use because the client now s
 - Extra Time is server-authoritative. Clients must use `added_seconds` and `date_extra_seconds` returned by `spend_video_date_credit_extension`; button-local minutes are display hints only.
 - Post-date verdict is survey-eligible only when `video_sessions.ended_at` and `date_started_at` are both present and `ended_reason` is not a pre-date/blocked/handshake failure reason.
 - Ready Gate `both_ready` extends the authoritative provider handoff to `45s` from the second ready tap, but expired gates are not reopened.
-- Provider preparation makes the date routeable and persists Daily metadata; the visible handshake timer starts only after both participants have active latest Daily presence through `mark_video_date_daily_joined(...)`. `participant_*_joined_at` alone is historical evidence and does not count if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
+- Provider preparation makes the date routeable and persists Daily metadata; the visible handshake timer starts only after both participants have active latest Daily presence through `mark_video_date_daily_joined(...)`. `participant_*_joined_at` alone is not proof if a later Daily `participant.left` / `participant_*_away_at` marks that participant away. Later client/provider joins and canonical remote-seen repairs must advance latest evidence and clear reconnect grace when they prove return.
+- A same-session, same-room Daily call in joining/joined state should be reused or waited on, not torn down and rebuilt. Cleanup/rebuild is expected only for terminal, mismatched, or unrecoverable call state and should emit `daily_call_cleanup` diagnostics.
+- Daily `participant-left` is local transport evidence first. Backend `mark_reconnect_partner_away` should happen only after local transport grace expires with `p_reason = daily_transport_grace_expired`.
+- Browser `visibilitychange` is soft telemetry during active Daily handoff/warm-up/date and should not mark self away while Daily is joining/joined.
+- Ended sessions with survey-required encounter evidence must open `PostDateSurvey` on `/date/:sessionId` and stop Daily start/retry, surface claim, reconnect, and peer-missing loops.
 - Web refresh/close does not send `video_date_transition('end')`; reconnect/away semantics and server cleanup own recovery.
 - Event ending mid-date policy: do not interrupt a date that already reached `date_started_at`; prevent new promotions through event status checks, then route survey completion away from the lobby if the event is no longer live.
 
@@ -65,6 +69,9 @@ The pack checks:
     - if no queued match, deck resumes.
 19. Force event end while date is active; active date completes naturally, no new dates are created, survey routes safely.
 20. Run stuck-state SQL diagnostics and confirm no stale `in_ready_gate`, `in_date`, `in_survey`, or orphan Daily room rows.
+21. Simulate a short Daily leave/rejoin under 12s and confirm backend reconnect grace does not terminalize the session.
+22. Simulate a real prolonged absence and confirm backend reconnect grace ends the session correctly.
+23. Confirm no `/date` <-> `/ready` cycling after terminal survey truth; `/date/:sessionId` should host survey recovery.
 
 ## Validation Commands
 

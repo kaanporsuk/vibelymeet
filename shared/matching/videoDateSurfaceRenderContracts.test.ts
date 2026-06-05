@@ -13,7 +13,7 @@ test("Ready Gate diagnostics render shared checklist rows and only actionable re
 
   assert.match(webReadyGate, /aria-label="Ready Gate diagnostics"/);
   assert.match(webReadyGate, /diagnosticChecklist\.rows\.map\(\(row\)/);
-  assert.match(webReadyGate, /row\.actionKind !== "none" && row\.actionKind !== "wait"/);
+  assert.match(webReadyGate, /row\.actionKind !== "none" &&\s*row\.actionKind !== "wait"/);
   assert.match(webReadyGate, /handleDiagnosticAction\(row\)/);
 
   assert.match(nativeReadyGate, /<ReadyGateDiagnosticChecklist/);

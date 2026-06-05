@@ -75,7 +75,12 @@ import {
   isDateNavigationSuppressedAfterManualExit,
   navigateToDateSessionGuarded,
 } from '@/lib/dateNavigationGuard';
-import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
+import {
+  clearDateEntryTransition,
+  isDateEntryTransitionActive,
+  isVideoDateRouteOwned,
+  markVideoDateRouteOwned,
+} from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
@@ -778,6 +783,7 @@ export default function EventLobbyScreen() {
         ]);
         const reg = regRes.data;
         const vs = startable.truth;
+        const routeOwned = isVideoDateRouteOwned(sessionIdToOpen, user?.id ?? null);
         const routedTo = startable.ok
           ? 'date'
           : startable.recommend === 'ready'
@@ -803,6 +809,7 @@ export default function EventLobbyScreen() {
           handshake_started_at: Boolean(vs?.handshake_started_at),
           ready_gate_status: vs?.ready_gate_status ?? null,
           ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+          date_route_owned: routeOwned,
         });
         vdbg('lobby_date_route_decision', {
           trigger,
@@ -818,9 +825,26 @@ export default function EventLobbyScreen() {
           handshakeStartedAt: vs?.handshake_started_at ?? null,
           readyGateStatus: vs?.ready_gate_status ?? null,
           readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
+          dateRouteOwned: routeOwned,
         });
 
         if (!startable.ok) {
+          if (routeOwned && (startable.recommend === 'ready' || startable.recommend === 'lobby')) {
+            rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision_suppressed_by_ownership', {
+              session_id: sessionIdToOpen,
+              event_id: id,
+              trigger,
+              recommend: startable.recommend,
+              reason: startable.reason,
+            });
+            markVideoDateRouteOwned(sessionIdToOpen, user?.id ?? null);
+            navigateToDateSessionGuarded({
+              sessionId: sessionIdToOpen,
+              pathname,
+              mode,
+            });
+            return;
+          }
           // No /date entry is allowed unless backend truth confirms startability. Always clear the
           // entry latch on the recommended redirect so future attempts cannot be suppressed by a
           // stale latch from this aborted attempt.
@@ -873,6 +897,7 @@ export default function EventLobbyScreen() {
           setActiveSessionPartnerName(null);
           setActiveSessionPartnerImage(null);
         }
+        markVideoDateRouteOwned(sessionIdToOpen, user?.id ?? null);
 
         const navigated = navigateToDateSessionGuarded({
           sessionId: sessionIdToOpen,
@@ -922,7 +947,8 @@ export default function EventLobbyScreen() {
               }
               if (
                 dateLaunchIntentSessionRef.current === rescueSid ||
-                isDateEntryTransitionActive(rescueSid)
+                isDateEntryTransitionActive(rescueSid) ||
+                isVideoDateRouteOwned(rescueSid, user?.id ?? null)
               ) {
                 rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_skipped', {
                   session_id: rescueSid,
@@ -930,6 +956,7 @@ export default function EventLobbyScreen() {
                   reason: 'launch_already_in_progress',
                   pathname: p,
                   entry_transition_active: isDateEntryTransitionActive(rescueSid),
+                  date_route_owned: isVideoDateRouteOwned(rescueSid, user?.id ?? null),
                 });
                 return;
               }
@@ -995,6 +1022,9 @@ export default function EventLobbyScreen() {
                   });
                 },
               });
+              if (rescueNavigated) {
+                markVideoDateRouteOwned(rescueSid, user?.id ?? null);
+              }
               rcBreadcrumb(
                 RC_CATEGORY.lobbyDateEntry,
                 rescueNavigated ? 'date_navigation_rescue_success' : 'date_navigation_rescue_failed',
@@ -1457,6 +1487,14 @@ export default function EventLobbyScreen() {
   const openReadyGateWithSession = useCallback(
     (sessionId: string, trigger = 'unknown') => {
       if (lastOpenedSessionRef.current === sessionId) return;
+      if (isVideoDateRouteOwned(sessionId, user?.id ?? null)) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_open_suppressed_by_date_route_ownership', {
+          session_id: sessionId,
+          event_id: id,
+          trigger,
+        });
+        return;
+      }
       if (isReadyGateManualExitSuppressed(sessionId)) {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_open_suppressed_after_manual_exit', {
           session_id: sessionId,

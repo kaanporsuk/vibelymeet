@@ -2,7 +2,7 @@
 
 This pack defines the operator-grade read model for the Vibely video-date loop. It uses existing backend truth first, plus one additive client analytics event for timer reconciliation.
 
-Current recovery overlay (2026-06-04): PR #1190 and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` make active Daily co-presence stronger than historical join stamps. Metrics that use `participant_*_joined_at` measure route/Daily join latency only; they do not prove both users remained actively co-present. For co-presence, correlate with `participant_*_away_at`, `participant_*_remote_seen_at`, `date_started_at`, and `video_date_daily_webhook_events`.
+Current recovery overlay (2026-06-05): start active Video Date work from `docs/video-date-success-command-center.md`. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb` contains the latest functional stabilization. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` make active Daily co-presence a latest-state model. Metrics that use `participant_*_joined_at` measure route/Daily join latency only unless joined evidence is newer than away/left evidence. For co-presence, correlate with `participant_*_away_at`, `participant_*_remote_seen_at`, `reconnect_grace_ends_at`, `date_started_at`, `video_date_daily_webhook_events`, and observability reasons such as `reconnect_grace_cleared_by_provider_join`, `reconnect_grace_expiry_suppressed_latest_presence`, `daily_call_cleanup`, and `daily_call_reuse`.
 
 ## Access Model
 
