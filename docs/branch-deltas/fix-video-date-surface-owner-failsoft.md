@@ -57,11 +57,14 @@ New migration `20260605200729_video_date_beforeunload_active_presence_repair.sql
 
 Follow-up migration `20260605203904_video_date_remote_seen_grace_payload_preserve.sql` preserves a base `reconnect_grace_cleared=true` response from the existing remote-seen stack when the outer lifecycle wrapper itself has no additional rows to clear.
 
+Corrective migration `20260605211924_video_date_surface_claim_expiry_current_guard.sql` addresses review feedback on reconnect-expiry evidence: `expire_video_date_reconnect_graces()` now requires a `video_date` surface claim to still be unreleased and unexpired at `v_now`, not only valid near the lifecycle-away timestamp, before surface evidence can suppress terminal reconnect expiry.
+
 Verification for this follow-up:
 
 - `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
 - `npx tsx shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
 - `npx tsx shared/matching/videoDateSurfaceContinuityHardening.test.ts`
+- `npm run test:video-date-v4`
 - `npm run typecheck:core`
 - narrow `npx eslint` on touched web/native/test files
 - `git diff --check`
@@ -69,13 +72,14 @@ Verification for this follow-up:
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
 - live catalog marker query for lifecycle wrapper invariants
+- live catalog marker query for the current surface-claim expiry guard
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
 
 Cloud evidence:
 
-- `20260605200729` and `20260605203904` are applied to linked project `schdyxcunwcvddlcshwd`.
+- `20260605200729`, `20260605203904`, and `20260605211924` are applied to linked project `schdyxcunwcvddlcshwd`.
 - Final linked dry-run returned `Remote database is up to date`.
-- Live marker query returned true for migration application, `web_beforeunload` transition handling, base delegation, remote-seen base grace payload preservation, remote-seen outer/base grace OR semantics, and reconnect-expiry surface/recent-media checks.
+- Live marker query returned true for migration application, `web_beforeunload` transition handling, base delegation, remote-seen base grace payload preservation, remote-seen outer/base grace OR semantics, reconnect-expiry surface/recent-media checks, and `c.expires_at >= v_now` current-surface evidence enforcement.
 - Linked public-schema lint returned no error-level findings; remaining warnings/notices were pre-existing.
 
 No web or native build should be inferred from this branch delta; use focused contracts, type/lint checks, and Supabase dry-run/apply verification, then run the manual two-user acceptance flow separately.
@@ -85,3 +89,4 @@ Session lesson:
 - Lifecycle events are lossy transport hints, not terminal product truth, once Daily joining/joined, recent bilateral remote media, or active surface claims exist.
 - The final backend guard must run at both write time and expiry time: suppress false self-away when possible, then re-check latest joined/remote/surface evidence before any reconnect grace can end the date.
 - Web and native/mobile need the same evidence window; keeping surface claims at a shared 30-second server TTL avoids one platform silently losing active-surface proof sooner than the other.
+- At expiry time, surface proof must be current, not historical. A stale closed-tab claim that happened to cover the away timestamp cannot keep a genuinely disconnected session alive.

@@ -35,6 +35,9 @@ const beforeunloadLifecycleMigration = read(
 const remoteSeenGracePayloadMigration = read(
   "supabase/migrations/20260605203904_video_date_remote_seen_grace_payload_preserve.sql",
 );
+const surfaceExpiryCurrentGuardMigration = read(
+  "supabase/migrations/20260605211924_video_date_surface_claim_expiry_current_guard.sql",
+);
 
 test("web Daily participant-left waits for local transport grace before backend away mark", () => {
   const participantLeftBlock = block(
@@ -206,6 +209,10 @@ test("latest presence migration repairs joins, soft-away, and reconnect expiry",
   assert.match(remoteSeenGracePayloadMigration, /v_base_reconnect_grace_cleared/);
   assert.match(remoteSeenGracePayloadMigration, /v_base_reconnect_grace_cleared OR v_rows_changed > 0/);
   assert.match(remoteSeenGracePayloadMigration, /base_reconnect_grace_cleared/);
+  assert.match(surfaceExpiryCurrentGuardMigration, /CREATE OR REPLACE FUNCTION public\.expire_video_date_reconnect_graces\(\)/);
+  assert.match(surfaceExpiryCurrentGuardMigration, /AND c\.expires_at >= v_latest_away_at/);
+  assert.match(surfaceExpiryCurrentGuardMigration, /AND c\.expires_at >= v_now/);
+  assert.match(surfaceExpiryCurrentGuardMigration, /current unexpired video-date surface evidence/);
 });
 
 test("canonical remote-seen repair advances timestamps as latest-state evidence", () => {
