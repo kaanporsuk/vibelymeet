@@ -33,7 +33,11 @@ import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
-import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
+import {
+  clearDateEntryTransition,
+  isVideoDateRouteOwned,
+  markVideoDateRouteOwned,
+} from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import {
   defaultNativeReadyGateMediaDiagnostics,
@@ -511,6 +515,7 @@ export default function ReadyGateScreen() {
               : String(vs.ready_gate_expires_at),
         });
         setTransitioning(true);
+        markVideoDateRouteOwned(sid, user.id);
         const navigated = navigateToDateSessionGuarded({
           sessionId: sid,
           pathname,
@@ -542,6 +547,24 @@ export default function ReadyGateScreen() {
 
       // Not startable — caller stays on /ready unless we have a definitive non-ready route to take.
       if (startable.recommend === 'ready') {
+        if (isVideoDateRouteOwned(sid, user.id)) {
+          rcBreadcrumb(
+            RC_CATEGORY.readyGate,
+            'standalone_ready_redirect_suppressed_by_date_route_ownership',
+            {
+              session_id: sid,
+              source,
+              startable_reason: startable.reason,
+            },
+          );
+          markVideoDateRouteOwned(sid, user.id);
+          navigateToDateSessionGuarded({
+            sessionId: sid,
+            pathname,
+            mode: 'replace',
+          });
+          return true;
+        }
         return false;
       }
 
@@ -911,6 +934,7 @@ export default function ReadyGateScreen() {
     };
     void load();
   }, [
+    cancelTerminalReadyGateWork,
     pathname,
     reconcileFromCanonicalTruth,
     sessionId,

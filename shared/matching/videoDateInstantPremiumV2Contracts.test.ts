@@ -183,12 +183,12 @@ test("resilience v2 improves reconnect UI and applies Daily adaptation only behi
   assert.match(nativeVideoDate, /backdropImageUrl=\{resilienceV2\.enabled \? partnerAvatarUri : null\}/);
 });
 
-test("daily call singleton warm handoff is default-off, web/native gated, and idle-destroyed", () => {
+test("Daily call continuity is explicit: web same-session remount, native gated warm handoff", () => {
   assert.match(flags, /"video_date\.daily_call_singleton_v2"/);
   assert.match(dailySingletonMatchEtaMigration, /'video_date\.daily_call_singleton_v2', false, 0/);
-  assert.match(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
+  assert.doesNotMatch(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
   assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
-  assert.match(webVideoCall, /WEB_DAILY_CALL_SINGLETON_IDLE_MS = 90_000/);
+  assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000/);
   assert.match(webVideoCall, /parkWebDailyCallSingleton/);
   assert.match(webVideoCall, /consumeWebDailyCallSingleton/);
   assert.match(webVideoCall, /hasReusableWebDailyCallSingleton/);
@@ -201,8 +201,20 @@ test("daily call singleton warm handoff is default-off, web/native gated, and id
   assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_singleton/);
   assert.match(webVideoCall, /daily_call_singleton_reused/);
   assert.match(webVideoCall, /Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
-  assert.match(webVideoCall, /shouldParkSingleton && userId && callLeftSuccessfully/);
-  assert.match(webVideoCall, /daily_call_singleton_park_skipped/);
+  assert.match(webVideoCall, /sameSessionDailyContinuity: Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
+  assert.match(webVideoCall, /const singletonCall =\s*userId\s*\?\s*consumeWebDailyCallSingleton/);
+  assert.match(webVideoCall, /const skipMediaPreflightForSingleton = userId\s*\?\s*hasReusableWebDailyCallSingleton/);
+  assert.match(webVideoCall, /parkingMode: "live_same_session_remount"/);
+  assert.doesNotMatch(webVideoCall, /warm_handoff/);
+  assert.match(webVideoCall, /meetingState !== "joined-meeting" && meetingState !== "joining-meeting"/);
+  assert.match(webVideoCall, /daily_call_live_remount_leave_destroy_skipped_for_singleton/);
+  assert.match(webVideoCall, /leave_called: Boolean\(callObject\) && !shouldParkLiveSingleton/);
+  assert.match(webVideoCall, /destroy_called: Boolean\(callObject\) && !shouldParkLiveSingleton/);
+  assert.match(webVideoCall, /waitForDailyMeetingState/);
+  assert.match(webVideoCall, /daily_join_skipped_singleton_already_joined/);
+  assert.match(webVideoCall, /daily_join_completed_by_singleton_inflight/);
+  assert.doesNotMatch(webVideoCall, /shouldParkSingleton && userId && callLeftSuccessfully/);
+  assert.doesNotMatch(webVideoCall, /daily_call_singleton_park_skipped/);
   assert.match(webVideoCall, /singletonCall\.ok === false &&\s*prewarmedCall\.ok === false/);
   assert.match(webVideoCall, /releaseAppAcquiredMedia\("singleton_call_reused"\)/);
   assert.match(webVideoCall, /appAcquiredMedia: appAcquiredMediaRef\.current/);

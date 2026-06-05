@@ -3,7 +3,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
+import {
+  isVideoDateRouteOwned,
+  markVideoDateEntryPipelineStarted,
+  markVideoDateRouteOwned,
+} from "@/lib/dateEntryTransitionLatch";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
@@ -68,9 +72,10 @@ const ReadyRedirect = () => {
   const navigateToDate = useCallback(
     (sessionId: string, source = "ready_redirect", forceSurvey = false) => {
       markVideoDateEntryPipelineStarted(sessionId);
+      markVideoDateRouteOwned(sessionId, user?.id ?? null);
       navigate(`/date/${encodeURIComponent(sessionId)}`, { replace: true, state: { source, forceSurvey } });
     },
-    [navigate],
+    [navigate, user?.id],
   );
 
   const suppressReadyGateSessionAfterManualExit = useCallback(
@@ -115,6 +120,11 @@ const ReadyRedirect = () => {
         }
 
         if (recovery.action === "go_ready_gate") {
+          if (isVideoDateRouteOwned(recovery.sessionId, user.id)) {
+            setRouteState({ kind: "redirecting" });
+            navigateToDate(recovery.sessionId, "ready_redirect_route_ownership");
+            return;
+          }
           setRouteState({ kind: "hosting", eventId: recovery.eventId });
           return;
         }
@@ -220,6 +230,11 @@ const ReadyRedirect = () => {
       }
 
       if (canonicalRoute.target === "ready_gate") {
+        if (isVideoDateRouteOwned(candidate, user.id)) {
+          setRouteState({ kind: "redirecting" });
+          navigateToDate(candidate, "ready_redirect_canonical_route_ownership");
+          return;
+        }
         setRouteState({ kind: "hosting", eventId: startSnapshot.eventId });
         return;
       }

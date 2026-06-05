@@ -486,9 +486,9 @@ test("push delivery sanitizes links and targets only owned subscription rows", (
   assert.match(webOneSignal, /if \(settingsDrawerActionRoute\) \{[\s\S]*window\.location\.href = settingsDrawerActionRoute;[\s\S]*return;/);
   assert.match(webOneSignal, /normalizePushDeepLinkHref\(actionRoute \?\? payloadUrl\)/);
   assert.match(webOneSignal, /window\.location\.href = safeHref/);
-  assert.match(nativeDeepLink, /CANONICAL_NOTIFICATION_ORIGINS/);
+  assert.match(nativeDeepLink, /ALLOWED_NOTIFICATION_ORIGINS/);
   assert.match(nativeDeepLink, /NATIVE_NOTIFICATION_SCHEMES/);
-  assert.match(nativeDeepLink, /!CANONICAL_NOTIFICATION_ORIGINS\.has\(u\.origin\)[\s\S]*return null/);
+  assert.match(nativeDeepLink, /!ALLOWED_NOTIFICATION_ORIGINS\.has\(u\.origin\)[\s\S]*return null/);
   assert.match(nativeDeepLink, /!NATIVE_NOTIFICATION_SCHEMES\.has\(scheme\)[\s\S]*return null/);
   assert.match(nativeDeepLink, /from '@clientShared\/notifications'/);
   assert.match(nativeDeepLink, /normalizeNotificationAppPath\(trimmed, 'native'\)/);

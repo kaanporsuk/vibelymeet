@@ -39,7 +39,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
-import { isDateEntryTransitionActive } from "@/lib/dateEntryTransitionLatch";
+import {
+  isDateEntryTransitionActive,
+  isVideoDateRouteOwned,
+  markVideoDateRouteOwned,
+} from "@/lib/dateEntryTransitionLatch";
 import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
@@ -532,6 +536,15 @@ const EventLobby = () => {
 
   const openReadyGateSession = useCallback((sessionId: string, source: string) => {
     if (!sessionId || dateNavigationSessionIdRef.current) return;
+    if (isVideoDateRouteOwned(sessionId, user?.id ?? null)) {
+      vdbg("ready_gate_open_suppressed_by_date_route_ownership", {
+        sessionId,
+        eventId,
+        source,
+        userId: user?.id ?? null,
+      });
+      return;
+    }
     if (isReadyGateManualExitSuppressed(sessionId)) {
       lobbyDebug("ready gate open suppressed after manual exit", { sessionId, source });
       scheduleLobbyConvergenceRefresh(sessionId, `${source}_manual_exit_suppressed`, 0);
@@ -565,6 +578,7 @@ const EventLobby = () => {
     lobbyGate.kind,
     scheduleLobbyConvergenceRefresh,
     scopedSessionId,
+    user?.id,
   ]);
 
   const clearReadyGateSession = useCallback((source: string) => {
@@ -658,6 +672,7 @@ const EventLobby = () => {
       }
       dateNavigationSessionIdRef.current = sessionId;
       setDateNavigationSessionId(sessionId);
+      markVideoDateRouteOwned(sessionId, user?.id ?? null);
       lobbyDebug("ready-gate success path navigating to date", { sessionId, source });
       logVdbgSessionStage("lobby_navigate_to_date", sessionId, {
         trigger: source,
@@ -675,27 +690,32 @@ const EventLobby = () => {
       }
       navigate(`/date/${sessionId}`, { replace: true });
     },
-    [eventId, location.pathname, navigate]
+    [eventId, location.pathname, navigate, user?.id]
   );
 
   const prepareAndNavigateToDateSession = useCallback(
     (sessionId: string, source: string) => {
       const pipelineActive = isDateEntryTransitionActive(sessionId);
+      const routeOwned = isVideoDateRouteOwned(sessionId, user?.id ?? null);
       const navigationAlreadyClaimed = dateNavigationSessionIdRef.current === sessionId;
-      if (pipelineActive || navigationAlreadyClaimed) {
+      if (pipelineActive || routeOwned || navigationAlreadyClaimed) {
         vdbg("event_lobby_prepare_entry_suppressed", {
           sessionId,
           eventId,
           source,
           reason: pipelineActive
             ? "date_entry_pipeline_active"
-            : "date_navigation_already_claimed",
+            : routeOwned
+              ? "date_route_ownership_active"
+              : "date_navigation_already_claimed",
         });
         navigateToDateSession(
           sessionId,
           pipelineActive
             ? `${source}_date_entry_pipeline_active`
-            : `${source}_date_navigation_already_claimed`,
+            : routeOwned
+              ? `${source}_date_route_ownership_active`
+              : `${source}_date_navigation_already_claimed`,
         );
         return;
       }

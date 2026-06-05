@@ -146,8 +146,12 @@ import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOf
 import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
 import {
   clearDateEntryTransition,
+  clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
+  isVideoDateRouteOwned,
   markVideoDateEntryPipelineStarted,
+  markVideoDateRouteOwned,
+  VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
 } from '@/lib/dateEntryTransitionLatch';
 import { suppressDateNavigationAfterManualExit } from '@/lib/dateNavigationGuard';
 import {
@@ -1120,6 +1124,7 @@ export default function VideoDateScreen() {
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const localParticipantRef = useRef<DailyParticipant | null>(null);
   const remoteParticipantRef = useRef<DailyParticipant | null>(null);
+  const markRemoteSeenOnceRef = useRef<((source: string) => void) | null>(null);
   const nativeCameraSwitchInFlightRef = useRef(false);
   const nativeRemoteRenderRemountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nativeCameraSwitchFreshnessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1462,6 +1467,7 @@ export default function VideoDateScreen() {
         const target = fallbackEventId ? eventLobbyHref(fallbackEventId) : tabsRootHref();
         setShowFeedback(false);
         clearDateEntryTransition(sessionId);
+        clearVideoDateRouteOwnership(sessionId, user.id);
         vdbgRedirect(target, `${attemptSource}_terminal_no_survey_truth`, {
           sessionId,
           userId: user.id,
@@ -2225,6 +2231,7 @@ export default function VideoDateScreen() {
           setPartnerEverJoined(true);
           setIsPartnerDisconnected(false);
           setIsConnecting(false);
+          markRemoteSeenOnceRef.current?.('participant_joined');
           remoteParticipantRef.current = p;
           resetNativeRemoteRenderRecovery(p, 'participant_joined');
           setRemoteParticipant(p);
@@ -2289,6 +2296,7 @@ export default function VideoDateScreen() {
               latency_bucket: latencyPayload.latency_bucket,
             });
           }
+          markRemoteSeenOnceRef.current?.('participant_updated');
           setPartnerEverJoined(true);
           setIsPartnerDisconnected(false);
           const nextTrackKey = nativeRemoteRenderTrackKey(p);
@@ -2638,10 +2646,10 @@ export default function VideoDateScreen() {
       userId: user?.id ?? null,
       step: 'session_reset',
     });
-	    setLocalInDailyRoom(false);
-	    setPeerMissingTerminal(false);
-	    clearPartnerAwayAfterTransportGrace('session_reset');
-	    clearHandshakeGraceState();
+    setLocalInDailyRoom(false);
+    setPeerMissingTerminal(false);
+    clearPartnerAwayAfterTransportGrace('session_reset');
+    clearHandshakeGraceState();
     handshakeCompletionInFlightRef.current = false;
     handshakeCompletionDeadlineKeyRef.current = null;
     handshakeCtaImpressionRef.current = null;
@@ -2653,9 +2661,9 @@ export default function VideoDateScreen() {
     }
     peerMissingTruthRefreshCountRef.current = 0;
     lastLoggedPostJoinStageRef.current = null;
-	  }, [sessionId, user?.id, clearHandshakeGraceState, clearPartnerAwayAfterTransportGrace]);
+  }, [sessionId, user?.id, clearHandshakeGraceState, clearPartnerAwayAfterTransportGrace]);
 
-  /** Latch + RC before paint so hydration cannot bounce `/date` → `/ready` during stale `in_ready_gate`. */
+  /** Latch + RC before paint for the date entry pipeline; route ownership is only pinned by handoff or active Daily startup. */
   useLayoutEffect(() => {
     if (!sessionId) return;
     rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_screen_mount', {
@@ -2678,6 +2686,29 @@ export default function VideoDateScreen() {
       user_id: user?.id ?? null,
     });
   }, [sessionId, user?.id, pathname]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || !dateEntryPermissionEligible || phase === 'ended' || showFeedback) return;
+    const shouldOwnDateRoute =
+      joining ||
+      isConnecting ||
+      localInDailyRoom ||
+      hasStartedJoinRef.current ||
+      phase === 'handshake' ||
+      phase === 'date';
+    if (!shouldOwnDateRoute) return;
+    const refreshDateRouteOwnership = () => {
+      markVideoDateRouteOwned(sessionId, user.id);
+    };
+    refreshDateRouteOwnership();
+    const intervalId = setInterval(
+      refreshDateRouteOwnership,
+      VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
+    );
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [dateEntryPermissionEligible, isConnecting, joining, localInDailyRoom, phase, sessionId, showFeedback, user?.id]);
 
   useEffect(() => {
     vdbg('date_mount', { sessionId: sessionId ?? null, userId: user?.id ?? null });
@@ -2796,6 +2827,7 @@ export default function VideoDateScreen() {
       });
       const truthDecision = recovery.routeDecision ?? 'stay_lobby';
       const canAttemptDaily = recovery.canAttemptDaily === true;
+      const dateRouteOwned = isVideoDateRouteOwned(sessionId, user.id);
       const routedTo =
         recovery.action === 'go_date'
           ? 'date'
@@ -2831,6 +2863,7 @@ export default function VideoDateScreen() {
         vsPhase: vs.phase ?? null,
         readyGateStatus: vs.ready_gate_status ?? null,
         readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
+        dateRouteOwned,
       });
       if (truthDecision === 'ended') {
         setDateEntryPermissionEligible(false);
@@ -2871,7 +2904,29 @@ export default function VideoDateScreen() {
         setDateEntryPermissionEligible(true);
         return;
       }
-	      if (truthDecision === 'navigate_ready') {
+      if (truthDecision === 'navigate_ready') {
+        if (dateRouteOwned) {
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounce_suppressed_by_date_ownership', {
+            session_id: sessionId,
+            user_id: user.id,
+            target: 'ready',
+            queue_status: reg?.queue_status ?? null,
+            vs_state: vs.state,
+            vs_phase: vs.phase,
+            ready_gate_status: vs.ready_gate_status ?? null,
+          });
+          vdbg('date_guard_ready_bounce_suppressed_by_route_ownership', {
+            sessionId,
+            userId: user.id,
+            queueStatus: reg?.queue_status ?? null,
+            state: vs.state,
+            phase: vs.phase,
+            readyGateStatus: vs.ready_gate_status ?? null,
+          });
+          setDateEntryPermissionEligible(true);
+          markVideoDateRouteOwned(sessionId, user.id);
+          return;
+        }
         setDateEntryPermissionEligible(false);
         vdbg('date_guard_ready_gate_branch', {
           sessionId,
@@ -2882,8 +2937,8 @@ export default function VideoDateScreen() {
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         });
-	        clearDateEntryTransition(sessionId);
-	        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
+        clearDateEntryTransition(sessionId);
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
           session_id: sessionId,
           user_id: user.id,
           queue_status: reg?.queue_status ?? null,
@@ -2896,7 +2951,7 @@ export default function VideoDateScreen() {
           routed_to: 'ready',
         });
         const target = readyGateHref(sessionId);
-	        vdbgRedirect(target, 'in_ready_gate_without_provider_prepared_truth', {
+        vdbgRedirect(target, 'in_ready_gate_without_provider_prepared_truth', {
           sessionId,
           userId: user.id,
           queueStatus: reg?.queue_status ?? null,
@@ -2905,14 +2960,34 @@ export default function VideoDateScreen() {
           handshakeStarted: Boolean(vs.handshake_started_at),
           latchActive: isDateEntryTransitionActive(sessionId),
         });
-	        logJourney('date_route_bounced', {
-	          reason: 'in_ready_gate_without_provider_prepared_truth',
-	          target,
-	        });
+        logJourney('date_route_bounced', {
+          reason: 'in_ready_gate_without_provider_prepared_truth',
+          target,
+        });
         router.replace(target);
         return;
       }
       setDateEntryPermissionEligible(false);
+      if (dateRouteOwned && recovery.action === 'go_lobby') {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounce_suppressed_by_date_ownership', {
+          session_id: sessionId,
+          user_id: user.id,
+          target: 'lobby',
+          queue_status: reg?.queue_status ?? null,
+          vs_state: vs.state,
+          vs_phase: vs.phase,
+        });
+        vdbg('date_guard_lobby_bounce_suppressed_by_route_ownership', {
+          sessionId,
+          userId: user.id,
+          queueStatus: reg?.queue_status ?? null,
+          state: vs.state,
+          phase: vs.phase,
+        });
+        setDateEntryPermissionEligible(true);
+        markVideoDateRouteOwned(sessionId, user.id);
+        return;
+      }
       clearDateEntryTransition(sessionId);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
         session_id: sessionId,
@@ -3482,7 +3557,24 @@ export default function VideoDateScreen() {
           error: errorDetail,
           attempt,
         });
-        if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) scheduleRetry(attemptSource, attempt + 1);
+        if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
+          scheduleRetry(attemptSource, attempt + 1);
+          return;
+        }
+        void emitNativeVideoDateClientStuckState({
+          sessionId,
+          eventName: 'remote_seen_canonical_repair_failed',
+          payload: {
+            source_surface: 'video_date_daily',
+            source_action: 'mark_video_date_remote_seen',
+            reason_code: code,
+            code,
+            source: attemptSource,
+            attempt_count: attempt,
+            retryable: true,
+            exhausted: true,
+          },
+        });
       };
 
       function stamp(attemptSource: string, attempt: number) {
@@ -3535,6 +3627,15 @@ export default function VideoDateScreen() {
     },
     [eventId, refetchVideoSession, sessionId, user?.id],
   );
+
+  useEffect(() => {
+    markRemoteSeenOnceRef.current = markRemoteSeenOnce;
+    return () => {
+      if (markRemoteSeenOnceRef.current === markRemoteSeenOnce) {
+        markRemoteSeenOnceRef.current = null;
+      }
+    };
+  }, [markRemoteSeenOnce]);
 
   useEffect(() => {
     remoteSeenActiveSessionRef.current = sessionId ?? null;
@@ -3878,10 +3979,10 @@ export default function VideoDateScreen() {
     user?.id,
     dailyCallSingletonV2.enabled,
     showFeedback,
-	    clearFirstConnectWatchdog,
-	    clearDailyTokenRefreshTimer,
-	    clearPartnerAwayAfterTransportGrace,
-	    parkSharedCallForWarmHandoff,
+    clearFirstConnectWatchdog,
+    clearDailyTokenRefreshTimer,
+    clearPartnerAwayAfterTransportGrace,
+    parkSharedCallForWarmHandoff,
     releaseSharedCallIfOwned,
     detachCallListeners,
     clearHandshakeGraceState,
@@ -3891,12 +3992,13 @@ export default function VideoDateScreen() {
   const cleanupForAbortWithoutServerEnd = useCallback(async () => {
     await cleanupDailyAndLocalState();
     if (sessionId) {
-      // Aborting the prejoin/Daily pipeline must release the date-entry latch — otherwise the
+      // Aborting the prejoin/Daily pipeline must release the date-entry latch; otherwise the
       // hydration / route-guard bounce stays suppressed for up to 180s and a re-entry into
       // the date stack pins the user with the stale latch.
       clearDateEntryTransition(sessionId);
+      clearVideoDateRouteOwnership(sessionId, user?.id ?? null);
     }
-  }, [cleanupDailyAndLocalState, sessionId]);
+  }, [cleanupDailyAndLocalState, sessionId, user?.id]);
 
   const fetchServerTerminalTruth = useCallback(async () => {
     if (!sessionId) return false;
@@ -5707,15 +5809,16 @@ export default function VideoDateScreen() {
         localParticipantRef.current = local as DailyParticipant;
         setLocalParticipant(local as DailyParticipant | null);
         applyLocalMediaUiFromParticipant(local as DailyParticipant, { setIsVideoOff, setIsMuted });
-	        if (remotes.length > 0) {
-	          const remote = remotes[0] as DailyParticipant;
-	          clearPartnerAwayAfterTransportGrace('shared_call_snapshot');
-	          remoteParticipantRef.current = remote;
-	          resetNativeRemoteRenderRecovery(remote, 'shared_call_snapshot');
-	          setRemoteParticipant(remote);
-	          setPartnerEverJoined(true);
-	          setIsPartnerDisconnected(false);
-	          setAwaitingFirstConnect(false);
+        if (remotes.length > 0) {
+          const remote = remotes[0] as DailyParticipant;
+          clearPartnerAwayAfterTransportGrace('shared_call_snapshot');
+          markRemoteSeenOnceRef.current?.('shared_call_snapshot');
+          remoteParticipantRef.current = remote;
+          resetNativeRemoteRenderRecovery(remote, 'shared_call_snapshot');
+          setRemoteParticipant(remote);
+          setPartnerEverJoined(true);
+          setIsPartnerDisconnected(false);
+          setAwaitingFirstConnect(false);
         } else {
           remoteParticipantRef.current = null;
           lastNativeRemoteCameraSwitchHintIdRef.current = null;

@@ -9,7 +9,7 @@ This runbook covers client diagnostics for the journey:
 
 Scope is primarily **client-side** (web + native). For **server-side queue / promotion** correlation, operators may use read-only SQL on `event_loop_observability_events` (service role) as documented in `docs/observability/watchdog-no-remote-query-pack.md` — no application RPC contract is implied here.
 
-Current 2026-06-04 recovery overlay: start with `docs/video-date-success-command-center.md`. PR #1190 is deployed on `main` at `b72e487d65972566e63f508d023cf2e1e886734a`, and Supabase migration `20260604142017_video_date_active_presence_join_guard.sql` is applied. This changes Daily triage: `participant_*_joined_at` is historical evidence only; active co-presence requires latest joined presence for both users without a later `participant.left` / `participant_*_away_at`.
+Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command-center.md`. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; the functional stabilization is PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb`. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, and terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`.
 
 ## Watchdog, no-remote, and peer-missing (native vs web)
 
@@ -65,12 +65,16 @@ Document **before** proposing code changes:
 
 Use this section when Ready Gate reaches `both_ready`, both users route to `/date/:sessionId`, or Daily room metadata exists, but remote media/date start fails.
 
-Expected behavior after PR #1190:
+Expected behavior after PR #1194:
 
-- `mark_video_date_daily_joined` records the actor's join and clears that actor's away stamp for a real route join.
+- `mark_video_date_daily_joined` records the actor's latest join, clears that actor's away stamp, and clears reconnect grace when the route join proves return.
+- Daily provider `participant.joined` repairs latest joined evidence and can clear reconnect grace; stale provider `participant.left` cannot override a newer join.
 - The visible handshake starts only when both participants' latest Daily presence is active.
 - If the partner's latest Daily provider event is missing or is a later `participant.left`, the RPC should stay in waiting posture and emit `daily_join_waiting_for_active_partner`.
 - `handshake_started_after_active_daily_copresence` should appear only after both latest presences are active.
+- Web/native Daily `participant-left` should not call backend partner-away immediately. Backend grace should start only after local transport grace expires with `daily_transport_grace_expired`.
+- Browser `web_visibilitychange` should not produce backend `mark_reconnect_self_away` while Daily is joining/joined or the session is in handoff/warm-up/date.
+- If canonical terminal truth is `ended + survey_required`, `/date/:sessionId` should open survey and stop Daily start, surface claim, reconnect, and peer-missing loops.
 
 Read-only session shape:
 
@@ -136,15 +140,25 @@ where session_id = '<video_session_id>'
     or operation like '%handshake%'
     or reason_code in (
       'daily_join_waiting_for_active_partner',
-      'handshake_started_after_active_daily_copresence'
+      'handshake_started_after_active_daily_copresence',
+      'mark_reconnect_self_away_suppressed_active_daily_presence',
+      'reconnect_grace_cleared_by_daily_join',
+      'reconnect_grace_cleared_by_provider_join',
+      'reconnect_grace_cleared_by_return',
+      'reconnect_grace_expiry_suppressed_latest_presence'
     )
     or detail::text like '%daily_join_waiting_for_active_partner%'
     or detail::text like '%handshake_started_after_active_daily_copresence%'
+    or detail::text like '%daily_call_cleanup%'
+    or detail::text like '%daily_call_reuse%'
+    or detail::text like '%remote_seen_canonical%'
   )
 order by created_at asc;
 ```
 
 For duplicate-tab or lobby/date cycling reports, also inspect `video_date_surface_claims` and record whether the two test users used separate browsers/profiles or shared one browser storage context. The local lease is now profile-scoped by `profileId + sessionId`; server claims remain scoped per user/profile.
+
+For repeated Daily cleanup/rebuild reports, inspect `daily_call_cleanup`, `daily_call_reuse`, and `daily_call_busy_internal_retry` diagnostics. A same-session same-room call in joining/joined state should be reused or waited on. Cleanup is expected only for terminal, mismatched, or unrecoverable Daily state.
 
 ## Canonical Journey Events
 

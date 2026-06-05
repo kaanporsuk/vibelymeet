@@ -62,8 +62,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   clearDateEntryTransition,
+  clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
+  isVideoDateRouteOwned,
   markVideoDateEntryPipelineStarted,
+  markVideoDateRouteOwned,
+  VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
 } from "@/lib/dateEntryTransitionLatch";
 import { suppressDateNavigationAfterManualExit } from "@/lib/dateNavigationGuard";
 import {
@@ -454,7 +458,6 @@ const VideoDate = () => {
   const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
   const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
   const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
-  const dailyCallSingletonV2 = useFeatureFlag("video_date.daily_call_singleton_v2");
   const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
   const dailyTokenRefreshV2 = useFeatureFlag("video_date.daily_token_refresh_v2");
   const pushPayloadV2 = useFeatureFlag("video_date.push_payload_v2");
@@ -802,6 +805,7 @@ const VideoDate = () => {
         ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
         : "/events";
       clearDateEntryTransition(id);
+      clearVideoDateRouteOwnership(id, user.id);
       vdbgRedirect(target, source, {
         sessionId: id,
         userId: user.id,
@@ -874,7 +878,28 @@ const VideoDate = () => {
         handshakeStartedAt: vs?.handshake_started_at ?? null,
         readyGateStatus: vs?.ready_gate_status ?? null,
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
+        dateRouteOwned: isVideoDateRouteOwned(id, user.id),
       });
+
+      if (
+        isVideoDateRouteOwned(id, user.id) &&
+        !canAttemptDaily &&
+        (recovery.action === "go_ready_gate" || recovery.action === "go_lobby")
+      ) {
+        vdbg("date_route_bounce_suppressed_by_route_ownership", {
+          sessionId: id,
+          userId: user.id,
+          source,
+          action: recovery.action,
+          queueStatus: reg?.queue_status ?? null,
+          currentRoomId: reg?.current_room_id ?? null,
+          vsState: vs?.state ?? null,
+          vsPhase: vs?.phase ?? null,
+          readyGateStatus: vs?.ready_gate_status ?? null,
+        });
+        setVideoDateAccess("allowed");
+        return false;
+      }
 
       if (!canAttemptDaily && recovery.action === "go_ready_gate") {
         const target = `/ready/${encodeURIComponent(id)}`;
@@ -940,13 +965,14 @@ const VideoDate = () => {
     userId: user?.id,
     eventId,
     resilienceV2: resilienceV2.enabled,
-    dailyCallSingletonV2: dailyCallSingletonV2.enabled,
     dailyTokenRefreshV2: dailyTokenRefreshV2.enabled,
     dailyCallSingletonEligible:
-      showFeedback ||
+      !showFeedback &&
+      phase !== "ended" &&
+      (phase === "handshake" ||
       phase === "date" ||
       Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(handshakeTruth),
+      videoSessionHasEncounterExposureTruth(handshakeTruth)),
     videoSessionState: phase,
     localDecisionPersisted: Boolean(
       handshakeTruth &&
@@ -1689,7 +1715,7 @@ const VideoDate = () => {
   useLayoutEffect(() => {
     if (!id) return;
     markVideoDateEntryPipelineStarted(id);
-    videoDateDebug("date-entry latch marked", { sessionId: id, userId: user?.id ?? null });
+    videoDateDebug("date-entry pipeline latch marked", { sessionId: id, userId: user?.id ?? null });
   }, [id, user?.id]);
 
   useEffect(() => {
@@ -1765,6 +1791,42 @@ const VideoDate = () => {
       cancelled = true;
     };
   }, [eventId, id, user?.id, logJourney]);
+
+  useEffect(() => {
+    if (!id || !user?.id || videoDateAccess !== "allowed" || phase === "ended" || showFeedback) return;
+    const shouldOwnDateRoute =
+      isConnecting ||
+      isConnected ||
+      callStarted ||
+      localInDailyRoom ||
+      dailyMeetingState === "joining-meeting" ||
+      dailyMeetingState === "joined-meeting" ||
+      phase === "handshake" ||
+      phase === "date";
+    if (!shouldOwnDateRoute) return;
+    const refreshDateRouteOwnership = () => {
+      markVideoDateRouteOwned(id, user.id);
+    };
+    refreshDateRouteOwnership();
+    const intervalId = window.setInterval(
+      refreshDateRouteOwnership,
+      VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
+    );
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [
+    callStarted,
+    dailyMeetingState,
+    id,
+    isConnected,
+    isConnecting,
+    localInDailyRoom,
+    phase,
+    showFeedback,
+    user?.id,
+    videoDateAccess,
+  ]);
 
   useEffect(() => {
     if (!timelineV2.enabled || !id || !user?.id || videoDateAccess !== "allowed") return;
@@ -2007,6 +2069,7 @@ const VideoDate = () => {
 
           if (cancelled) return;
           registrationQueueStatus = reg?.queue_status ?? null;
+          const dateRouteOwned = isVideoDateRouteOwned(id, user.id);
 
           if (registrationQueueStatus === "in_ready_gate") {
             const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
@@ -2028,10 +2091,27 @@ const VideoDate = () => {
               readyGateStatus: rgStatus,
               readyGateExpiresAt: rgExpiresRaw,
               latchActive: isDateEntryTransitionActive(id),
+              dateRouteOwned,
               state: sessionRow.state,
               phase: sessionRow.phase,
               handshakeStarted: Boolean(sessionRow.handshake_started_at),
             });
+            if (dateRouteOwned) {
+              vdbg("date_guard_ready_gate_bounce_suppressed_by_route_ownership", {
+                sessionId: id,
+                userId: user.id,
+                eventId: sessionRow.event_id,
+                queueStatus: registrationQueueStatus,
+                state: sessionRow.state,
+                phase: sessionRow.phase,
+                readyGateStatus: rgStatus,
+                readyGateExpiresAt: rgExpiresRaw,
+              });
+              logRegistrationStatus(registrationQueueStatus);
+              setVideoDateAccess("allowed");
+              markVideoDateRouteOwned(id, user.id);
+              return;
+            }
             clearDateEntryTransition(id);
             videoDateDebug("bouncing ready_gate session back to lobby", {
               sessionId: id,
@@ -2086,6 +2166,19 @@ const VideoDate = () => {
 
           if (routeRecovery.action === "go_ready_gate") {
             const target = `/ready/${encodeURIComponent(id)}`;
+            if (dateRouteOwned) {
+              vdbg("date_guard_canonical_ready_bounce_suppressed_by_route_ownership", {
+                sessionId: id,
+                userId: user.id,
+                eventId: sessionRow.event_id,
+                queueStatus: registrationQueueStatus,
+                state: sessionRow.state,
+                phase: sessionRow.phase,
+              });
+              setVideoDateAccess("allowed");
+              markVideoDateRouteOwned(id, user.id);
+              return;
+            }
             clearDateEntryTransition(id);
             videoDateDebug("date_refresh_routing", {
               outcome: "redirect_ready_gate",
@@ -2124,6 +2217,19 @@ const VideoDate = () => {
             const target = routeRecovery.action === "go_lobby" && sessionRow.event_id
               ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
               : "/home";
+            if (routeRecovery.action === "go_lobby" && dateRouteOwned) {
+              vdbg("date_guard_lobby_bounce_suppressed_by_route_ownership", {
+                sessionId: id,
+                userId: user.id,
+                eventId: sessionRow.event_id,
+                queueStatus: registrationQueueStatus,
+                state: sessionRow.state,
+                phase: sessionRow.phase,
+              });
+              setVideoDateAccess("allowed");
+              markVideoDateRouteOwned(id, user.id);
+              return;
+            }
             clearDateEntryTransition(id);
             videoDateDebug("date_refresh_routing", {
               outcome: routeRecovery.action === "go_lobby" ? "redirect_lobby" : "redirect_home",
@@ -4390,6 +4496,7 @@ const VideoDate = () => {
       clearHandshakeGraceState();
       if (id) {
         clearDateEntryTransition(id);
+        clearVideoDateRouteOwnership(id, user?.id ?? null);
         suppressDateNavigationAfterManualExit(id);
       }
       setPhase("ended");
@@ -4444,6 +4551,7 @@ const VideoDate = () => {
       retryPreDateManualEndInBackground,
       setStatus,
       signalPreDateManualEnd,
+      user?.id,
     ],
   );
 

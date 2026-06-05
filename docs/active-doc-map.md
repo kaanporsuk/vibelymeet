@@ -1,13 +1,13 @@
 # Active doc map
 
-Date: 2026-06-04
+Date: 2026-06-05
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
 
 ## Start here
 
-0. **Video Date recovery command center:** `docs/video-date-success-command-center.md` — mandatory first read/update point for all Ready Gate, Video Date, Daily, notification, and post-date survey recovery work. It records PR #1192, PR #1194, deployed Supabase migrations `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, and `20260604205645_video_date_remote_seen_latest_state.sql`, Daily start ownership, latest-state presence, canonical remote-seen latest-state repair, browser lifecycle soft-signal handling, terminal-survey hard-stop, and the still-unproven manual match -> survey acceptance run.
+0. **Video Date recovery command center:** `docs/video-date-success-command-center.md` — mandatory first read/update point for all Ready Gate, Video Date, Daily, notification, and post-date survey recovery work. It records PR #1190/#1192/#1194/#1195, current app main `d2c912c873cd3c119b2296a507d5c4b05007f8a9`, deployed Supabase migrations `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, and `20260604205645_video_date_remote_seen_latest_state.sql`, Daily start ownership, latest-state presence, canonical remote-seen latest-state repair, browser lifecycle soft-signal handling, terminal-survey hard-stop, sync/deploy evidence, a fresh-session handoff prompt, and the still-unproven manual match -> survey acceptance run.
 1. **Preflight:** from repo root run `npm run launch:preflight`, then `npm run typecheck`.
 2. **Operator execution sheet:** `docs/kaan-launch-closure-execution-sheet.md`
 3. **Canonical runbook:** `docs/native-launch-closure-master-runbook.md`
@@ -22,7 +22,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 
 | Evidence type | Canonical file |
 |---|---|
-| **Video Date active recovery command center, PR #1190/#1192 deploy state, latest-state presence branch, Daily start ownership, terminal-survey hard-stop, and handoff prompt (2026-06-04)** | `docs/video-date-success-command-center.md` |
+| **Video Date active recovery command center, PR #1190/#1192/#1194/#1195 deploy state, latest-state presence branch, Daily start ownership, terminal-survey hard-stop, sync evidence, and handoff prompt (2026-06-05)** | `docs/video-date-success-command-center.md` |
 | **Video Date Sprint 0 baseline and risk map (2026-05-25)** | `docs/audits/video-date-sprint0-baseline-risk-map-2026-05-25.md`; branch delta `docs/branch-deltas/video-date-sprint0-baseline-risk-map.md`; regression assertion `shared/matching/videoDateSprint0BaselineContracts.test.ts` |
 | **Branch delta (Video Dates P0/P1 closure)** | `docs/branch-deltas/fix-video-date-p0-p1-closure.md` |
 | **Full-system forensic closure audit + cleanup matrix (2026-04-14)** | `docs/audits/full-system-forensic-closure-audit-2026-04-14.md` and `docs/audits/full-system-cleanup-matrix-2026-04-14.md` |
