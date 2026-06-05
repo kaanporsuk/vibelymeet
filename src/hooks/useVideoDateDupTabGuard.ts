@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const LEASE_MS = 5000;
-const TICK_MS = 2000;
-const SERVER_TTL_SECONDS = 12;
+const LEASE_MS = 15_000;
+const TICK_MS = 5_000;
+const SERVER_TTL_SECONDS = 30;
 const SERVER_CLAIM_BACKOFF_BASE_MS = 1000;
 const SERVER_CLAIM_BACKOFF_MAX_MS = 15000;
 

@@ -181,6 +181,12 @@ type VideoDateEndReason =
 type VideoDateManualExitStepStatus = "completed" | "failed" | "timed_out";
 
 type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
+const WEB_SOFT_LIFECYCLE_LEAVE_SOURCES = new Set<WebLifecycleLeaveSource>([
+  "beforeunload",
+  "pagehide",
+  "visibilitychange",
+  "freeze",
+]);
 
 function waitForVideoDateRuntimeRecovery(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -3276,7 +3282,7 @@ const VideoDate = () => {
       lifecycleAwayTimer = null;
     };
     const shouldTreatLifecycleAwayAsSoftTelemetry = (source: WebLifecycleLeaveSource) => {
-      if (source !== "visibilitychange") return false;
+      if (!WEB_SOFT_LIFECYCLE_LEAVE_SOURCES.has(source)) return false;
       if (localInDailyRoom || isConnecting || isConnected) return true;
       if (dailyMeetingState === "joining-meeting" || dailyMeetingState === "joined-meeting") return true;
       return phaseRef.current === "handshake" || phaseRef.current === "date";
@@ -3456,7 +3462,12 @@ const VideoDate = () => {
         e.preventDefault();
         e.returnValue = "You're in a video date. Are you sure you want to leave?";
       }
-      sendLeaveSignal("beforeunload");
+      const softLifecycleAway = shouldTreatLifecycleAwayAsSoftTelemetry("beforeunload");
+      if (softLifecycleAway) {
+        recordSoftLifecycleTelemetry("beforeunload", "beforeunload_suppressed");
+      } else {
+        sendLeaveSignal("beforeunload");
+      }
 
       // Provider room cleanup is owned by video-date-room-cleanup after the session is terminal.
       // Do not delete here: the DB intentionally preserves daily_room_name until cleanup succeeds.
@@ -3473,8 +3484,7 @@ const VideoDate = () => {
         });
       }
 
-      // Stop media tracks
-      if (localVideoRef.current?.srcObject) {
+      if (!softLifecycleAway && localVideoRef.current?.srcObject) {
         (localVideoRef.current.srcObject as MediaStream)
           .getTracks()
           .forEach((t) => t.stop());
@@ -3483,6 +3493,11 @@ const VideoDate = () => {
     const handlePageHide = (event: PageTransitionEvent) => {
       if (event.persisted) {
         sendLifecycleAwayIfGraceElapsed("pagehide");
+        return;
+      }
+      if (shouldTreatLifecycleAwayAsSoftTelemetry("pagehide")) {
+        clearLifecycleAwayTimer();
+        recordSoftLifecycleTelemetry("pagehide", "pagehide_suppressed");
         return;
       }
       clearLifecycleAwayTimer();
