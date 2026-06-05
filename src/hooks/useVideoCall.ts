@@ -270,6 +270,7 @@ async function resolveWebVideoDateMediaCaptureReadiness(
 
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
+const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
 
 function safeMeetingState(call: Pick<DailyCall, "meetingState"> | null | undefined): string | null {
   if (!call || typeof call.meetingState !== "function") return null;
@@ -1060,7 +1061,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const firstRemoteObservedRef = useRef(false);
   const localVideoReadyTrackedRef = useRef(false);
   const remoteFirstFrameTrackedRef = useRef(false);
-  const remoteSeenStampedSessionRef = useRef<string | null>(null);
+  const remoteSeenInFlightSessionRef = useRef<string | null>(null);
+  const remoteSeenLastStampRef = useRef<{ sessionId: string; stampedAtMs: number } | null>(null);
   const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalTrackIdsRef = useRef<string>("");
   const lastLocalStreamRef = useRef<MediaStream | null>(null);
@@ -1270,21 +1272,32 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     const currentOptions = optionsRef.current;
     const sessionId = currentOptions?.roomId ?? null;
     if (!sessionId) return;
+    const activeSessionId = sessionId;
     const eventId = currentOptions?.eventId ?? null;
     const userId = currentOptions?.userId ?? null;
-    if (remoteSeenStampedSessionRef.current === sessionId) return;
+    if (remoteSeenInFlightSessionRef.current === sessionId) return;
+    const nowMs = Date.now();
+    const lastStamp = remoteSeenLastStampRef.current;
+    const forceRestamp = source === "participant_joined" || source === "post_join_snapshot";
+    if (
+      !forceRestamp &&
+      lastStamp?.sessionId === sessionId &&
+      nowMs - lastStamp.stampedAtMs < REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
     if (remoteSeenRetryTimerRef.current) {
       clearTimeout(remoteSeenRetryTimerRef.current);
       remoteSeenRetryTimerRef.current = null;
     }
-    remoteSeenStampedSessionRef.current = sessionId;
+    remoteSeenInFlightSessionRef.current = sessionId;
 
     const scheduleRetry = (attemptSource: string, nextAttempt: number) => {
       if (optionsRef.current?.roomId !== sessionId || remoteSeenRetryTimerRef.current) return;
       remoteSeenRetryTimerRef.current = setTimeout(() => {
         remoteSeenRetryTimerRef.current = null;
-        if (optionsRef.current?.roomId !== sessionId || remoteSeenStampedSessionRef.current === sessionId) return;
-        remoteSeenStampedSessionRef.current = sessionId;
+        if (optionsRef.current?.roomId !== sessionId || remoteSeenInFlightSessionRef.current === sessionId) return;
+        remoteSeenInFlightSessionRef.current = sessionId;
         stamp(`${attemptSource}_retry_${nextAttempt}`, nextAttempt);
       }, REMOTE_SEEN_RPC_RETRY_DELAY_MS);
     };
@@ -1295,8 +1308,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       code: string,
       errorDetail: unknown,
     ) => {
-      if (remoteSeenStampedSessionRef.current === sessionId) {
-        remoteSeenStampedSessionRef.current = null;
+      if (remoteSeenInFlightSessionRef.current === sessionId) {
+        remoteSeenInFlightSessionRef.current = null;
       }
       vdbg("mark_video_date_remote_seen_failed", {
         sessionId,
@@ -1346,6 +1359,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             clearTimeout(remoteSeenRetryTimerRef.current);
             remoteSeenRetryTimerRef.current = null;
           }
+          if (remoteSeenInFlightSessionRef.current === sessionId) {
+            remoteSeenInFlightSessionRef.current = null;
+          }
+          remoteSeenLastStampRef.current = { sessionId: activeSessionId, stampedAtMs: Date.now() };
           vdbg("mark_video_date_remote_seen_after", {
             sessionId,
             eventId,
@@ -1378,6 +1395,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         clearTimeout(remoteSeenRetryTimerRef.current);
         remoteSeenRetryTimerRef.current = null;
       }
+      remoteSeenInFlightSessionRef.current = null;
     };
   }, []);
 
@@ -5593,11 +5611,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 truthRefreshAttempt,
               });
               const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth);
-              const hasRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth);
-              if (hasTerminalSurveyTruth || hasRemoteSeenTruth) {
-                const suppressedEventName = hasTerminalSurveyTruth
-                  ? "peer_missing_suppressed_survey_truth"
-                  : "peer_missing_suppressed_remote_seen";
+              const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth);
+              if (hasTerminalSurveyTruth) {
+                const suppressedEventName = "peer_missing_suppressed_survey_truth";
                 setPeerMissing({ terminal: false });
                 setIsConnected(false);
                 setIsConnecting(true);
@@ -5608,7 +5624,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   roomName: roomData.room_name,
                   suppressedEventName,
                   hasTerminalSurveyTruth,
-                  hasRemoteSeenTruth,
+                  hasHistoricalRemoteSeenTruth,
                   truthRefreshAttempt,
                 });
                 void emitWebVideoDateClientStuckState({
@@ -5618,14 +5634,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   payload: {
                     source_surface: "video_date_daily",
                     source_action: "first_remote_watchdog",
-                    reason_code: hasTerminalSurveyTruth ? "survey_required_truth" : "remote_seen_truth",
+                    reason_code: "survey_required_truth",
                     watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
                     truth_refresh_attempt: truthRefreshAttempt,
+                    historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
                   },
                 });
-                if (hasTerminalSurveyTruth) {
-                  optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
-                }
+                optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
                 return;
               }
               setIsConnecting(false);
@@ -5647,6 +5662,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   reason_code: "peer_missing_timeout",
                   watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
                   truth_refresh_attempt: truthRefreshAttempt,
+                  historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
                 },
               });
               toast.info("They're not in the room yet. We'll keep this gentle.");
