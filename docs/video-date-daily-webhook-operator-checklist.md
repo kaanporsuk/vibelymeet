@@ -2,7 +2,7 @@
 
 This checklist covers the Daily provider webhook that reconciles real participant join/leave events for Video Date v4.
 
-Current recovery overlay (2026-06-05): start with `docs/video-date-success-command-center.md` for active Video Date recovery state. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb` contains the current functional stabilization. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied. The webhook ledger is required evidence for active Daily co-presence: a provider/client join is latest-state evidence only when newer than leave/away evidence, provider joins should clear reconnect grace when they prove return, and stale provider leaves must not override newer joins.
+Current recovery overlay (2026-06-05): start with `docs/video-date-success-command-center.md` for active Video Date recovery state. The last confirmed merged app `main` / `origin/main` before the confirmed-encounter stability branch was `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199; verify current Git state after the branch lands. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied. The webhook ledger is required evidence for active Daily co-presence: a provider/client join is latest-state evidence only when newer than leave/away evidence, provider joins should clear reconnect grace when they prove return, stale provider leaves must not override newer joins, and confirmed bilateral remote-media encounters should promote to `date` immediately instead of waiting for a stale handshake deadline race.
 
 ## Endpoint
 

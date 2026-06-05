@@ -1,6 +1,6 @@
 # Video Date Post-Release Monitoring Runbook
 
-Current recovery overlay (2026-06-05): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. The current deployed app baseline is `main` / `origin/main` at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; the functional stabilization baseline is PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb`. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`. Static/CI/cloud checks passed, but the fresh manual two-user match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-05): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. The last confirmed merged deployed app baseline before the confirmed-encounter stability branch was `main` / `origin/main` at `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199; verify current Git and deployment state after the branch lands. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. Static/CI/cloud checks passed, but the fresh manual two-user match -> survey acceptance run is still unproven.
 
 ## Release Baseline
 
@@ -8,13 +8,14 @@ Use the current v4.2 baseline for live Video Date rollout, certification, and mo
 
 Current 2026-06-05 recovery baseline:
 
-- Baseline app main HEAD: `d2c912c873cd3c119b2296a507d5c4b05007f8a9` (`docs(video-date): record ultimate rollout state`).
+- Last confirmed merged app main before the early-promotion branch: `ebe4690467b7956511338d94c5847b88889cd1a8` (PR #1199 merge). Verify the current merge commit after the confirmed-encounter stability branch lands.
+- Confirmed-encounter deadline rescue PR: `https://github.com/kaanporsuk/vibelymeet/pull/1199`.
+- Prior recovery hardening PR: `https://github.com/kaanporsuk/vibelymeet/pull/1196`.
 - Functional stabilization PR: `https://github.com/kaanporsuk/vibelymeet/pull/1194`.
-- Final documentation/sync PR: `https://github.com/kaanporsuk/vibelymeet/pull/1195`.
 - Supabase project: `schdyxcunwcvddlcshwd`.
-- Latest applied Video Date recovery migrations: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, and `20260604205645_video_date_remote_seen_latest_state.sql`.
-- Post-deploy database status: `SUPABASE_NO_TELEMETRY=1 supabase db push --dry-run` reported the remote database is up to date.
-- Linked Supabase advisors returned no error-level issues after the latest migrations.
+- Latest applied Video Date recovery migrations: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, and `20260605115657_video_date_early_confirmed_encounter_promotion.sql`.
+- Post-deploy database status: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` reported the remote database is up to date.
+- Supabase schema lint completed after the latest migration with no error-level issues; warning-level items were pre-existing and unrelated to the early-promotion migration.
 - Acceptance caveat: no fresh deployed manual two-user match -> survey run has passed yet. Treat this runbook as monitoring guidance, not recovery closure.
 
 Current Video Date v4.2 baseline as of 2026-05-22:
@@ -61,7 +62,7 @@ Check:
 
 - Vercel production deployment is healthy for the release commit.
 - Supabase functions are ACTIVE for the current v4.2 surface: `daily-room`, `video-date-snapshot`, `video-date-outbox-drainer`, `video-date-deadline-finalizer`, `video-date-daily-webhook`, `video-date-orphan-room-cleanup`, `video-date-recovery-alert-dispatcher`, `synthetic-video-date-monitor`, `post-date-verdict`, `swipe-actions`, and `admin-video-date-ops`.
-- Current Video Date recovery migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are local and remote.
+- Current Video Date recovery migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are local and remote.
 - Daily dashboard/service status is healthy.
 - PostHog/Sentry search by `session_id` and `event_id` is ready.
 - Native build or OTA carrying the v4.2 Video Date client surface is delivered before native QA; manual native smoke is recorded through the Phase 8 ledger.

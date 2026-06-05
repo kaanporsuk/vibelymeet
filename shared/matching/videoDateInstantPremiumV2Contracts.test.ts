@@ -200,8 +200,11 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(webVideoCall, /local_media_not_live_before_consume/);
   assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_singleton/);
   assert.match(webVideoCall, /daily_call_singleton_reused/);
-  assert.match(webVideoCall, /Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
-  assert.match(webVideoCall, /sameSessionDailyContinuity: Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
+  assert.match(webVideoCall, /sameSessionDailyContinuity =[\s\S]+dailyCallSingletonEligible[\s\S]+hasSameSessionDailyContinuity\(sessionId\)/);
+  assert.match(webVideoCall, /sameSessionDailyContinuityLatched: hasSameSessionDailyContinuity\(sessionId\)/);
+  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "daily_call_object_attached"\)/);
+  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "daily_join_success"\)/);
+  assert.match(webVideoCall, /clearSameSessionDailyContinuity\(sessionId, `daily_call_cleanup:\$\{reason\}`\)/);
   assert.match(webVideoCall, /const singletonCall =\s*userId\s*\?\s*consumeWebDailyCallSingleton/);
   assert.match(webVideoCall, /const skipMediaPreflightForSingleton = userId\s*\?\s*hasReusableWebDailyCallSingleton/);
   assert.match(webVideoCall, /parkingMode: "live_same_session_remount"/);

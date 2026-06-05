@@ -107,7 +107,11 @@ test("web Daily start is single-owned and same-session calls are reused instead 
   assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000/);
   assert.match(webVideoCall, /parkingMode: "live_same_session_remount"/);
   assert.doesNotMatch(webVideoCall, /warm_handoff/);
-  assert.match(webVideoCall, /sameSessionDailyContinuity: Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
+  assert.match(webVideoCall, /sameSessionDailyContinuity =[\s\S]+dailyCallSingletonEligible[\s\S]+hasSameSessionDailyContinuity\(sessionId\)/);
+  assert.match(webVideoCall, /sameSessionDailyContinuityLatched: hasSameSessionDailyContinuity\(sessionId\)/);
+  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "daily_join_success"\)/);
+  assert.match(webVideoCall, /cleanupCallObjectRef\.current\("useVideoCall\.unmount", "component_unmount"\)/);
+  assert.doesNotMatch(webVideoCall, /void cleanupCallObject\("useVideoCall\.unmount", "component_unmount"\);\s*\};\s*\}, \[cleanupCallObject\]\)/);
   assert.match(webVideoCall, /const singletonCall =\s*userId\s*\?\s*consumeWebDailyCallSingleton/);
   assert.match(webVideoCall, /const skipMediaPreflightForSingleton = userId\s*\?\s*hasReusableWebDailyCallSingleton/);
   assert.match(webVideoCall, /daily_call_live_remount_leave_destroy_skipped_for_singleton/);

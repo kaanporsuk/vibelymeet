@@ -9,7 +9,7 @@ This runbook covers client diagnostics for the journey:
 
 Scope is primarily **client-side** (web + native). For **server-side queue / promotion** correlation, operators may use read-only SQL on `event_loop_observability_events` (service role) as documented in `docs/observability/watchdog-no-remote-query-pack.md` — no application RPC contract is implied here.
 
-Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command-center.md`. App `main` / `origin/main` is expected at `d2c912c873cd3c119b2296a507d5c4b05007f8a9` after PR #1195; the functional stabilization is PR #1194 at `0a160cd975d87cd756e9c399e748810508f005cb`. Supabase migrations through `20260604205645_video_date_remote_seen_latest_state.sql` are applied to project `schdyxcunwcvddlcshwd`. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, and terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`.
+Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command-center.md`. The last confirmed merged app `main` / `origin/main` before the confirmed-encounter stability branch was `ebe4690467b7956511338d94c5847b88889cd1a8` after PR #1199; verify current Git state after the branch lands. Supabase migrations through `20260605115657_video_date_early_confirmed_encounter_promotion.sql` are applied to project `schdyxcunwcvddlcshwd`. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, and terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`.
 
 ## Watchdog, no-remote, and peer-missing (native vs web)
 
@@ -65,7 +65,7 @@ Document **before** proposing code changes:
 
 Use this section when Ready Gate reaches `both_ready`, both users route to `/date/:sessionId`, or Daily room metadata exists, but remote media/date start fails.
 
-Expected behavior after PR #1194:
+Expected behavior after the current recovery migrations:
 
 - `mark_video_date_daily_joined` records the actor's latest join, clears that actor's away stamp, and clears reconnect grace when the route join proves return.
 - Daily provider `participant.joined` repairs latest joined evidence and can clear reconnect grace; stale provider `participant.left` cannot override a newer join.
@@ -75,6 +75,7 @@ Expected behavior after PR #1194:
 - Web/native Daily `participant-left` should not call backend partner-away immediately. Backend grace should start only after local transport grace expires with `daily_transport_grace_expired`.
 - Browser `web_visibilitychange` should not produce backend `mark_reconnect_self_away` while Daily is joining/joined or the session is in handoff/warm-up/date.
 - If canonical terminal truth is `ended + survey_required`, `/date/:sessionId` should open survey and stop Daily start, surface claim, reconnect, and peer-missing loops.
+- If both sides have confirmed remote-media/date-entry evidence and neither side has passed or both-decided, `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` should promote the session to `date` immediately; deadline finalization is only a fallback and must never end that encounter as `handshake_timeout`.
 
 Read-only session shape:
 

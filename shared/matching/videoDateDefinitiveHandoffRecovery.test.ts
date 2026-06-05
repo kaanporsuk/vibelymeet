@@ -17,6 +17,10 @@ const confirmedEncounterDeadlineRescueMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260605085010_video_date_confirmed_encounter_deadline_rescue.sql"),
   "utf8",
 );
+const earlyConfirmedEncounterPromotionMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260605115657_video_date_early_confirmed_encounter_promotion.sql"),
+  "utf8",
+);
 const webVideoCallHook = readFileSync(join(process.cwd(), "src/hooks/useVideoCall.ts"), "utf8");
 const webVideoDatePage = readFileSync(join(process.cwd(), "src/pages/VideoDate.tsx"), "utf8");
 const nativeVideoDateRoute = readFileSync(join(process.cwd(), "apps/mobile/app/date/[id].tsx"), "utf8");
@@ -95,6 +99,32 @@ test("backend restores canonical Daily room metadata before webhook and handshak
   assert.doesNotMatch(
     confirmedEncounterDeadlineRescueMigration,
     /handshake_started_at = LEAST\(v_now, v_latest_launch_evidence_at\)/,
+  );
+});
+
+test("confirmed bilateral Daily media starts the date before handshake deadline fallback", () => {
+  assert.match(earlyConfirmedEncounterPromotionMigration, /CREATE OR REPLACE FUNCTION public\.video_date_promote_confirmed_encounter_v1/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /p_require_participant boolean DEFAULT false/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /public\.video_date_restore_canonical_room_metadata_v1/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /public\.video_date_session_has_confirmed_encounter/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /v_active_confirmed_encounter := v_confirmed_encounter/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /v_session\.participant_1_away_at IS NULL[\s\S]+v_session\.participant_2_away_at IS NULL/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /v_has_explicit_pass/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /v_both_decided/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /state = 'date'::public\.video_date_state/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /queue_status = 'in_date'/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /confirmed_encounter_promoted_to_date/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /ALTER FUNCTION public\.mark_video_date_remote_seen\(uuid\)[\s\S]+RENAME TO mark_video_date_remote_seen_20260605115657_base/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /'mark_video_date_remote_seen'[\s\S]+'remote_media_observed'[\s\S]+true/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /ALTER FUNCTION public\.video_session_handshake_auto_promote_v2\(uuid, text, text\)[\s\S]+RENAME TO vs_handshake_auto_promote_20260605115657_base/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /'video_session_handshake_auto_promote_v2'[\s\S]+true/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /vs_handshake_auto_promote_20260605115657_base/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /ALTER FUNCTION public\.finalize_video_date_handshake_deadline\(uuid, uuid, text, text\)[\s\S]+RENAME TO finalize_vd_handshake_deadline_20260605115657_base/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /finalize_vd_handshake_deadline_20260605115657_base/);
+  assert.match(earlyConfirmedEncounterPromotionMigration, /finalize_video_date_handshake_deadline:post_base_room_repair/);
+  assert.doesNotMatch(
+    earlyConfirmedEncounterPromotionMigration,
+    /v_seconds_remaining > 0[\s\S]+confirmed_encounter_promoted_to_date/,
   );
 });
 
