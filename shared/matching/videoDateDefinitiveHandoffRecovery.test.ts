@@ -13,9 +13,14 @@ const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260603215948_video_date_definitive_ready_gate_handoff_recovery.sql"),
   "utf8",
 );
+const confirmedEncounterDeadlineRescueMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260605085010_video_date_confirmed_encounter_deadline_rescue.sql"),
+  "utf8",
+);
 const webVideoCallHook = readFileSync(join(process.cwd(), "src/hooks/useVideoCall.ts"), "utf8");
 const webVideoDatePage = readFileSync(join(process.cwd(), "src/pages/VideoDate.tsx"), "utf8");
 const nativeVideoDateRoute = readFileSync(join(process.cwd(), "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDateApi = readFileSync(join(process.cwd(), "apps/mobile/lib/videoDateApi.ts"), "utf8");
 
 test("Daily token refresh failures are classified before retrying or rejoining", () => {
   assert.equal(isVideoDateDailyMeetingEnded({ errorMsg: "Meeting has ended" }), true);
@@ -71,14 +76,42 @@ test("backend restores canonical Daily room metadata before webhook and handshak
   assert.match(migration, /daily_webhook_room_name_restore/);
   assert.match(migration, /record_video_date_daily_webhook_event_v2_20260603215948_handoff_base/);
 
-  assert.match(migration, /ALTER FUNCTION public\.finalize_video_date_handshake_deadline\(uuid, uuid, text, text\)/);
-  assert.match(migration, /handshake_deadline_preflight/);
-  assert.match(migration, /participant_1_joined_at IS NOT NULL[\s\S]*participant_2_joined_at IS NOT NULL/);
-  assert.match(migration, /v_has_explicit_pass :=/);
-  assert.match(migration, /NOT v_has_explicit_pass[\s\S]*NOT v_both_decided/);
-  assert.match(migration, /handshake_started_at = LEAST\(v_now, v_latest_launch_evidence_at\)/);
-  assert.match(migration, /handshake_deadline_extended_for_launch_evidence/);
-  assert.match(migration, /'reason', 'handshake_launch_evidence_extension'/);
+  assert.match(
+    confirmedEncounterDeadlineRescueMigration,
+    /ALTER FUNCTION public\.finalize_video_date_handshake_deadline\(uuid, uuid, text, text\)[\s\S]+RENAME TO finalize_vd_handshake_deadline_20260605085010_base/,
+  );
+  assert.match(confirmedEncounterDeadlineRescueMigration, /confirmed_encounter_deadline_preflight/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /public\.video_date_session_has_confirmed_encounter/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /v_active_confirmed_encounter := v_confirmed_encounter/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /v_session\.participant_1_away_at IS NULL[\s\S]+v_session\.participant_2_away_at IS NULL/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /state = 'date'::public\.video_date_state/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /queue_status = 'in_date'/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /confirmed_encounter_deadline_promoted_to_date/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /'reason', 'confirmed_encounter_deadline_rescue'/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /handshake_started_at = v_now/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /handshake_deadline_extended_for_launch_evidence_v2/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /'seconds_remaining', v_seconds_remaining/);
+  assert.match(confirmedEncounterDeadlineRescueMigration, /GREATEST\(\s*1,\s*CEIL\(EXTRACT\(EPOCH FROM \(\(v_now \+ interval '60 seconds'\) - clock_timestamp\(\)\)\)\)::int\s*\)/);
+  assert.doesNotMatch(
+    confirmedEncounterDeadlineRescueMigration,
+    /handshake_started_at = LEAST\(v_now, v_latest_launch_evidence_at\)/,
+  );
+});
+
+test("web and native wait on positive handshake extension instead of immediately retrying stale deadlines", () => {
+  assert.match(webVideoDatePage, /payload\.extended === true/);
+  assert.match(webVideoDatePage, /positiveExtensionSeconds/);
+  assert.match(webVideoDatePage, /handshakeCompletionDeadlineKeyRef\.current = null/);
+  assert.match(webVideoDatePage, /complete_handshake_extension_applied/);
+  assert.match(webVideoDatePage, /setTimeLeft\(positiveExtensionSeconds\)/);
+
+  assert.match(nativeVideoDateApi, /extended\?: boolean/);
+  assert.match(nativeVideoDateApi, /extension_started_at\?: string \| null/);
+  assert.match(nativeVideoDateRoute, /result\.extended === true/);
+  assert.match(nativeVideoDateRoute, /positiveExtensionSeconds/);
+  assert.match(nativeVideoDateRoute, /handshakeCompletionDeadlineKeyRef\.current = null/);
+  assert.match(nativeVideoDateRoute, /complete_handshake_extension_applied/);
+  assert.match(nativeVideoDateRoute, /setLocalTimeLeft\(positiveExtensionSeconds\)/);
 });
 
 test("web and native stop state cycling on terminal refresh, rate limits, and missing-peer watchdogs", () => {

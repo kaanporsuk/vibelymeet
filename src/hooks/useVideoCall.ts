@@ -5612,8 +5612,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
               const hasTerminalSurveyTruth = videoSessionHasPostDateSurveyTruth(truth);
               const hasHistoricalRemoteSeenTruth = videoSessionHasEncounterExposureTruth(truth);
-              if (hasTerminalSurveyTruth) {
-                const suppressedEventName = "peer_missing_suppressed_survey_truth";
+              if (hasTerminalSurveyTruth || hasHistoricalRemoteSeenTruth) {
+                const suppressedEventName = hasTerminalSurveyTruth
+                  ? "peer_missing_suppressed_survey_truth"
+                  : "peer_missing_suppressed_remote_seen";
                 setPeerMissing({ terminal: false });
                 setIsConnected(false);
                 setIsConnecting(true);
@@ -5634,13 +5636,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   payload: {
                     source_surface: "video_date_daily",
                     source_action: "first_remote_watchdog",
-                    reason_code: "survey_required_truth",
+                    reason_code: hasTerminalSurveyTruth ? "survey_required_truth" : "remote_seen_truth",
                     watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
                     truth_refresh_attempt: truthRefreshAttempt,
                     historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
                   },
                 });
-                optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
+                if (hasTerminalSurveyTruth) {
+                  optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
+                }
                 return;
               }
               setIsConnecting(false);

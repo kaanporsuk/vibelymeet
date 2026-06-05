@@ -52,15 +52,16 @@ test("remote-seen clients restamp reconnect observations instead of once-per-ses
   }
 });
 
-test("first-remote watchdog does not suppress peer-missing on historical remote-seen truth", () => {
+test("first-remote watchdog suppresses false peer-missing on canonical remote-seen truth", () => {
   for (const [name, source] of [
     ["web", webVideoCall],
     ["native", nativeDateRoute],
   ] as Array<[string, string]>) {
     assert.match(source, /hasHistoricalRemoteSeenTruth/);
     assert.match(source, /historical_remote_seen_truth/);
-    assert.doesNotMatch(source, /peer_missing_suppressed_remote_seen/);
-    assert.doesNotMatch(source, /if \(hasTerminalSurveyTruth \|\| hasRemoteSeenTruth\)/);
+    assert.match(source, /peer_missing_suppressed_remote_seen/);
+    assert.match(source, /hasTerminalSurveyTruth \|\| hasHistoricalRemoteSeenTruth/);
+    assert.match(source, /reason_code: .*remote_seen_truth/);
   }
 });
 

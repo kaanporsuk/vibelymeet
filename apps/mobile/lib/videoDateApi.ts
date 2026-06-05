@@ -161,6 +161,8 @@ export type CompleteHandshakeResult = {
   partner_decision_persisted?: boolean;
   grace_expires_at?: string;
   seconds_remaining?: number;
+  extended?: boolean;
+  extension_started_at?: string | null;
   already_ended?: boolean;
   reason?: string;
   survey_required?: boolean;
@@ -1305,6 +1307,8 @@ export async function completeHandshake(
     partner_decision_persisted: payload?.partner_decision_persisted,
     grace_expires_at: payload?.grace_expires_at,
     seconds_remaining: payload?.seconds_remaining,
+    extended: payload?.extended,
+    extension_started_at: typeof payload?.extension_started_at === 'string' ? payload.extension_started_at : null,
     already_ended: payload?.already_ended,
     reason: payload?.reason,
     survey_required: payload?.survey_required,
