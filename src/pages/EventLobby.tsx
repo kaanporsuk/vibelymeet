@@ -1656,6 +1656,21 @@ const EventLobby = () => {
             return;
           }
 
+          if (queueStatus === "in_survey") {
+            lobbyDebug(
+              "pending survey detected without current room from registration realtime",
+              {
+                queueStatus,
+                currentRoomId,
+              },
+            );
+            setCheckingNextDateAfterSurvey(true);
+            setPostSurveyReturnContext(true);
+            clearReadyGateSession("registration_realtime_pending_survey");
+            void refetchScopedSession();
+            return;
+          }
+
           if (isDailyEntryQueueStatus(queueStatus) && currentRoomId) {
             lobbyDebug(
               "same-session active date detected from registration realtime",
@@ -1715,6 +1730,8 @@ const EventLobby = () => {
     eventId,
     navigateToDateSession,
     openReadyGateSession,
+    clearReadyGateSession,
+    refetchScopedSession,
     scheduleLobbyConvergenceRefresh,
   ]);
 

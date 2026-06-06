@@ -262,6 +262,23 @@ function readNativeDailyProviderSessionId(
     return null;
   }
 }
+
+function safeNativeDailyMeetingState(
+  call: VideoDateDailyCallObject | null,
+): string | null {
+  if (!call || typeof call.meetingState !== "function") return null;
+  try {
+    const state = call.meetingState();
+    return typeof state === "string"
+      ? state
+      : state == null
+        ? null
+        : String(state);
+  } catch {
+    return null;
+  }
+}
+
 const NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS = 650;
 const NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 const NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS = 500;
@@ -2106,7 +2123,17 @@ export default function VideoDateScreen() {
       callInstanceId?: string | null;
       source: string;
     }) => {
-      const providerSessionId = readNativeDailyProviderSessionId(callRef.current);
+      const call = callRef.current;
+      const providerSessionId = readNativeDailyProviderSessionId(call);
+      const meetingState = safeNativeDailyMeetingState(call);
+      const providerBackedJoined =
+        meetingState === "joined-meeting" && Boolean(providerSessionId);
+      const dailyOwnerState =
+        providerBackedJoined
+          ? "joined"
+          : meetingState === "left-meeting" || meetingState === "error"
+            ? "lost"
+            : "joining";
       const entryOwner = getVideoDateEntryOwner(input.sessionId, input.userId);
       const ownerId = entryOwner?.ownerId ?? null;
       updateVideoDateDailyOwnerState({
@@ -2114,7 +2141,7 @@ export default function VideoDateScreen() {
         userId: input.userId,
         ownerId,
         roomName: input.roomName,
-        state: 'joined',
+        state: dailyOwnerState,
         source: input.source,
         entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
         videoDateTraceId:
@@ -2126,7 +2153,7 @@ export default function VideoDateScreen() {
         sessionId: input.sessionId,
         userId: input.userId,
         ownerId,
-        state: 'joined',
+        state: providerBackedJoined ? 'joined' : 'joining',
         source: input.source,
         roomName: input.roomName,
         entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
@@ -2141,7 +2168,7 @@ export default function VideoDateScreen() {
         p_call_instance_id: input.callInstanceId ?? null,
         p_provider_session_id: providerSessionId,
         p_entry_attempt_id: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
-        p_owner_state: 'joined',
+        p_owner_state: dailyOwnerState,
       };
       try {
         const { data, error } = await (supabase as unknown as {
@@ -2161,6 +2188,9 @@ export default function VideoDateScreen() {
           ownerId,
           callInstanceId: input.callInstanceId ?? null,
           providerSessionId,
+          providerBackedJoined,
+          meetingState,
+          ownerState: dailyOwnerState,
           payload: data ?? null,
           error: error ? { code: error.code, message: error.message } : null,
         });
@@ -2173,6 +2203,9 @@ export default function VideoDateScreen() {
           ownerId,
           callInstanceId: input.callInstanceId ?? null,
           providerSessionId,
+          providerBackedJoined,
+          meetingState,
+          ownerState: dailyOwnerState,
           error:
             error instanceof Error
               ? { name: error.name, message: error.message }

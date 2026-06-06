@@ -22,8 +22,13 @@ const nativeDate = read("apps/mobile/app/date/[id].tsx");
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+const webLobby = read("src/pages/EventLobby.tsx");
+const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const migration = read(
   "supabase/migrations/20260606180000_video_date_stable_copresence_handshake_guard.sql",
+);
+const providerAuthoritativeMigration = read(
+  "supabase/migrations/20260606203000_video_date_provider_authoritative_presence.sql",
 );
 
 test("entry owner is single-flight per session and user", () => {
@@ -153,10 +158,81 @@ test("web and native date routes keep owner-alive heartbeats after Daily join", 
     assert.match(source, /mark_video_date_daily_alive/);
     assert.match(source, /startDailyAliveHeartbeat\(/);
     assert.match(source, /state:\s*["']joining["']/);
-    assert.match(source, /state:\s*["']joined["']/);
+    assert.match(source, /state:\s*dailyOwnerState/);
     assert.match(source, /state:\s*["']remote_seen["']/);
     assert.match(source, /daily_owner_provider_left_unexpected/);
   }
+});
+
+test("web and native date routes only report joined owner state with current provider proof", () => {
+  assert.match(webDate, /function safeMeetingState/);
+  assert.match(webDate, /function readDailyProviderSessionId/);
+  assert.match(webDate, /const providerSessionId = readDailyProviderSessionId\(call\)/);
+  assert.match(webDate, /const meetingState = safeMeetingState\(call\)/);
+  assert.match(
+    webDate,
+    /const providerBackedJoined =[\s\S]{0,90}meetingState === "joined-meeting" && Boolean\(providerSessionId\)/,
+  );
+  assert.match(
+    webDate,
+    /const dailyOwnerState =[\s\S]{0,90}providerBackedJoined[\s\S]{0,90}\? "joined"[\s\S]{0,120}: meetingState === "left-meeting" \|\| meetingState === "error"[\s\S]{0,90}\? "lost"[\s\S]{0,90}: "joining"/,
+  );
+  assert.match(webDate, /p_provider_session_id: providerSessionId/);
+  assert.match(webDate, /p_owner_state: dailyOwnerState/);
+  assert.match(webDate, /state: providerBackedJoined \? "joined" : "joining"/);
+
+  assert.match(nativeDate, /function safeNativeDailyMeetingState/);
+  assert.match(nativeDate, /function readNativeDailyProviderSessionId/);
+  assert.match(
+    nativeDate,
+    /const providerSessionId = readNativeDailyProviderSessionId\(call\)/,
+  );
+  assert.match(nativeDate, /const meetingState = safeNativeDailyMeetingState\(call\)/);
+  assert.match(
+    nativeDate,
+    /const providerBackedJoined =[\s\S]{0,90}meetingState === "joined-meeting" && Boolean\(providerSessionId\)/,
+  );
+  assert.match(
+    nativeDate,
+    /const dailyOwnerState =[\s\S]{0,90}providerBackedJoined[\s\S]{0,90}\? "joined"[\s\S]{0,120}: meetingState === "left-meeting" \|\| meetingState === "error"[\s\S]{0,90}\? "lost"[\s\S]{0,90}: "joining"/,
+  );
+  assert.match(nativeDate, /p_provider_session_id: providerSessionId/);
+  assert.match(nativeDate, /p_owner_state: dailyOwnerState/);
+  assert.match(nativeDate, /state: providerBackedJoined \? ['"]joined['"] : ['"]joining['"]/);
+});
+
+test("lobbies recover terminal in_survey registrations even after current_room_id is cleared", () => {
+  assert.match(
+    webLobby,
+    /queueStatus === "in_survey" && currentRoomId[\s\S]{0,760}forceSurvey: true/s,
+  );
+  assert.match(
+    webLobby,
+    /queueStatus === "in_survey"[\s\S]{0,220}pending survey detected without current room from registration realtime/,
+  );
+  assert.match(webLobby, /setCheckingNextDateAfterSurvey\(true\)/);
+  assert.match(webLobby, /setPostSurveyReturnContext\(true\)/);
+  assert.match(webLobby, /clearReadyGateSession\("registration_realtime_pending_survey"\)/);
+  assert.match(webLobby, /void refetchScopedSession\(\)/);
+
+  assert.match(
+    nativeLobby,
+    /queueStatus === "in_survey" && currentRoomId[\s\S]{0,560}forceSurvey: true/s,
+  );
+  assert.match(nativeLobby, /native_lobby_pending_survey_without_room_realtime/);
+  assert.match(nativeLobby, /native_lobby_pending_survey_without_room_refetch/);
+  assert.match(nativeLobby, /setPostSurveyReturnContext\(true\)/);
+  assert.match(nativeLobby, /setPostSurveyBridgeVisible\(true\)/);
+  assert.match(nativeLobby, /setActiveSessionId\(null\)/);
+  assert.match(nativeLobby, /void refetchActiveSession\(\)/);
+  assert.match(
+    nativeLobby,
+    /scheduleLobbyRefreshBurst\("registration_realtime_pending_survey"\)/,
+  );
+  assert.match(
+    nativeLobby,
+    /scheduleLobbyRefreshBurst\([\s\S]{0,60}"registration_realtime_refetch_pending_survey"/,
+  );
 });
 
 test("stable copresence migration blocks handshake promotion from stale joined state", () => {
@@ -186,4 +262,71 @@ test("stable copresence migration blocks handshake promotion from stale joined s
     migration,
     /AND v_stable_copresence THEN[\s\S]{0,220}handshake_started_at = v_now/,
   );
+});
+
+test("provider-authoritative presence migration blocks stale client heartbeats after Daily left", () => {
+  assert.match(
+    providerAuthoritativeMigration,
+    /CREATE OR REPLACE FUNCTION public\.video_date_actor_provider_presence_v1/,
+  );
+  assert.match(
+    providerAuthoritativeMigration,
+    /public\.video_date_daily_webhook_events[\s\S]{0,180}event_type IN \('participant\.joined', 'participant\.left'\)/,
+  );
+  assert.match(
+    providerAuthoritativeMigration,
+    /v_latest_client_provider_session_id IS NOT NULL[\s\S]{0,420}event_type = 'participant\.left'[\s\S]{0,220}v_latest_client_provider_session_id/s,
+  );
+  assert.match(providerAuthoritativeMigration, /v_left_after_client_alive/);
+  assert.match(providerAuthoritativeMigration, /provider_left_after_client_alive/);
+  assert.match(
+    providerAuthoritativeMigration,
+    /v_latest_provider_event_type = 'participant\.left'[\s\S]{0,180}v_latest_provider_session_id IS NOT NULL[\s\S]{0,180}v_latest_provider_session_id IS DISTINCT FROM[\s\S]{0,80}v_latest_client_provider_session_id/s,
+  );
+  assert.match(
+    providerAuthoritativeMigration,
+    /v_client_provider_active :=[\s\S]{0,240}v_latest_client_provider_session_id IS NOT NULL[\s\S]{0,240}v_latest_client_owner_state = 'joined'[\s\S]{0,240}NOT v_left_after_client_alive/s,
+  );
+  assert.match(providerAuthoritativeMigration, /provider_presence_required', true/);
+  assert.match(providerAuthoritativeMigration, /already_date_provider_missing/);
+  assert.match(providerAuthoritativeMigration, /already_date_provider_current/);
+  assert.match(providerAuthoritativeMigration, /remote_seen_provider_current/);
+  assert.match(providerAuthoritativeMigration, /stable_provider_owner_heartbeat/);
+  assert.match(
+    providerAuthoritativeMigration,
+    /v_remote_seen :=[\s\S]{0,120}v_participant_1_active[\s\S]{0,80}AND v_participant_2_active/s,
+  );
+  assert.doesNotMatch(
+    providerAuthoritativeMigration,
+    /IF v_row\.date_started_at IS NOT NULL[\s\S]{0,180}stable_copresence', true/,
+  );
+});
+
+test("daily alive RPC records but does not join-stamp without current provider-backed state", () => {
+  assert.match(
+    providerAuthoritativeMigration,
+    /CREATE OR REPLACE FUNCTION public\.mark_video_date_daily_alive/,
+  );
+  assert.match(providerAuthoritativeMigration, /v_provider_session_id text := NULLIF/);
+  assert.match(providerAuthoritativeMigration, /v_owner_state text := COALESCE/);
+  assert.match(
+    providerAuthoritativeMigration,
+    /v_provider_backed_current :=[\s\S]{0,100}v_owner_state = 'joined'[\s\S]{0,100}v_provider_session_id IS NOT NULL[\s\S]{0,260}v_latest_provider_event_type = 'participant\.joined'[\s\S]{0,120}v_latest_provider_session_id = v_provider_session_id/s,
+  );
+  assert.match(
+    providerAuthoritativeMigration,
+    /v_latest_provider_event_type = 'participant\.left'[\s\S]{0,120}v_latest_provider_session_id IS NOT NULL[\s\S]{0,120}v_latest_provider_session_id IS DISTINCT FROM v_provider_session_id/s,
+  );
+  assert.match(
+    providerAuthoritativeMigration,
+    /IF v_provider_backed_current THEN[\s\S]{0,520}participant_1_away_at = NULL[\s\S]{0,520}participant_2_away_at = NULL/s,
+  );
+  assert.match(
+    providerAuthoritativeMigration,
+    /IF NOT v_provider_backed_current THEN[\s\S]{0,320}'daily_alive_without_current_provider_presence'/s,
+  );
+  assert.match(providerAuthoritativeMigration, /'provider_backed_current', v_provider_backed_current/);
+  assert.match(providerAuthoritativeMigration, /'join_stamp_accepted', v_join_stamp_accepted/);
+  assert.match(providerAuthoritativeMigration, /'provider_presence', v_provider_presence/);
+  assert.match(providerAuthoritativeMigration, /GRANT EXECUTE ON FUNCTION public\.mark_video_date_daily_alive/);
 });

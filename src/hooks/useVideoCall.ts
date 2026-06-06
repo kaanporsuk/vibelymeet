@@ -1246,6 +1246,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     }) => {
       const call = callObjectRef.current;
       const providerSessionId = readDailyProviderSessionId(call);
+      const meetingState = safeMeetingState(call);
+      const providerBackedJoined =
+        meetingState === "joined-meeting" && Boolean(providerSessionId);
+      const dailyOwnerState =
+        providerBackedJoined
+          ? "joined"
+          : meetingState === "left-meeting" || meetingState === "error"
+            ? "lost"
+            : "joining";
       const entryOwner = getVideoDateEntryOwner(input.sessionId, input.userId);
       const ownerId = entryOwner?.ownerId ?? null;
       updateVideoDateDailyOwnerState({
@@ -1253,7 +1262,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         userId: input.userId,
         ownerId,
         roomName: input.roomName,
-        state: "joined",
+        state: dailyOwnerState,
         source: input.source,
         entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
         videoDateTraceId:
@@ -1265,7 +1274,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         sessionId: input.sessionId,
         userId: input.userId,
         ownerId,
-        state: "joined",
+        state: providerBackedJoined ? "joined" : "joining",
         source: input.source,
         roomName: input.roomName,
         entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
@@ -1280,7 +1289,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         p_call_instance_id: input.callInstanceId ?? null,
         p_provider_session_id: providerSessionId,
         p_entry_attempt_id: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
-        p_owner_state: "joined",
+        p_owner_state: dailyOwnerState,
       };
       try {
         const { data, error } = await (supabase as unknown as {
@@ -1297,6 +1306,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           ownerId,
           callInstanceId: input.callInstanceId ?? null,
           providerSessionId,
+          providerBackedJoined,
+          meetingState,
+          ownerState: dailyOwnerState,
           payload: data ?? null,
           error: error ? { code: error.code, message: error.message } : null,
         });
@@ -1309,6 +1321,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           ownerId,
           callInstanceId: input.callInstanceId ?? null,
           providerSessionId,
+          providerBackedJoined,
+          meetingState,
+          ownerState: dailyOwnerState,
           error:
             error instanceof Error
               ? { name: error.name, message: error.message }
