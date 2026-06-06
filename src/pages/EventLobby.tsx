@@ -58,7 +58,9 @@ import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import {
-  getWebEventLobbyGateState,
+  eventLobbyGateFromServerInactiveReason,
+  getEventLobbyGateState,
+  getEventLobbyInactiveReasonForEvent,
   type EventLobbyGateState,
 } from "@/lib/eventLobbyGating";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
@@ -128,6 +130,7 @@ import {
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 const VISIBLE_CARD_MARK_MAX_RETRIES = 5;
+type EventInactiveReasonOverrideSource = "event" | "deck";
 const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
   "event_not_active",
   "not_registered",
@@ -277,6 +280,21 @@ const EventLobby = () => {
   const [eventLifecycleOverride, setEventLifecycleOverride] = useState<
     "cancelled" | "archived" | "draft" | "ended" | null
   >(null);
+  const [eventInactiveReasonOverride, setEventInactiveReasonOverride] = useState<
+    string | null
+  >(null);
+  const eventInactiveReasonOverrideSourceRef =
+    useRef<EventInactiveReasonOverrideSource | null>(null);
+  const setEventInactiveReasonOverrideWithSource = useCallback(
+    (
+      reason: string | null,
+      source: EventInactiveReasonOverrideSource | null,
+    ) => {
+      eventInactiveReasonOverrideSourceRef.current = reason ? source : null;
+      setEventInactiveReasonOverride(reason);
+    },
+    [],
+  );
   const [eventEndedAtOverride, setEventEndedAtOverride] = useState<
     string | null
   >(null);
@@ -340,7 +358,7 @@ const EventLobby = () => {
   }, [endingBreak, eventId, queryClient, refreshProfile, user?.id]);
   const lobbyGate = useMemo(
     () =>
-      getWebEventLobbyGateState({
+      getEventLobbyGateState({
         eventId,
         userId: user?.id,
         userPaused: user?.isPaused ?? false,
@@ -349,6 +367,7 @@ const EventLobby = () => {
         registration: regSnapshot,
         registrationLoading: regLoading,
         nowMs: lobbyClockMs,
+        serverInactiveReason: eventInactiveReasonOverride,
       }),
     [
       eventForLobbyGate,
@@ -357,6 +376,7 @@ const EventLobby = () => {
       lobbyClockMs,
       regLoading,
       regSnapshot,
+      eventInactiveReasonOverride,
       user?.id,
       user?.isPaused,
     ],
@@ -757,7 +777,7 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    if (!eventId || !event) return;
+    if (!eventId || !eventForLobbyGate) return;
 
     if (lobbyGate.kind === "ended") {
       setShowEventEndedModal(true);
@@ -784,25 +804,75 @@ const EventLobby = () => {
         (payload) => {
           const row = payload.new as {
             status?: string | null;
+            archived_at?: string | null;
             ended_at?: string | null;
+            event_date?: string | null;
+            duration_minutes?: number | null;
           };
-          const status = (row.status ?? "").toLowerCase();
+          const hasRowField = (field: keyof typeof row) =>
+            Object.prototype.hasOwnProperty.call(row, field);
+          const inactiveReason = getEventLobbyInactiveReasonForEvent(
+            {
+              status: hasRowField("status")
+                ? row.status
+                : eventForLobbyGate.status,
+              archivedAt:
+                hasRowField("archived_at")
+                  ? row.archived_at == null
+                    ? null
+                    : new Date(row.archived_at)
+                  : eventForLobbyGate.archivedAt,
+              endedAt:
+                hasRowField("ended_at")
+                  ? row.ended_at == null
+                    ? null
+                    : new Date(row.ended_at)
+                  : eventForLobbyGate.endedAt,
+              eventDate:
+                hasRowField("event_date")
+                  ? row.event_date == null
+                    ? null
+                    : new Date(row.event_date)
+                  : eventForLobbyGate.eventDate,
+              durationMinutes:
+                hasRowField("duration_minutes")
+                  ? row.duration_minutes
+                  : eventForLobbyGate.durationMinutes,
+            },
+            Date.now(),
+          );
           void queryClient.invalidateQueries({
             queryKey: ["event-details", eventId],
           });
           setLobbyClockMs(Date.now());
-          if (row.ended_at || status === "ended" || status === "completed") {
-            setEventEndedAtOverride(row.ended_at ?? null);
-            setEventLifecycleOverride("ended");
+          const inactiveGate =
+            eventLobbyGateFromServerInactiveReason(inactiveReason);
+          setEventInactiveReasonOverrideWithSource(inactiveReason, "event");
+          if (!inactiveReason) {
+            setEventLifecycleOverride(null);
+            setEventEndedAtOverride(null);
+            setShowEventEndedModal(false);
+            return;
+          }
+          if (inactiveGate?.kind === "ended") {
+            if (inactiveReason === "event_ended") {
+              setEventEndedAtOverride(
+                hasRowField("ended_at")
+                  ? row.ended_at ?? null
+                  : eventForLobbyGate.endedAt?.toISOString() ?? null,
+              );
+              setEventLifecycleOverride("ended");
+            }
             setShowEventEndedModal(true);
           }
           if (
-            status === "cancelled" ||
-            status === "archived" ||
-            status === "draft"
+            inactiveGate?.kind === "cancelled" ||
+            inactiveGate?.kind === "archived" ||
+            inactiveGate?.kind === "draft"
           ) {
-            setEventLifecycleOverride(status);
-            clearReadyGateSession(`event_status_${status}`);
+            const nextLifecycle = inactiveGate.kind;
+            setEventLifecycleOverride(nextLifecycle);
+            clearReadyGateSession(`event_status_${nextLifecycle}`);
           }
         },
       )
@@ -814,13 +884,13 @@ const EventLobby = () => {
   }, [
     activeSessionId,
     clearReadyGateSession,
-    event,
+    eventForLobbyGate,
     eventId,
     lobbyGate.kind,
     queryClient,
+    setEventInactiveReasonOverrideWithSource,
     scopedSessionId,
   ]);
-
   const navigateToDateSession = useCallback(
     (
       sessionId: string,
@@ -1085,6 +1155,7 @@ const EventLobby = () => {
     setDateNavigationSessionId(null);
     setShowEventEndedModal(false);
     setEventLifecycleOverride(null);
+    setEventInactiveReasonOverrideWithSource(null, null);
     setEventEndedAtOverride(null);
     setPostSurveyReturnContext(false);
     setCheckingNextDateAfterSurvey(false);
@@ -1097,7 +1168,40 @@ const EventLobby = () => {
     deckPrefetchCacheHitTrackedRef.current.clear();
     recentSwipeTargetsRef.current = [];
     lobbyBroadcastSessionSeqRef.current = null;
-  }, [eventId, user?.id]);
+  }, [eventId, setEventInactiveReasonOverrideWithSource, user?.id]);
+
+  useEffect(() => {
+    if (!eventId || deckState?.reason !== "event_not_active") return;
+    setEventInactiveReasonOverrideWithSource(
+      deckState.inactive_reason ?? "event_not_active",
+      "deck",
+    );
+    void queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
+  }, [
+    deckState?.inactive_reason,
+    deckState?.reason,
+    eventId,
+    queryClient,
+    setEventInactiveReasonOverrideWithSource,
+  ]);
+
+  useEffect(() => {
+    if (!eventInactiveReasonOverride) return;
+    if (eventInactiveReasonOverrideSourceRef.current !== "deck") return;
+    if (deckState?.reason && deckState.reason !== "event_not_active") {
+      setEventInactiveReasonOverrideWithSource(null, null);
+      return;
+    }
+    if (!deckError && profiles.length > 0) {
+      setEventInactiveReasonOverrideWithSource(null, null);
+    }
+  }, [
+    deckError,
+    deckState?.reason,
+    eventInactiveReasonOverride,
+    profiles.length,
+    setEventInactiveReasonOverrideWithSource,
+  ]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);

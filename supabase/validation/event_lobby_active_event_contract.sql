@@ -26,11 +26,11 @@ select
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
     like '%COALESCE(v_event.duration_minutes, 60)%'
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
-    like '%v_status NOT IN (''upcoming'', ''scheduled'', ''live'', ''ended'', ''completed'')%'
+    like '%v_status IN (''ended'', ''completed'')%'
+  and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
+    like '%v_status NOT IN (''upcoming'', ''scheduled'', ''live'')%'
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
     not like '%v_status <> ''live''%'
-  and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
-    not like '%v_status IN (''ended'', ''completed'')%event_ended%'
   as ok;
 
 -- 2) Discovery computed_status treats ended_at as terminal, then scheduled live window, then computed end.
@@ -121,9 +121,9 @@ select
   )
   as ok;
 
--- 5) Public deck RPC rejects inactive events instead of silently returning an empty deck.
+-- 5) Deck RPCs reject inactive events before candidate work.
 select
-  'get_event_deck_active_rejection_present' as check_name,
+  'event_deck_active_rejection_present' as check_name,
   pg_get_functiondef('public.get_event_deck(uuid,uuid,integer)'::regprocedure)
     like '%public.get_event_lobby_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.get_event_deck(uuid,uuid,integer)'::regprocedure)
@@ -135,6 +135,14 @@ select
     'public.get_event_deck_20260501180000_active_base(uuid,uuid,integer)',
     'EXECUTE'
   )
+  and pg_get_functiondef('public.get_event_deck_v3(uuid,uuid,integer)'::regprocedure)
+    like '%public.get_event_lobby_active_state(p_event_id, now())%'
+  and pg_get_functiondef('public.get_event_deck_v3(uuid,uuid,integer)'::regprocedure)
+    like '%''reason'', ''event_not_active''%'
+  and pg_get_functiondef('public.get_event_deck_v3(uuid,uuid,integer)'::regprocedure)
+    like '%''inactive_reason'', COALESCE(v_active.reason, ''event_not_active'')%'
+  and position('public.get_event_lobby_active_state(p_event_id, now())' in pg_get_functiondef('public.get_event_deck_v3(uuid,uuid,integer)'::regprocedure))
+    < position('FROM public.event_registrations er' in pg_get_functiondef('public.get_event_deck_v3(uuid,uuid,integer)'::regprocedure))
   as ok;
 
 -- 6) Public swipe RPC rejects inactive events before direct swipe/session mutation.

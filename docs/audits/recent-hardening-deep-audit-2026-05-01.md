@@ -47,7 +47,7 @@ No production data was mutated.
 
 ## Cleanup And Patches
 
-- Added `archivedAt` and `endedAt` to web `EventDetails` and taught `getWebEventLobbyGateState` to block on those backend terminal/archive markers.
+- Added `archivedAt` and `endedAt` to web `EventDetails`; the shared `getEventLobbyGateState` now blocks on backend terminal/archive markers and the server active-status allowlist used by web and native.
 - Extended the web/native Event Lobby gating regression test to assert `archived_at` / `ended_at` mapping and native side-effect gating.
 - Added native `EventRow.archived_at` and `EventRow.ended_at` fields.
 - Tightened native Event Lobby local gating so deck fetch, lobby status, foreground heartbeats, queue refresh/drain, and Mystery Match only run after route, user, event, confirmed registration, not-paused status, and local live-window truth are valid.

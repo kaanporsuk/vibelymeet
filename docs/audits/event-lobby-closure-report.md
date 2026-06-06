@@ -100,7 +100,7 @@ Edge Function verification:
 
 Web:
 
-- `src/pages/EventLobby.tsx` uses `getWebEventLobbyGateState` to block missing, unregistered, not-confirmed, scheduled/not-started, cancelled, archived, draft, ended, and paused states.
+- `src/pages/EventLobby.tsx` uses the shared `getEventLobbyGateState` contract to block missing, unregistered, not-confirmed, scheduled/not-started, cancelled, archived, draft, ended, non-server-active, and paused states.
 - `useEventDeck` is enabled only through the route gate.
 - Swipe calls go through `swipe-actions`; no direct `handle_swipe` app calls were found.
 - Web card media uses deck payload fields and the deck-card preset.

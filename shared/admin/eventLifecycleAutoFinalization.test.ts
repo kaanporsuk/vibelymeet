@@ -13,7 +13,7 @@ const adminActivityLog = read("src/components/admin/AdminActivityLog.tsx");
 const adminLiveEventMetrics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const overviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
 const checkout = read("supabase/functions/create-event-checkout/index.ts");
-const lobbyGate = read("src/lib/eventLobbyGating.ts");
+const lobbyGate = read("shared/eventLobbyGate.ts");
 
 function fnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;

@@ -31,8 +31,9 @@ test("native lobby treats backend event_not_active as a terminal gate", () => {
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 
   assert.match(nativeLobby, /serverInactiveEventReason/);
-  assert.match(nativeLobby, /setServerInactiveEventReason\(['"]event_not_active['"]\)/);
-  assert.match(nativeLobby, /setServerInactiveEventReason\(failureReason\)/);
+  assert.match(nativeLobby, /setServerInactiveEventReasonWithSource\(['"]event_not_active['"], ['"]deck['"]\)/);
+  assert.match(nativeLobby, /setServerInactiveEventReasonWithSource\(failureReason, ['"]swipe['"]\)/);
+  assert.match(nativeLobby, /serverInactiveEventReasonSourceRef\.current !== ['"]deck['"]/);
   assert.match(nativeLobby, /deckEmptyReason === ['"]event_not_active['"]/);
   assert.match(nativeLobby, /if \(isEventInactiveByServer\) return ['"]event_not_active['"]/);
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
