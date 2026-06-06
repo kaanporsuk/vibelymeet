@@ -104,6 +104,16 @@ test("terminal and archived event truth closes self-cancel", () => {
     }).closedReason,
     "archived",
   );
+
+  assert.equal(
+    resolveEventBookingEditability({
+      status: "archived",
+      event_date: start,
+      duration_minutes: 30,
+      nowMs: oneMinuteBefore,
+    }).closedReason,
+    "archived",
+  );
 });
 
 test("missing event start closes self-cancel", () => {

@@ -94,7 +94,7 @@ Native implements equivalent local truth in `apps/mobile/app/event/[eventId]/lob
 
 - `isEventArchived = Boolean(archived_at) || status === 'archived'`
 - `isEventEndedByTruth = Boolean(ended_at) || status in ('ended', 'completed') || local end time elapsed`
-- `isLiveWindow` requires status `live`, not cancelled, not archived, not draft, not ended, not server-inactive, and current time inside the event window.
+- 2026-06-06 clarification: current native `isLiveWindow` uses `resolveEventLifecycle`, so raw `upcoming` and compatibility `scheduled` rows are live when inside the scheduled event window; cancelled, archived, draft, ended, and server-inactive rows still block lobby side effects. Native event-detail and home CTAs use the same phase helper, with archive markers forcing the phase closed before an Enter Lobby action can render.
 - `lobbySideEffectsEnabled` requires route id, user id, event row, event and registration loaded, confirmed registration, not paused, and live window.
 - `deckQueryEnabled = lobbySideEffectsEnabled`.
 

@@ -298,6 +298,7 @@ export default function DashboardScreen() {
   const nextEventId = nextEvent?.id;
   const nextEventStartMs = nextEvent?.eventDate?.getTime();
   const nextEventDurationMin = nextEvent?.duration_minutes;
+  const nextEventStatus = nextEvent?.status;
 
   useEffect(() => {
     const intervalMs = nextEventId != null && hasEventAdmissionForNext ? 1000 : 60_000;
@@ -311,10 +312,11 @@ export default function DashboardScreen() {
         ? deriveEventPhase({
             eventDate: nextEventStartMs,
             eventDurationMinutes: nextEventDurationMin,
+            status: nextEventStatus,
             nowMs: liveClockMs,
           })
         : null,
-    [nextEventId, nextEventStartMs, nextEventDurationMin, liveClockMs],
+    [nextEventId, nextEventStartMs, nextEventDurationMin, nextEventStatus, liveClockMs],
   );
 
   const isLiveEvent = nextEventPhase?.isLive ?? false;

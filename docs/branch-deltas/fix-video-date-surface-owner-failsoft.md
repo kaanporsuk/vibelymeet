@@ -186,3 +186,37 @@ Cloud evidence:
 Acceptance boundary:
 
 - This is still not product-health proof. The next required proof is a fresh disposable two-user production run through match -> Ready Gate -> same Daily room -> stable bilateral media/warm-up/date -> date end -> post-date survey completion, plus short Daily leave/rejoin under 12s and real prolonged absence terminalization.
+
+## 2026-06-06 Surface Client-Identity Follow-Up
+
+The post-single-owner audit found one remaining root-cause class in the surface owner path: web/native route remounts could present a new server `client_instance_id` for the same logical user/session while the previous unexpired `video_date` surface claim was still active. The backend correctly treated that as a duplicate-device conflict, but for one logical device it produced duplicate-owner overlays and kept the date route in reconnect/opening churn.
+
+Final design:
+
+- Keep duplicate-device semantics strict in the backend. A different `client_instance_id` for the same user/session should remain a conflict unless explicit takeover occurs.
+- Reject backend same-profile/same-session auto-reclaim because it would let true second devices silently steal the surface and race the original owner.
+- Stabilize the server-facing surface client id in web and native/mobile, while keeping local tab/device ownership separate.
+
+Implemented:
+
+- Web stores a stable server-facing surface client id under `vibely_vd_surface_client:${profileId}:${sessionId}` and uses it for `claim_video_date_surface` / `release_video_date_surface_claim`.
+- Web keeps local duplicate-tab leases separate and uses owner-tokened active cleanup with a short delayed release, so stale unmount cleanup cannot release a fresh remount's claim.
+- Native/mobile stores a stable `vd-native-*` surface client id under `vibely_vd_native_surface_client:${profileId}:${sessionId}` via `AsyncStorage` and waits for that id to hydrate before claiming the surface, preventing fallback-id self-conflicts.
+- Native/mobile mirrors owner-tokened active cleanup and delayed guarded release.
+- No new Supabase migration was retained for this pass.
+
+Verification, with no web or native build run:
+
+- `npx tsx shared/matching/videoDateSurfaceContinuityHardening.test.ts`
+- `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDateLatestFailureSurfaceOwnerContracts.test.ts`
+- `npm run typecheck:core`
+- `npx tsc --noEmit -p tsconfig.app.json`
+- `cd apps/mobile && npm run typecheck`
+- `git diff --check -- 'apps/mobile/app/date/[id].tsx' src/hooks/useVideoDateDupTabGuard.ts shared/matching/videoDateSurfaceContinuityHardening.test.ts shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+
+Supabase stayed aligned through `20260606100511_video_date_mark_ready_lint_cleanup.sql`; the dry-run returned `Remote database is up to date`.
+
+This remains unproven in product terms until the disposable two-user production acceptance run completes through survey submission, plus short leave/rejoin and prolonged absence checks.

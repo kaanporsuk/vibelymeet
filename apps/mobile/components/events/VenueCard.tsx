@@ -16,6 +16,7 @@ type VenueCardProps = {
   eventDurationMinutes?: number;
   eventStatus?: string | null;
   eventEndedAt?: Date | string | number | null;
+  eventArchivedAt?: Date | string | number | null;
   currentTimeMs?: number;
   eventId?: string;
   isRegistered?: boolean;
@@ -29,6 +30,7 @@ export function VenueCard({
   eventDurationMinutes = 60,
   eventStatus,
   eventEndedAt,
+  eventArchivedAt,
   currentTimeMs,
   eventId,
   isRegistered = false,
@@ -51,6 +53,7 @@ export function VenueCard({
     eventDurationMinutes,
     status: eventStatus,
     endedAt: eventEndedAt,
+    archivedAt: eventArchivedAt,
     nowMs: typeof currentTimeMs === 'number' ? currentTimeMs : fallbackNowMs,
   });
   const timeUntil = formatVenuePhaseLabel(phase);

@@ -8,6 +8,8 @@ export type EventPhaseInput = {
   status?: string | null;
   endedAt?: Date | string | number | null;
   ended_at?: Date | string | number | null;
+  archivedAt?: Date | string | number | null;
+  archived_at?: Date | string | number | null;
   nowMs?: number;
 };
 
@@ -43,6 +45,7 @@ export function deriveEventPhase(input: EventPhaseInput): EventPhaseSnapshot {
     eventDate: input.eventDate,
     durationMinutes: input.eventDurationMinutes,
     endedAt: input.endedAt ?? input.ended_at,
+    archivedAt: input.archivedAt ?? input.archived_at,
     nowMs: input.nowMs,
   });
   const startMs = lifecycle.startsAt?.getTime() ?? toTimestampMs(input.eventDate);
@@ -50,9 +53,9 @@ export function deriveEventPhase(input: EventPhaseInput): EventPhaseSnapshot {
   const endMs = lifecycle.endsAt?.getTime() ?? startMs + Math.max(1, durationMinutes) * 60 * 1000;
   const nowMs = input.nowMs ?? Date.now();
 
-  const isEnded = lifecycle.isEnded;
-  const isLive = lifecycle.isLive;
-  const isPreLive = lifecycle.lifecycle === 'upcoming' || lifecycle.lifecycle === 'draft' || lifecycle.lifecycle === 'cancelled';
+  const isEnded = lifecycle.isArchived || lifecycle.isEnded;
+  const isLive = !lifecycle.isArchived && lifecycle.isLive;
+  const isPreLive = !isEnded && !isLive;
 
   return {
     phase: isEnded ? 'ended' : isLive ? 'live' : 'pre-live',

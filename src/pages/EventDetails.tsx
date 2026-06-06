@@ -693,6 +693,7 @@ const EventDetails = () => {
             eventDurationMinutes={event.durationMinutes}
             eventStatus={event.status}
             eventEndedAt={event.endedAt}
+            eventArchivedAt={event.archivedAt}
             eventId={event.id}
             isRegistered={isConfirmed}
             onAccessPress={!isConfirmed && !isUnavailableStatus ? () => void handlePurchasePress() : undefined}
