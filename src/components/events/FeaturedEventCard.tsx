@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
-import { isEventExpired } from "@/utils/eventUtils";
 import { eventCoverHeroUrl, getImageUrl } from "@/utils/imageUrl";
 import { getLanguageLabel } from "@/lib/eventLanguages";
 import type { EventCategory } from "@clientShared/eventCategories";
+import { resolveEventCardLifecycle } from "@clientShared/eventCardLifecycle";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -23,7 +23,27 @@ interface FeaturedEventCardProps {
   categories?: EventCategory[];
   status?: string;
   durationMinutes?: number;
+  archivedAt?: string | Date | null;
+  endedAt?: string | Date | null;
   language?: string | null;
+}
+
+type CountdownTimeLeft = {
+  hours: number;
+  minutes: number;
+  seconds: number;
+};
+
+const ZERO_TIME_LEFT: CountdownTimeLeft = { hours: 0, minutes: 0, seconds: 0 };
+
+function countdownFromMs(timeRemainingMs: number | null): CountdownTimeLeft {
+  if (timeRemainingMs == null || timeRemainingMs <= 0) return ZERO_TIME_LEFT;
+
+  return {
+    hours: Math.floor(timeRemainingMs / (1000 * 60 * 60)),
+    minutes: Math.floor((timeRemainingMs % (1000 * 60 * 60)) / (1000 * 60)),
+    seconds: Math.floor((timeRemainingMs % (1000 * 60)) / 1000),
+  };
 }
 
 export const FeaturedEventCard = ({
@@ -37,6 +57,8 @@ export const FeaturedEventCard = ({
   categories = [],
   status,
   durationMinutes = 60,
+  archivedAt,
+  endedAt,
   language,
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
@@ -44,55 +66,47 @@ export const FeaturedEventCard = ({
   const { data: eventAttendees = [], preview: attendeePreview } = useEventAttendees(id, 5);
   const attendeeCountLabel =
     attendeePreview?.success === true ? `+${attendeePreview.visible_other_count} visible to you` : `${attendees} registered`;
-  const pastScheduledEnd = isEventExpired({
-    event_date: eventDate.toISOString(),
-    duration_minutes: durationMinutes,
-  });
-  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [isLive, setIsLive] = useState(status === "live" && !pastScheduledEnd);
+  const [cardLifecycle, setCardLifecycle] = useState(() => resolveEventCardLifecycle({
+    status,
+    eventDate,
+    durationMinutes,
+    archivedAt,
+    endedAt,
+  }));
+  const [timeLeft, setTimeLeft] = useState(() => countdownFromMs(
+    resolveEventCardLifecycle({
+      status,
+      eventDate,
+      durationMinutes,
+      archivedAt,
+      endedAt,
+    }).timeRemainingMs,
+  ));
   const [imageFailed, setImageFailed] = useState(false);
   const coverSrc = eventCoverHeroUrl(image);
-  const showEnded = !isLive && (status === "ended" || pastScheduledEnd);
+  const isLive = cardLifecycle.isLive;
+  const showEnded = cardLifecycle.showEnded;
 
   const isConfirmedAdmission = admission.confirmedEventIds.includes(id);
   const isWaitlistedAdmission = admission.waitlistedEventIds.includes(id);
 
   useEffect(() => {
-    const calculateTimeLeft = () => {
-      const now = new Date();
-      const startTime = eventDate.getTime();
-      const endTime = startTime + durationMinutes * 60 * 1000;
-      const diff = startTime - now.getTime();
-      
-      // Check if event is live
-      if (now.getTime() >= startTime && now.getTime() < endTime) {
-        setIsLive(true);
-        return { hours: 0, minutes: 0, seconds: 0 };
-      }
-      
-      // Check if event ended
-      if (now.getTime() >= endTime) {
-        setIsLive(false);
-        return { hours: 0, minutes: 0, seconds: 0 };
-      }
-      
-      setIsLive(false);
-      
-      if (diff <= 0) {
-        return { hours: 0, minutes: 0, seconds: 0 };
-      }
-
-      return {
-        hours: Math.floor(diff / (1000 * 60 * 60)),
-        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
-        seconds: Math.floor((diff % (1000 * 60)) / 1000),
-      };
+    const refreshLifecycle = () => {
+      const nextLifecycle = resolveEventCardLifecycle({
+        status,
+        eventDate,
+        durationMinutes,
+        archivedAt,
+        endedAt,
+      });
+      setCardLifecycle(nextLifecycle);
+      setTimeLeft(countdownFromMs(nextLifecycle.timeRemainingMs));
     };
 
-    setTimeLeft(calculateTimeLeft());
-    const timer = setInterval(() => setTimeLeft(calculateTimeLeft()), 1000);
+    refreshLifecycle();
+    const timer = setInterval(refreshLifecycle, 1000);
     return () => clearInterval(timer);
-  }, [eventDate, durationMinutes]);
+  }, [eventDate, status, durationMinutes, archivedAt, endedAt]);
 
   useEffect(() => {
     setImageFailed(false);

@@ -106,6 +106,8 @@ export const EventsRail = ({
               country={event.country}
               distanceKm={event.distance_km}
               eventDateRaw={event.event_date_raw}
+              archivedAt={event.archived_at}
+              endedAt={event.ended_at}
               durationMinutes={event.duration_minutes}
               language={event.language}
             />

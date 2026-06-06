@@ -3,6 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { trackEvent } from "@/lib/analytics";
+import {
+  isConfirmedAdmission,
+  isWaitlistedAdmission,
+  resolveEventAdmissionReadiness,
+} from "@clientShared/eventAdmissionReadiness";
 
 export type UserEventAdmissionMap = {
   confirmedEventIds: string[];
@@ -20,7 +25,7 @@ export const useUserRegistrations = () => {
 
       const { data, error } = await supabase
         .from("event_registrations")
-        .select("event_id, admission_status")
+        .select("event_id, admission_status, payment_status")
         .eq("profile_id", user.id);
 
       if (error) throw error;
@@ -29,8 +34,8 @@ export const useUserRegistrations = () => {
       const waitlistedEventIds: string[] = [];
       for (const row of data ?? []) {
         const ev = row.event_id as string;
-        if (row.admission_status === "confirmed") confirmedEventIds.push(ev);
-        else if (row.admission_status === "waitlisted") waitlistedEventIds.push(ev);
+        if (isConfirmedAdmission(row.admission_status)) confirmedEventIds.push(ev);
+        else if (isWaitlistedAdmission(row.admission_status)) waitlistedEventIds.push(ev);
       }
       return { confirmedEventIds, waitlistedEventIds };
     },
@@ -67,15 +72,15 @@ export const useRegisterForEvent = () => {
     if (result?.success === true) {
       const { data: reg } = await supabase
         .from("event_registrations")
-        .select("admission_status")
+        .select("admission_status, payment_status")
         .eq("event_id", eventId)
         .eq("profile_id", user.id)
         .maybeSingle();
-      const admissionStatus = reg?.admission_status ?? null;
-      queryClient.setQueryData(["event-registration-check", eventId, user.id], {
-        isConfirmed: admissionStatus === "confirmed",
-        isWaitlisted: admissionStatus === "waitlisted",
+      const registrationSnapshot = resolveEventAdmissionReadiness({
+        admission_status: reg?.admission_status ?? null,
+        payment_status: reg?.payment_status ?? null,
       });
+      queryClient.setQueryData(["event-registration-check", eventId, user.id], registrationSnapshot);
       queryClient.setQueryData<UserEventAdmissionMap | undefined>(
         ["user-registrations", user.id],
         (current) => {
@@ -84,8 +89,8 @@ export const useRegisterForEvent = () => {
           const waitlisted = new Set(current?.waitlistedEventIds ?? []);
           confirmed.delete(eventId);
           waitlisted.delete(eventId);
-          if (admissionStatus === "confirmed") confirmed.add(eventId);
-          if (admissionStatus === "waitlisted") waitlisted.add(eventId);
+          if (registrationSnapshot.isConfirmed) confirmed.add(eventId);
+          if (registrationSnapshot.isWaitlisted) waitlisted.add(eventId);
           return {
             confirmedEventIds: [...confirmed],
             waitlistedEventIds: [...waitlisted],
@@ -94,7 +99,9 @@ export const useRegisterForEvent = () => {
       );
       trackEvent("event_registration_success", {
         event_id: eventId,
-        admission_status: admissionStatus,
+        admission_status: registrationSnapshot.admissionStatus,
+        payment_status: registrationSnapshot.paymentStatus,
+        paid_like_but_not_confirmed: registrationSnapshot.paidLikeButNotConfirmed,
       });
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
       await queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
@@ -113,13 +120,14 @@ export const useRegisterForEvent = () => {
     if (result?.success === true) {
       const { data: reg } = await supabase
         .from("event_registrations")
-        .select("admission_status")
+        .select("admission_status, payment_status")
         .eq("event_id", eventId)
         .eq("profile_id", user.id)
         .maybeSingle();
       trackEvent("event_unregistered", {
         event_id: eventId,
         admission_status: reg?.admission_status ?? null,
+        payment_status: reg?.payment_status ?? null,
       });
       await queryClient.invalidateQueries({ queryKey: ["user-registrations", user.id] });
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });

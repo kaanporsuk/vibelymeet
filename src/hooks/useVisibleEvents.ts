@@ -11,6 +11,8 @@ export interface VisibleEvent {
   description: string | null;
   cover_image: string;
   event_date: string;
+  archived_at?: string | null;
+  ended_at?: string | null;
   duration_minutes: number;
   max_attendees: number;
   current_attendees: number;

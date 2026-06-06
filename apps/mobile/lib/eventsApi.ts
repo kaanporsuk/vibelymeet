@@ -26,7 +26,12 @@ import {
 import { VIDEO_DATE_DECK_BUFFER_LIMIT } from '@clientShared/matching/videoDateInstantExperience';
 import { getVideoDateSwipeRateLimitRetryUntilMs } from '@clientShared/matching/videoDateDeckPrefetch';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
+import { resolveEventCardLifecycle } from '@clientShared/eventCardLifecycle';
 import type { EventCategory } from '@clientShared/eventCategories';
+import {
+  resolveEventAdmissionReadiness,
+  type EventAdmissionReadinessSnapshot,
+} from '@clientShared/eventAdmissionReadiness';
 import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
@@ -99,6 +104,8 @@ export type EventListItem = {
   vibes: string[];
   status: string;
   eventDate: Date;
+  archived_at?: string | null;
+  ended_at?: string | null;
   duration_minutes: number;
   language?: string | null;
   latitude?: number | null;
@@ -122,6 +129,8 @@ type VisibleEventRpcRow = {
   vibes?: string[] | null;
   status: string;
   computed_status?: string | null;
+  archived_at?: string | null;
+  ended_at?: string | null;
   scope?: string | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -136,7 +145,16 @@ function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
       status: row.status,
       event_date: row.event_date,
       duration_minutes: row.duration_minutes,
+      archived_at: row.archived_at,
+      ended_at: row.ended_at,
     }).lifecycle;
+  const cardLifecycle = resolveEventCardLifecycle({
+    status: rawStatus,
+    event_date: row.event_date,
+    duration_minutes: row.duration_minutes,
+    archived_at: row.archived_at,
+    ended_at: row.ended_at,
+  });
   return {
     id: row.id,
     title: row.title,
@@ -149,8 +167,10 @@ function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
     category_keys: Array.isArray(row.category_keys) ? row.category_keys : [],
     categories: Array.isArray(row.categories) ? row.categories : [],
     vibes: Array.isArray(row.vibes) ? row.vibes : [],
-    status: rawStatus,
+    status: cardLifecycle.isLive ? 'live' : cardLifecycle.showEnded ? 'ended' : cardLifecycle.lifecycle,
     eventDate,
+    archived_at: row.archived_at ?? null,
+    ended_at: row.ended_at ?? null,
     duration_minutes: row.duration_minutes ?? 60,
     language: row.language ?? null,
     latitude: row.latitude ?? null,
@@ -310,12 +330,21 @@ export function useRegisteredEventIds(userId: string | null | undefined) {
       if (!userId) return [];
       const { data, error } = await supabase
         .from('event_registrations')
-        .select('event_id')
+        .select('event_id, admission_status, payment_status')
         .eq('profile_id', userId);
       if (error) {
         throw toError(normalizeContractError(error, 'registered_event_ids_fetch_failed', 'Could not load registrations.'));
       }
-      return (data ?? []).map((r) => r.event_id).filter(Boolean) as string[];
+      return (data ?? [])
+        .filter((r) => {
+          const admission = resolveEventAdmissionReadiness({
+            admission_status: r.admission_status ?? null,
+            payment_status: r.payment_status ?? null,
+          });
+          return admission.isConfirmed || admission.isWaitlisted;
+        })
+        .map((r) => r.event_id)
+        .filter(Boolean) as string[];
     },
   });
 }
@@ -338,10 +367,19 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
       const now = new Date();
       const { data: regRows, error: regError } = await supabase
         .from('event_registrations')
-        .select('event_id')
+        .select('event_id, admission_status, payment_status')
         .eq('profile_id', userId);
       if (regError) throw regError;
-      const eventIds = (regRows ?? []).map((r) => r.event_id).filter(Boolean) as string[];
+      const eventIds = (regRows ?? [])
+        .filter((r) => {
+          const admission = resolveEventAdmissionReadiness({
+            admission_status: r.admission_status ?? null,
+            payment_status: r.payment_status ?? null,
+          });
+          return admission.isConfirmed || admission.isWaitlisted;
+        })
+        .map((r) => r.event_id)
+        .filter(Boolean) as string[];
       if (eventIds.length === 0) return [];
 
       const { data: eventsData, error: eventsError } = await supabase
@@ -371,29 +409,25 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
 }
 
 /** Matches web `EventRegistrationSnapshot`: lobby/deck require `isConfirmed` only. */
-export type EventRegistrationSnapshot = {
-  isConfirmed: boolean;
-  isWaitlisted: boolean;
-};
+export type EventRegistrationSnapshot = EventAdmissionReadinessSnapshot;
 
 export function useIsRegisteredForEvent(eventId: string | undefined, userId: string | undefined) {
   return useQuery({
     queryKey: ['event-registration-check', eventId, userId],
     enabled: !!eventId && !!userId,
     queryFn: async (): Promise<EventRegistrationSnapshot> => {
-      if (!eventId || !userId) return { isConfirmed: false, isWaitlisted: false };
+      if (!eventId || !userId) return resolveEventAdmissionReadiness();
       const { data, error } = await supabase
         .from('event_registrations')
-        .select('admission_status')
+        .select('admission_status, payment_status')
         .eq('event_id', eventId)
         .eq('profile_id', userId)
         .maybeSingle();
-      if (error) return { isConfirmed: false, isWaitlisted: false };
-      const s = data?.admission_status;
-      return {
-        isConfirmed: s === 'confirmed',
-        isWaitlisted: s === 'waitlisted',
-      };
+      if (error) return resolveEventAdmissionReadiness();
+      return resolveEventAdmissionReadiness({
+        admission_status: data?.admission_status ?? null,
+        payment_status: data?.payment_status ?? null,
+      });
     },
   });
 }
@@ -418,11 +452,11 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
 
       const { data: regRows, error: regError } = await supabase
         .from('event_registrations')
-        .select('event_id, admission_status')
+        .select('event_id, admission_status, payment_status')
         .eq('profile_id', userId);
 
       if (regError) throw regError;
-      type RegR = { event_id: string | null; admission_status: string | null };
+      type RegR = { event_id: string | null; admission_status: string | null; payment_status: string | null };
       const regs = (regRows ?? []) as RegR[];
       const eventIds = regs.map((r) => r.event_id).filter(Boolean) as string[];
       if (eventIds.length === 0) {
@@ -430,9 +464,14 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
         return { event: first, isRegistered: false, isWaitlisted: false, hasEventAdmission: false };
       }
 
-      const statusByEvent = new Map<string, string>();
+      const admissionByEvent = new Map<string, ReturnType<typeof resolveEventAdmissionReadiness>>();
       for (const r of regs) {
-        if (r.event_id) statusByEvent.set(r.event_id, r.admission_status ?? '');
+        if (r.event_id) {
+          admissionByEvent.set(r.event_id, resolveEventAdmissionReadiness({
+            admission_status: r.admission_status ?? null,
+            payment_status: r.payment_status ?? null,
+          }));
+        }
       }
 
       const { data: eventsData, error: eventsError } = await supabase
@@ -453,20 +492,23 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
         })
       );
       const notEnded = visible.filter((e) => {
+        const admission = admissionByEvent.get(e.id) ?? resolveEventAdmissionReadiness();
+        if (!admission.isConfirmed && !admission.isWaitlisted) return false;
         return !resolveEventLifecycle({
           status: e.status,
           event_date: e.event_date,
           duration_minutes: e.duration_minutes,
+          archived_at: e.archived_at,
           ended_at: e.ended_at,
           nowMs: now.getTime(),
         }).isEnded;
       });
       if (notEnded.length > 0) {
         notEnded.sort((a, b) => {
-          const sa = statusByEvent.get(a.id);
-          const sb = statusByEvent.get(b.id);
-          const pa = sa === 'confirmed' ? 0 : sa === 'waitlisted' ? 1 : 2;
-          const pb = sb === 'confirmed' ? 0 : sb === 'waitlisted' ? 1 : 2;
+          const admissionA = admissionByEvent.get(a.id);
+          const admissionB = admissionByEvent.get(b.id);
+          const pa = admissionA?.isConfirmed ? 0 : admissionA?.isWaitlisted ? 1 : 2;
+          const pb = admissionB?.isConfirmed ? 0 : admissionB?.isWaitlisted ? 1 : 2;
           if (pa !== pb) return pa - pb;
           return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
         });
@@ -476,17 +518,16 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
           status: e.status,
           event_date: e.event_date,
           duration_minutes: e.duration_minutes,
+          archived_at: e.archived_at,
           ended_at: e.ended_at,
           nowMs: now.getTime(),
         });
-        const st = statusByEvent.get(e.id) ?? '';
-        const isConfirmed = st === 'confirmed';
-        const isWaitlisted = st === 'waitlisted';
+        const admission = admissionByEvent.get(e.id) ?? resolveEventAdmissionReadiness();
         return {
           event: rowToEventListItem(e, eventDate, lifecycle.isLive),
-          isRegistered: isConfirmed,
-          isWaitlisted,
-          hasEventAdmission: isConfirmed || isWaitlisted,
+          isRegistered: admission.isConfirmed,
+          isWaitlisted: admission.isWaitlisted,
+          hasEventAdmission: admission.isConfirmed || admission.isWaitlisted,
         };
       }
       const first = await fetchFirstUpcomingVisibleEvent(userId, canCityBrowse);
@@ -500,10 +541,11 @@ function rowToEventListItem(
   eventDate: Date,
   isLive: boolean
 ): EventListItem {
-  const lifecycle = resolveEventLifecycle({
+  const cardLifecycle = resolveEventCardLifecycle({
     status: e.status,
     event_date: e.event_date,
     duration_minutes: e.duration_minutes,
+    archived_at: e.archived_at,
     ended_at: e.ended_at,
   });
   return {
@@ -518,8 +560,14 @@ function rowToEventListItem(
     category_keys: Array.isArray(e.category_keys) ? e.category_keys : [],
     categories: Array.isArray(e.categories) ? e.categories : [],
     vibes: Array.isArray(e.vibes) ? e.vibes : [],
-    status: isLive ? 'live' : lifecycle.lifecycle,
+    status: isLive && !cardLifecycle.showEnded
+      ? 'live'
+      : cardLifecycle.showEnded
+        ? 'ended'
+        : cardLifecycle.lifecycle,
     eventDate,
+    archived_at: e.archived_at ?? null,
+    ended_at: e.ended_at ?? null,
     duration_minutes: e.duration_minutes ?? 60,
   };
 }
@@ -556,24 +604,29 @@ export function useRegisterForEvent() {
       }
       const { data: reg } = await supabase
         .from('event_registrations')
-        .select('admission_status')
+        .select('admission_status, payment_status')
         .eq('event_id', eventId)
         .eq('profile_id', user.id)
         .maybeSingle();
-      const admissionStatus = reg?.admission_status ?? null;
+      const registrationSnapshot = resolveEventAdmissionReadiness({
+        admission_status: reg?.admission_status ?? null,
+        payment_status: reg?.payment_status ?? null,
+      });
       trackEvent('event_registration_success', {
         event_id: eventId,
-        admission_status: admissionStatus,
+        admission_status: registrationSnapshot.admissionStatus,
+        payment_status: registrationSnapshot.paymentStatus,
+        paid_like_but_not_confirmed: registrationSnapshot.paidLikeButNotConfirmed,
       });
-      return { userId: user.id, admissionStatus };
+      return { userId: user.id, registrationSnapshot };
     },
     onSuccess: (result, eventId) => {
-      qc.setQueryData(['event-registration-check', eventId, result.userId], {
-        isConfirmed: result.admissionStatus === 'confirmed',
-        isWaitlisted: result.admissionStatus === 'waitlisted',
-      });
+      qc.setQueryData(['event-registration-check', eventId, result.userId], result.registrationSnapshot);
       qc.setQueryData<string[] | undefined>(['user-registered-event-ids', result.userId], (current) => {
         if (!current) return current;
+        const admitted =
+          result.registrationSnapshot.isConfirmed || result.registrationSnapshot.isWaitlisted;
+        if (!admitted) return current.filter((id) => id !== eventId);
         return current.includes(eventId) ? current : [...current, eventId];
       });
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
@@ -591,7 +644,7 @@ export function useRegisterForEvent() {
       if (!user) throw new Error('Not authenticated');
       const { data: reg } = await supabase
         .from('event_registrations')
-        .select('admission_status')
+        .select('admission_status, payment_status')
         .eq('event_id', eventId)
         .eq('profile_id', user.id)
         .maybeSingle();
@@ -604,6 +657,7 @@ export function useRegisterForEvent() {
       trackEvent('event_unregistered', {
         event_id: eventId,
         admission_status: reg?.admission_status ?? null,
+        payment_status: reg?.payment_status ?? null,
       });
     },
     onSuccess: (_, eventId) => {

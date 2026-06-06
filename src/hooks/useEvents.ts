@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { isEventVisible } from "@/utils/eventUtils";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+import { resolveEventAdmissionReadiness } from "@clientShared/eventAdmissionReadiness";
 
 export interface Event {
   id: string;
@@ -18,6 +19,8 @@ export interface Event {
   status: string;
   eventDate: Date;
   event_date_raw: string;
+  archived_at: string | null;
+  ended_at: string | null;
   duration_minutes: number;
   language?: string | null;
 }
@@ -114,6 +117,7 @@ export const useEvents = () => {
             event_date: event.event_date,
             duration_minutes: event.duration_minutes,
             ended_at: event.ended_at,
+            archived_at: event.archived_at,
           });
           
           return {
@@ -128,6 +132,8 @@ export const useEvents = () => {
             status: lifecycle.lifecycle,
             eventDate,
             event_date_raw: event.event_date,
+            archived_at: event.archived_at,
+            ended_at: event.ended_at,
             duration_minutes: event.duration_minutes || 60,
             language: event.language ?? null,
           };
@@ -185,6 +191,7 @@ export const useInfiniteEvents = () => {
           event_date: event.event_date,
           duration_minutes: event.duration_minutes,
           ended_at: event.ended_at,
+          archived_at: event.archived_at,
         });
         
         return {
@@ -199,6 +206,8 @@ export const useInfiniteEvents = () => {
           status: lifecycle.lifecycle,
           eventDate,
           event_date_raw: event.event_date,
+          archived_at: event.archived_at,
+          ended_at: event.ended_at,
           duration_minutes: event.duration_minutes || 60,
           language: event.language ?? null,
         };
@@ -274,6 +283,7 @@ export const useNextRegisteredEvent = () => {
         .select(`
           event_id,
           admission_status,
+          payment_status,
           events:event_id (
             id, title, cover_image, event_date, current_attendees, duration_minutes,
             scope, city, country, latitude, longitude,
@@ -289,12 +299,18 @@ export const useNextRegisteredEvent = () => {
       type RegRow = {
         event_id: string;
         admission_status?: string | null;
+        payment_status?: string | null;
         events: unknown;
       };
 
       const activeRegistered = (registeredEvents || [])
         .filter((r: RegRow) => {
           if (!r.events) return false;
+          const admission = resolveEventAdmissionReadiness({
+            admission_status: r.admission_status ?? null,
+            payment_status: r.payment_status ?? null,
+          });
+          if (!admission.isConfirmed && !admission.isWaitlisted) return false;
           const ev = (Array.isArray(r.events) ? r.events[0] : r.events) as {
             event_date: string;
             duration_minutes?: number | null;
@@ -318,13 +334,22 @@ export const useNextRegisteredEvent = () => {
             status: ev.status,
             event_date: ev.event_date,
             duration_minutes: ev.duration_minutes,
+            archived_at: ev.archived_at,
             ended_at: ev.ended_at,
             nowMs: now.getTime(),
           }).isEnded;
         })
         .sort((a: RegRow, b: RegRow) => {
-          const stA = a.admission_status === "confirmed" ? 0 : a.admission_status === "waitlisted" ? 1 : 2;
-          const stB = b.admission_status === "confirmed" ? 0 : b.admission_status === "waitlisted" ? 1 : 2;
+          const admissionA = resolveEventAdmissionReadiness({
+            admission_status: a.admission_status ?? null,
+            payment_status: a.payment_status ?? null,
+          });
+          const admissionB = resolveEventAdmissionReadiness({
+            admission_status: b.admission_status ?? null,
+            payment_status: b.payment_status ?? null,
+          });
+          const stA = admissionA.isConfirmed ? 0 : admissionA.isWaitlisted ? 1 : 2;
+          const stB = admissionB.isConfirmed ? 0 : admissionB.isWaitlisted ? 1 : 2;
           if (stA !== stB) return stA - stB;
           const evA = (Array.isArray(a.events) ? a.events[0] : a.events) as { event_date: string };
           const evB = (Array.isArray(b.events) ? b.events[0] : b.events) as { event_date: string };
@@ -341,6 +366,7 @@ export const useNextRegisteredEvent = () => {
           duration_minutes?: number | null;
           current_attendees?: number | null;
           status?: string | null;
+          archived_at?: string | null;
           ended_at?: string | null;
         };
         const eventDate = new Date(event.event_date);
@@ -349,11 +375,14 @@ export const useNextRegisteredEvent = () => {
           event_date: event.event_date,
           duration_minutes: event.duration_minutes,
           ended_at: event.ended_at,
+          archived_at: event.archived_at,
           nowMs: now.getTime(),
         });
         const currentAttendees = event.current_attendees ?? 0;
-        const isConfirmed = first.admission_status === "confirmed";
-        const isWaitlisted = first.admission_status === "waitlisted";
+        const admission = resolveEventAdmissionReadiness({
+          admission_status: first.admission_status ?? null,
+          payment_status: first.payment_status ?? null,
+        });
 
         return {
           event: {
@@ -366,9 +395,9 @@ export const useNextRegisteredEvent = () => {
             isLive: lifecycle.isLive,
             currentAttendees,
           },
-          isRegistered: isConfirmed,
-          isWaitlisted,
-          hasEventAdmission: isConfirmed || isWaitlisted,
+          isRegistered: admission.isConfirmed,
+          isWaitlisted: admission.isWaitlisted,
+          hasEventAdmission: admission.isConfirmed || admission.isWaitlisted,
         };
       }
 

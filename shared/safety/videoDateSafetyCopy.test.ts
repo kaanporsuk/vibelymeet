@@ -155,9 +155,9 @@ test("web and native safety surfaces consume shared submit copy", () => {
   assert.match(nativeSafetySheet, /isVideoDateSafetySubmitErrorRetryable/);
   assert.match(nativeSafetySheet, /resolveVideoDateSafetySubmitOutcome/);
   assert.match(nativeSafetySheet, /if \(!retryable\) \{\s*reset\(\);\s*onClose\(\);\s*\}/);
-  assert.match(webVideoDate, /const canOpenInCallSafety = Boolean\([\s\S]*partnerId && id && !showFeedback && phase !== "ended"/);
+  assert.match(webVideoDate, /const canOpenInCallSafety = Boolean\([\s\S]*partnerId\s*&&\s*id\s*&&\s*!showFeedback\s*&&\s*phase !== "ended"[\s\S]*!suppressPartnerControlsAfterSafety/);
   assert.doesNotMatch(webVideoDate, /partnerId && !showFeedback && \(isConnected \|\| safetyAlwaysOnV2\.enabled\)/);
-  assert.match(nativeVideoDate, /const canOpenInCallSafety = Boolean\([\s\S]*partnerId && sessionId && !showFeedback && phase !== 'ended'/);
+  assert.match(nativeVideoDate, /const canOpenInCallSafety = Boolean\([\s\S]*partnerId\s*&&\s*sessionId\s*&&\s*!showFeedback\s*&&\s*phase !== "ended"[\s\S]*!suppressPartnerControlsAfterSafety/);
   assert.doesNotMatch(nativeVideoDate, /partnerId && !showFeedback && \(hasRemotePartner \|\| safetyAlwaysOnV2\.enabled\)/);
   assert.match(webVideoDate, /onReportOnlySuccess=\{handleReportOnlySafetySuccess\}/);
   assert.match(nativeVideoDate, /onReportOnlySuccess=\{handleReportOnlySafetySuccess\}/);
