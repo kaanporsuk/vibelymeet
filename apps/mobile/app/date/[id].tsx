@@ -1190,8 +1190,19 @@ type NativeVideoDateEndReason =
   | "partner_absent_after_confirmed_encounter"
   | "date_timeout";
 
+type NativeTerminalSurveyRegistrationFallbackRow = {
+  event_id?: string | null;
+  queue_status?: string | null;
+  current_room_id?: string | null;
+  current_partner_id?: string | null;
+  last_active_at?: string | null;
+};
+
 const NATIVE_TERMINAL_SURVEY_SESSION_SELECT =
   "id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, state, phase";
+
+const NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT =
+  "event_id, queue_status, current_room_id, current_partner_id, last_active_at";
 
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -1812,15 +1823,101 @@ export default function VideoDateScreen() {
         });
         return true;
       }
-      const sessionRow =
-        sessionOverride ??
-        (
-          await supabase
-            .from("video_sessions")
-            .select(NATIVE_TERMINAL_SURVEY_SESSION_SELECT)
-            .eq("id", sessionId)
-            .maybeSingle()
-        ).data;
+      let sessionRow: NativeTerminalSurveySessionRow | null =
+        sessionOverride ?? null;
+      if (!sessionRow) {
+        const { data, error } = await supabase
+          .from("video_sessions")
+          .select(NATIVE_TERMINAL_SURVEY_SESSION_SELECT)
+          .eq("id", sessionId)
+          .maybeSingle();
+        if (error) {
+          vdbg("terminal_post_date_survey_session_fetch_failed", {
+            sessionId,
+            userId: user.id,
+            source,
+            code: error.code ?? null,
+            message: error.message,
+          });
+          const { data: registrationFallback, error: registrationError } =
+            await supabase
+              .from("event_registrations")
+              .select(NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
+              .eq("profile_id", user.id)
+              .eq("queue_status", "in_survey")
+              .order("last_active_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+          if (registrationError) {
+            vdbg("terminal_post_date_survey_registration_fallback_failed", {
+              sessionId,
+              userId: user.id,
+              source,
+              code: registrationError.code ?? null,
+              message: registrationError.message,
+            });
+            return false;
+          }
+          const fallbackRow =
+            (registrationFallback as
+              | NativeTerminalSurveyRegistrationFallbackRow
+              | null) ?? null;
+          const fallbackMatchesCurrentRoute =
+            fallbackRow?.current_room_id == null ||
+            fallbackRow.current_room_id === sessionId;
+          if (
+            fallbackRow?.queue_status === "in_survey" &&
+            fallbackMatchesCurrentRoute
+          ) {
+            if (fallbackRow.current_partner_id) {
+              setPartnerId(fallbackRow.current_partner_id);
+            }
+            if (fallbackRow.event_id) setEventId(fallbackRow.event_id);
+            dateEstablishedRef.current = true;
+            logJourney(
+              "date_route_recovered",
+              { source: `${source}_registration_recovery` },
+              "date_route_recovered",
+            );
+            logJourney(
+              "survey_lost_prevented",
+              { source: `${source}_registration_recovery` },
+              "survey_lost_prevented",
+            );
+            vdbg("terminal_post_date_survey_registration_fallback", {
+              sessionId,
+              userId: user.id,
+              source,
+              eventId: fallbackRow.event_id ?? null,
+              currentRoomId: fallbackRow.current_room_id ?? null,
+              currentPartnerId: fallbackRow.current_partner_id ?? null,
+              lastActiveAt: fallbackRow.last_active_at ?? null,
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
+              platform: "native",
+              session_id: sessionId,
+              event_id: fallbackRow.event_id ?? eventId ?? null,
+              room_name: roomNameRef.current ?? null,
+              source_surface: "video_date_route",
+              source_action: `${source}_registration_recovery`,
+              outcome: "recovered",
+              reason_code: `${source}_registration_recovery`,
+              pendingPostDateSurveyDue: true,
+              registrationFallback: true,
+            });
+            return openNativePostDateSurvey(
+              `${source}_registration_recovery`,
+              {
+                eventId: fallbackRow.event_id ?? eventId ?? null,
+                roomName: roomNameRef.current ?? null,
+                pendingPostDateSurveyDue: true,
+              },
+            );
+          }
+          return false;
+        }
+        sessionRow = data ?? null;
+      }
 
       if (!sessionRow) return false;
       if (!nativeVideoSessionIndicatesTerminalEnd(sessionRow)) return false;
@@ -2162,6 +2259,26 @@ export default function VideoDateScreen() {
         callInstanceId: input.callInstanceId ?? null,
         providerSessionId,
       });
+
+      if (!providerBackedJoined) {
+        vdbg('mark_video_date_daily_alive_skipped_provider_missing', {
+          sessionId: input.sessionId,
+          userId: input.userId,
+          roomName: input.roomName,
+          source: input.source,
+          ownerId,
+          callInstanceId: input.callInstanceId ?? null,
+          providerSessionId,
+          meetingState,
+          ownerState: dailyOwnerState,
+          terminal: dailyOwnerState === 'lost',
+        });
+        if (dailyOwnerState === 'lost') {
+          clearDailyAliveHeartbeatTimer('provider_missing_terminal_state');
+        }
+        return;
+      }
+
       const args = {
         p_session_id: input.sessionId,
         p_owner_id: ownerId,
@@ -2194,6 +2311,29 @@ export default function VideoDateScreen() {
           payload: data ?? null,
           error: error ? { code: error.code, message: error.message } : null,
         });
+        const payload =
+          data && typeof data === 'object' && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : null;
+        if (
+          payload?.terminal === true ||
+          payload?.error === 'session_ended' ||
+          payload?.provider_presence_terminal === true
+        ) {
+          clearDailyAliveHeartbeatTimer(
+            payload.error === 'session_ended'
+              ? 'server_session_ended'
+              : 'provider_presence_terminal',
+          );
+          if (
+            payload.error === 'session_ended' ||
+            payload.queue_status === 'in_survey'
+          ) {
+            void openNativePostDateSurveyFromTerminalTruth(
+              'daily_alive_terminal_survey_truth',
+            );
+          }
+        }
       } catch (error) {
         vdbg('mark_video_date_daily_alive_failed', {
           sessionId: input.sessionId,
@@ -2213,7 +2353,7 @@ export default function VideoDateScreen() {
         });
       }
     },
-    [],
+    [clearDailyAliveHeartbeatTimer, openNativePostDateSurveyFromTerminalTruth],
   );
 
   const startDailyAliveHeartbeat = useCallback(

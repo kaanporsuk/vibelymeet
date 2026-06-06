@@ -429,8 +429,19 @@ type TerminalSurveySessionRow = {
   participant_2_remote_seen_at?: string | null;
 };
 
+type TerminalSurveyRegistrationFallbackRow = {
+  event_id?: string | null;
+  queue_status?: string | null;
+  current_room_id?: string | null;
+  current_partner_id?: string | null;
+  last_active_at?: string | null;
+};
+
 const TERMINAL_SURVEY_SESSION_SELECT =
   "participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at";
+
+const TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT =
+  "event_id, queue_status, current_room_id, current_partner_id, last_active_at";
 
 function videoDateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -842,6 +853,70 @@ const VideoDate = () => {
           code: sessionResult.error.code,
           message: sessionResult.error.message,
         });
+        const { data: registrationFallback, error: registrationError } =
+          await supabase
+            .from("event_registrations")
+            .select(TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
+            .eq("profile_id", user.id)
+            .eq("queue_status", "in_survey")
+            .order("last_active_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (registrationError) {
+          captureSupabaseError(
+            "terminal_post_date_survey_registration_fallback_failed",
+            registrationError,
+          );
+          recordUserAction(
+            "terminal_post_date_survey_registration_fallback_failed",
+            {
+              surface: "video_date",
+              session_id: id,
+              user_id: user.id,
+              source,
+              code: registrationError.code,
+            },
+          );
+          vdbg("terminal_post_date_survey_registration_fallback_failed", {
+            sessionId: id,
+            userId: user.id,
+            source,
+            code: registrationError.code,
+            message: registrationError.message,
+          });
+          return false;
+        }
+        const fallbackRow =
+          (registrationFallback as TerminalSurveyRegistrationFallbackRow | null) ??
+          null;
+        const fallbackMatchesCurrentRoute =
+          fallbackRow?.current_room_id == null ||
+          fallbackRow.current_room_id === id;
+        if (
+          fallbackRow?.queue_status === "in_survey" &&
+          fallbackMatchesCurrentRoute
+        ) {
+          if (fallbackRow.event_id) setEventId(fallbackRow.event_id);
+          if (fallbackRow.current_partner_id) {
+            setPartnerId(fallbackRow.current_partner_id);
+          }
+          setVideoDateAccess("allowed");
+          setTimingReady(true);
+          setCallStarted(false);
+          setCallStartFailure(null);
+          setStatus("in_survey");
+          vdbg("terminal_post_date_survey_registration_fallback", {
+            sessionId: id,
+            userId: user.id,
+            source,
+            eventId: fallbackRow.event_id ?? null,
+            currentRoomId: fallbackRow.current_room_id ?? null,
+            currentPartnerId: fallbackRow.current_partner_id ?? null,
+            lastActiveAt: fallbackRow.last_active_at ?? null,
+          });
+          openPostDateSurvey(`${source}_registration_recovery`);
+          return true;
+        }
         return false;
       }
       const sessionRow = sessionResult.data;
@@ -956,6 +1031,7 @@ const VideoDate = () => {
       id,
       navigate,
       openPostDateSurvey,
+      setStatus,
       user?.id,
     ],
   );
