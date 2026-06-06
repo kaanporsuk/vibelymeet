@@ -143,7 +143,27 @@ WHERE session_id = $1::uuid
 ORDER BY created_at ASC;
 ```
 
-After `20260606180000_video_date_stable_copresence_handshake_guard.sql` is applied, also inspect the service-only stable-copresence ledger. Use dashboard SQL or service-role tooling:
+After `20260606205211_video_date_provider_participant_id_presence_repair.sql` is applied, inspect both the Daily webhook ledger and the service-only stable-copresence ledger. Provider-current presence must prefer `video_date_daily_webhook_events.provider_participant_id`; payload-only session ids are fallback evidence only.
+
+```sql
+SELECT
+  provider_event_id,
+  event_type,
+  room_name,
+  provider_participant_id,
+  provider_user_id,
+  processing_state,
+  processing_result,
+  session_id,
+  occurred_at,
+  processed_at
+FROM public.video_date_daily_webhook_events
+WHERE session_id = $1::uuid
+   OR room_name = $2::text
+ORDER BY occurred_at ASC, processed_at ASC;
+```
+
+Use dashboard SQL or service-role tooling for the stable-copresence ledger:
 
 ```sql
 SELECT
@@ -181,9 +201,9 @@ GROUP BY actor_id, owner_id, call_instance_id, provider_session_id
 ORDER BY actor_id, first_seen_at;
 ```
 
-Stable-copresence decisions should separate heartbeat freshness from stability. Latest heartbeat timestamps prove the two owners are still fresh; `stable_copresence_since_at` should point to the first qualifying bilateral owner-heartbeat pair after the later join and must be at least 2 seconds old unless remote-seen is already canonical.
+Stable-copresence decisions should separate provider truth, heartbeat freshness, and stability. Latest heartbeat timestamps prove the two owners are still fresh only when each joined heartbeat carries a current provider session id and is not contradicted by a matching later provider `participant.left`. `stable_copresence_since_at` should point to the first qualifying bilateral owner-heartbeat pair after the later provider-backed join and must be at least 2 seconds old unless remote-seen is already canonical and current.
 
-Handshake without stable copresence should be treated as a red-alert regression after `20260606180000`. Start from these filters, then inspect the full session ledger:
+Handshake without provider-authoritative stable copresence should be treated as a red-alert regression after `20260606205211`. Start from these filters, then inspect the full session ledger:
 
 ```sql
 SELECT created_at, operation, outcome, reason_code, session_id, actor_id, detail

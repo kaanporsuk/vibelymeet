@@ -58,6 +58,14 @@ test("web first-remote terminal survey truth clears connecting state before surv
 test("native prejoin awaits a confirmed surface claim before Daily join", () => {
   assert.match(nativeDateRoute, /surfaceClaimInFlightPromiseRef/);
   assert.match(nativeDateRoute, /return surfaceClaimInFlightPromiseRef\.current/);
+  assert.match(
+    nativeDateRoute,
+    /const waitingForNativeSurfaceClientIdentity =[\s\S]*multiDeviceV2\.enabled && !nativeSurfaceClientReady/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /waitingForNativeSurfaceClientIdentity \|\|[\s\S]*\(joining && hasStartedJoinRef\.current\)/,
+  );
   assert.match(nativeDateRoute, /const surfaceClaim = await claimNativeVideoDateSurface\(false\)/);
   assert.match(nativeDateRoute, /!surfaceClaim\.canContinue \|\| !surfaceClaim\.confirmed/);
   assert.match(nativeDateRoute, /surface_claim_unconfirmed/);

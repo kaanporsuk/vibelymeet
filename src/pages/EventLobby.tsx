@@ -358,6 +358,10 @@ const EventLobby = () => {
       }
     })();
   }, [endingBreak, eventId, queryClient, refreshProfile, user?.id]);
+  const eventInactiveReasonForGate =
+    eventInactiveReasonOverrideSourceRef.current === "deck"
+      ? null
+      : eventInactiveReasonOverride;
   const lobbyGate = useMemo(
     () =>
       getEventLobbyGateState({
@@ -369,7 +373,7 @@ const EventLobby = () => {
         registration: regSnapshot,
         registrationLoading: regLoading,
         nowMs: lobbyClockMs,
-        serverInactiveReason: eventInactiveReasonOverride,
+        serverInactiveReason: eventInactiveReasonForGate,
       }),
     [
       eventForLobbyGate,
@@ -378,7 +382,7 @@ const EventLobby = () => {
       lobbyClockMs,
       regLoading,
       regSnapshot,
-      eventInactiveReasonOverride,
+      eventInactiveReasonForGate,
       user?.id,
       user?.isPaused,
     ],
@@ -742,21 +746,6 @@ const EventLobby = () => {
       user?.id,
     ],
   );
-
-  const mysteryMatchEnabled = lobbySideEffectsEnabled;
-  const {
-    findMysteryMatch,
-    cancelSearch: cancelMysteryMatch,
-    isSearching: isMysterySearching,
-    isWaiting: isMysteryWaiting,
-  } = useMysteryMatch({
-    eventId,
-    enabled: mysteryMatchEnabled,
-    onMatchFound: (sessionId) => {
-      openReadyGateSession(sessionId, "mystery_match");
-      scheduleLobbyConvergenceRefresh(sessionId, "mystery_match");
-    },
-  });
 
   const clearReadyGateSession = useCallback((source: string) => {
     if (dateNavigationSessionIdRef.current) {
@@ -2021,6 +2010,7 @@ const EventLobby = () => {
     });
     return filtered;
   }, [lobbyClockMs, profiles]);
+  const isEmpty = sortedProfiles.length === 0;
 
   useEffect(() => {
     setDeckAdaptiveInputs((current) => {
@@ -2916,6 +2906,30 @@ const EventLobby = () => {
     !(currentProfile && !deckLoading);
   const suppressDeckUiForConvergence =
     yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
+  const mysteryMatchEmptyStateVisible =
+    !postSurveyReturnContext &&
+    !suppressDeckUiForConvergence &&
+    !serverInactiveDeckGate &&
+    !user?.isPaused &&
+    !deckLoading &&
+    !deckError &&
+    isEmpty &&
+    emptyDeckUiState.showMysteryMatch;
+  const mysteryMatchEnabled =
+    lobbySideEffectsEnabled && mysteryMatchEmptyStateVisible;
+  const {
+    findMysteryMatch,
+    cancelSearch: cancelMysteryMatch,
+    isSearching: isMysterySearching,
+    isWaiting: isMysteryWaiting,
+  } = useMysteryMatch({
+    eventId,
+    enabled: mysteryMatchEnabled,
+    onMatchFound: (sessionId) => {
+      openReadyGateSession(sessionId, "mystery_match");
+      scheduleLobbyConvergenceRefresh(sessionId, "mystery_match");
+    },
+  });
 
   useEffect(() => {
     const viewerId = user?.id;
@@ -3201,7 +3215,6 @@ const EventLobby = () => {
     );
   }
 
-  const isEmpty = sortedProfiles.length === 0;
   const deckRemaining = sortedProfiles.length;
   const timerUrgent =
     timeRemaining &&

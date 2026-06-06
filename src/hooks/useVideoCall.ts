@@ -3270,9 +3270,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
           callObjectRef.current = null;
         }
-        if (!parkedSingleton) {
-          clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
-        }
+        clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
         if (!parkedSingleton) {
           activeCallSessionIdRef.current = null;
           clearSameSessionDailyContinuity(sessionId, `daily_call_cleanup:${reason}`);

@@ -167,6 +167,33 @@ test("web and native date routes keep owner-alive heartbeats after Daily join", 
   }
 });
 
+test("web parked Daily singleton cleanup stops the old alive heartbeat", () => {
+  const cleanupStart = webDate.indexOf("const shouldParkLiveSingleton =");
+  assert.notEqual(cleanupStart, -1, "web cleanup block should exist");
+  const clearHeartbeatIndex = webDate.indexOf(
+    'clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`)',
+    cleanupStart,
+  );
+  const preserveContinuityIndex = webDate.indexOf(
+    "if (!parkedSingleton) {\n          activeCallSessionIdRef.current = null;",
+    cleanupStart,
+  );
+  assert.ok(clearHeartbeatIndex > cleanupStart, "cleanup should clear the alive heartbeat");
+  assert.ok(
+    preserveContinuityIndex > clearHeartbeatIndex,
+    "heartbeat cleanup should happen before same-session continuity preservation",
+  );
+  const cleanupSlice = webDate.slice(
+    Math.max(0, clearHeartbeatIndex - 120),
+    clearHeartbeatIndex,
+  );
+  assert.doesNotMatch(
+    cleanupSlice,
+    /if \(!parkedSingleton\)/,
+    "parked singleton cleanup must not keep the old hook heartbeat interval alive",
+  );
+});
+
 test("web and native date routes only report joined owner state with current provider proof", () => {
   assert.match(webDate, /function safeMeetingState/);
   assert.match(webDate, /function readDailyProviderSessionId/);
