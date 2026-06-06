@@ -2322,6 +2322,19 @@ export default function EventLobbyScreen() {
             );
             return;
           }
+          if (queueStatus === "in_survey") {
+            vdbg("native_lobby_pending_survey_without_room_realtime", {
+              eventId: id,
+              queueStatus,
+              currentRoomId: currentRoomId ?? null,
+            });
+            setPostSurveyReturnContext(true);
+            setPostSurveyBridgeVisible(true);
+            setActiveSessionId(null);
+            void refetchActiveSession();
+            scheduleLobbyRefreshBurst("registration_realtime_pending_survey");
+            return;
+          }
           if (
             (queueStatus === "in_handshake" || queueStatus === "in_date") &&
             currentRoomId
@@ -2368,6 +2381,21 @@ export default function EventLobbyScreen() {
               );
               return;
             }
+            if (latestReg?.queue_status === "in_survey") {
+              vdbg("native_lobby_pending_survey_without_room_refetch", {
+                eventId: id,
+                queueStatus: latestReg.queue_status,
+                currentRoomId: latestReg.current_room_id ?? null,
+              });
+              setPostSurveyReturnContext(true);
+              setPostSurveyBridgeVisible(true);
+              setActiveSessionId(null);
+              void refetchActiveSession();
+              scheduleLobbyRefreshBurst(
+                "registration_realtime_refetch_pending_survey",
+              );
+              return;
+            }
             if (
               (latestReg?.queue_status === "in_handshake" ||
                 latestReg?.queue_status === "in_date") &&
@@ -2399,7 +2427,14 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, navigateToDateSession]);
+  }, [
+    id,
+    user?.id,
+    openReadyGateWithSession,
+    navigateToDateSession,
+    refetchActiveSession,
+    scheduleLobbyRefreshBurst,
+  ]);
 
   useEffect(() => {
     if (!user?.id || !id) return;
