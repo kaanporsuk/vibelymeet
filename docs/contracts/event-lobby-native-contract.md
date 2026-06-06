@@ -45,8 +45,9 @@ An Event Lobby entry is valid only when all of these are true:
 The active-event invariant is backend-owned and includes:
 
 - event row exists
-- status is `live`
+- status is empty/null or one of `upcoming`, `scheduled`, or `live`
 - status is not `draft`, `cancelled`, or archived-like
+- status is not a non-lobby status such as `paused` / hidden / unknown
 - `archived_at` is null
 - `ended_at` is null
 - server time is not before the scheduled start

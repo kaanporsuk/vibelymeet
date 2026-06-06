@@ -156,10 +156,17 @@ import {
 } from "@clientShared/matching/videoDateTimeline";
 import { nextConvergenceDelayMs } from "@clientShared/matching/convergenceScheduling";
 import { resolveEventLifecycle } from "@clientShared/eventLifecycle";
+import {
+  eventLobbyGateFromServerInactiveReason,
+  getEventLobbyGateState,
+  getEventLobbyInactiveReasonForEvent,
+  type EventLobbyGateState,
+} from "@clientShared/eventLobbyGate";
 import { eventLobbyHref } from "@/lib/activeSessionRoutes";
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 const VISIBLE_CARD_MARK_MAX_RETRIES = 5;
+type ServerInactiveEventReasonSource = "event" | "deck" | "swipe";
 const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
   "unknown",
   "swipe_failed",
@@ -278,6 +285,41 @@ function formatEventCountdown(endTimeMs: number | null, nowMs: number): string {
     : countdown.formattedTime;
 }
 
+function nativeDeckGateKind(gateKind: EventLobbyGateState["kind"]): string {
+  switch (gateKind) {
+    case "missing_event_id":
+      return "missing_event";
+    case "sign_in_required":
+      return "missing_user";
+    case "waitlisted":
+      return "not_confirmed";
+    case "paused":
+      return "account_paused";
+    default:
+      return gateKind;
+  }
+}
+
+function navigateForLobbyGate(gate: EventLobbyGateState, eventId: string) {
+  switch (gate.redirectTo) {
+    case "auth":
+      router.replace("/(auth)/sign-in");
+      return;
+    case "events":
+      router.replace("/(tabs)/events");
+      return;
+    case "matches":
+      router.replace("/(tabs)/matches");
+      return;
+    case "dashboard":
+      router.replace("/(tabs)");
+      return;
+    case "event":
+    default:
+      router.replace(`/(tabs)/events/${eventId}` as const);
+  }
+}
+
 function useCountdown(endTime: Date | null, enabled = true): string {
   const [timeRemaining, setTimeRemaining] = useState("");
   const endTimeMs = endTime?.getTime() ?? null;
@@ -336,7 +378,6 @@ export default function EventLobbyScreen() {
     id,
     user?.id,
   );
-  const isConfirmedRegistration = regSnapshot?.isConfirmed ?? false;
   const [lobbyClockMs, setLobbyClockMs] = useState(() => Date.now());
   const hasEvent = event != null;
   const eventDateValue = event?.event_date ?? null;
@@ -353,11 +394,6 @@ export default function EventLobbyScreen() {
     [eventDateValue, eventDurationMinutes],
   );
   const eventEndTimeMs = eventEndTime?.getTime() ?? null;
-  const eventStatus = (eventStatusRaw ?? "").toLowerCase();
-  const isEventArchived =
-    Boolean(eventArchivedAt) || eventStatus === "archived";
-  const isEventCancelled = eventStatus === "cancelled";
-  const isEventDraft = eventStatus === "draft";
   const resolvedEventLifecycle = useMemo(
     () =>
       eventDateValue
@@ -381,7 +417,44 @@ export default function EventLobbyScreen() {
   const [serverInactiveEventReason, setServerInactiveEventReason] = useState<
     string | null
   >(null);
+  const serverInactiveEventReasonSourceRef =
+    useRef<ServerInactiveEventReasonSource | null>(null);
+  const setServerInactiveEventReasonWithSource = useCallback(
+    (
+      reason: string | null,
+      source: ServerInactiveEventReasonSource | null,
+    ) => {
+      serverInactiveEventReasonSourceRef.current = reason ? source : null;
+      setServerInactiveEventReason(reason);
+    },
+    [],
+  );
   const isEventInactiveByServer = serverInactiveEventReason != null;
+  const lobbyGate = useMemo(
+    () =>
+      getEventLobbyGateState({
+        eventId: id,
+        userId: user?.id,
+        userPaused: pauseStatus.isPaused,
+        event,
+        eventLoading,
+        registration: regSnapshot,
+        registrationLoading: regLoading,
+        nowMs: lobbyClockMs,
+        serverInactiveReason: serverInactiveEventReason,
+      }),
+    [
+      event,
+      eventLoading,
+      id,
+      lobbyClockMs,
+      pauseStatus.isPaused,
+      regLoading,
+      regSnapshot,
+      serverInactiveEventReason,
+      user?.id,
+    ],
+  );
   const lifecycleDebugKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -413,40 +486,9 @@ export default function EventLobbyScreen() {
     resolvedEventLifecycle,
   ]);
 
-  const isLiveWindow = useMemo(() => {
-    if (!eventDateValue || !eventEndTimeMs || !resolvedEventLifecycle)
-      return false;
-    if (
-      isEventCancelled ||
-      isEventArchived ||
-      isEventDraft ||
-      isEventEndedByTruth ||
-      isEventInactiveByServer
-    ) {
-      return false;
-    }
-    return resolvedEventLifecycle.isLive;
-  }, [
-    eventDateValue,
-    eventEndTimeMs,
-    isEventArchived,
-    isEventCancelled,
-    isEventDraft,
-    isEventEndedByTruth,
-    isEventInactiveByServer,
-    resolvedEventLifecycle,
-  ]);
+  const isLiveWindow = lobbyGate.kind === "live" || lobbyGate.kind === "paused";
 
-  const lobbySideEffectsEnabled = Boolean(
-    id &&
-    user?.id &&
-    event &&
-    !eventLoading &&
-    !regLoading &&
-    isConfirmedRegistration &&
-    !pauseStatus.isPaused &&
-    isLiveWindow,
-  );
+  const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
   const drainQueueV2 = useFeatureFlag("video_date.outbox_v2.drain_match_queue");
   const deckPrefetchPolishV2 = useFeatureFlag(
@@ -530,19 +572,7 @@ export default function EventLobbyScreen() {
   ]);
 
   const deckQueryEnabled = Boolean(
-    id &&
-    user?.id &&
-    event &&
-    !eventLoading &&
-    !regLoading &&
-    isConfirmedRegistration &&
-    !pauseStatus.isPaused &&
-    !isEventCancelled &&
-    !isEventArchived &&
-    !isEventDraft &&
-    !isEventEndedByTruth &&
-    resolvedEventLifecycle?.isLive &&
-    !readyGatePressureActive,
+    lobbyGate.canFetchDeck && !readyGatePressureActive,
   );
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({
     queuedCount: 0,
@@ -610,8 +640,8 @@ export default function EventLobbyScreen() {
     deckPrefetchCacheHitTrackedRef.current.clear();
     recentSwipeTargetsRef.current = [];
     lobbyBroadcastSessionSeqRef.current = null;
-    setServerInactiveEventReason(null);
-  }, [id]);
+    setServerInactiveEventReasonWithSource(null, null);
+  }, [id, setServerInactiveEventReasonWithSource]);
 
   useEffect(() => {
     const raw = Array.isArray(postSurveyComplete)
@@ -2661,7 +2691,6 @@ export default function EventLobbyScreen() {
     if (!hasEvent || !id) return;
     if (isEventEndedByTruth) {
       setShowEventEndedModal(true);
-      return;
     }
     const channel = supabase
       .channel(`event-lifecycle-${id}`)
@@ -2678,19 +2707,47 @@ export default function EventLobbyScreen() {
             status?: string | null;
             archived_at?: string | null;
             ended_at?: string | null;
+            event_date?: string | null;
+            duration_minutes?: number | null;
           };
-          const status = (row.status ?? "").toLowerCase();
-          if (row.ended_at || status === "ended" || status === "completed")
+          const hasRowField = (field: keyof typeof row) =>
+            Object.prototype.hasOwnProperty.call(row, field);
+          const inactiveReason = getEventLobbyInactiveReasonForEvent(
+            {
+              status: hasRowField("status") ? row.status : eventStatusRaw,
+              archived_at: hasRowField("archived_at")
+                ? row.archived_at
+                : eventArchivedAt,
+              ended_at: hasRowField("ended_at") ? row.ended_at : eventEndedAt,
+              event_date: hasRowField("event_date")
+                ? row.event_date
+                : eventDateValue,
+              duration_minutes: hasRowField("duration_minutes")
+                ? row.duration_minutes
+                : eventDurationMinutes,
+            },
+            Date.now(),
+          );
+          void queryClient.invalidateQueries({ queryKey: ["event-details", id] });
+          setLobbyClockMs(Date.now());
+          const inactiveGate =
+            eventLobbyGateFromServerInactiveReason(inactiveReason);
+          setServerInactiveEventReasonWithSource(inactiveReason, "event");
+          if (!inactiveGate) {
+            setShowEventEndedModal(false);
+            return;
+          }
+          if (inactiveGate.kind === "ended") {
             setShowEventEndedModal(true);
+          }
           if (
-            status === "cancelled" ||
-            status === "archived" ||
-            status === "draft" ||
-            row.archived_at
+            inactiveGate.kind === "cancelled" ||
+            inactiveGate.kind === "archived" ||
+            inactiveGate.kind === "draft"
           ) {
             show({
               title:
-                status === "cancelled"
+                inactiveGate.kind === "cancelled"
                   ? "This event was cancelled"
                   : "This event is not available",
               message: "You’ll be taken back to the event page.",
@@ -2705,7 +2762,19 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [hasEvent, id, isEventEndedByTruth, show]);
+  }, [
+    eventArchivedAt,
+    eventDateValue,
+    eventDurationMinutes,
+    eventEndedAt,
+    eventStatusRaw,
+    hasEvent,
+    id,
+    isEventEndedByTruth,
+    queryClient,
+    setServerInactiveEventReasonWithSource,
+    show,
+  ]);
 
   useEffect(() => {
     if (!eventEndTime) return;
@@ -3071,33 +3140,9 @@ export default function EventLobbyScreen() {
     !showConvergenceYieldUi &&
     !showQueuedStyleConvergenceUi;
   const deckGateKind = useMemo(() => {
-    if (!id) return "missing_event";
-    if (!user?.id) return "missing_user";
-    if (pauseStatus.isPaused) return "account_paused";
-    if (!hasEvent) return "missing_event";
-    if (!isConfirmedRegistration)
-      return regSnapshot?.isWaitlisted ? "not_confirmed" : "not_registered";
-    if (isEventCancelled) return "cancelled";
-    if (isEventArchived) return "archived";
-    if (isEventDraft) return "draft";
-    if (isEventEndedByTruth) return "ended";
     if (isEventInactiveByServer) return "event_not_active";
-    if (!isLiveWindow) return "not_live";
-    return "live";
-  }, [
-    hasEvent,
-    id,
-    isConfirmedRegistration,
-    isEventArchived,
-    isEventCancelled,
-    isEventDraft,
-    isEventEndedByTruth,
-    isEventInactiveByServer,
-    isLiveWindow,
-    pauseStatus.isPaused,
-    regSnapshot?.isWaitlisted,
-    user?.id,
-  ]);
+    return nativeDeckGateKind(lobbyGate.kind);
+  }, [isEventInactiveByServer, lobbyGate.kind]);
   const deckEmptyReason = useMemo(
     () =>
       resolveDeckEmptyReason({
@@ -3208,7 +3253,7 @@ export default function EventLobbyScreen() {
       return;
     }
     if (deckEmptyReason === "event_not_active") {
-      setServerInactiveEventReason("event_not_active");
+      setServerInactiveEventReasonWithSource("event_not_active", "deck");
       void queryClient.invalidateQueries({ queryKey: ["event-details", id] });
     }
     if (deckErrorTrackedRef.current) return;
@@ -3225,30 +3270,45 @@ export default function EventLobbyScreen() {
       message: EventLobbyObservabilityEvents.LOBBY_DECK_ERROR,
       data: { eventId: id, reason: deckEmptyReason },
     });
-  }, [deckEmptyReason, deckError, id, queryClient]);
+  }, [
+    deckEmptyReason,
+    deckError,
+    id,
+    queryClient,
+    setServerInactiveEventReasonWithSource,
+  ]);
 
   useEffect(() => {
     if (!id || deckState?.reason !== "event_not_active") return;
-    setServerInactiveEventReason(
+    setServerInactiveEventReasonWithSource(
       deckState.inactive_reason ?? "event_not_active",
+      "deck",
     );
     void queryClient.invalidateQueries({ queryKey: ["event-details", id] });
-  }, [deckState?.inactive_reason, deckState?.reason, id, queryClient]);
+  }, [
+    deckState?.inactive_reason,
+    deckState?.reason,
+    id,
+    queryClient,
+    setServerInactiveEventReasonWithSource,
+  ]);
 
   useEffect(() => {
     if (!serverInactiveEventReason) return;
+    if (serverInactiveEventReasonSourceRef.current !== "deck") return;
     if (deckState?.reason && deckState.reason !== "event_not_active") {
-      setServerInactiveEventReason(null);
+      setServerInactiveEventReasonWithSource(null, null);
       return;
     }
     if (!deckError && profiles.length > 0) {
-      setServerInactiveEventReason(null);
+      setServerInactiveEventReasonWithSource(null, null);
     }
   }, [
     deckError,
     deckState?.reason,
     profiles.length,
     serverInactiveEventReason,
+    setServerInactiveEventReasonWithSource,
   ]);
 
   useEffect(() => {
@@ -3435,117 +3495,15 @@ export default function EventLobbyScreen() {
     );
   }
 
-  const isEventEndedForLobby = isEventEndedByTruth;
-
-  if (isEventCancelled || isEventArchived || isEventDraft) {
-    const title = isEventCancelled
-      ? "This event was cancelled"
-      : isEventArchived
-        ? "This event is archived"
-        : "This event is not available yet";
+  if (lobbyGate.kind !== "live" && lobbyGate.kind !== "paused") {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
-            title={title}
-            message="Head back to the event page for details and registration options."
-            actionLabel="Back to event"
-            onActionPress={() =>
-              router.replace(`/(tabs)/events/${id}` as const)
-            }
-          />
-        </View>
-        {dialog}
-      </>
-    );
-  }
-
-  if (isEventEndedForLobby) {
-    return (
-      <>
-        <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <ErrorState
-            title="This event has ended"
-            message="The live lobby is closed. Head to Matches to keep conversations going."
-            actionLabel="View matches"
-            onActionPress={() => router.replace("/(tabs)/matches")}
-          />
-        </View>
-        {dialog}
-      </>
-    );
-  }
-
-  if (isEventInactiveByServer) {
-    const inactiveCopy = resolveEventDeckPhase4UiState({
-      platform: "native",
-      deckStateReason: "event_not_active",
-      inactiveReason: serverInactiveEventReason,
-    });
-    return (
-      <>
-        <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <ErrorState
-            title={inactiveCopy.title}
-            message={inactiveCopy.message}
-            actionLabel={inactiveCopy.actionLabel ?? "Back to event"}
-            onActionPress={() => {
-              if (inactiveCopy.actionTarget === "matches") {
-                router.replace("/(tabs)/matches");
-                return;
-              }
-              router.replace(`/(tabs)/events/${id}` as const);
-            }}
-          />
-        </View>
-        {dialog}
-      </>
-    );
-  }
-
-  if (!isConfirmedRegistration) {
-    return (
-      <>
-        <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <ErrorState
-            title={
-              regSnapshot?.isWaitlisted
-                ? "On the paid waitlist"
-                : "Register first"
-            }
-            message={
-              regSnapshot?.isWaitlisted
-                ? "The event was full when your payment settled. We’ll let you in if a spot opens — the lobby is for confirmed guests only."
-                : "Register for this event to view the lobby and meet people."
-            }
-            actionLabel="Go back"
-            onActionPress={() => router.back()}
-          />
-        </View>
-        {dialog}
-      </>
-    );
-  }
-
-  if (!isLiveWindow) {
-    return (
-      <>
-        <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <ErrorState
-            title={
-              isEventEndedForLobby
-                ? "This event has ended"
-                : "This event isn't live yet"
-            }
-            message={
-              isEventEndedForLobby
-                ? "The live lobby is closed. Head back to the event for details."
-                : "Join the lobby when your event starts — check the countdown on the event page."
-            }
-            actionLabel="Back to event"
-            onActionPress={() =>
-              router.replace(`/(tabs)/events/${id}` as const)
-            }
+            title={lobbyGate.title}
+            message={lobbyGate.message}
+            actionLabel={lobbyGate.actionLabel || "Back to event"}
+            onActionPress={() => navigateForLobbyGate(lobbyGate, id)}
           />
         </View>
         {dialog}
@@ -3661,7 +3619,7 @@ export default function EventLobbyScreen() {
             "reason" in envelope && typeof envelope.reason === "string"
               ? envelope.reason
               : (envelope.error ?? "event_not_active");
-          setServerInactiveEventReason(failureReason);
+          setServerInactiveEventReasonWithSource(failureReason, "swipe");
           cancelSearch();
           void queryClient.invalidateQueries({
             queryKey: ["event-details", id],

@@ -12,7 +12,7 @@ Streams 3, 3b, and 4 remain landed as intended across web, native, backend SQL, 
 
 The only caveats are already documented launch posture items:
 
-- Native and web do not share the exact same gate helper implementation; native mirrors the gate through local booleans and backend-startable recovery checks.
+- Native and web now share the same gate helper contract; local booleans must remain derived from `getEventLobbyGateState` so backend active-state semantics do not drift across platforms.
 - Native keeps participant-scoped realtime listeners alive with route/user identity for backend-truth recovery. Side-effecting deck/status/foreground/queue/Mystery Match work remains gated behind local live/confirmed/not-paused truth.
 - The surface inventory still reports 41 candidate orphan components, but the audit method remains triage-only and not a deletion manifest.
 - `npm run lint` exits 0 with the existing 208-warning backlog.
@@ -80,7 +80,7 @@ Startup evidence:
 
 Evidence:
 
-- `getWebEventLobbyGateState` handles missing ids, auth, missing rows, cancelled, archived, draft, ended/completed, `endedAt`, `archivedAt`, scheduled live window, non-live status, registration, waitlist, and paused account.
+- `getEventLobbyGateState` / `getWebEventLobbyGateState` handles missing ids, auth, missing rows, cancelled, archived, draft, ended/completed, `endedAt`, `archivedAt`, scheduled live window, server-active status allowlist, registration, waitlist, and paused account.
 - `useEventDeck({ enabled: deckEnabled })` prevents stale deck polling.
 - `useEventStatus({ eventId, enabled: lobbySideEffectsEnabled })` prevents local status writes and heartbeat while disabled.
 - `useMatchQueue({ enabled: lobbySideEffectsEnabled })` prevents queue drain/realtime queue work while disabled.
@@ -127,7 +127,7 @@ Evidence:
 
 | Area | Classification | Evidence / note |
 |---|---|---|
-| Gate implementation | Acceptable implementation difference | Web uses `getWebEventLobbyGateState`; native mirrors the same state taxonomy through local booleans and UI branches. |
+| Gate implementation | Shared contract required | Web and native must both use the shared `getEventLobbyGateState` contract. Native inline lifecycle/gate duplication is a drift risk and must not be reintroduced. |
 | Missing event / stale link | Consistent | Both render not-found/unavailable and keep deck off. |
 | Scheduled/not-started | Consistent | Both require current time inside event window before deck/side effects. |
 | Ended while mounted | Consistent | Both subscribe to event lifecycle, show ended UI, and invalidate/stop action paths. |

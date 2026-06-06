@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getWebEventLobbyGateState } from "../../src/lib/eventLobbyGating";
+import {
+  getEventLobbyGateState,
+  getEventLobbyInactiveReasonForEvent,
+} from "../eventLobbyGate";
 
 const root = process.cwd();
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
@@ -42,8 +45,8 @@ function event(overrides: Partial<TestEvent> = {}): TestEvent {
   };
 }
 
-function gate(overrides: Partial<Parameters<typeof getWebEventLobbyGateState>[0]> = {}) {
-  return getWebEventLobbyGateState({
+function gate(overrides: Partial<Parameters<typeof getEventLobbyGateState>[0]> = {}) {
+  return getEventLobbyGateState({
     eventId: "event-1",
     userId: "user-1",
     userPaused: false,
@@ -115,6 +118,65 @@ test("scheduled-active confirmed unpaused events enable deck fetch and actions",
   assert.equal(paused.canFetchDeck, false);
 });
 
+test("client gate mirrors server active-status allowlist", () => {
+  for (const rawStatus of ["paused", "hidden", "foo", "published"]) {
+    const result = gate({ event: event({ status: rawStatus }) });
+    assert.equal(result.kind, "not_live", rawStatus);
+    assert.equal(result.canFetchDeck, false, rawStatus);
+    assert.equal(result.canUseLobbyActions, false, rawStatus);
+    assert.equal(result.canUseLobbySideEffects, false, rawStatus);
+  }
+
+  for (const rawStatus of [null, ""] as const) {
+    const result = gate({ event: event({ status: rawStatus }) });
+    assert.equal(result.kind, "live", String(rawStatus));
+    assert.equal(result.canFetchDeck, true, String(rawStatus));
+  }
+});
+
+test("shared event inactive-reason classifier mirrors server precedence", () => {
+  assert.equal(
+    getEventLobbyInactiveReasonForEvent(event({ status: "draft", archivedAt: "2026-05-01T12:01:00.000Z" }), now),
+    "event_draft",
+  );
+  assert.equal(
+    getEventLobbyInactiveReasonForEvent(event({ status: "cancelled", endedAt: "2026-05-01T12:01:00.000Z" }), now),
+    "event_cancelled",
+  );
+  assert.equal(
+    getEventLobbyInactiveReasonForEvent(event({ status: "archived", endedAt: "2026-05-01T12:01:00.000Z" }), now),
+    "event_archived",
+  );
+  assert.equal(getEventLobbyInactiveReasonForEvent(event({ status: "completed" }), now), "event_ended");
+  assert.equal(getEventLobbyInactiveReasonForEvent(event({ status: "paused" }), now), "event_not_live");
+  assert.equal(
+    getEventLobbyInactiveReasonForEvent(event({ eventDate: new Date("2026-05-01T12:30:00.000Z") }), now),
+    "event_not_started",
+  );
+  assert.equal(
+    getEventLobbyInactiveReasonForEvent(event({ eventDate: new Date("2026-05-01T11:00:00.000Z") }), now),
+    "event_outside_live_window",
+  );
+  assert.equal(
+    getEventLobbyInactiveReasonForEvent(
+      {
+        status: "scheduled",
+        event_date: "2026-05-01T12:00:00.000Z",
+        duration_minutes: 60,
+      },
+      now,
+    ),
+    null,
+  );
+});
+
+test("server inactive reasons override local client lifecycle guesses", () => {
+  assert.equal(gate({ serverInactiveReason: "event_not_started" }).kind, "not_started");
+  assert.equal(gate({ serverInactiveReason: "event_not_live" }).kind, "not_live");
+  assert.equal(gate({ serverInactiveReason: "event_outside_live_window" }).kind, "ended");
+  assert.equal(gate({ serverInactiveReason: "event_cancelled" }).kind, "cancelled");
+});
+
 test("Enter Lobby CTA scheduled-live signals match the lobby route gate", () => {
   for (const rawStatus of ["live", "upcoming", "scheduled"] as const) {
     const ctaGate = gate({ event: event({ status: rawStatus }) });
@@ -138,12 +200,15 @@ test("Enter Lobby CTA scheduled-live signals match the lobby route gate", () => 
 });
 
 test("web EventLobby wires the gate into deck, queue/status side effects, actions, and ended-state UI", () => {
-  assert.match(webLobby, /getWebEventLobbyGateState/);
+  assert.match(webLobby, /getEventLobbyGateState/);
+  assert.match(readFileSync(join(root, "src/lib/eventLobbyGating.ts"), "utf8"), /@clientShared\/eventLobbyGate/);
+  assert.match(readFileSync(join(root, "src/lib/eventLobbyGating.ts"), "utf8"), /getEventLobbyInactiveReasonForEvent/);
   assert.match(webLobby, /const deckEnabled = lobbyGate\.canFetchDeck/);
   assert.match(useEventDetails, /archivedAt: data\.archived_at \? new Date\(data\.archived_at\) : null/);
   assert.match(useEventDetails, /endedAt: data\.ended_at \? new Date\(data\.ended_at\) : null/);
   assert.match(webLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
   assert.match(webLobby, /const lobbyActionsEnabled =\s*lobbyGate\.canUseLobbyActions && !showEventEndedModal/);
+  assert.match(webLobby, /serverInactiveReason: eventInactiveReasonOverride/);
   assert.match(webLobby, /const deckFetchEnabled = deckEnabled && !readyGatePressureActive/);
   assert.match(webLobby, /useEventDeck\(\{[\s\S]*enabled: deckFetchEnabled/);
   assert.match(webLobby, /useEventStatus\(\{\s*eventId,\s*enabled: lobbySideEffectsEnabled,\s*\}\)/);
@@ -158,6 +223,17 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(webLobby, /const swipeControlsDisabled =[\s\S]*currentSwipePending[\s\S]*!lobbyActionsEnabled[\s\S]*swipeRateLimited/);
   assert.match(webLobby, /disabled=\{swipeControlsDisabled\}/);
   assert.match(webLobby, /readyGateOverlayAllowed/);
+  assert.match(webLobby, /eventLobbyGateFromServerInactiveReason/);
+  assert.match(webLobby, /setEventInactiveReasonOverrideWithSource\(inactiveReason, "event"\)/);
+  assert.match(webLobby, /eventInactiveReasonOverrideSourceRef\.current !== "deck"/);
+  assert.match(webLobby, /hasRowField\("archived_at"\)/);
+  assert.match(webLobby, /row\.archived_at == null[\s\S]*\? null[\s\S]*new Date\(row\.archived_at\)/);
+  assert.match(webLobby, /const inactiveGate =\s*eventLobbyGateFromServerInactiveReason\(inactiveReason\)/);
+  assert.doesNotMatch(webLobby, /const status = \(row\.status \?\? ""\)\.toLowerCase\(\)/);
+  assert.match(
+    webLobby,
+    /deckState\?\.reason !== "event_not_active"[\s\S]*setEventInactiveReasonOverrideWithSource\(null, null\)/,
+  );
 });
 
 test("related hooks honor disabled state instead of polling or writing stale lobby status", () => {
@@ -172,9 +248,12 @@ test("related hooks honor disabled state instead of polling or writing stale lob
 test("native EventLobby blocks stale deck, status, foreground, and queue side effects with the same local truths", () => {
   assert.match(nativeEventsApi, /archived_at\?: string \| null/);
   assert.match(nativeEventsApi, /ended_at\?: string \| null/);
-  assert.match(nativeLobby, /const lobbySideEffectsEnabled = Boolean\(/);
-  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\(/);
-  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+isConfirmedRegistration[\s\S]+!pauseStatus\.isPaused[\s\S]+!isEventCancelled[\s\S]+!isEventArchived[\s\S]+!isEventDraft[\s\S]+!isEventEndedByTruth[\s\S]+resolvedEventLifecycle\?\.isLive/);
+  assert.match(nativeLobby, /getEventLobbyGateState/);
+  assert.match(nativeLobby, /getEventLobbyInactiveReasonForEvent/);
+  assert.match(nativeLobby, /@clientShared\/eventLobbyGate/);
+  assert.match(nativeLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
+  assert.match(nativeLobby, /lobbyGate\.canFetchDeck && !readyGatePressureActive/);
+  assert.doesNotMatch(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+resolvedEventLifecycle\?\.isLive[\s\S]+!readyGatePressureActive/);
   assert.match(
     nativeLobby,
     /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled,\s*\{[\s\S]*refetchIntervalMs: deckAdaptiveRefetchIntervalMs[\s\S]*\}\s*\)/,
@@ -183,13 +262,24 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
   assert.match(nativeLobby, /resolveEventLifecycle/);
+  assert.match(nativeLobby, /if \(lobbyGate\.kind !== "live" && lobbyGate\.kind !== "paused"\)/);
+  assert.match(nativeLobby, /eventLobbyGateFromServerInactiveReason/);
   assert.match(
     nativeLobby,
-    /if \(row\.ended_at \|\| status === ['"]ended['"] \|\| status === ['"]completed['"]\)\s*setShowEventEndedModal\(true\)/,
+    /const inactiveGate =\s*eventLobbyGateFromServerInactiveReason\(inactiveReason\)/,
   );
+  assert.match(nativeLobby, /if \(!inactiveGate\) \{[\s\S]*setShowEventEndedModal\(false\);[\s\S]*return;[\s\S]*\}/);
+  assert.match(nativeLobby, /if \(inactiveGate\.kind === "ended"\) \{[\s\S]*setShowEventEndedModal\(true\)/);
+  assert.match(nativeLobby, /setServerInactiveEventReasonWithSource\(inactiveReason, "event"\)/);
+  assert.match(nativeLobby, /serverInactiveEventReasonSourceRef\.current !== "deck"/);
+  assert.match(nativeLobby, /hasRowField\("archived_at"\)/);
+  assert.match(nativeLobby, /hasRowField\("ended_at"\) \? row\.ended_at : eventEndedAt/);
+  assert.match(nativeLobby, /queryClient\.invalidateQueries\(\{ queryKey: \["event-details", id\] \}\)/);
+  assert.doesNotMatch(nativeLobby, /if \(isEventEndedByTruth\) \{\s*setShowEventEndedModal\(true\);\s*return;\s*\}/);
+  assert.doesNotMatch(nativeLobby, /const status = \(row\.status \?\? ""\)\.toLowerCase\(\)/);
   assert.match(
     nativeLobby,
-    /status === ['"]cancelled['"][\s\S]*status === ['"]archived['"][\s\S]*status === ['"]draft['"][\s\S]*row\.archived_at/,
+    /inactiveGate\.kind === "cancelled"[\s\S]*inactiveGate\.kind === "archived"[\s\S]*inactiveGate\.kind === "draft"/,
   );
   assert.match(nativeEventsApi, /resolveEventLifecycle/);
   assert.match(nativeEventStatus, /enabledRef/);
