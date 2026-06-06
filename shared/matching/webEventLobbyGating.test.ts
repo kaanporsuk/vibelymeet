@@ -12,6 +12,7 @@ const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const useEventDetails = readFileSync(join(root, "src/hooks/useEventDetails.ts"), "utf8");
 const useEventDeck = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
 const useMatchQueue = readFileSync(join(root, "src/hooks/useMatchQueue.ts"), "utf8");
+const useMysteryMatch = readFileSync(join(root, "src/hooks/useMysteryMatch.ts"), "utf8");
 const useEventStatus = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
 const useEvents = readFileSync(join(root, "src/hooks/useEvents.ts"), "utf8");
 const dashboard = readFileSync(join(root, "src/pages/Dashboard.tsx"), "utf8");
@@ -213,6 +214,10 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(webLobby, /useEventDeck\(\{[\s\S]*enabled: deckFetchEnabled/);
   assert.match(webLobby, /useEventStatus\(\{\s*eventId,\s*enabled: lobbySideEffectsEnabled,\s*\}\)/);
   assert.match(webLobby, /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/);
+  assert.match(webLobby, /const mysteryMatchEnabled = lobbySideEffectsEnabled/);
+  assert.match(webLobby, /useMysteryMatch\(\{[\s\S]*enabled: mysteryMatchEnabled/);
+  assert.match(useMysteryMatch, /if \(!enabled \|\| intervalRef\.current \|\| isWaiting\) return/);
+  assert.match(useMysteryMatch, /if \(!enabled\) \{[\s\S]*resetSearchAndWaiting\(\)/);
   assert.match(webLobby, /LobbyUnavailableState/);
   assert.match(webLobby, /EventEndedModal isOpen=\{showEventEndedModal\}/);
   assert.match(

@@ -70,6 +70,8 @@ test("queue and lobby state surfaces render rich queue details and honor retry v
 test("event lobby keeps settled deck UI mounted during background deck refresh", () => {
   const webLobby = read("src/pages/EventLobby.tsx");
   const webDeckHook = read("src/hooks/useEventDeck.ts");
+  const webEmptyState = read("src/components/lobby/LobbyEmptyState.tsx");
+  const webMysteryHook = read("src/hooks/useMysteryMatch.ts");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
   const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
 
@@ -83,14 +85,26 @@ test("event lobby keeps settled deck UI mounted during background deck refresh",
   assert.match(webLobby, /deckLoading && sortedProfiles\.length === 0 && !deckError/);
   assert.match(webLobby, /<LobbyEmptyState/);
   assert.match(webLobby, /const currentProfile = sortedProfiles\[0\] \|\| null/);
-  assert.match(webLobby, /queryClient\.invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\.id\] \}\)/);
+  assert.match(webLobby, /queryClient\.invalidateQueries\(\{\s*queryKey: \["event-deck", eventId, user\.id\],?\s*\}\)/);
   assert.match(webLobby, /table:\s*"event_registrations"/);
   assert.match(webLobby, /table:\s*"video_sessions"/);
+  assert.match(webLobby, /import \{ useMysteryMatch \} from "@\/hooks\/useMysteryMatch"/);
+  assert.match(webLobby, /const mysteryMatchEnabled = lobbySideEffectsEnabled/);
+  assert.match(webLobby, /useMysteryMatch\(\{[\s\S]*enabled: mysteryMatchEnabled[\s\S]*openReadyGateSession\(sessionId, "mystery_match"\)[\s\S]*scheduleLobbyConvergenceRefresh\(sessionId, "mystery_match"\)/);
+  assert.match(webLobby, /showMysteryMatch=\{[\s\S]*emptyDeckUiState\.showMysteryMatch[\s\S]*mysteryMatchEnabled/);
+  assert.match(webEmptyState, /Mystery Match \(optional\)/);
+  assert.match(webEmptyState, /LobbyPostDateEvents\.MYSTERY_MATCH_CTA_TAP/);
+  assert.match(webEmptyState, /LobbyPostDateEvents\.MYSTERY_MATCH_CTA_IMPRESSION/);
+  assert.match(webEmptyState, /No thanks, I'll wait/);
+  assert.match(webMysteryHook, /supabase\.rpc\("find_mystery_match"/);
+  assert.match(webMysteryHook, /platform: "web"/);
+  assert.match(webMysteryHook, /LobbyPostDateEvents\.MYSTERY_MATCH_OUTCOME/);
+  assert.match(webMysteryHook, /LobbyPostDateEvents\.MYSTERY_MATCH_CANCEL/);
 
   assert.match(nativeLobby, /deckLoading && !hasCards/);
   assert.match(nativeLobby, /Mystery Match \(optional\)/);
   assert.match(nativeLobby, /const current = sortedProfiles\[0\] \?\? null/);
-  assert.match(nativeLobby, /queryClient\.invalidateQueries\(\{ queryKey: \['event-deck', id, user\.id\] \}\)/);
-  assert.match(nativeLobby, /table:\s*'event_registrations'/);
-  assert.match(nativeLobby, /table:\s*'video_sessions'/);
+  assert.match(nativeLobby, /queryClient\.invalidateQueries\(\{\s*queryKey: \["event-deck", id, user\.id\],?\s*\}\)/);
+  assert.match(nativeLobby, /table:\s*["']event_registrations["']/);
+  assert.match(nativeLobby, /table:\s*["']video_sessions["']/);
 });

@@ -15,6 +15,11 @@ interface LobbyEmptyStateProps {
   actionLabel?: string;
   showRefreshIcon?: boolean;
   onAction?: () => void;
+  showMysteryMatch?: boolean;
+  isMysterySearching?: boolean;
+  isMysteryWaiting?: boolean;
+  onMysteryMatch?: () => void;
+  onCancelMysteryMatch?: () => void;
 }
 
 const LobbyEmptyState = ({
@@ -27,13 +32,24 @@ const LobbyEmptyState = ({
   actionLabel = "Refresh now",
   showRefreshIcon = true,
   onAction,
+  showMysteryMatch = false,
+  isMysterySearching = false,
+  isMysteryWaiting = false,
+  onMysteryMatch,
+  onCancelMysteryMatch,
 }: LobbyEmptyStateProps) => {
   const impressionRef = useRef(false);
+  const mysteryImpressionRef = useRef(false);
   const prefersReducedMotion = useReducedMotion();
+  const canShowMysteryMatch = showMysteryMatch && Boolean(onMysteryMatch);
 
   useEffect(() => {
     impressionRef.current = false;
   }, [eventId]);
+
+  useEffect(() => {
+    mysteryImpressionRef.current = false;
+  }, [eventId, canShowMysteryMatch]);
 
   useEffect(() => {
     if (!eventId || impressionRef.current) return;
@@ -44,6 +60,22 @@ const LobbyEmptyState = ({
     });
   }, [eventId]);
 
+  useEffect(() => {
+    if (
+      !eventId ||
+      !canShowMysteryMatch ||
+      isMysteryWaiting ||
+      mysteryImpressionRef.current
+    ) {
+      return;
+    }
+    mysteryImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_IMPRESSION, {
+      platform: "web",
+      event_id: eventId,
+    });
+  }, [canShowMysteryMatch, eventId, isMysteryWaiting]);
+
   const handleRefresh = () => {
     if (eventId) {
       trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP, {
@@ -53,6 +85,23 @@ const LobbyEmptyState = ({
     }
     onRefresh();
   };
+
+  const handleMysteryMatch = () => {
+    if (eventId) {
+      trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_TAP, {
+        platform: "web",
+        event_id: eventId,
+      });
+    }
+    onMysteryMatch?.();
+  };
+
+  const displayBadge = isMysteryWaiting ? "Still checking" : (badge ?? "Deck clear");
+  const displayTitle = isMysteryWaiting ? "Hang tight!" : (title ?? "You've seen everyone for now");
+  const displayMessage = isMysteryWaiting
+    ? "New people may join the event. We'll refresh your deck automatically."
+    : (message ??
+      "More people may join the room — your deck refreshes every few seconds. Tap refresh if you don't want to wait.");
 
   return (
     <motion.div
@@ -83,28 +132,61 @@ const LobbyEmptyState = ({
           <div className="min-w-0 space-y-2" role="status" aria-live="polite">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white/60 mx-auto">
               <Radio className="w-3 h-3 text-neon-cyan" />
-              {badge ?? "Deck clear"}
+              {displayBadge}
             </div>
             <h3 className="text-xl font-display font-bold text-white tracking-tight break-words">
-              {title ?? "You've seen everyone for now"}
+              {displayTitle}
             </h3>
             <p className="text-sm text-white/55 leading-relaxed break-words">
-              {message ??
-                "More people may join the room — your deck refreshes every few seconds. Tap refresh if you don't want to wait."}
+              {displayMessage}
             </p>
           </div>
 
-          {showAction ? (
-            <Button
-              variant="outline"
-              size="default"
-              onClick={onAction ?? handleRefresh}
-              className="min-h-11 gap-2 whitespace-normal border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
-            >
-              {showRefreshIcon ? <RefreshCw className="w-4 h-4" /> : null}
-              {actionLabel}
-            </Button>
-          ) : null}
+          {isMysteryWaiting ? (
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Checking for new arrivals...
+              </div>
+              <Button
+                variant="ghost"
+                size="default"
+                onClick={onCancelMysteryMatch}
+                className="min-h-11 whitespace-normal text-white/70 hover:bg-white/[0.06] hover:text-white"
+              >
+                No thanks, I'll wait
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3">
+              {showAction ? (
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={onAction ?? handleRefresh}
+                  className="min-h-11 gap-2 whitespace-normal border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
+                >
+                  {showRefreshIcon ? <RefreshCw className="w-4 h-4" /> : null}
+                  {actionLabel}
+                </Button>
+              ) : null}
+              {canShowMysteryMatch ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="default"
+                  onClick={handleMysteryMatch}
+                  disabled={isMysterySearching}
+                  className="min-h-11 gap-2 whitespace-normal border border-white/10 bg-white/[0.03] px-4 text-white/80 hover:bg-white/[0.08] hover:text-white disabled:opacity-60"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {isMysterySearching
+                    ? "Finding match..."
+                    : "Mystery Match (optional)"}
+                </Button>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
