@@ -1,6 +1,6 @@
 # Video Date Post-Release Monitoring Runbook
 
-Current recovery overlay (2026-06-06): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions. The lifecycle false-away and review-comment follow-ups add `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, and `20260605222458_review_comments_helper_name_repair.sql`; lifecycle reconnect graces must be suppressed or cleared when fresh Daily joined, remote-media, or current unexpired `video_date` surface evidence proves the date is still live. The single-owner runtime hardening adds `20260605232304_video_date_single_owner_runtime_hardening.sql`: active date/survey route ownership must suppress lobby/Ready Gate Daily prepare churn, transition/queue/surface RPCs should return structured retryable JSON instead of raw 500s, `video_date_surface_claim_events` should preserve claim history, and stuck-client observability should retain same-session continuity and singleton parking fields. The third-pass native notification audit adds one monitoring lesson: `/date/:sessionId` notification taps that reconcile to pending-survey terminal truth must mark route ownership and land on the Date stack, not lobby/tabs. Latest failed session `4082fe36-8480-4d30-9a1d-1de227b855e3` remains the failure baseline; the next monitoring focus is whether the new owner boundary holds through survey completion. Verify current Git and deployment state before assuming no docs-only follow-up sits on top. Static/CI/cloud checks passed for this implementation, but the fresh manual two-user match -> survey acceptance run is still unproven.
+Current recovery overlay (2026-06-06): for active Video Date recovery, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions. The lifecycle false-away and review-comment follow-ups add `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, and `20260605222458_review_comments_helper_name_repair.sql`; lifecycle reconnect graces must be suppressed or cleared when fresh Daily joined, remote-media, or current unexpired `video_date` surface evidence proves the date is still live. The single-owner runtime hardening adds `20260605232304_video_date_single_owner_runtime_hardening.sql`: active date/survey route ownership must suppress lobby/Ready Gate Daily prepare churn, transition/queue/surface RPCs should return structured retryable JSON instead of raw 500s, `video_date_surface_claim_events` should preserve claim history, and stuck-client observability should retain same-session continuity and singleton parking fields. The latest owner/stable-copresence implementation adds shared date-entry and Daily owner contracts in code plus local migration `20260606180000_video_date_stable_copresence_handshake_guard.sql`, which is dry-run validated but intentionally not cloud-applied until heartbeat-capable web/native/mobile clients are deployed. The third-pass native notification audit adds one monitoring lesson: `/date/:sessionId` notification taps that reconcile to pending-survey terminal truth must mark route ownership and land on the Date stack, not lobby/tabs. Latest failed session `4082fe36-8480-4d30-9a1d-1de227b855e3` remains the failure baseline; the next monitoring focus is whether the new owner boundary holds through survey completion. Verify current Git and deployment state before assuming no docs-only follow-up sits on top. Static/CI/cloud checks can verify implementation only; the fresh manual two-user match -> survey acceptance run is still unproven.
 
 ## Release Baseline
 
@@ -14,7 +14,7 @@ Current 2026-06-05 recovery baseline:
 - Prior recovery hardening PR: `https://github.com/kaanporsuk/vibelymeet/pull/1196`.
 - Functional stabilization PR: `https://github.com/kaanporsuk/vibelymeet/pull/1194`.
 - Supabase project: `schdyxcunwcvddlcshwd`.
-- Latest applied/expected Video Date recovery migrations: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, `20260605115657_video_date_early_confirmed_encounter_promotion.sql`, `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, `20260605152058_video_date_pending_survey_registration_repair.sql`, `20260605170249_video_date_surface_owner_outer_failsoft.sql`, `20260605174703_video_date_vibe_question_outer_base_name_repair.sql`, `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, `20260605222458_review_comments_helper_name_repair.sql`, and `20260605232304_video_date_single_owner_runtime_hardening.sql`.
+- Latest applied/expected Video Date recovery migrations: `20260604142017_video_date_active_presence_join_guard.sql`, `20260604170438_video_date_warmup_reconnect_stability.sql`, `20260604193140_video_date_latest_presence_grace_repair.sql`, `20260604205645_video_date_remote_seen_latest_state.sql`, `20260605085010_video_date_confirmed_encounter_deadline_rescue.sql`, `20260605115657_video_date_early_confirmed_encounter_promotion.sql`, `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, `20260605152058_video_date_pending_survey_registration_repair.sql`, `20260605170249_video_date_surface_owner_outer_failsoft.sql`, `20260605174703_video_date_vibe_question_outer_base_name_repair.sql`, `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, `20260605222458_review_comments_helper_name_repair.sql`, and `20260605232304_video_date_single_owner_runtime_hardening.sql`. Coordinated rollout migration `20260606180000_video_date_stable_copresence_handshake_guard.sql` is local/dry-run validated and should be pushed only after matching clients are live.
 - Post-deploy database status: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` reported the remote database is up to date after `20260605232304`.
 - Supabase schema lint completed after the latest migration with no error-level issues; warning-level items were pre-existing and unrelated to the terminal-survey or lifecycle false-away migrations.
 - Acceptance caveat: no fresh deployed manual two-user match -> survey run has passed yet. Treat this runbook as monitoring guidance, not recovery closure.
@@ -54,6 +54,12 @@ Use these keys consistently across PostHog, Sentry, Supabase Edge logs, and supp
 - `outcome`
 - `reason_code`
 - `retryable`
+- `video_date_trace_id`
+- `owner_id`
+- `owner_state`
+- `entry_attempt_id`
+- `call_instance_id`
+- `provider_session_id`
 
 Never paste Daily meeting tokens, auth headers, provider secrets, raw profile objects, or full unbounded error objects into tickets or dashboards.
 
@@ -64,6 +70,7 @@ Check:
 - Vercel production deployment is healthy for the release commit.
 - Supabase functions are ACTIVE for the current v4.2 surface: `daily-room`, `video-date-snapshot`, `video-date-outbox-drainer`, `video-date-deadline-finalizer`, `video-date-daily-webhook`, `video-date-orphan-room-cleanup`, `video-date-recovery-alert-dispatcher`, `synthetic-video-date-monitor`, `post-date-verdict`, `swipe-actions`, and `admin-video-date-ops`.
 - Current Video Date recovery migrations through `20260605232304_video_date_single_owner_runtime_hardening.sql` are local and remote, and `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup` should be deployed with provider-delete markers instead of room-metadata nulling.
+- If `20260606180000_video_date_stable_copresence_handshake_guard.sql` is being prepared, confirm web/native/mobile clients in that environment send `mark_video_date_daily_alive` heartbeats before applying it.
 - Daily dashboard/service status is healthy.
 - PostHog/Sentry search by `session_id` and `event_id` is ready.
 - Native build or OTA carrying the v4.2 Video Date client surface is delivered before native QA; manual native smoke is recorded through the Phase 8 ledger.
@@ -230,6 +237,7 @@ Monitor PostHog:
 - `daily_call_busy_internal_retry`
 - `remote_seen_canonical_repair_failed`
 - `remote_seen_canonical_repaired`
+- `daily_owner_provider_left_unexpected`
 
 Monitor Edge logs:
 
@@ -252,6 +260,8 @@ Monitor Supabase active-presence evidence:
 - `event_loop_observability_events.reason_code` / `detail` values `reconnect_grace_cleared_by_daily_join`, `reconnect_grace_cleared_by_provider_join`, `reconnect_grace_cleared_by_return`, `reconnect_grace_expiry_suppressed_latest_presence`, `mark_reconnect_self_away_suppressed_active_daily_presence`, and `daily_transport_grace_expired`
 - `event_loop_observability_events.detail` values `same_session_daily_continuity_latched`, `parked_singleton`, `truth_refresh_attempt`, `route_owned`, and `active_call_session_id_matches`
 - `video_date_surface_claim_events` rows for `claim` / `claim_exception`, ordered by `created_at`
+- `video_date_presence_events` rows for `provider_daily_joined`, `provider_daily_left`, `client_daily_alive`, `owner_heartbeat`, `remote_seen`, and lifecycle decisions after `20260606180000` is applied
+- `mark_video_date_daily_alive` responses with `waiting_for_stable_copresence`, `stable_copresence`, `latest_joined_at`, `latest_left_at`, `latest_owner_heartbeat_at`, `owner_id`, `owner_state`, `call_instance_id`, `provider_session_id`, and `entry_attempt_id`
 
 Healthy signals:
 
@@ -259,6 +269,7 @@ Healthy signals:
 - Prepare success includes `entry_attempt_id`.
 - Both users join the same Daily room name.
 - The latest Daily webhook state for both users is joined, not later left, before handshake starts.
+- After stable-copresence rollout, both users keep fresh latest owner heartbeats within 15 seconds after the later joined time, and either the first qualifying bilateral owner-heartbeat pair has been stable for at least 2 seconds or canonical remote-seen exists before handshake starts.
 - `video_date_remote_seen` or `video_date_first_remote_frame` appears after both joins.
 - Same-session Daily call reuse appears when a second start request occurs while the call is already joining/joined; cleanup diagnostics do not show repeated `leave()` / `destroy()` for the same room.
 - Return evidence clears `reconnect_grace_ends_at` before expiry when the user rejoins or remote media is seen.
@@ -275,6 +286,8 @@ Warning signals:
 - `participant_*_joined_at` exists for both users but one user also has a later `participant_*_away_at`; this is stale join history, not active co-presence.
 - `daily_call_cleanup` appears repeatedly for the same session and room while meeting state is joining/joined.
 - Canonical `remote_seen` repair failures appear after local remote media evidence.
+- `waiting_for_stable_copresence` persists longer than 15 seconds even though both users appear to be in the same Daily room.
+- `daily_owner_provider_left_unexpected` appears once and is followed by a clean owner restart/rejoin.
 
 Red-alert signals:
 
@@ -285,6 +298,8 @@ Red-alert signals:
 - `/date/:sessionId`, `/ready/:sessionId`, and event lobby cycle repeatedly for an already active `in_handshake` / `in_date` / `in_survey` session.
 - A native notification tap for an ended survey-eligible session with no feedback opens lobby/tabs instead of `/date/:sessionId`.
 - `handshake_started_at` advances when one participant's latest provider event is `participant.left`.
+- After `20260606180000`, handshake/date promotion starts while `video_date_stable_copresence_v1` would still return `waiting_for_stable_copresence=true` and no canonical remote-seen exists.
+- Repeated owner heartbeat rows show multiple active `owner_id` / `call_instance_id` values for the same `{session_id,user_id,room_name}` without terminal/failed/lost release evidence.
 - `web_visibilitychange` or native background creates backend away while Daily is active.
 - `reconnect_grace_expired` fires despite newer client/provider join or remote-seen evidence.
 - Raw HTTP 500s appear from `video_date_transition`, `get_video_date_queue_hint_v1`, `drain_match_queue_v2`, or `claim_video_date_surface`.

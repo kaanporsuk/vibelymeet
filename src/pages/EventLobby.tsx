@@ -48,6 +48,7 @@ import { useActiveSession } from "@/hooks/useActiveSession";
 import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import { updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
 import { preloadRoute, preloadRouteOnIdle } from "@/lib/routePreload";
 import { toast } from "sonner";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
@@ -1012,6 +1013,14 @@ const EventLobby = () => {
         source_action: source,
       });
       const navigateAfterPrepare = (nextSource: string) => {
+        if (user?.id) {
+          updateVideoDateEntryOwnerState({
+            sessionId,
+            userId: user.id,
+            state: "navigating",
+            source: `event_lobby_${nextSource}`,
+          });
+        }
         const navigationContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
           platform: "web",

@@ -52,6 +52,11 @@ import {
 } from "@clientShared/matching/dailyRoomFailure";
 import { shouldRefreshDailyTokenBeforeReconnect } from "@clientShared/matching/videoDatePhase4";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
+import {
+  getVideoDateEntryOwner,
+  updateVideoDateDailyOwnerState,
+  updateVideoDateEntryOwnerState,
+} from "@clientShared/matching/videoDateEntryOwner";
 import { adviseVideoDateTokenRecovery } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
   VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER,
@@ -132,6 +137,7 @@ const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
 const WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000;
 const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_MS = 8_000;
 const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_POLL_MS = 150;
+const VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS = 3_000;
 
 export type VideoDateMediaPromptIntent = "auto" | "user_retry";
 
@@ -279,6 +285,21 @@ function safeMeetingState(call: Pick<DailyCall, "meetingState"> | null | undefin
     return typeof state === "string" ? state : state == null ? null : String(state);
   } catch {
     return "error";
+  }
+}
+
+function readDailyProviderSessionId(call: DailyCall | null): string | null {
+  if (!call) return null;
+  try {
+    const local = call.participants().local as
+      | { session_id?: unknown; sessionId?: unknown }
+      | undefined;
+    const sessionId = local?.session_id ?? local?.sessionId;
+    return typeof sessionId === "string" && sessionId.length > 0
+      ? sessionId
+      : null;
+  } catch {
+    return null;
   }
 }
 
@@ -1134,6 +1155,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const dailyEventListenerCleanupsRef = useRef<Array<() => void>>([]);
   const dailyTokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dailyTokenRecoveryInFlightRef = useRef(false);
+  const dailyAliveHeartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dailyAliveHeartbeatKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -1196,6 +1219,133 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     clearTimeout(dailyTokenRefreshTimerRef.current);
     dailyTokenRefreshTimerRef.current = null;
   }, []);
+
+  const clearDailyAliveHeartbeatTimer = useCallback((reason: string) => {
+    if (dailyAliveHeartbeatTimerRef.current) {
+      clearInterval(dailyAliveHeartbeatTimerRef.current);
+      dailyAliveHeartbeatTimerRef.current = null;
+    }
+    if (dailyAliveHeartbeatKeyRef.current) {
+      vdbg("mark_video_date_daily_alive_stopped", {
+        reason,
+        heartbeatKey: dailyAliveHeartbeatKeyRef.current,
+      });
+      dailyAliveHeartbeatKeyRef.current = null;
+    }
+  }, []);
+
+  const markVideoDateDailyAlive = useCallback(
+    async (input: {
+      sessionId: string;
+      userId: string;
+      roomName: string | null;
+      entryAttemptId?: string | null;
+      videoDateTraceId?: string | null;
+      callInstanceId?: string | null;
+      source: string;
+    }) => {
+      const call = callObjectRef.current;
+      const providerSessionId = readDailyProviderSessionId(call);
+      const entryOwner = getVideoDateEntryOwner(input.sessionId, input.userId);
+      const ownerId = entryOwner?.ownerId ?? null;
+      updateVideoDateDailyOwnerState({
+        sessionId: input.sessionId,
+        userId: input.userId,
+        ownerId,
+        roomName: input.roomName,
+        state: "joined",
+        source: input.source,
+        entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+        videoDateTraceId:
+          input.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
+        callInstanceId: input.callInstanceId ?? null,
+        providerSessionId,
+      });
+      updateVideoDateEntryOwnerState({
+        sessionId: input.sessionId,
+        userId: input.userId,
+        ownerId,
+        state: "joined",
+        source: input.source,
+        roomName: input.roomName,
+        entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+        videoDateTraceId:
+          input.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
+        callInstanceId: input.callInstanceId ?? null,
+        providerSessionId,
+      });
+      const args = {
+        p_session_id: input.sessionId,
+        p_owner_id: ownerId,
+        p_call_instance_id: input.callInstanceId ?? null,
+        p_provider_session_id: providerSessionId,
+        p_entry_attempt_id: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+        p_owner_state: "joined",
+      };
+      try {
+        const { data, error } = await (supabase as unknown as {
+          rpc: (
+            name: string,
+            args: Record<string, unknown>,
+          ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+        }).rpc("mark_video_date_daily_alive", args);
+        vdbg("mark_video_date_daily_alive_after", {
+          sessionId: input.sessionId,
+          userId: input.userId,
+          roomName: input.roomName,
+          source: input.source,
+          ownerId,
+          callInstanceId: input.callInstanceId ?? null,
+          providerSessionId,
+          payload: data ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+        });
+      } catch (error) {
+        vdbg("mark_video_date_daily_alive_failed", {
+          sessionId: input.sessionId,
+          userId: input.userId,
+          roomName: input.roomName,
+          source: input.source,
+          ownerId,
+          callInstanceId: input.callInstanceId ?? null,
+          providerSessionId,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        });
+      }
+    },
+    [],
+  );
+
+  const startDailyAliveHeartbeat = useCallback(
+    (input: {
+      sessionId: string;
+      userId: string;
+      roomName: string | null;
+      entryAttemptId?: string | null;
+      videoDateTraceId?: string | null;
+      callInstanceId?: string | null;
+      source: string;
+    }) => {
+      const heartbeatKey = `${input.sessionId}:${input.userId}:${input.roomName ?? ""}:${input.callInstanceId ?? ""}`;
+      if (dailyAliveHeartbeatKeyRef.current === heartbeatKey) {
+        void markVideoDateDailyAlive(input);
+        return;
+      }
+      clearDailyAliveHeartbeatTimer("heartbeat_replaced");
+      dailyAliveHeartbeatKeyRef.current = heartbeatKey;
+      void markVideoDateDailyAlive(input);
+      dailyAliveHeartbeatTimerRef.current = setInterval(() => {
+        void markVideoDateDailyAlive({
+          ...input,
+          source: "daily_alive_heartbeat",
+        });
+      }, VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS);
+    },
+    [clearDailyAliveHeartbeatTimer, markVideoDateDailyAlive],
+  );
 
   useEffect(() => {
     const sessionId = options?.roomId ?? null;
@@ -1400,6 +1550,31 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             remoteSeenInFlightSessionRef.current = null;
           }
           remoteSeenLastStampRef.current = { sessionId: activeSessionId, stampedAtMs: Date.now() };
+          if (userId) {
+            const entryOwner = getVideoDateEntryOwner(activeSessionId, userId);
+            updateVideoDateEntryOwnerState({
+              sessionId: activeSessionId,
+              userId,
+              ownerId: entryOwner?.ownerId ?? null,
+              state: "remote_seen",
+              source: `remote_seen_${attemptSource}`,
+              roomName: roomNameRef.current,
+              entryAttemptId: entryOwner?.entryAttemptId ?? null,
+              videoDateTraceId: entryOwner?.videoDateTraceId ?? null,
+              providerSessionId: readDailyProviderSessionId(callObjectRef.current),
+            });
+            updateVideoDateDailyOwnerState({
+              sessionId: activeSessionId,
+              userId,
+              ownerId: entryOwner?.ownerId ?? null,
+              roomName: roomNameRef.current,
+              state: "remote_seen",
+              source: `remote_seen_${attemptSource}`,
+              entryAttemptId: entryOwner?.entryAttemptId ?? null,
+              videoDateTraceId: entryOwner?.videoDateTraceId ?? null,
+              providerSessionId: readDailyProviderSessionId(callObjectRef.current),
+            });
+          }
           vdbg("mark_video_date_remote_seen_after", {
             sessionId,
             eventId,
@@ -3081,6 +3256,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           callObjectRef.current = null;
         }
         if (!parkedSingleton) {
+          clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
+        }
+        if (!parkedSingleton) {
           activeCallSessionIdRef.current = null;
           clearSameSessionDailyContinuity(sessionId, `daily_call_cleanup:${reason}`);
         }
@@ -3178,6 +3356,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     },
     [
       clearDailyEventListeners,
+      clearDailyAliveHeartbeatTimer,
       clearDailyTokenRefreshTimer,
       clearSameSessionDailyContinuity,
       clearFirstRemoteWatchdog,
@@ -5014,6 +5193,40 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         bindDailyEvent("left-meeting", () => {
           if (!isCurrentDailyListener()) return;
+          const ownerBeforeLeft = userId
+            ? getVideoDateEntryOwner(sessionId, userId)
+            : null;
+          const providerSessionId = readDailyProviderSessionId(callObject);
+          if (
+            userId &&
+            ownerBeforeLeft &&
+            activeCallSessionIdRef.current === sessionId
+          ) {
+            updateVideoDateDailyOwnerState({
+              sessionId,
+              userId,
+              ownerId: ownerBeforeLeft.ownerId,
+              roomName: roomData.room_name,
+              state: "lost",
+              source: "daily_owner_provider_left_unexpected",
+              entryAttemptId: ownerBeforeLeft.entryAttemptId ?? null,
+              videoDateTraceId: ownerBeforeLeft.videoDateTraceId ?? null,
+              providerSessionId,
+            });
+            void emitWebVideoDateClientStuckState({
+              sessionId,
+              eventName: "daily_owner_provider_left_unexpected",
+              dedupe: false,
+              payload: {
+                source_surface: "video_date_daily",
+                source_action: "daily_owner_provider_left_unexpected",
+                room_name: roomData.room_name,
+                owner_id: ownerBeforeLeft.ownerId,
+                owner_state: ownerBeforeLeft.state,
+                provider_session_id: providerSessionId ?? undefined,
+              },
+            });
+          }
           setDailyMeetingState("left-meeting");
           setLocalInDailyRoom(false);
           clearReconnectGrace("left_meeting", false);
@@ -5237,6 +5450,36 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const dailyJoinStartedAtMs = Date.now();
         dailyJoinStartedAtMsRef.current = dailyJoinStartedAtMs;
         latchSameSessionDailyContinuity(sessionId, "daily_join_started");
+        const dailyCallInstanceId = `${entryAttemptId ?? sessionId}:${startAttemptNonceRef.current}`;
+        const entryOwner = userId
+          ? getVideoDateEntryOwner(sessionId, userId)
+          : null;
+        if (userId) {
+          updateVideoDateEntryOwnerState({
+            sessionId,
+            userId,
+            ownerId: entryOwner?.ownerId ?? null,
+            state: "joining",
+            source: "daily_join_started",
+            roomName: roomData.room_name,
+            entryAttemptId: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+            videoDateTraceId:
+              videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
+            callInstanceId: dailyCallInstanceId,
+          });
+          updateVideoDateDailyOwnerState({
+            sessionId,
+            userId,
+            ownerId: entryOwner?.ownerId ?? null,
+            roomName: roomData.room_name,
+            state: "joining",
+            source: "daily_join_started",
+            entryAttemptId: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+            videoDateTraceId:
+              videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
+            callInstanceId: dailyCallInstanceId,
+          });
+        }
         const prepareToJoinStartMs = Math.max(0, dailyJoinStartedAtMs - roomResult.cacheEntry.prepareFinishedAtMs);
         const joinStartLatencyContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -5366,6 +5609,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         setDailyMeetingState(safeMeetingState(callObject) ?? "joined-meeting");
         setLocalInDailyRoom(true);
         scheduleDailyTokenRefresh("daily_join_success");
+        if (userId) {
+          startDailyAliveHeartbeat({
+            sessionId,
+            userId,
+            roomName: roomData.room_name,
+            entryAttemptId,
+            videoDateTraceId,
+            callInstanceId: dailyCallInstanceId,
+            source: "daily_join_success",
+          });
+        }
         vdbg("daily_join_success", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -5847,6 +6101,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       resetRemoteRenderRecoveryAttempts,
       resetRemoteRenderRecoveryForParticipant,
       scheduleRemoteRenderValidation,
+      startDailyAliveHeartbeat,
       clearRemoteRenderValidation,
       waitForInFlightStartCall,
     ]

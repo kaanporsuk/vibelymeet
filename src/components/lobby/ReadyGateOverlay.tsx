@@ -13,6 +13,7 @@ import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import { updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
 import { preloadRoute } from "@/lib/routePreload";
 import { videoDateWebMediaStreamConstraints } from "@/lib/dailyCallObjectConfig";
 import {
@@ -1548,6 +1549,17 @@ const ReadyGateOverlay = ({
             });
             if (!isCurrentPrepareRun()) return;
             if (result.ok === true) {
+              if (user?.id) {
+                updateVideoDateEntryOwnerState({
+                  sessionId,
+                  userId: user.id,
+                  state: "navigating",
+                  source: "ready_gate_prepare_success",
+                  roomName: result.data.room_name,
+                  entryAttemptId: result.data.entry_attempt_id ?? null,
+                  videoDateTraceId: result.data.video_date_trace_id ?? null,
+                });
+              }
               if (user?.id) {
                 const prewarmUserId = user.id;
                 const prewarmMedia = permissionPrewarmMediaRef.current;

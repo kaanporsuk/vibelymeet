@@ -572,7 +572,9 @@ export default function EventLobbyScreen() {
   ]);
 
   const deckQueryEnabled = Boolean(
-    lobbyGate.canFetchDeck && !readyGatePressureActive,
+    lobbyGate.canFetchDeck &&
+      resolvedEventLifecycle?.isLive &&
+      !readyGatePressureActive,
   );
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({
     queuedCount: 0,

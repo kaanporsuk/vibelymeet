@@ -11,6 +11,8 @@ Scope is primarily **client-side** (web + native). For **server-side queue / pro
 
 Current 2026-06-06 recovery overlay: start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; the current terminal-survey lifecycle hardening adds migrations `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup`. The lifecycle false-away and review-comment follow-ups add `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, and `20260605222458_review_comments_helper_name_repair.sql`. The single-owner runtime hardening adds `20260605232304_video_date_single_owner_runtime_hardening.sql`, which routes active date/survey ownership away from lobby/Ready Gate churn, adds append-only `video_date_surface_claim_events`, fail-softs transition/queue/surface RPCs, and preserves route ownership, same-session Daily continuity, singleton parking, and truth-refresh fields in client-stuck observability. The decisive Ready Gate mark-ready follow-up adds `20260606092944_video_date_decisive_mark_ready_commit.sql` and `20260606100511_video_date_mark_ready_lint_cleanup.sql`, which commit the actor ready timestamp and deterministic `both_ready` room metadata before observability/event/outbox work, preserve idempotent replay/retry recovery for all web/native/mobile callers, and keep the final live function clean in linked DB lint. Verify current Git state and Supabase migration state before assuming deployment. This changes triage order: first prove both `ready_participant_*_at` values committed and `video_session_mark_ready_v2` returned `decisive_mark_ready_commit=true`; only then triage Daily co-presence. Daily triage remains: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, browser lifecycle reasons `web_visibilitychange`, `web_freeze`, `web_beforeunload`, `web_pagehide`, and native `app_background` must not terminalize a live date while fresh joined, remote-media, or current unexpired video-date surface evidence exists, historical encounter proof must not suppress current peer-missing, `in_survey` must survive client offline writes until feedback, pre-hardening downgraded registrations still pointing at pending surveys must be repaired to `in_survey`, terminal room metadata should remain canonical for ended survey-eligible sessions, provider deletion belongs in `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason`, terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`, and native notification `/date/:sessionId` taps must route pending-survey terminal truth to the Date stack rather than falling back to lobby/tabs.
 
+Owner/stable-copresence overlay: current code adds shared date-entry ownership and route/session-level Daily ownership across web/native/mobile. Local migration `20260606180000_video_date_stable_copresence_handshake_guard.sql` adds service-only `video_date_presence_events`, `mark_video_date_daily_alive(...)`, and `video_date_stable_copresence_v1(session_id)`. This migration is dry-run validated but intentionally not cloud-applied until heartbeat-capable clients are deployed. After application, `mark_video_date_daily_joined` may return `waiting_for_stable_copresence=true`; clients must remain on `/date/:sessionId`, keep the owner alive, and continue `mark_video_date_daily_alive` heartbeats. Handshake/date lifecycle must not start from stale joined timestamps, one-second Daily overlap, or surface claims that are no longer current; remote-seen remains the strongest immediate promotion signal.
+
 Surface-owner follow-up: if a run shows duplicate-owner overlays, `claim_video_date_surface` conflicts, or `/date` remount churn for the same profile/session, inspect client identity stability before changing SQL. Web should reuse `vibely_vd_surface_client:${profileId}:${sessionId}` as the server-facing id while keeping tab-local leases separate. Native/mobile should reuse `vibely_vd_native_surface_client:${profileId}:${sessionId}` and must not surface-claim until the stored id has hydrated or a new stored id has been committed. Cleanup must be owner-tokened and delayed so an old unmount cannot release a fresh remount. Do not add backend same-session auto-reclaim as a shortcut; it would weaken true duplicate-device blocking.
 
 Latest failed-session overlay: production session `cac485cd-da3b-475b-aa4c-27b70cd914d6` for event `21497965-394a-45fe-8700-5d91bf927f65` did not reach Daily. Participant 2 committed `ready_b`, participant 1's mark-ready attempts returned SQLSTATE `57014` / `READY_GATE_TRANSITION_TIMEOUT`, no `both_ready` or Daily room metadata was created, and the session expired as `ready_gate_expired`. After `20260606092944`, a repeat of this pattern should be escalated with the exact `video_session_commands` rows, `commandStatus`, `retryable_command_reopened`, `reclaimed_processing_command`, `decisive_mark_ready_commit`, `ready_gate_expires_at`, and client retry breadcrumbs before any Daily diagnosis.
@@ -81,6 +83,9 @@ Expected behavior after the current recovery migrations:
 - The visible handshake starts only when both participants' latest Daily presence is active.
 - If the partner's latest Daily provider event is missing or is a later `participant.left`, the RPC should stay in waiting posture and emit `daily_join_waiting_for_active_partner`.
 - `handshake_started_after_active_daily_copresence` should appear only after both latest presences are active.
+- After `20260606180000` is applied, `handshake_started_after_active_daily_copresence` is legacy evidence only. New sessions should wait for `waiting_for_stable_copresence=false` from `mark_video_date_daily_joined` / `mark_video_date_daily_alive` and should log handshake start only after stable owner heartbeats or canonical remote-seen evidence.
+- `mark_video_date_daily_alive` should append owner heartbeat evidence with `owner_id`, `call_instance_id`, `provider_session_id`, `entry_attempt_id`, and `owner_state`. Both users' latest owner heartbeats should be fresh within 15 seconds and newer than the later of the two latest joined times before handshake starts, unless remote-seen is already canonical. The 2-second stability check is anchored to the first qualifying bilateral heartbeat pair after the later join; continuing heartbeat refreshes prove freshness but do not reset the stability timer.
+- If Daily emits `left-meeting` while the route/session owner is still joined, client observability should include `daily_owner_provider_left_unexpected`; that is a restart-through-owner signal, not a reason for lobby/Ready Gate to start a second call.
 - Web/native Daily `participant-left` should not call backend partner-away immediately. Backend grace should start only after local transport grace expires with `daily_transport_grace_expired`.
 - Browser lifecycle reasons `web_visibilitychange`, `web_freeze`, `web_beforeunload`, `web_pagehide`, and native `app_background` should be soft while Daily is joining/joined or the session is in handoff/warm-up/date. If a reconnect grace exists anyway, expiry must clear it instead of ending the session when latest joined, remote-media, or active `video_date` surface-claim evidence is fresh.
 - Surface-claim evidence is valid at reconnect-expiry time only when the `video_date` claim is still unreleased and unexpired at the expiry instant. A claim that was valid near the away timestamp but expired before `expire_video_date_reconnect_graces()` runs is historical evidence and must not suppress real disconnect expiry.
@@ -140,6 +145,35 @@ where session_id = '<video_session_id>'
    or room_name = '<daily_room_name>'
 order by occurred_at asc, processed_at asc;
 ```
+
+Read-only stable-copresence ledger shape after `20260606180000` is applied:
+
+```sql
+select
+  occurred_at,
+  session_id,
+  actor_id,
+  source,
+  event_type,
+  owner_id,
+  call_instance_id,
+  provider_session_id,
+  entry_attempt_id,
+  owner_state,
+  surface_client_id,
+  details
+from public.video_date_presence_events
+where session_id = '<video_session_id>'
+order by occurred_at asc, created_at asc;
+```
+
+Read-only stable-copresence decision shape:
+
+```sql
+select public.video_date_stable_copresence_v1('<video_session_id>'::uuid);
+```
+
+Expected result before handshake/date start: `stable_copresence=true` with both latest presences active, both latest owner heartbeats fresh, and `stable_copresence_since_at` at least 2 seconds old, or canonical remote-seen evidence present. If the helper reports `waiting_for_stable_copresence=true`, the client should stay in date/waiting posture and continue owner heartbeats instead of bouncing to Ready Gate/lobby or creating another Daily call.
 
 Read-only observability shape:
 
