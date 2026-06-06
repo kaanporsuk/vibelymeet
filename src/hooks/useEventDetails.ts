@@ -4,6 +4,10 @@ import { format, addMinutes } from "date-fns";
 import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import type { EventCategory } from "@clientShared/eventCategories";
+import {
+  resolveEventAdmissionReadiness,
+  type EventAdmissionReadinessSnapshot,
+} from "@clientShared/eventAdmissionReadiness";
 
 export interface EventDetails {
   id: string;
@@ -181,10 +185,9 @@ export const useEventDetails = (eventId: string | undefined) => {
 };
 
 /** Server admission: only `confirmed` may use lobby/deck; `waitlisted` is paid without capacity. */
-export type EventRegistrationSnapshot = {
-  isConfirmed: boolean;
-  isWaitlisted: boolean;
-};
+export type EventRegistrationSnapshot = EventAdmissionReadinessSnapshot;
+
+const EMPTY_EVENT_REGISTRATION_SNAPSHOT = resolveEventAdmissionReadiness();
 
 export const useIsRegisteredForEvent = (
   eventId: string | undefined,
@@ -198,24 +201,20 @@ export const useIsRegisteredForEvent = (
 
       const { data, error } = await supabase
         .from("event_registrations")
-        .select("admission_status")
+        .select("admission_status, payment_status")
         .eq("event_id", eventId)
         .eq("profile_id", userId)
         .maybeSingle();
 
       if (error) {
         console.error("Error checking registration:", error);
-        return { isConfirmed: false, isWaitlisted: false };
+        return EMPTY_EVENT_REGISTRATION_SNAPSHOT;
       }
 
-      if (!data?.admission_status) {
-        return { isConfirmed: false, isWaitlisted: false };
-      }
-
-      return {
-        isConfirmed: data.admission_status === "confirmed",
-        isWaitlisted: data.admission_status === "waitlisted",
-      };
+      return resolveEventAdmissionReadiness({
+        admission_status: data?.admission_status ?? null,
+        payment_status: data?.payment_status ?? null,
+      });
     },
   });
 };

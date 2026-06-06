@@ -66,6 +66,7 @@ import {
   matchesThisWeekendFilter,
   matchesThisWeekTimeFilter,
 } from '@clientShared/eventTimingBuckets';
+import { resolveEventCardLifecycle } from '@clientShared/eventCardLifecycle';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const TIME_FILTERS = [
@@ -154,43 +155,64 @@ const locationStyles = StyleSheet.create({
   primaryLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
 });
 
-// ── Countdown for featured card (HH:MM:SS until start, or "Live" / "Ended")
+type CountdownTimeLeft = {
+  hours: number;
+  minutes: number;
+  seconds: number;
+};
+
+const ZERO_TIME_LEFT: CountdownTimeLeft = { hours: 0, minutes: 0, seconds: 0 };
+
+function countdownFromMs(timeRemainingMs: number | null): CountdownTimeLeft {
+  if (timeRemainingMs == null || timeRemainingMs <= 0) return ZERO_TIME_LEFT;
+
+  return {
+    hours: Math.floor(timeRemainingMs / 3600000),
+    minutes: Math.floor((timeRemainingMs % 3600000) / 60000),
+    seconds: Math.floor((timeRemainingMs % 60000) / 1000),
+  };
+}
+
+function resolveMobileEventCardLifecycle(event: EventListItem | null) {
+  return resolveEventCardLifecycle({
+    status: event?.status ?? null,
+    eventDate: event?.eventDate ?? null,
+    durationMinutes: event?.duration_minutes ?? null,
+    archived_at: event?.archived_at ?? null,
+    ended_at: event?.ended_at ?? null,
+  });
+}
+
+// ── Countdown for featured card (HH:MM:SS until start, or lifecycle-backed "Live" / "Ended")
 function useFeaturedCountdown(event: EventListItem | null) {
-  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [isLive, setIsLive] = useState(false);
-  const [expired, setExpired] = useState(false);
+  const [cardLifecycle, setCardLifecycle] = useState(() => resolveMobileEventCardLifecycle(event));
+  const [timeLeft, setTimeLeft] = useState(() => countdownFromMs(resolveMobileEventCardLifecycle(event).timeRemainingMs));
   const eventId = event?.id ?? null;
-  const eventStartMs = event?.eventDate.getTime() ?? null;
-  const eventDurationMinutes = event?.duration_minutes ?? 60;
+  const eventDate = event?.eventDate ?? null;
+  const eventDateMs = eventDate?.getTime() ?? null;
+  const eventDurationMinutes = event?.duration_minutes ?? null;
+  const eventStatus = event?.status ?? null;
+  const eventArchivedAt = event?.archived_at ?? null;
+  const eventEndedAt = event?.ended_at ?? null;
+
   useEffect(() => {
-    if (eventStartMs === null) return;
-    const start = eventStartMs;
-    const end = start + eventDurationMinutes * 60 * 1000;
     const tick = () => {
-      const now = Date.now();
-      if (now >= end) {
-        setExpired(true);
-        setIsLive(false);
-        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      if (now >= start) {
-        setIsLive(true);
-        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      const diff = Math.floor((start - now) / 1000);
-      setTimeLeft({
-        hours: Math.floor(diff / 3600),
-        minutes: Math.floor((diff % 3600) / 60),
-        seconds: diff % 60,
+      const nextLifecycle = resolveEventCardLifecycle({
+        status: eventStatus,
+        eventDate,
+        durationMinutes: eventDurationMinutes,
+        archived_at: eventArchivedAt,
+        ended_at: eventEndedAt,
       });
+      setCardLifecycle(nextLifecycle);
+      setTimeLeft(countdownFromMs(nextLifecycle.timeRemainingMs));
     };
+
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [eventId, eventStartMs, eventDurationMinutes]);
-  return { timeLeft, isLive, expired };
+  }, [eventId, eventDate, eventDateMs, eventStatus, eventDurationMinutes, eventArchivedAt, eventEndedAt]);
+  return { timeLeft, isLive: cardLifecycle.isLive, showEnded: cardLifecycle.showEnded };
 }
 
 // ── Featured hero card (first/upcoming event; web FeaturedEventCard parity — taller, countdown, registration CTA)
@@ -212,8 +234,7 @@ function FeaturedEventCard({
   attendeePreview?: EventAttendeePreviewPayload;
 }) {
   const router = useRouter();
-  const { timeLeft, isLive, expired } = useFeaturedCountdown(event);
-  const showEnded = expired || event.status === 'ended';
+  const { timeLeft, isLive, showEnded } = useFeaturedCountdown(event);
   const [imageFailed, setImageFailed] = useState(false);
   const coverUri = eventCoverUrl(event.image);
   const attendeeCountLabel =
@@ -518,7 +539,9 @@ function EventRailCard({
   theme: (typeof Colors)[keyof typeof Colors];
   onPress: () => void;
 }) {
-  const isLive = event.status === 'live';
+  const cardLifecycle = resolveMobileEventCardLifecycle(event);
+  const isLive = cardLifecycle.isLive;
+  const showEnded = cardLifecycle.showEnded;
   return (
     <Pressable
       style={({ pressed }) => [
@@ -538,7 +561,7 @@ function EventRailCard({
             <Text style={railCardStyles.liveText}>Live</Text>
           </View>
         )}
-        {!isLive && event.status === 'ended' && (
+        {showEnded && (
           <View style={[railCardStyles.endedBadge, { backgroundColor: withAlpha(theme.surface, 0.85), borderColor: theme.border }]}>
             <Text style={[railCardStyles.endedText, { color: theme.textSecondary }]}>Ended</Text>
           </View>

@@ -101,7 +101,9 @@ order by vs.created_at desc;
 
 ## Event Setup Checklist
 
-- [ ] Use a live or near-live event where both smoke users are admitted.
+- [ ] Use a live or near-live event where both smoke users have `event_registrations.admission_status = 'confirmed'`.
+- [ ] Treat `payment_status` as informational only. `payment_status` alone is not lobby/deck/Ready Gate admission.
+- [ ] If either smoke user is paid-like (`paid`, `settled`, `verified`) but not confirmed, treat it as setup failure before triaging Ready Gate or Video Date.
 - [ ] Event has enough eligible profiles that User A and User B can see each other, or a controlled deck state where the pair is intentionally exposed.
 - [ ] Event is not close enough to ending that the event-ended path masks the normal Ready Gate path, unless testing the event-ended branch.
 - [ ] Daily configuration is valid for the environment.
@@ -120,6 +122,33 @@ select
 from public.events e
 where e.id = '<event_id>'::uuid;
 ```
+
+```sql
+-- read-only: both smoke users must be confirmed-admitted before deck/Ready Gate triage
+select
+  er.profile_id,
+  er.admission_status,
+  er.payment_status,
+  er.queue_status,
+  er.current_room_id,
+  er.last_lobby_foregrounded_at,
+  (er.admission_status = 'confirmed') as ready_gate_admitted,
+  (
+    coalesce(er.payment_status, '') in ('paid', 'settled', 'verified')
+    and coalesce(er.admission_status, '') <> 'confirmed'
+  ) as paid_like_but_not_confirmed
+from public.event_registrations er
+where er.event_id = '<event_id>'::uuid
+  and er.profile_id in ('<user_a_id>'::uuid, '<user_b_id>'::uuid)
+order by er.profile_id;
+```
+
+Pass criteria before swiping:
+
+- [ ] Exactly two registration rows exist for the smoke users.
+- [ ] Both rows show `ready_gate_admitted = true`.
+- [ ] Both rows show `paid_like_but_not_confirmed = false`.
+- [ ] Any paid-like but non-confirmed row is fixed as seed/setup data before investigating deck, Ready Gate, or Video Date behavior.
 
 ## Two-User Simultaneous Swipe Checklist
 
@@ -163,8 +192,15 @@ limit 10;
 -- read-only: both registrations should point to the same active/current session when in Ready Gate/date
 select
   er.profile_id,
+  er.admission_status,
+  er.payment_status,
   er.queue_status,
   er.current_room_id,
+  (er.admission_status = 'confirmed') as ready_gate_admitted,
+  (
+    coalesce(er.payment_status, '') in ('paid', 'settled', 'verified')
+    and coalesce(er.admission_status, '') <> 'confirmed'
+  ) as paid_like_but_not_confirmed,
   vs.state,
   vs.phase,
   vs.ready_gate_status,

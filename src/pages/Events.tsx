@@ -373,6 +373,8 @@ const Events = () => {
       status: e.computed_status,
       eventDate: new Date(e.event_date),
       event_date_raw: e.event_date,
+      archived_at: e.archived_at ?? null,
+      ended_at: e.ended_at ?? null,
       duration_minutes: e.duration_minutes || 60,
       scope: e.scope,
       city: e.city,
@@ -564,6 +566,8 @@ const Events = () => {
                         scope={event.scope} city={event.city}
                         country={event.country} distanceKm={event.distance_km}
                         eventDateRaw={event.event_date_raw}
+                        archivedAt={event.archived_at}
+                        endedAt={event.ended_at}
                         durationMinutes={event.duration_minutes}
                         language={event.language} />
                     </motion.div>
@@ -591,6 +595,8 @@ const Events = () => {
                   eventDate={featuredEvent.eventDate} attendees={featuredEvent.attendees}
                   tags={featuredEvent.tags} status={featuredEvent.status}
                   categories={featuredEvent.categories}
+                  archivedAt={featuredEvent.archived_at}
+                  endedAt={featuredEvent.ended_at}
                   durationMinutes={featuredEvent.duration_minutes}
                   language={featuredEvent.language} />
               </div>

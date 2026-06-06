@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getLanguageLabel } from "@/lib/eventLanguages";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
-import { isEventExpired } from "@/utils/eventUtils";
 import { eventCoverCardUrl } from "@/utils/imageUrl";
 import type { EventCategory } from "@clientShared/eventCategories";
+import { resolveEventCardLifecycle } from "@clientShared/eventCardLifecycle";
 
 interface EventCardPremiumProps {
   id: string;
@@ -27,6 +27,8 @@ interface EventCardPremiumProps {
   country?: string | null;
   distanceKm?: number | null;
   eventDateRaw?: string;
+  archivedAt?: string | Date | null;
+  endedAt?: string | Date | null;
   durationMinutes?: number;
   language?: string | null;
 }
@@ -61,14 +63,20 @@ export const EventCardPremium = ({
   country,
   distanceKm,
   eventDateRaw,
+  archivedAt,
+  endedAt,
   durationMinutes,
   language,
 }: EventCardPremiumProps) => {
-  const pastScheduledEnd = eventDateRaw
-    ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes })
-    : false;
-  const isLive = status === "live" && !pastScheduledEnd;
-  const showEnded = !isLive && (status === "ended" || pastScheduledEnd);
+  const cardLifecycle = resolveEventCardLifecycle({
+    status,
+    event_date: eventDateRaw ?? null,
+    duration_minutes: durationMinutes,
+    archivedAt,
+    endedAt,
+  });
+  const isLive = cardLifecycle.isLive;
+  const showEnded = cardLifecycle.showEnded;
   const navigate = useNavigate();
   const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
 
