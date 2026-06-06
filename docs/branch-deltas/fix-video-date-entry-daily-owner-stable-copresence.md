@@ -34,20 +34,20 @@ Audit correction: the first migration draft tied the 2-second stability check to
 
 ## Rollout Boundary
 
-Merged via PR #1212 at `0a85449a0384f257d314a77c5a7fe455a71e2003` and applied to Supabase cloud on 2026-06-06 after the heartbeat-capable web/native/mobile client code was merged. Post-apply dry-run reports the remote database is up to date.
+Source code merged via PR #1212 at `0a85449a0384f257d314a77c5a7fe455a71e2003`, and migration `20260606180000_video_date_stable_copresence_handshake_guard.sql` was applied to Supabase cloud on 2026-06-06 after that source merge. Post-apply dry-run reports the remote database is up to date. This records repository/cloud schema alignment only; it does not prove heartbeat-capable web or native/mobile clients were deployed, built, installed, or live in production.
 
 Rollout documentation was synchronized afterward in PR #1213 at `a3c34dd2b2400908c3cf529d8c3146a141b7ebb8`; the parent workspace has no remote and records the nested app pointer locally at `9d0536877ebb9c808abb8b538c68935bf0581702`.
 
-Completed rollout order:
+Verified implementation order:
 
-1. Merged web/native/mobile clients with shared owner and alive heartbeat support.
+1. Merged web/native/mobile source with shared owner and alive heartbeat support.
 2. Applied `20260606180000_video_date_stable_copresence_handshake_guard.sql` to Supabase cloud.
 3. Verified migration list/dry-run alignment plus live catalog markers for `video_date_presence_events`, `mark_video_date_daily_alive(...)`, and `video_date_stable_copresence_v1(session_id)`.
-4. Remaining acceptance work is still the disposable two-user production proof and inspection of `video_date_presence_events`, `mark_video_date_daily_alive` responses, and handshake reason codes.
+4. Client deployment/build confirmation remained required after the source merge/cloud apply. Remaining acceptance work is still the disposable two-user production proof and inspection of `video_date_presence_events`, `mark_video_date_daily_alive` responses, and handshake reason codes.
 
 ## Verification
 
-No web or native build was run.
+No web deployment verification or native build was run; therefore this branch delta must not be used as proof that all clients live in production can send `mark_video_date_daily_alive`.
 
 Passed:
 

@@ -89,7 +89,7 @@ test("event lobby keeps settled deck UI mounted during background deck refresh",
   assert.match(webLobby, /table:\s*"event_registrations"/);
   assert.match(webLobby, /table:\s*"video_sessions"/);
   assert.match(webLobby, /import \{ useMysteryMatch \} from "@\/hooks\/useMysteryMatch"/);
-  assert.match(webLobby, /const mysteryMatchEnabled = lobbySideEffectsEnabled/);
+  assert.match(webLobby, /const mysteryMatchEnabled =\s*lobbySideEffectsEnabled && mysteryMatchEmptyStateVisible/);
   assert.match(webLobby, /useMysteryMatch\(\{[\s\S]*enabled: mysteryMatchEnabled[\s\S]*openReadyGateSession\(sessionId, "mystery_match"\)[\s\S]*scheduleLobbyConvergenceRefresh\(sessionId, "mystery_match"\)/);
   assert.match(webLobby, /showMysteryMatch=\{[\s\S]*emptyDeckUiState\.showMysteryMatch[\s\S]*mysteryMatchEnabled/);
   assert.match(webEmptyState, /Mystery Match \(optional\)/);

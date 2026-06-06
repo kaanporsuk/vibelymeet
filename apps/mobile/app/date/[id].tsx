@@ -7142,11 +7142,15 @@ export default function VideoDateScreen() {
   useEffect(() => {
     const userId = user?.id ?? null;
     const currentPhase = phaseRef.current;
+    const waitingForNativeSurfaceClientIdentity =
+      multiDeviceV2.enabled && !nativeSurfaceClientReady;
     const initialGuard = {
       hasSessionId: Boolean(sessionId),
       hasUserId: Boolean(userId),
       hasSession: Boolean(session),
       sessionEnded: Boolean(session?.ended_at),
+      waitingForNativeSurfaceClientIdentity,
+      nativeSurfaceClientReady,
       joining,
       hasCall: Boolean(callRef.current),
       hasStartedJoin: hasStartedJoinRef.current,
@@ -7176,6 +7180,7 @@ export default function VideoDateScreen() {
       !session ||
       session.ended_at ||
       !dateEntryPermissionEligible ||
+      waitingForNativeSurfaceClientIdentity ||
       (joining && hasStartedJoinRef.current) ||
       callRef.current ||
       hasStartedJoinRef.current
@@ -10533,6 +10538,8 @@ export default function VideoDateScreen() {
     session?.id,
     session?.ended_at,
     dateEntryPermissionEligible,
+    nativeSurfaceClientReady,
+    multiDeviceV2.enabled,
     sessionError,
     requestPermissions,
     clearFirstConnectWatchdog,

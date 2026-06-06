@@ -34,6 +34,10 @@ const promotionLockOrderMigration = readFileSync(
   join(root, "supabase/migrations/20260505223000_ready_gate_promotion_lock_order_repair.sql"),
   "utf8",
 );
+const queuedBrowseMigration = readFileSync(
+  join(root, "supabase/migrations/20260505220000_event_lobby_browse_while_queued_repair.sql"),
+  "utf8",
+);
 const singleOwnerDrainMigration = readFileSync(
   join(root, "supabase/migrations/20260605232304_video_date_single_owner_runtime_hardening.sql"),
   "utf8",
@@ -329,9 +333,9 @@ test("queue promotion and drain block inactive events before promotion delegatio
     "COMMENT ON FUNCTION public.promote_ready_gate_if_eligible",
   );
   const promoteBase = sectionFrom(
-    scheduledActivationMigration,
+    queuedBrowseMigration,
     "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible",
-    "CREATE OR REPLACE FUNCTION public.drain_match_queue",
+    "REVOKE ALL ON FUNCTION public.promote_ready_gate_if_eligible",
   );
   const drain = sectionFrom(
     singleOwnerDrainMigration,
@@ -344,7 +348,7 @@ test("queue promotion and drain block inactive events before promotion delegatio
     "COMMENT ON FUNCTION public.drain_match_queue",
   );
 
-  const promoteRegistrationIndex = promoteBase.indexOf("actor_registration_guard");
+  const promoteRegistrationIndex = promoteBase.indexOf("auth_guard");
   const promoteActiveIndex = promoteBase.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
   const promoteDelegateIndex = promote.indexOf("public.promote_ready_gate_if_eligible_20260505223000_lock_order_base");
   assert.ok(promoteActiveIndex > promoteRegistrationIndex);
