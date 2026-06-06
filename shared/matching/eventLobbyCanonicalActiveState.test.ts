@@ -22,6 +22,22 @@ const deckV3Migration = readFileSync(
   join(root, "supabase/migrations/20260602231752_ready_gate_57014_reliability_fix.sql"),
   "utf8",
 );
+const readyQueueMigration = readFileSync(
+  join(root, "supabase/migrations/20260501225000_event_lobby_ready_queue_contract.sql"),
+  "utf8",
+);
+const deckAuthorityMigration = readFileSync(
+  join(root, "supabase/migrations/20260601183000_event_deck_authority_contract.sql"),
+  "utf8",
+);
+const promotionLockOrderMigration = readFileSync(
+  join(root, "supabase/migrations/20260505223000_ready_gate_promotion_lock_order_repair.sql"),
+  "utf8",
+);
+const singleOwnerDrainMigration = readFileSync(
+  join(root, "supabase/migrations/20260605232304_video_date_single_owner_runtime_hardening.sql"),
+  "utf8",
+);
 const validation = readFileSync(join(root, "supabase/validation/event_lobby_active_event_contract.sql"), "utf8");
 const swipeActions = readFileSync(join(root, "supabase/functions/swipe-actions/index.ts"), "utf8");
 
@@ -246,9 +262,19 @@ test("get_event_deck_v3 returns terminal inactive deck state with server reason"
 });
 
 test("handle_swipe rejects inactive events before every mutation or notification-triggering branch", () => {
-  const swipe = sectionFrom(
-    scheduledActivationMigration,
-    "CREATE OR REPLACE FUNCTION public.handle_swipe",
+  const currentSwipe = sectionFrom(
+    deckAuthorityMigration,
+    "CREATE OR REPLACE FUNCTION public.handle_swipe(",
+    "REVOKE ALL ON FUNCTION public.handle_swipe",
+  );
+  const swipeV2 = sectionFrom(
+    deckAuthorityMigration,
+    "CREATE OR REPLACE FUNCTION public.handle_swipe_v2",
+    "REVOKE ALL ON FUNCTION public.handle_swipe_v2",
+  );
+  const readyQueueBase = sectionFrom(
+    readyQueueMigration,
+    "CREATE OR REPLACE FUNCTION public.handle_swipe(",
     "COMMENT ON FUNCTION public.handle_swipe",
   );
   const idempotencyBase = sectionFrom(
@@ -256,17 +282,25 @@ test("handle_swipe rejects inactive events before every mutation or notification
     "CREATE OR REPLACE FUNCTION public.handle_swipe_20260501210000_idempotency_base",
     "REVOKE ALL ON FUNCTION public.handle_swipe_20260501210000_idempotency_base",
   );
-  const actorAuthIndex = swipe.indexOf("auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_actor_id");
-  const actorRegIndex = swipe.indexOf("profile_id = p_actor_id");
-  const activeIndex = swipe.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
-  const delegateIndex = swipe.indexOf("public.handle_swipe_20260502083000_ready_queue_base");
+  const v2ValidationIndex = swipeV2.indexOf("public.event_deck_validate_presented_card");
+  const v2SuccessDelegateIndex = swipeV2.indexOf(
+    "v_result := public.handle_swipe_20260601183000_deck_authority_base",
+  );
+  const actorRegIndex = readyQueueBase.indexOf("profile_id = p_actor_id");
+  const activeIndex = readyQueueBase.indexOf("public.get_event_lobby_active_state(p_event_id, now())");
+  const swipeMutationIndex = readyQueueBase.indexOf("FROM public.event_swipes es");
+  const sessionMutationIndex = readyQueueBase.indexOf("FROM public.video_sessions vs");
 
-  assert.ok(actorAuthIndex > 0);
-  assert.ok(actorRegIndex > actorAuthIndex);
+  assert.match(currentSwipe, /RETURN public\.handle_swipe_v2/);
+  assert.doesNotMatch(currentSwipe, /\bINSERT INTO public\.(event_swipes|video_sessions)\b/);
+  assert.ok(v2ValidationIndex > 0);
+  assert.ok(v2SuccessDelegateIndex > v2ValidationIndex, "v2 must validate deck presentation before success-path base delegation");
+  assert.ok(actorRegIndex > 0);
   assert.ok(activeIndex > actorRegIndex, "inactive reason details require actor registration first");
-  assert.ok(delegateIndex > activeIndex, "delegated mutation path must be behind active guard");
-  assert.match(swipe, /'success', false,[\s\S]*'outcome', 'event_not_active'[\s\S]*'reason', v_inactive_reason/);
-  assert.doesNotMatch(swipe.slice(0, activeIndex), /\bevent_swipes\b|\bvideo_sessions\b|current_room_id|current_partner_id/);
+  assert.ok(swipeMutationIndex > activeIndex, "swipe mutation path must be behind active guard");
+  assert.ok(sessionMutationIndex > activeIndex, "session mutation path must be behind active guard");
+  assert.match(readyQueueBase, /'success', false,[\s\S]*'outcome', 'event_not_active'[\s\S]*'reason', v_inactive_reason/);
+  assert.doesNotMatch(readyQueueBase.slice(0, activeIndex), /\bevent_swipes\b|\bvideo_sessions\b|current_room_id|current_partner_id/);
   assert.match(idempotencyBase, /public\.lock_event_lobby_scheduled_active_state\(p_event_id, now\(\)\)/);
   assert.match(idempotencyBase, /FROM public\.event_swipes es/);
   assert.match(idempotencyBase, /FROM public\.video_sessions vs/);
@@ -290,36 +324,42 @@ test("find_mystery_match rejects inactive events before session creation", () =>
 
 test("queue promotion and drain block inactive events before promotion delegation", () => {
   const promote = sectionFrom(
-    scheduledActivationMigration,
+    promotionLockOrderMigration,
     "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible",
     "COMMENT ON FUNCTION public.promote_ready_gate_if_eligible",
   );
+  const promoteBase = sectionFrom(
+    scheduledActivationMigration,
+    "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible",
+    "CREATE OR REPLACE FUNCTION public.drain_match_queue",
+  );
   const drain = sectionFrom(
+    singleOwnerDrainMigration,
+    "CREATE OR REPLACE FUNCTION public.drain_match_queue",
+    "CREATE OR REPLACE FUNCTION public.claim_video_date_surface",
+  );
+  const drainBase = sectionFrom(
     scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.drain_match_queue",
     "COMMENT ON FUNCTION public.drain_match_queue",
   );
 
-  const promoteRegistrationIndex = promote.indexOf("actor_registration_guard");
-  const promoteActiveIndex = promote.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
-  const promoteDelegateIndex = promote.indexOf("public.promote_ready_gate_if_eligible_20260502083000_ready_queue_base");
-  const promoteBase = sectionFrom(
-    scheduledActivationMigration,
-    "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible_20260501180000_active_base",
-    "REVOKE ALL ON FUNCTION public.promote_ready_gate_if_eligible_20260501180000_active_base",
-  );
+  const promoteRegistrationIndex = promoteBase.indexOf("actor_registration_guard");
+  const promoteActiveIndex = promoteBase.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
+  const promoteDelegateIndex = promote.indexOf("public.promote_ready_gate_if_eligible_20260505223000_lock_order_base");
   assert.ok(promoteActiveIndex > promoteRegistrationIndex);
-  assert.ok(promoteDelegateIndex > promoteActiveIndex);
-  assert.match(promote, /'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);
+  assert.ok(promoteDelegateIndex > 0);
+  assert.match(promoteBase, /'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);
   assert.match(promoteBase, /public\.lock_event_lobby_scheduled_active_state\(p_event_id, now\(\)\)/);
   assert.doesNotMatch(promoteBase, /\be\.status = 'live'/);
 
-  const drainRegistrationIndex = drain.indexOf("actor_registration_guard");
-  const drainActiveIndex = drain.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
-  const drainDelegateIndex = drain.indexOf("public.drain_match_queue_20260502083000_active_base");
+  const drainRegistrationIndex = drainBase.indexOf("actor_registration_guard");
+  const drainActiveIndex = drainBase.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
+  const drainDelegateIndex = drain.indexOf("public.drain_match_queue_v2_20260605232304_single_owner_base");
+  assert.match(drain, /RETURN public\.drain_match_queue_v2_20260605232304_single_owner_base/);
   assert.ok(drainActiveIndex > drainRegistrationIndex);
-  assert.ok(drainDelegateIndex > drainActiveIndex);
-  assert.match(drain, /'found', false,[\s\S]*'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);
+  assert.ok(drainDelegateIndex > 0);
+  assert.match(drainBase, /'found', false,[\s\S]*'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);
 });
 
 test("legacy direct session creation surfaces are deprecated rather than bypasses", () => {
@@ -364,7 +404,10 @@ test("production validation is read-only and checks canonical active-state marke
     sqlWithoutCommentsOrStringLiterals(validation),
     /e\.status = ''ended'' OR e\.ended_at IS NOT NULL/,
   );
+  assert.match(validation, /handle_swipe_v2/);
   assert.match(validation, /handle_swipe_20260502083000_ready_queue_base/);
+  assert.match(validation, /promote_ready_gate_if_eligible_20260505223000_lock_order_base/);
+  assert.match(validation, /drain_match_queue_v2_20260605232304_single_owner_base/);
   assert.match(validation, /find_mystery_match_20260502083000_active_base/);
   assert.match(validation, /legacy_direct_session_paths_deprecated/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(validation), /\b(insert|update|delete|truncate|alter|drop|create|grant|revoke)\b/i);

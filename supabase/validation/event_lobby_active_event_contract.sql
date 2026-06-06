@@ -149,13 +149,23 @@ select
 select
   'handle_swipe_active_guard_present' as check_name,
   pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
-    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
+    like '%public.handle_swipe_v2(%'
   and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
+    not like '%INSERT INTO public.event_swipes%'
+  and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
+    not like '%INSERT INTO public.video_sessions%'
+  and pg_get_functiondef('public.handle_swipe_v2(uuid,uuid,uuid,text,text)'::regprocedure)
+    like '%public.event_deck_validate_presented_card%'
+  and pg_get_functiondef('public.handle_swipe_v2(uuid,uuid,uuid,text,text)'::regprocedure)
+    like '%public.handle_swipe_20260601183000_deck_authority_base%'
+  and pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure)
+    like '%public.get_event_lobby_active_state(p_event_id, now())%'
+  and pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure)
     like '%''outcome'', ''event_not_active''%'
-  and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
-    like '%public.handle_swipe_20260502083000_ready_queue_base%'
-  and position('public.lock_event_lobby_scheduled_active_state(p_event_id, now())' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
-    < position('public.handle_swipe_20260502083000_ready_queue_base' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
+  and position('public.get_event_lobby_active_state(p_event_id, now())' in pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure))
+    < position('FROM public.event_swipes es' in pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure))
+  and position('public.get_event_lobby_active_state(p_event_id, now())' in pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure))
+    < position('FROM public.video_sessions vs' in pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure))
   and pg_get_functiondef('public.handle_swipe_20260501210000_idempotency_base(uuid,uuid,uuid,text)'::regprocedure)
     like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.handle_swipe_20260501210000_idempotency_base(uuid,uuid,uuid,text)'::regprocedure)
@@ -191,21 +201,27 @@ select
 select
   'queue_promotion_active_guard_present' as check_name,
   pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
+    like '%public.promote_ready_gate_if_eligible_20260505223000_lock_order_base%'
+  and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
+    not like '%INSERT INTO public.video_sessions%'
+  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260505223000_lock_order_base(uuid,uuid)'::regprocedure)
     like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
+  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260505223000_lock_order_base(uuid,uuid)'::regprocedure)
     like '%''reason'', ''event_not_valid''%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
-    like '%''inactive_reason'', v_inactive_reason%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
-    like '%public.promote_ready_gate_if_eligible_20260502083000_ready_queue_base%'
-  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
-  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%''reason'', ''event_not_valid''%'
-  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
+  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260505223000_lock_order_base(uuid,uuid)'::regprocedure)
     like '%''inactive_reason'', v_inactive_reason%'
   and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%public.drain_match_queue_20260502083000_active_base%'
+    like '%public.drain_match_queue_v2(p_event_id, v_key)%'
+  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
+    not like '%INSERT INTO public.video_sessions%'
+  and pg_get_functiondef('public.drain_match_queue_v2(uuid,text)'::regprocedure)
+    like '%public.drain_match_queue_v2_20260605232304_single_owner_base%'
+  and pg_get_functiondef('public.drain_match_queue_v2_20260605232304_single_owner_base(uuid,text)'::regprocedure)
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
+  and pg_get_functiondef('public.drain_match_queue_v2_20260605232304_single_owner_base(uuid,text)'::regprocedure)
+    like '%''reason'', ''event_not_valid''%'
+  and pg_get_functiondef('public.drain_match_queue_v2_20260605232304_single_owner_base(uuid,text)'::regprocedure)
+    like '%''inactive_reason'', v_inactive_reason%'
   and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260501180000_active_base(uuid,uuid)'::regprocedure)
     like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260501180000_active_base(uuid,uuid)'::regprocedure)
