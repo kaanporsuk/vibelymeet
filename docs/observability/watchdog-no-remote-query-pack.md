@@ -143,6 +143,76 @@ WHERE session_id = $1::uuid
 ORDER BY created_at ASC;
 ```
 
+After `20260606180000_video_date_stable_copresence_handshake_guard.sql` is applied, also inspect the service-only stable-copresence ledger. Use dashboard SQL or service-role tooling:
+
+```sql
+SELECT
+  occurred_at,
+  actor_id,
+  source,
+  event_type,
+  owner_id,
+  owner_state,
+  call_instance_id,
+  provider_session_id,
+  entry_attempt_id,
+  surface_client_id,
+  details
+FROM public.video_date_presence_events
+WHERE session_id = $1::uuid
+ORDER BY occurred_at ASC, created_at ASC;
+```
+
+Owner churn summary for a single session:
+
+```sql
+SELECT
+  actor_id,
+  owner_id,
+  call_instance_id,
+  provider_session_id,
+  min(occurred_at) AS first_seen_at,
+  max(occurred_at) AS last_seen_at,
+  count(*) AS events
+FROM public.video_date_presence_events
+WHERE session_id = $1::uuid
+  AND event_type IN ('owner_heartbeat', 'client_daily_alive', 'provider_daily_joined', 'provider_daily_left')
+GROUP BY actor_id, owner_id, call_instance_id, provider_session_id
+ORDER BY actor_id, first_seen_at;
+```
+
+Stable-copresence decisions should separate heartbeat freshness from stability. Latest heartbeat timestamps prove the two owners are still fresh; `stable_copresence_since_at` should point to the first qualifying bilateral owner-heartbeat pair after the later join and must be at least 2 seconds old unless remote-seen is already canonical.
+
+Handshake without stable copresence should be treated as a red-alert regression after `20260606180000`. Start from these filters, then inspect the full session ledger:
+
+```sql
+SELECT created_at, operation, outcome, reason_code, session_id, actor_id, detail
+FROM public.event_loop_observability_events
+WHERE created_at > now() - interval '24 hours'
+  AND (
+    reason_code = 'handshake_started_after_active_daily_copresence'
+    OR detail::text LIKE '%handshake_started_after_active_daily_copresence%'
+    OR detail::text LIKE '%handshake_started_after_stable_copresence%'
+    OR detail::text LIKE '%handshake_started_after_stable_daily_alive%'
+  )
+ORDER BY created_at DESC
+LIMIT 200;
+```
+
+Provider-left after a route/session owner believed it was joined should emit client observability before any user-facing stuck state:
+
+```sql
+SELECT created_at, operation, outcome, reason_code, session_id, actor_id, detail
+FROM public.event_loop_observability_events
+WHERE created_at > now() - interval '24 hours'
+  AND (
+    reason_code = 'daily_owner_provider_left_unexpected'
+    OR detail::text LIKE '%daily_owner_provider_left_unexpected%'
+  )
+ORDER BY created_at DESC
+LIMIT 200;
+```
+
 For native notification `/date/:sessionId` reports, classify route-owner recovery before blaming Daily or the watchdog. An ended survey-eligible session with no `date_feedback` should produce Date-stack recovery, and the client fallback path should emit details such as `pending_survey_terminal_encounter` / `navigate_date` instead of routing to lobby/tabs.
 
 ### 4.2 Promotion / drain volume (last 7 days)

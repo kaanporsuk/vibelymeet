@@ -50,6 +50,7 @@ import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSe
 import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { updateVideoDateEntryOwnerState } from '@clientShared/matching/videoDateEntryOwner';
 import {
   destroyNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
@@ -657,6 +658,12 @@ export function ReadyGateOverlay({
           suppressDuplicateNav(navigateSource);
           return;
         }
+        updateVideoDateEntryOwnerState({
+          sessionId,
+          userId,
+          state: 'navigating',
+          source: `ready_gate_${navigateSource}`,
+        });
         dateNavigationStartedRef.current = true;
         closedRef.current = true;
         setPrepareEntryStatus('idle');

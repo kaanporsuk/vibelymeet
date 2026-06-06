@@ -23,12 +23,18 @@ import {
   getPrepareToJoinStartMs,
   hasPreparedVideoDateSoloEntryPayload,
   prepareVideoDateEntryWithClient,
+  preparedVideoDateEntryCacheKey,
   rejectCachedPreparedVideoDateEntry,
   type PrepareVideoDateEntryResult,
   type PrepareVideoDateSoloEntryResult,
   type PreparedVideoDateEntryCacheEntry,
   type PreparedVideoDateEntryHandoffValidation,
 } from '@clientShared/matching/videoDatePrepareEntry';
+import {
+  claimVideoDateEntryOwner,
+  getVideoDateEntryOwner,
+  updateVideoDateEntryOwnerState,
+} from '@clientShared/matching/videoDateEntryOwner';
 
 type PrepareVideoDateEntryOptions = {
   eventId?: string | null;
@@ -55,6 +61,14 @@ export function videoDateDailySoloPrejoinEnabled(): boolean {
   );
 }
 
+export function videoDateEntryOwnerV2Enabled(): boolean {
+  return (
+    String(process.env.EXPO_PUBLIC_VIDEO_DATE_ENTRY_OWNER_V2 ?? 'true')
+      .toLowerCase()
+      .trim() !== 'false'
+  );
+}
+
 export async function prepareVideoDateEntry(
   sessionId: string,
   options: PrepareVideoDateEntryOptions = {},
@@ -67,6 +81,48 @@ export async function prepareVideoDateEntry(
   const startedAt = Date.now();
   const entryAttemptId = createVideoDateEntryAttemptId(startedAt);
   const videoDateTraceId = entryAttemptId;
+  const entryOwnerEnabled = videoDateEntryOwnerV2Enabled();
+  const entryOwnerClaim = entryOwnerEnabled
+    ? claimVideoDateEntryOwner({
+        sessionId,
+        userId,
+        eventId: options.eventId ?? null,
+        source: options.source ?? 'prepareVideoDateEntry',
+        entryAttemptId,
+        videoDateTraceId,
+        state: 'preparing',
+        nowMs: startedAt,
+      })
+    : null;
+  const entryOwner = entryOwnerClaim?.owner ?? null;
+  let effectiveForce = options.force;
+  if (entryOwnerEnabled && entryOwnerClaim && entryOwnerClaim.ok === false) {
+    const blockingOwner = entryOwnerClaim.owner;
+    const cached = getCachedPreparedVideoDateEntry(sessionId, userId);
+    if (cached) {
+      updateVideoDateEntryOwnerState({
+        sessionId,
+        userId,
+        ownerId: blockingOwner.ownerId,
+        state: 'prepared',
+        source: options.source ?? 'prepareVideoDateEntry_cached_owner_yield',
+        roomName: cached.value.room_name,
+        entryAttemptId: cached.entryAttemptId,
+        videoDateTraceId: cached.value.video_date_trace_id ?? cached.entryAttemptId,
+      });
+      return {
+        ok: true,
+        data: cached.value,
+        cached: true,
+        cacheKey: preparedVideoDateEntryCacheKey(sessionId, userId),
+        cacheEntry: cached,
+        coalesced: true,
+        ownerEntryAttemptId:
+          blockingOwner.entryAttemptId ?? cached.entryAttemptId ?? null,
+      };
+    }
+    effectiveForce = false;
+  }
   const sourceSurface = 'video_date_entry';
   const attemptCount = options.force ? 2 : 1;
   const trackLatencyCheckpoint = (
@@ -196,7 +252,7 @@ export async function prepareVideoDateEntry(
   const result = await prepareVideoDateEntryWithClient({
     sessionId,
     userId,
-    force: options.force,
+    force: effectiveForce,
     entryAttemptId,
     bothReadyObservedAtMs: options.bothReadyObservedAtMs,
     invoke: ({ entryAttemptId: attemptId }) =>
@@ -218,6 +274,38 @@ export async function prepareVideoDateEntry(
       }),
     onOwnerStart: trackPrepareOwnerStarted,
   });
+
+  if (entryOwnerEnabled) {
+    const currentOwner = getVideoDateEntryOwner(sessionId, userId);
+    const ownerId = entryOwner?.ownerId ?? currentOwner?.ownerId ?? null;
+    if (result.ok === true) {
+      updateVideoDateEntryOwnerState({
+        sessionId,
+        userId,
+        ownerId,
+        state: 'prepared',
+        source: options.source ?? 'prepareVideoDateEntry_success',
+        roomName: result.data.room_name,
+        entryAttemptId: result.data.entry_attempt_id ?? entryAttemptId,
+        videoDateTraceId:
+          result.data.video_date_trace_id ??
+          result.data.entry_attempt_id ??
+          videoDateTraceId,
+      });
+    } else {
+      updateVideoDateEntryOwnerState({
+        sessionId,
+        userId,
+        ownerId,
+        state: 'failed',
+        source: options.source ?? 'prepareVideoDateEntry_failure',
+        entryAttemptId: result.entryAttemptId ?? entryAttemptId,
+        videoDateTraceId,
+        failureCode: result.code,
+        failureMessage: result.message ?? null,
+      });
+    }
+  }
 
   if (result.coalesced === true) {
     const coalescedEntryAttemptId =

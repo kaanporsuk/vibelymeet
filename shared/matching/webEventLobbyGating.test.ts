@@ -252,8 +252,10 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /getEventLobbyInactiveReasonForEvent/);
   assert.match(nativeLobby, /@clientShared\/eventLobbyGate/);
   assert.match(nativeLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
-  assert.match(nativeLobby, /lobbyGate\.canFetchDeck && !readyGatePressureActive/);
-  assert.doesNotMatch(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+resolvedEventLifecycle\?\.isLive[\s\S]+!readyGatePressureActive/);
+  assert.match(
+    nativeLobby,
+    /const deckQueryEnabled = Boolean\([\s\S]+lobbyGate\.canFetchDeck[\s\S]+resolvedEventLifecycle\?\.isLive[\s\S]+!readyGatePressureActive/,
+  );
   assert.match(
     nativeLobby,
     /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled,\s*\{[\s\S]*refetchIntervalMs: deckAdaptiveRefetchIntervalMs[\s\S]*\}\s*\)/,

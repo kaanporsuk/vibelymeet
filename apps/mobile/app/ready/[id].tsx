@@ -52,6 +52,7 @@ import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { updateVideoDateEntryOwnerState } from '@clientShared/matching/videoDateEntryOwner';
 import {
   destroyNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
@@ -515,6 +516,15 @@ export default function ReadyGateScreen() {
               : String(vs.ready_gate_expires_at),
         });
         setTransitioning(true);
+        updateVideoDateEntryOwnerState({
+          sessionId: sid,
+          userId: user.id,
+          state: 'navigating',
+          source: `ready_standalone_${source}`,
+          roomName: prepared.data.room_name,
+          entryAttemptId: prepared.data.entry_attempt_id ?? null,
+          videoDateTraceId: prepared.data.video_date_trace_id ?? null,
+        });
         markVideoDateRouteOwned(sid, user.id);
         const navigated = navigateToDateSessionGuarded({
           sessionId: sid,
