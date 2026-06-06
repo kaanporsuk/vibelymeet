@@ -6,7 +6,9 @@ import { join } from "node:path";
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-const migration = read("supabase/migrations/20260508143000_video_date_surface_claims_post_date_continuity.sql");
+const migration = read(
+  "supabase/migrations/20260508143000_video_date_surface_claims_post_date_continuity.sql",
+);
 const readyGateRouteLabelCleanupMigration = read(
   "supabase/migrations/20260522162000_video_date_ready_gate_route_label_cleanup.sql",
 );
@@ -19,34 +21,83 @@ const webDateEntryLatch = read("src/lib/dateEntryTransitionLatch.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
-const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
-const nativeDateEntryLatch = read("apps/mobile/lib/dateEntryTransitionLatch.ts");
+const nativeSurvey = read(
+  "apps/mobile/components/video-date/PostDateSurvey.tsx",
+);
+const nativeDateEntryLatch = read(
+  "apps/mobile/lib/dateEntryTransitionLatch.ts",
+);
 const sharedContinuity = read("shared/matching/postDateContinuity.ts");
-const postDateVerdictFunction = read("supabase/functions/post-date-verdict/index.ts");
+const postDateVerdictFunction = read(
+  "supabase/functions/post-date-verdict/index.ts",
+);
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
 
+function enclosingLayoutEffect(source: string, marker: string): string {
+  const markerIndex = source.indexOf(marker);
+  assert.ok(markerIndex >= 0, `expected marker to exist: ${marker}`);
+  const effectStart = source.lastIndexOf("useLayoutEffect(() => {", markerIndex);
+  assert.ok(effectStart >= 0, `expected layout effect before marker: ${marker}`);
+  const effectEnd = source.indexOf("\n  }, [", markerIndex);
+  assert.ok(effectEnd >= 0, `expected layout effect deps after marker: ${marker}`);
+  return source.slice(effectStart, effectEnd);
+}
+
 test("surface claim migration adds server-owned duplicate active UI ownership", () => {
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.video_date_surface_claims/);
+  assert.match(
+    migration,
+    /CREATE TABLE IF NOT EXISTS public\.video_date_surface_claims/,
+  );
   assert.match(migration, /profile_id uuid PRIMARY KEY/);
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.claim_video_date_surface/);
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.claim_video_date_surface/,
+  );
   assert.match(migration, /SURFACE_CLAIM_CONFLICT/);
   assert.match(migration, /p_takeover boolean DEFAULT false/);
-  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.claim_video_date_surface\(uuid, text, text, boolean, integer\) TO authenticated, service_role/);
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.release_video_date_surface_claim/);
+  assert.match(
+    migration,
+    /GRANT EXECUTE ON FUNCTION public\.claim_video_date_surface\(uuid, text, text, boolean, integer\) TO authenticated, service_role/,
+  );
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.release_video_date_surface_claim/,
+  );
 });
 
 test("active-session audit remains service-role-only and uses the shared active-surface predicate", () => {
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.video_date_session_is_active_surface/);
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.audit_active_video_date_surface_conflicts/);
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.video_date_session_is_active_surface/,
+  );
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.audit_active_video_date_surface_conflicts/,
+  );
   assert.match(migration, /HAVING count\(DISTINCT ap\.session_id\) > 1/);
-  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.audit_active_video_date_surface_conflicts\(\) TO service_role/);
-  assert.doesNotMatch(migration, /GRANT EXECUTE ON FUNCTION public\.audit_active_video_date_surface_conflicts\(\) TO authenticated/);
+  assert.match(
+    migration,
+    /GRANT EXECUTE ON FUNCTION public\.audit_active_video_date_surface_conflicts\(\) TO service_role/,
+  );
+  assert.doesNotMatch(
+    migration,
+    /GRANT EXECUTE ON FUNCTION public\.audit_active_video_date_surface_conflicts\(\) TO authenticated/,
+  );
 });
 
 test("web duplicate-tab guard renews and releases backend surface claims", () => {
-  assert.match(webDupGuard, /storageKey\(sessionId: string, profileId: string\)/);
-  assert.match(webDupGuard, /vibely_vd_tab_lease:\$\{profileId\}:\$\{sessionId\}/);
-  assert.match(webDupGuard, /sessionId && profileId \? storageKey\(sessionId, profileId\) : null/);
+  assert.match(
+    webDupGuard,
+    /storageKey\(sessionId: string, profileId: string\)/,
+  );
+  assert.match(
+    webDupGuard,
+    /vibely_vd_tab_lease:\$\{profileId\}:\$\{sessionId\}/,
+  );
+  assert.match(
+    webDupGuard,
+    /sessionId && profileId \? storageKey\(sessionId, profileId\) : null/,
+  );
   assert.match(webVideoDate, /useVideoDateDupTabGuard\(\s*id,\s*user\?\.id,/);
   assert.match(webDupGuard, /claim_video_date_surface/);
   assert.match(webDupGuard, /release_video_date_surface_claim/);
@@ -59,14 +110,23 @@ test("web duplicate-tab guard renews and releases backend surface claims", () =>
   assert.match(webDupGuard, /payload\.retryable !== true/);
   assert.match(webDupGuard, /Date\.now\(\) \+ nextServerClaimBackoffMs/);
 
-  assert.match(nativeDateRoute, /NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS/);
+  assert.match(
+    nativeDateRoute,
+    /NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS/,
+  );
   assert.match(nativeDateRoute, /surfaceClaimInFlightRef/);
   assert.match(nativeDateRoute, /surfaceClaimBackoffUntilRef/);
   assert.match(nativeDateRoute, /surfaceClaimBlockedRef/);
   assert.match(nativeDateRoute, /nextNativeSurfaceClaimBackoffMs/);
   assert.match(nativeDateRoute, /payload\.retryable !== true/);
-  assert.match(nativeDateRoute, /Date\.now\(\) \+ nextNativeSurfaceClaimBackoffMs/);
-  assert.match(nativeDateRoute, /return \{ canContinue: !surfaceClaimBlockedRef\.current, confirmed: false \}/);
+  assert.match(
+    nativeDateRoute,
+    /Date\.now\(\) \+[\s\S]{0,80}nextNativeSurfaceClaimBackoffMs/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /canContinue: !surfaceClaimBlockedRef\.current/,
+  );
   assert.doesNotMatch(
     nativeDateRoute,
     /surfaceClaimInFlightRef\.current \|\| now < surfaceClaimBackoffUntilRef\.current\) \{[\s\S]{0,120}setSurfaceClaimBlockedState\(false\)/,
@@ -85,41 +145,124 @@ test("date-route ownership suppresses stale Ready Gate and lobby bounces on web 
     assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 90_000/);
     assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS = 30_000/);
     assert.match(latch, /VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS = 30_000/);
-    assert.match(latch, /Math\.min\(ttl, VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS\)/);
+    assert.match(
+      latch,
+      /Math\.min\(ttl, VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS\)/,
+    );
     assert.match(latch, /export function markVideoDateRouteOwned/);
     assert.match(latch, /export function isVideoDateRouteOwned/);
     assert.match(latch, /export function clearVideoDateRouteOwnership/);
-    assert.match(latch, /routeOwnership\.delete\(routeOwnershipKey\(sessionId, null\)\)/);
+    assert.match(
+      latch,
+      /routeOwnership\.delete\(routeOwnershipKey\(sessionId, null\)\)/,
+    );
   }
 
-  assert.doesNotMatch(webVideoDate, /markVideoDateRouteOwned\(id, user\?\.id \?\? null\)/);
-  assert.match(webVideoDate, /videoDateAccess !== "allowed"[\s\S]{0,900}markVideoDateRouteOwned\(id, user\.id\)/);
-  assert.match(webVideoDate, /window\.setInterval\([\s\S]{0,160}VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/);
+  assert.match(
+    webVideoDate,
+    /markVideoDateRouteOwned\(id, user\?\.id \?\? null\)/,
+  );
+  const webDateEntryMount = enclosingLayoutEffect(
+    webVideoDate,
+    "markVideoDateEntryPipelineStarted(id);",
+  );
+  assert.doesNotMatch(webDateEntryMount, /markVideoDateRouteOwned/);
+  assert.match(
+    webVideoDate,
+    /terminalSurveyOwner =[\s\S]{0,80}showFeedback \|\| terminalSurveyRecoveryActive \|\| phase === "ended"/,
+  );
+  assert.match(
+    webVideoDate,
+    /videoDateAccess !== "allowed"[\s\S]{0,900}markVideoDateRouteOwned\(id, user\.id\)/,
+  );
+  assert.match(
+    webVideoDate,
+    /window\.setInterval\([\s\S]{0,160}VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/,
+  );
   assert.match(webVideoDate, /date_route_bounce_suppressed_by_route_ownership/);
-  assert.match(webVideoDate, /date_guard_ready_gate_bounce_suppressed_by_route_ownership/);
-  assert.match(webVideoDate, /date_guard_canonical_ready_bounce_suppressed_by_route_ownership/);
-  assert.match(webVideoDate, /date_guard_lobby_bounce_suppressed_by_route_ownership/);
-  assert.match(webVideoDate, /clearVideoDateRouteOwnership\(id, user\?\.id \?\? null\)/);
+  assert.match(
+    webVideoDate,
+    /date_guard_ready_gate_bounce_suppressed_by_route_ownership/,
+  );
+  assert.match(
+    webVideoDate,
+    /date_guard_canonical_ready_bounce_suppressed_by_route_ownership/,
+  );
+  assert.match(
+    webVideoDate,
+    /date_guard_lobby_bounce_suppressed_by_route_ownership/,
+  );
+  assert.match(
+    webVideoDate,
+    /clearVideoDateRouteOwnership\(id, user\?\.id \?\? null\)/,
+  );
   assert.match(webLobby, /ready_gate_open_suppressed_by_date_route_ownership/);
   assert.match(webLobby, /date_route_ownership_active/);
   assert.match(readyRedirect, /ready_redirect_route_ownership/);
   assert.match(readyRedirect, /ready_redirect_canonical_route_ownership/);
 
-  assert.doesNotMatch(nativeDateRoute, /markVideoDateRouteOwned\(sessionId, user\?\.id \?\? null\)/);
-  assert.match(nativeDateRoute, /!dateEntryPermissionEligible[\s\S]{0,900}markVideoDateRouteOwned\(sessionId, user\.id\)/);
-  assert.match(nativeDateRoute, /setInterval\([\s\S]{0,160}VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/);
-  assert.doesNotMatch(nativeDateRoute, /phaseRef\.current === 'handshake'[\s\S]{0,220}markVideoDateRouteOwned\(sessionId, user\.id\)/);
-  assert.match(nativeDateRoute, /date_guard_ready_bounce_suppressed_by_route_ownership/);
-  assert.match(nativeDateRoute, /date_guard_lobby_bounce_suppressed_by_route_ownership/);
-  assert.match(nativeDateRoute, /clearVideoDateRouteOwnership\(sessionId, user\?\.id \?\? null\)/);
+  assert.match(
+    nativeDateRoute,
+    /markVideoDateRouteOwned\(sessionId, user\?\.id \?\? null\)/,
+  );
+  const nativeDateEntryMount = enclosingLayoutEffect(
+    nativeDateRoute,
+    "markVideoDateEntryPipelineStarted(sessionId);",
+  );
+  assert.doesNotMatch(nativeDateEntryMount, /markVideoDateRouteOwned/);
+  assert.match(
+    nativeDateRoute,
+    /terminalSurveyOwner =[\s\S]{0,160}showFeedback \|\| phase === ["']ended["']/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /!dateEntryPermissionEligible[\s\S]{0,900}markVideoDateRouteOwned\(sessionId, user\.id\)/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /setInterval\([\s\S]{0,160}VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/,
+  );
+  assert.doesNotMatch(
+    nativeDateRoute,
+    /phaseRef\.current === ['"]handshake['"][\s\S]{0,220}markVideoDateRouteOwned\(sessionId, user\.id\)/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /date_guard_ready_bounce_suppressed_by_route_ownership/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /date_guard_lobby_bounce_suppressed_by_route_ownership/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /clearVideoDateRouteOwnership\(sessionId, user\?\.id \?\? null\)/,
+  );
   assert.match(nativeLobby, /date_route_decision_suppressed_by_ownership/);
-  assert.match(nativeLobby, /ready_gate_open_suppressed_by_date_route_ownership/);
-  assert.match(nativeReadyRoute, /standalone_ready_redirect_suppressed_by_date_route_ownership/);
+  assert.match(
+    nativeLobby,
+    /ready_gate_open_suppressed_by_date_route_ownership/,
+  );
+  assert.match(
+    nativeReadyRoute,
+    /standalone_ready_redirect_suppressed_by_date_route_ownership/,
+  );
 });
 
 test("post-date continuity is backend-resolved before client event fallback", () => {
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
-  for (const action of ["survey", "ready_gate", "video_date", "lobby", "chat", "wrap_up", "home"]) {
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/,
+  );
+  for (const action of [
+    "survey",
+    "ready_gate",
+    "video_date",
+    "lobby",
+    "chat",
+    "wrap_up",
+    "home",
+  ]) {
     assert.match(migration, new RegExp(`'action', '${action}'`));
   }
   assert.match(migration, /v_session\.event_id IS NULL[\s\S]*'action', 'home'/);
@@ -130,39 +273,82 @@ test("post-date continuity is backend-resolved before client event fallback", ()
   assert.match(nativeSurvey, /onVideoDateReady/);
   assert.match(webSurvey, /fetchPostDateNextSessionTruth/);
   assert.match(nativeSurvey, /fetchPostDateNextSessionTruth/);
-  assert.match(nativeSurvey, /route: 'date'/);
+  assert.match(nativeSurvey, /route: ['"]date['"]/);
   assert.ok(
-    webSurvey.indexOf("resolve_post_date_next_surface") < webSurvey.indexOf("const active = await checkEventActive"),
+    webSurvey.indexOf("resolve_post_date_next_surface") <
+      webSurvey.indexOf("const active = await checkEventActive"),
     "web survey should ask backend for next surface before falling back to client lifecycle checks",
   );
   assert.ok(
-    nativeSurvey.indexOf("resolve_post_date_next_surface") < nativeSurvey.indexOf("const continuation = await getEventContinuationSnapshot"),
+    nativeSurvey.indexOf("resolve_post_date_next_surface") <
+      nativeSurvey.indexOf(
+        "const continuation = await getEventContinuationSnapshot",
+      ),
     "native survey should ask backend for next surface before falling back to client lifecycle checks",
   );
 });
 
 test("post-date continuity uses the standalone Ready Gate route label", () => {
-  assert.match(readyGateRouteLabelCleanupMigration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
-  assert.match(readyGateRouteLabelCleanupMigration, /'action', 'ready_gate'[\s\S]*'route', 'ready_gate'/);
-  assert.doesNotMatch(readyGateRouteLabelCleanupMigration, /event_lobby_pending_ready_gate/);
+  assert.match(
+    readyGateRouteLabelCleanupMigration,
+    /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/,
+  );
+  assert.match(
+    readyGateRouteLabelCleanupMigration,
+    /'action', 'ready_gate'[\s\S]*'route', 'ready_gate'/,
+  );
+  assert.doesNotMatch(
+    readyGateRouteLabelCleanupMigration,
+    /event_lobby_pending_ready_gate/,
+  );
 });
 
 test("optional post-date details use participant-checked RPC instead of direct client updates", () => {
-  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.update_post_date_feedback_details/);
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.update_post_date_feedback_details/,
+  );
   assert.match(migration, /VERDICT_REQUIRED/);
-  assert.match(migration, /jsonb_typeof\(v_patch->'tag_chemistry'\) = 'boolean'/);
-  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.update_post_date_feedback_details\(uuid, jsonb\) TO authenticated, service_role/);
+  assert.match(
+    migration,
+    /jsonb_typeof\(v_patch->'tag_chemistry'\) = 'boolean'/,
+  );
+  assert.match(
+    migration,
+    /GRANT EXECUTE ON FUNCTION public\.update_post_date_feedback_details\(uuid, jsonb\) TO authenticated, service_role/,
+  );
   assert.match(webSurvey, /update_post_date_feedback_details/);
   assert.match(nativeSurvey, /update_post_date_feedback_details/);
-  assert.doesNotMatch(webSurvey, /\.from\(["']date_feedback["']\)[\s\S]{0,500}\.update\(/);
-  assert.doesNotMatch(nativeSurvey, /\.from\(["']date_feedback["']\)[\s\S]{0,500}\.update\(/);
+  assert.doesNotMatch(
+    webSurvey,
+    /\.from\(["']date_feedback["']\)[\s\S]{0,500}\.update\(/,
+  );
+  assert.doesNotMatch(
+    nativeSurvey,
+    /\.from\(["']date_feedback["']\)[\s\S]{0,500}\.update\(/,
+  );
 });
 
 test("service-role Edge functions keep participant state writes behind user-authenticated RPCs", () => {
-  assert.match(postDateVerdictFunction, /const userClient = createClient\(supabaseUrl, anonKey/);
-  assert.match(postDateVerdictFunction, /userClient\.rpc\("submit_post_date_verdict_v2"/);
-  assert.doesNotMatch(postDateVerdictFunction, /serviceClient\.rpc\("submit_post_date_verdict/);
-  assert.match(dailyRoomFunction, /const supabase = createClient\(supabaseUrl, supabaseAnonKey/);
+  assert.match(
+    postDateVerdictFunction,
+    /const userClient = createClient\(supabaseUrl, anonKey/,
+  );
+  assert.match(
+    postDateVerdictFunction,
+    /userClient\.rpc\("submit_post_date_verdict_v2"/,
+  );
+  assert.doesNotMatch(
+    postDateVerdictFunction,
+    /serviceClient\.rpc\("submit_post_date_verdict/,
+  );
+  assert.match(
+    dailyRoomFunction,
+    /const supabase = createClient\(supabaseUrl, supabaseAnonKey/,
+  );
   assert.match(dailyRoomFunction, /supabase\.rpc\("video_date_transition"/);
-  assert.doesNotMatch(dailyRoomFunction, /serviceClient\.rpc\("video_date_transition"/);
+  assert.doesNotMatch(
+    dailyRoomFunction,
+    /serviceClient\.rpc\("video_date_transition"/,
+  );
 });

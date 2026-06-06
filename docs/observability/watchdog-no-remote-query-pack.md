@@ -13,6 +13,7 @@ For **threshold / cadence decisions** on queue drain and reconnect sync (not wat
 | Session row phase / handshake / date ended? | `video_sessions` + RPC `video_date_transition` outcomes (via logs or DB) | Date route journey events + Daily join diagnostics | `video_date_join_*`, route journey |
 | Remote participant present in Daily room? | N/A — provider truth is client-side Daily SDK | **`video-date-daily`** / **`video-date-session`** Sentry breadcrumbs on native; **`vdbg`** on web (`daily_no_remote_watchdog_*`) | Peer-missing / join events when instrumented |
 | Native first-connect watchdog fired? | Same as media | **`rc.video_date.entry`** breadcrumbs: `no_remote_watchdog_recovery_start`, **`peer_missing_terminal_watchdog_fire`** | `video_date_peer_missing_*` (see analytics journey doc when present) |
+| Native notification tap opened the right surface? | `video_sessions`, `event_registrations`, `date_feedback`, and `event_loop_observability_events` route details | Native notification/deep-link breadcrumbs plus Date route recovery diagnostics | Notification-open and route/survey events when instrumented |
 
 **Correlation rule:** Tie one user session using **`session_id`** (UUID string) consistently across PostHog, Sentry (`session_id` in breadcrumb data where present), and Supabase (`event_loop_observability_events.session_id`, `video_sessions.id`).
 
@@ -133,6 +134,17 @@ WHERE session_id = $1::uuid
 ORDER BY created_at ASC;
 ```
 
+For post-`20260605232304` route-owner churn or duplicate-surface reports, also inspect append-only surface claim history:
+
+```sql
+SELECT created_at, session_id, actor_id, surface, action, ok, blocked, retryable, result_code, expires_at, detail
+FROM public.video_date_surface_claim_events
+WHERE session_id = $1::uuid
+ORDER BY created_at ASC;
+```
+
+For native notification `/date/:sessionId` reports, classify route-owner recovery before blaming Daily or the watchdog. An ended survey-eligible session with no `date_feedback` should produce Date-stack recovery, and the client fallback path should emit details such as `pending_survey_terminal_encounter` / `navigate_date` instead of routing to lobby/tabs.
+
 ### 4.2 Promotion / drain volume (last 7 days)
 
 ```sql
@@ -166,6 +178,7 @@ LIMIT 500;
 1. If **`first_remote_observed`** or **`remote_track_mounted`** appears **before** `peer_missing_terminal_watchdog_fire` → **delayed join**, not absent partner (watchdog false positive from user POV is **lag**).
 2. If **`no_remote_watchdog_recovery_start`** fires and later **`first_remote_observed`** → **recovery succeeded** after one rejoin.
 3. If **`peer_missing_terminal_watchdog_fire`** with **no** prior remote diagnostics → terminal **no-remote** path; user actions split via PostHog peer-missing tap events.
+4. If a **native notification tap** for an ended survey-eligible session opens lobby/tabs or Ready Gate → route-owner/survey fallback regression, not a watchdog classification. Check for `pending_survey_terminal_encounter`, `navigate_date`, and absence of `date_feedback` before changing Daily timing.
 
 ---
 
@@ -186,3 +199,4 @@ Do **not** conclude backend bug from watchdog alone without **`event_loop_observ
 2. **PostHog:** same `session_id` → join + peer-missing events.
 3. **Supabase:** `event_loop_observability_events` WHERE `session_id` = … ; optional `video_sessions` row by id.
 4. Classify: **queue**, **handshake**, **Daily join**, **first remote**, **reconnect** — use runbook section “Authoritative sources” in `docs/video-date-diagnostics-runbook.md`.
+5. If the report started from a native notification tap, also classify **route owner / pending survey**: notification payload path, `video_sessions` terminal survey truth, missing/present `date_feedback`, and `pending_survey_terminal_encounter` / `navigate_date` route details.

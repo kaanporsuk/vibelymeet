@@ -50,8 +50,14 @@ test("web Daily singleton reuse requires playable local tracks", () => {
 test("native peer-missing abort treats truth query errors as terminalization failures", () => {
   assert.match(nativeVideoDateApi, /options\?: \{ throwOnError\?: boolean \}/);
   assert.match(nativeVideoDateApi, /if \(options\?\.throwOnError\)/);
-  assert.match(nativeVideoDate, /fetchVideoSessionDateEntryTruth\(sessionId, \{ throwOnError: true \}\)/);
-  assert.match(nativeVideoDate, /truthFetchFailed \|\| shouldTerminalizeNativePeerMissingAbort\(truth\)/);
+  assert.match(
+    nativeVideoDate,
+    /fetchVideoSessionDateEntryTruth\(\s*sessionId,\s*\{[\s\S]{0,80}throwOnError: true[\s\S]{0,40}\}/,
+  );
+  assert.match(
+    nativeVideoDate,
+    /truthFetchFailed[\s\S]{0,80}\|\|[\s\S]{0,80}shouldTerminalizeNativePeerMissingAbort\(truth\)/,
+  );
 });
 
 test("review follow-up contracts stay in the v4 verification script", () => {

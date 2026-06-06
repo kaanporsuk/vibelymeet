@@ -181,14 +181,20 @@ test("PR 1.3 deck v3 and persistent ready-gate suppression are adopted; Phase 8 
   assert.doesNotMatch(webLobby, /seenProfileIds|deckDealV2|deckNonce/);
   assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce/);
   assert.match(webLobby, /setQueryData<EventDeckFetchResult>\(\s*\["event-deck", eventId, user\?\.id, "deck_v3"\]/);
-  assert.match(nativeLobby, /setQueryData<EventDeckFetchResult>\(\s*\['event-deck', id, user\?\.id, 'deck_v3'\]/);
+  assert.match(nativeLobby, /setQueryData<EventDeckFetchResult>\(\s*\[["']event-deck["'], id, user\?\.id, ["']deck_v3["']\]/);
   assert.match(webLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+new Image\(\)/);
   assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+prefetchNativeDeckImage\(src\)/);
   assert.match(nativeLobby, /ExpoImage\.prefetch\(uri,[\s\S]+RNImage\.prefetch\(uri\)/);
   assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(nativeLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
-  assert.match(webLobby, /invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
-  assert.match(nativeLobby, /invalidateQueries\(\{ queryKey: \['event-deck', id, user\?\.id\] \}\)/);
+  assert.match(
+    webLobby,
+    /invalidateQueries\(\{\s*queryKey: \[["']event-deck["'], eventId, user\?\.id\],\s*\}\)/,
+  );
+  assert.match(
+    nativeLobby,
+    /invalidateQueries\(\{\s*queryKey: \[["']event-deck["'], id, user\?\.id\],\s*\}\)/,
+  );
   assert.match(phase1Migration, /CREATE OR REPLACE FUNCTION public\.persist_ready_gate_suppression_v2/);
   assert.match(phase1Migration, /ADD COLUMN IF NOT EXISTS ready_gate_suppressed_session_id uuid/);
   assert.match(phase1Migration, /FOR UPDATE/);
@@ -267,7 +273,7 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(nativeVideoDate, /refreshVideoDateToken/);
   assert.match(nativeVideoDate, /daily_token_refresh_join_retry/);
   assert.match(nativeVideoDate, /adviseVideoDateTokenRecovery/);
-  assert.match(nativeVideoDate, /trigger: 'before_join'/);
+  assert.match(nativeVideoDate, /trigger: ["']before_join["']/);
   assert.match(webLobby, /fetchVideoDateQueueHint/);
   assert.match(webLobby, /resolveEventDeckPhase4UiState/);
   assert.match(webLobby, /deckState\?\.reason === "event_not_active"/);
@@ -277,8 +283,8 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(phase4UxLib, /formatVideoDateQueueEtaLabel/);
   assert.match(nativeLobby, /fetchVideoDateQueueHint/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+resolvedEventLifecycle\?\.isLive/);
-  assert.match(nativeLobby, /deckState\?\.reason !== 'event_not_active'/);
-  assert.match(nativeLobby, /deckState\.reason !== 'event_not_active'[\s\S]+setServerInactiveEventReason\(null\)/);
+  assert.match(nativeLobby, /deckState\?\.reason !== ['"]event_not_active['"]/);
+  assert.match(nativeLobby, /deckState\.reason !== ['"]event_not_active['"][\s\S]+setServerInactiveEventReason\(null\)/);
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
   assert.match(nativeLobby, /deckState\?\.inactive_reason/);
   assert.match(webLobby, /resolveVideoDateQueueCopy/);

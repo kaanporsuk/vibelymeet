@@ -9,7 +9,9 @@ This runbook covers client diagnostics for the journey:
 
 Scope is primarily **client-side** (web + native). For **server-side queue / promotion** correlation, operators may use read-only SQL on `event_loop_observability_events` (service role) as documented in `docs/observability/watchdog-no-remote-query-pack.md` — no application RPC contract is implied here.
 
-Current 2026-06-05 recovery overlay: start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; the current terminal-survey lifecycle hardening adds migrations `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup`. The active lifecycle false-away follow-up adds `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, and `20260605211924_video_date_surface_claim_expiry_current_guard.sql`. Verify current Git state and Supabase migration state before assuming deployment. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, browser lifecycle reasons `web_visibilitychange`, `web_freeze`, `web_beforeunload`, `web_pagehide`, and native `app_background` must not terminalize a live date while fresh joined, remote-media, or current unexpired video-date surface evidence exists, historical encounter proof must not suppress current peer-missing, `in_survey` must survive client offline writes until feedback, pre-hardening downgraded registrations still pointing at pending surveys must be repaired to `in_survey`, terminal room metadata should remain canonical for ended survey-eligible sessions, provider deletion belongs in `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason`, and terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`.
+Current 2026-06-06 recovery overlay: start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; the current terminal-survey lifecycle hardening adds migrations `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup`. The lifecycle false-away and review-comment follow-ups add `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, and `20260605222458_review_comments_helper_name_repair.sql`. The single-owner runtime hardening adds `20260605232304_video_date_single_owner_runtime_hardening.sql`, which routes active date/survey ownership away from lobby/Ready Gate churn, adds append-only `video_date_surface_claim_events`, fail-softs transition/queue/surface RPCs, and preserves route ownership, same-session Daily continuity, singleton parking, and truth-refresh fields in client-stuck observability. Verify current Git state and Supabase migration state before assuming deployment. This changes Daily triage: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, browser lifecycle reasons `web_visibilitychange`, `web_freeze`, `web_beforeunload`, `web_pagehide`, and native `app_background` must not terminalize a live date while fresh joined, remote-media, or current unexpired video-date surface evidence exists, historical encounter proof must not suppress current peer-missing, `in_survey` must survive client offline writes until feedback, pre-hardening downgraded registrations still pointing at pending surveys must be repaired to `in_survey`, terminal room metadata should remain canonical for ended survey-eligible sessions, provider deletion belongs in `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason`, terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`, and native notification `/date/:sessionId` taps must route pending-survey terminal truth to the Date stack rather than falling back to lobby/tabs.
+
+Latest failed-session overlay: production session `4082fe36-8480-4d30-9a1d-1de227b855e3` reached Ready Gate `both_ready`, canonical Daily room verification, bilateral Daily joins, remote-media evidence, and `date_started_at`, then churned across `/date`, `/ready`, and lobby. Inspect route ownership and Daily lifetime first: in that run, observability had 18 `date_route_entered`, 18 `video_stage_shell_visible`, 6 Daily starts, 26 `daily_call_cleanup`, and 7 `daily_call_busy_internal_retry` rows before both provider participants left and reconnect expiry moved both users to `in_survey` with no `date_feedback`. That pre-`20260605232304` cloud function dropped same-session Daily continuity/parking fields such as `same_session_daily_continuity_latched`, `will_park_singleton`, and `parked_singleton`; after `20260605232304`, absence of those keys in new production rows is actionable and should be escalated.
 
 ## Watchdog, no-remote, and peer-missing (native vs web)
 
@@ -78,6 +80,9 @@ Expected behavior after the current recovery migrations:
 - Surface-claim evidence is valid at reconnect-expiry time only when the `video_date` claim is still unreleased and unexpired at the expiry instant. A claim that was valid near the away timestamp but expired before `expire_video_date_reconnect_graces()` runs is historical evidence and must not suppress real disconnect expiry.
 - Web and native/mobile `video_date` surface claims should renew on a 30-second server TTL. A missing claim during route churn is evidence to inspect, not a reason to assume the user left.
 - If canonical terminal truth is `ended + survey_required`, `/date/:sessionId` should open survey and stop Daily start, surface claim, reconnect, and peer-missing loops.
+- Route ownership should be singular after Ready Gate handoff or `date_started_at`: `/date/:sessionId` owns active date/survey state, and `/ready/:sessionId` or lobby should not restart Daily or queue work for that same session.
+- Native notification deep links are part of that same route-owner contract. Snapshot and fallback truth recovery must mark `/date/:sessionId` ownership for `go_date` and `go_survey`; fallback `go_survey` should emit `pending_survey_terminal_encounter` diagnostics and return `/date/:sessionId`, not lobby/tabs.
+- Current production observability after `20260605232304` should preserve Daily singleton continuity and parking fields such as `same_session_daily_continuity_latched`, `parked_singleton`, `singleton_parking_mode`, `route_owned`, `active_call_session_id_matches`, `truth_refresh_attempt`, and `historical_remote_seen_truth`.
 - If both sides have confirmed remote-media/date-entry evidence and neither side has passed or both-decided, `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` should promote the session to `date` immediately; deadline finalization is only a fallback and must never end that encounter as `handshake_timeout`.
 - After `date_started_at`, a missing peer is a post-encounter absence, not a pre-date partial join. Web/native/mobile should end it with `partner_absent_after_confirmed_encounter` when they need to terminalize manually.
 - `update_participant_status` must not overwrite `in_survey` to `offline`/`idle`/`browsing` while the user still has a survey-eligible ended session and no `date_feedback` row.
@@ -147,21 +152,32 @@ where session_id = '<video_session_id>'
     operation like '%daily_join%'
     or operation like '%handshake%'
     or reason_code in (
+      'date_route_entered',
+      'video_stage_shell_visible',
+      'daily_call_cleanup',
+      'daily_call_busy_internal_retry',
       'daily_join_waiting_for_active_partner',
       'handshake_started_after_active_daily_copresence',
       'mark_reconnect_self_away_suppressed_active_daily_presence',
       'reconnect_grace_cleared_by_daily_join',
       'reconnect_grace_cleared_by_provider_join',
       'reconnect_grace_cleared_by_return',
-      'reconnect_grace_expiry_suppressed_latest_presence'
+      'reconnect_grace_expiry_suppressed_latest_presence',
+      'terminal_confirmed_encounter_survey'
     )
     or detail::text like '%daily_join_waiting_for_active_partner%'
     or detail::text like '%handshake_started_after_active_daily_copresence%'
     or detail::text like '%daily_call_cleanup%'
     or detail::text like '%daily_call_reuse%'
+    or detail::text like '%same_session_daily_continuity%'
+    or detail::text like '%parked_singleton%'
+    or detail::text like '%singleton_parking_mode%'
+    or detail::text like '%route_owned%'
+    or detail::text like '%truth_refresh_attempt%'
     or detail::text like '%remote_seen_canonical%'
     or detail::text like '%historical_remote_seen_truth%'
     or detail::text like '%partner_absent_after_confirmed_encounter%'
+    or detail::text like '%pending_survey_terminal_encounter%'
   )
 order by created_at asc;
 ```
@@ -191,9 +207,31 @@ where vs.id = '<video_session_id>'
 order by er.profile_id;
 ```
 
-For duplicate-tab or lobby/date cycling reports, also inspect `video_date_surface_claims` and record whether the two test users used separate browsers/profiles or shared one browser storage context. The local lease is now profile-scoped by `profileId + sessionId`; server claims remain scoped per user/profile.
+For duplicate-tab or lobby/date cycling reports, also inspect `video_date_surface_claims` and append-only `video_date_surface_claim_events`, then record whether the two test users used separate browsers/profiles or shared one browser storage context. The local lease is now profile-scoped by `profileId + sessionId`; server claims remain scoped per user/profile.
+
+Read-only surface-claim audit shape:
+
+```sql
+select
+  created_at,
+  session_id,
+  actor_id,
+  surface,
+  action,
+  ok,
+  blocked,
+  retryable,
+  result_code,
+  expires_at,
+  detail
+from public.video_date_surface_claim_events
+where session_id = '<video_session_id>'
+order by created_at asc;
+```
 
 For repeated Daily cleanup/rebuild reports, inspect `daily_call_cleanup`, `daily_call_reuse`, and `daily_call_busy_internal_retry` diagnostics. A same-session same-room call in joining/joined state should be reused or waited on. Cleanup is expected only for terminal, mismatched, or unrecoverable Daily state.
+
+For native notification-tap reports, classify the tap surface before changing Daily logic. If the payload opened `/date/:sessionId`, the native notification handler should reconcile backend truth first, then route `go_date` and `go_survey` to the Date stack with route ownership. A pending-survey terminal encounter that lands in lobby/tabs means the notification fallback truth path regressed, not that Daily room creation failed.
 
 ## Canonical Journey Events
 

@@ -61,9 +61,18 @@ test("native prejoin awaits a confirmed surface claim before Daily join", () => 
   assert.match(nativeDateRoute, /const surfaceClaim = await claimNativeVideoDateSurface\(false\)/);
   assert.match(nativeDateRoute, /!surfaceClaim\.canContinue \|\| !surfaceClaim\.confirmed/);
   assert.match(nativeDateRoute, /surface_claim_unconfirmed/);
+  const claimStart = nativeDateRoute.indexOf('currentStep = setPrejoinStep("surface_claim")');
+  assert.notEqual(claimStart, -1, "native prejoin should enter surface claim before Daily guard");
+  const claimToGuard = nativeDateRoute.slice(
+    claimStart,
+    nativeDateRoute.indexOf('currentStep = setPrejoinStep("daily_room_guard")', claimStart),
+  );
+  assert.match(claimToGuard, /const surfaceClaim = await claimNativeVideoDateSurface\(false\)/);
+  assert.match(claimToGuard, /!surfaceClaim\.canContinue \|\| !surfaceClaim\.confirmed/);
+  assert.match(claimToGuard, /return;/);
   assert.ok(
-    nativeDateRoute.indexOf("!surfaceClaim.canContinue || !surfaceClaim.confirmed") <
-      nativeDateRoute.indexOf("currentStep = setPrejoinStep('daily_room_guard')"),
+    nativeDateRoute.indexOf('!surfaceClaim.canContinue || !surfaceClaim.confirmed', claimStart) <
+      nativeDateRoute.indexOf('currentStep = setPrejoinStep("daily_room_guard")', claimStart),
     "Daily guard should only run after a confirmed surface claim",
   );
 });

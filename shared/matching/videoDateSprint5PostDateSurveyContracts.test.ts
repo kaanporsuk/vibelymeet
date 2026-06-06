@@ -179,10 +179,10 @@ test("survey queue drain opens standalone Ready Gate instead of stale lobby stat
   assert.match(webSurvey, /enableSurveyPhaseDrain:\s*true/);
   assert.match(webSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
   assert.match(webSurvey, /vdbgRedirect\(target, "survey_queue_match_ready"/);
-  assert.match(nativeSurvey, /sourceSurface: 'post_date_survey'/);
-  assert.match(nativeSurvey, /sourceAction: 'survey_queue_drain'/);
+  assert.match(nativeSurvey, /sourceSurface: ['"]post_date_survey['"]/);
+  assert.match(nativeSurvey, /sourceAction: ['"]survey_queue_drain['"]/);
   assert.match(nativeSurvey, /onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
-  assert.match(nativeSurvey, /route: 'ready_gate'/);
+  assert.match(nativeSurvey, /route: ['"]ready_gate['"]/);
 });
 
 test("shared canonical routing consumes final post-date next surfaces consistently", () => {

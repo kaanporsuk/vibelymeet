@@ -345,10 +345,10 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("apps/mobile/components/NotificationDeepLinkHandler.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/lib/activeSessionRoutes.ts"), /hrefForCanonicalVideoDateRoute/);
   assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /decideCanonicalVideoDateRoute/);
-  assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /recommend: 'survey'/);
-  assert.match(read("apps/mobile/app/ready/[id].tsx"), /startable\.recommend === 'survey'/);
+  assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /recommend: ['"]survey['"]/);
+  assert.match(read("apps/mobile/app/ready/[id].tsx"), /startable\.recommend === ['"]survey['"]/);
   assert.match(read("apps/mobile/app/ready/[id].tsx"), /canonicalVideoDateRouteLogDetail/);
-  assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /startable\.recommend === 'survey'/);
+  assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /startable\.recommend === ['"]survey['"]/);
   assert.match(read("apps/mobile/app/date/[id].tsx"), /adviseVideoSessionTruthRecovery/);
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /pending_survey_navigation_started/);
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /router\.replace\(`\/date\/\$\{sessionId\}` as Href\)/);

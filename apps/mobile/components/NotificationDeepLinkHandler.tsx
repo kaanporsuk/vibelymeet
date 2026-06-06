@@ -33,7 +33,11 @@ import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
 } from '@clientShared/matching/videoDateRouteDecision';
-import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
+import {
+  clearDateEntryTransition,
+  markVideoDateEntryPipelineStarted,
+  markVideoDateRouteOwned,
+} from '@/lib/dateEntryTransitionLatch';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
   clearPendingNotificationDeepLink,
@@ -407,6 +411,7 @@ async function reconcileHrefWithRegistration(
     });
     if (recovery.action === 'go_date' || recovery.action === 'go_survey') {
       markVideoDateEntryPipelineStarted(recovery.sessionId);
+      markVideoDateRouteOwned(recovery.sessionId, userId);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
         session_id: recovery.sessionId,
         event_id: recovery.eventId,
@@ -602,7 +607,14 @@ async function reconcileHrefWithRegistration(
   }
   if (recovery.action === 'go_date') {
     markVideoDateEntryPipelineStarted(sid);
+    markVideoDateRouteOwned(sid, userId);
     emitDecision('navigate_date', null, 'date');
+    return videoDateHref(sid);
+  }
+  if (recovery.action === 'go_survey') {
+    markVideoDateEntryPipelineStarted(sid);
+    markVideoDateRouteOwned(sid, userId);
+    emitDecision('navigate_date', 'pending_survey_terminal_encounter', 'date');
     return videoDateHref(sid);
   }
   if (recovery.action === 'go_ready_gate') {

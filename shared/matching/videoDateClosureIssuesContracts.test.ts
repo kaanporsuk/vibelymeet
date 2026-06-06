@@ -269,11 +269,11 @@ test("web lobby treats readiness as non-blocking diagnostics for deck swipes", (
 
 test("native lobby treats readiness as non-blocking diagnostics for deck swipes", () => {
   assert.match(nativeLobby, /useNonBlockingVideoDateReadiness\(\s*id,/);
-  assert.match(nativeLobby, /disabled=\{swipeActionsDisabled \|\| superVibeRemaining <= 0\}/);
+  assert.match(nativeLobby, /disabled=\{\s*swipeActionsDisabled \|\| superVibeRemaining <= 0\s*\}/);
   assert.match(nativeLobby, /disabled=\{swipeActionsDisabled\}/);
-  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Pass"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \}\}/);
-  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Super vibe"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \|\| superVibeRemaining <= 0 \}\}/);
-  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Vibe"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \}\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Pass"[\s\S]*accessibilityState=\{\{\s*disabled: swipeActionsDisabled\s*\}\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Super vibe"[\s\S]*accessibilityState=\{\{\s*disabled:\s*swipeActionsDisabled \|\| superVibeRemaining <= 0,?\s*\}\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Vibe"[\s\S]*accessibilityState=\{\{\s*disabled: swipeActionsDisabled\s*\}\}/);
   assert.doesNotMatch(nativeLobby, /pairingBlockedByReadiness|pairingActionsDisabled|pairingReadinessMessage/);
   assert.doesNotMatch(nativeLobby, /recoverPairingReadinessAndRetry|requestNativeCameraMicrophonePermissions/);
   assert.doesNotMatch(nativeLobby, /canAttemptPairing|options\.bypassReadiness/);

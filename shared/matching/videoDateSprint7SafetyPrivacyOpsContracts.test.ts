@@ -187,7 +187,7 @@ test("Sprint 7 blocked and reported pairs cannot rematch, re-enter queue, route 
     "async function resolveActorId",
     "async function isPairBlocked",
   );
-  assert.match(resolveActorBlock, /category === 'date_reminder'/);
+  assert.match(resolveActorBlock, /category === ['"]date_reminder['"]/);
   assert.match(resolveActorBlock, /otherParticipantFromMatch/);
   assert.match(resolveActorBlock, /sessionId && isVideoDatePairNotificationCategory\(category\)/);
   assert.doesNotMatch(
@@ -199,7 +199,7 @@ test("Sprint 7 blocked and reported pairs cannot rematch, re-enter queue, route 
     /maybeSingle/,
   );
   assert.match(sendNotification, /unsafeNotificationPairReason/);
-  assert.match(sendNotification, /return 'reported_pair'/);
+  assert.match(sendNotification, /return ['"]reported_pair['"]/);
   assert.match(sendNotification, /function isVideoDatePairNotificationCategory/);
   for (const category of [
     "ready_gate",
@@ -209,7 +209,7 @@ test("Sprint 7 blocked and reported pairs cannot rematch, re-enter queue, route 
     "date_reminder",
     "post_date_feedback_reminder",
   ]) {
-    assert.match(sendNotification, new RegExp(`category === '${category}'`));
+    assert.match(sendNotification, new RegExp(`category === ['"]${category}['"]`));
   }
   assert.match(sendNotification, /sessionId && isVideoDatePairNotificationCategory\(category\)/);
   assert.match(sendNotification, /send_notification_suppressed_unsafe_pair/);

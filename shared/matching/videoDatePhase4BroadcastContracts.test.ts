@@ -96,7 +96,7 @@ test("PR 4.4 sequence gaps refetch token-free snapshots before normal reconcilia
     assert.match(source, /includeToken: false/);
     assert.match(
       source,
-      /snapshot\.ok[\s\S]+sessionSeqRef\.current = (?:snapshot\.seq|Math\.max\(sessionSeqRef\.current \?\? 0, snapshot\.seq\))/,
+      /snapshot\.ok[\s\S]+sessionSeqRef\.current = (?:snapshot\.seq|Math\.max\(\s*sessionSeqRef\.current \?\? 0,\s*snapshot\.seq,?\s*\))/,
     );
   }
 
@@ -135,10 +135,11 @@ test("broadcast gap refetch queues follow-up snapshots for newer events that arr
 });
 
 test("Phase 4 consumers seed and reset session sequence state across web and native surfaces", () => {
-  assert.match(webReadyGate, /\.select\("[^"]*session_seq[^"]*"\)/);
-  assert.match(nativeReadyGate, /\.select\(\s*'[^']*session_seq[^']*'/);
-  assert.match(nativeVideoDateApi, /\.select\(\s*'[^']*session_seq[^']*'/);
-  assert.match(webVideoDate, /\.select\("[^"]*session_seq[^"]*"\)/);
+  const selectsSessionSeq = /\.select\(\s*["'`][\s\S]*?session_seq[\s\S]*?["'`]\s*\)/;
+  assert.match(webReadyGate, selectsSessionSeq);
+  assert.match(nativeReadyGate, selectsSessionSeq);
+  assert.match(nativeVideoDateApi, selectsSessionSeq);
+  assert.match(webVideoDate, selectsSessionSeq);
   assert.match(handshakePersistence, /VIDEO_DATE_HANDSHAKE_TRUTH_SELECT =[\s\S]*session_seq/);
 
   assert.match(webReadyGate, /sessionSeqRef\.current = null/);

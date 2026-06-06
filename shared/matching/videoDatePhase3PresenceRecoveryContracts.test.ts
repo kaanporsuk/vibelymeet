@@ -60,7 +60,7 @@ test("Phase 3 token refresh detects Daily auth/ejection faults and schedules act
     assert.match(source, /daily_token_refresh_after_auth_error/);
     assert.match(source, /daily_token_refresh_after_ejection/);
     assert.match(source, /refreshVideoDateToken/);
-    assert.match(source, /\.join\(\{ url: .*?token:/s);
+    assert.match(source, /\.join\(\{\s*url:[\s\S]*?token:/);
   }
   assert.match(webVideoCall, /dailyTokenRefreshTimerRef/);
   assert.match(nativeVideoDate, /recoverNativeDailyTokenRef/);
@@ -74,8 +74,8 @@ test("Phase 3 heartbeats send immediate foreground/background transitions", () =
   assert.match(webStatusHook, /p_foreground: foreground/);
   assert.match(webStatusHook, /keepalive: true/);
 
-  assert.match(nativeStatusHook, /AppState\.addEventListener\('change'/);
-  assert.match(nativeStatusHook, /foreground: state === 'active'/);
+  assert.match(nativeStatusHook, /AppState\.addEventListener\(['"]change['"]/);
+  assert.match(nativeStatusHook, /foreground: state === ['"]active['"]/);
   assert.match(nativeStatusHook, /foreground: false/);
 });
 
@@ -133,7 +133,7 @@ test("Phase 3 broadcast gap recovery retries snapshots without token leakage", (
     assert.doesNotMatch(source, /includeToken: true/);
   }
   assert.match(webVideoDate, /attemptBroadcastGapSnapshotRecoveryRef/);
-  assert.match(nativeVideoDate, /retryBroadcastGapRecovery\('app_foreground'\)/);
+  assert.match(nativeVideoDate, /retryBroadcastGapRecovery\(["']app_foreground["']\)/);
   assert.match(
     webVideoCall,
     /if \(!refreshed\) \{[\s\S]*?setIsConnecting\(false\);[\s\S]*?startReconnectGrace\("daily_token_refresh_failed"\);[\s\S]*?return false;/,
@@ -143,7 +143,7 @@ test("Phase 3 broadcast gap recovery retries snapshots without token leakage", (
   assert.match(webReadyGateOverlay, /visibility_resume/);
   assert.match(webReadyGateOverlay, /window_focus/);
   assert.match(nativeReadyGateApi, /retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery/);
-  assert.match(nativeReadyGateRoute, /retryBroadcastGapRecovery\('app_foreground'\)/);
+  assert.match(nativeReadyGateRoute, /retryBroadcastGapRecovery\(["']app_foreground["']\)/);
 });
 
 test("Phase 3 room cleanup checks provider presence immediately before delete", () => {

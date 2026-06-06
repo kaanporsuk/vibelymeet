@@ -85,7 +85,7 @@ test("PR 5.2 web and native date surfaces use the timeline flag with fallback co
   assert.match(webDate, /expectedSessionId: id/);
   assert.match(webDate, /const countdown = useTimelineCountdown[\s\S]+resolveVideoDateTimelineCountdown/);
   assert.match(webDate, /timeline\.seq < sessionSeqRef\.current/);
-  assert.match(webDate, /Math\.max\(sessionSeqRef\.current \?\? 0, snapshot\.seq\)/);
+  assert.match(webDate, /Math\.max\(\s*sessionSeqRef\.current \?\? 0,\s*snapshot\.seq,?\s*\)/);
   assert.match(webDate, /if \(timelineV2\.enabled\) return;[\s\S]+timerDriftTrackingReadyRef/);
   assert.match(nativeVideoDateApi, /applyVideoDateTimelineSnapshot/);
   assert.match(nativeVideoDateApi, /includeToken: false/);
@@ -95,7 +95,7 @@ test("PR 5.2 web and native date surfaces use the timeline flag with fallback co
   assert.match(nativeVideoDateApi, /const legacyResolved = resolvePhaseAndTime\(s\)[\s\S]+setPhase\(legacyResolved\.phase\)[\s\S]+void \(async \(\) =>/);
   assert.match(nativeVideoDateApi, /decision\.timeline\.seq < sessionSeqRef\.current/);
   assert.match(nativeVideoDateApi, /timelineDecision\.timeline\.seq >= sessionSeqRef\.current/);
-  assert.match(nativeVideoDateApi, /Math\.max\(sessionSeqRef\.current \?\? 0, snapshot\.seq\)/);
+  assert.match(nativeVideoDateApi, /Math\.max\(\s*sessionSeqRef\.current \?\? 0,\s*snapshot\.seq,?\s*\)/);
   assert.match(nativeVideoDateApi, /return \{ session, partner, phase, timeLeft, timeline,/);
 });
 
@@ -105,12 +105,12 @@ test("Phase 5 early-continue handshake is an explicit UX affordance on web and n
     assert.match(source, /Ready to continue/);
     assert.match(source, /Continue/);
   }
-  assert.match(webDate, /useFeatureFlag\(["']video_date\.outbox_v2\.continue_handshake["']\)/);
-  assert.match(nativeDate, /useFeatureFlag\(['"]video_date\.outbox_v2\.continue_handshake['"]\)/);
+  assert.match(webDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["']\s*,?\s*\)/);
+  assert.match(nativeDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["']\s*,?\s*\)/);
   assert.match(webDate, /video_session_continue_handshake_v2/);
   assert.match(nativeVideoDateApi, /video_session_continue_handshake_v2/);
   assert.match(webDate, /action === "vibe"[\s\S]+setShowMutualToast\(true\)/);
-  assert.match(nativeDate, /action === 'vibe'[\s\S]+setShowMutualToast\(true\)/);
+  assert.match(nativeDate, /action === ['"]vibe['"][\s\S]+setShowMutualToast\(true\)/);
 });
 
 test("PR 5.3 push and deep-link recovery share one snapshot decision helper", () => {
@@ -278,6 +278,18 @@ test("PR 5.4 terminal survey snapshots route to date recovery without losing sta
   assert.match(webReadyRedirect, /recovery\.action === ["']go_date["'] \|\| recovery\.action === ["']go_survey["']/);
   assert.match(nativeReadyRedirect, /recovery\.action === ["']go_survey["'][\s\S]+navigateToDateSessionGuarded/);
   assert.match(nativeNotificationDeepLink, /recovery\.action === ["']go_date["'] \|\| recovery\.action === ["']go_survey["']/);
+  assert.match(
+    nativeNotificationDeepLink,
+    /recovery\.action === ["']go_date["'] \|\| recovery\.action === ["']go_survey["'][\s\S]{0,180}markVideoDateEntryPipelineStarted\(recovery\.sessionId\);[\s\S]{0,120}markVideoDateRouteOwned\(recovery\.sessionId, userId\)/,
+  );
+  assert.match(
+    nativeNotificationDeepLink,
+    /if \(recovery\.action === ["']go_date["']\) \{[\s\S]{0,180}markVideoDateEntryPipelineStarted\(sid\);[\s\S]{0,120}markVideoDateRouteOwned\(sid, userId\)/,
+  );
+  assert.match(
+    nativeNotificationDeepLink,
+    /if \(recovery\.action === ["']go_survey["']\) \{[\s\S]{0,180}markVideoDateEntryPipelineStarted\(sid\);[\s\S]{0,120}markVideoDateRouteOwned\(sid, userId\);[\s\S]{0,180}pending_survey_terminal_encounter[\s\S]{0,120}return videoDateHref\(sid\)/,
+  );
 });
 
 test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () => {
