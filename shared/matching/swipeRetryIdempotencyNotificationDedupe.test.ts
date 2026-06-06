@@ -175,7 +175,7 @@ test("shared and client swipe contracts tolerate already_swiped without deck adv
   assert.match(videoSessionFlow, /"already_swiped"/);
   assert.match(videoSessionFlow, /"swipe_already_recorded"/);
   assert.match(webSwipeHook, /case "already_swiped"/);
-  assert.match(nativeLobby, /case 'already_swiped'/);
+  assert.match(nativeLobby, /case ["']already_swiped["']/);
 });
 
 test("production validation is read-only catalog verification", () => {
