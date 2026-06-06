@@ -30,6 +30,9 @@ const migration = read(
 const providerAuthoritativeMigration = read(
   "supabase/migrations/20260606203000_video_date_provider_authoritative_presence.sql",
 );
+const providerParticipantIdRepairMigration = read(
+  "supabase/migrations/20260606205211_video_date_provider_participant_id_presence_repair.sql",
+);
 
 test("entry owner is single-flight per session and user", () => {
   const sessionId = `session-${Date.now()}-${Math.random()}`;
@@ -299,6 +302,33 @@ test("provider-authoritative presence migration blocks stale client heartbeats a
   assert.doesNotMatch(
     providerAuthoritativeMigration,
     /IF v_row\.date_started_at IS NOT NULL[\s\S]{0,180}stable_copresence', true/,
+  );
+});
+
+test("provider presence reads Daily webhook provider participant id before payload fallbacks", () => {
+  assert.match(
+    providerParticipantIdRepairMigration,
+    /CREATE OR REPLACE FUNCTION public\.video_date_daily_provider_session_id_from_event_v1/,
+  );
+  assert.match(providerParticipantIdRepairMigration, /p_provider_participant_id/);
+  assert.match(providerParticipantIdRepairMigration, /vde\.provider_participant_id/);
+  assert.match(providerParticipantIdRepairMigration, /participantId/);
+  assert.match(providerParticipantIdRepairMigration, /participant_id/);
+  assert.match(
+    providerParticipantIdRepairMigration,
+    /CREATE OR REPLACE FUNCTION public\.video_date_actor_provider_presence_v1/,
+  );
+  assert.match(
+    providerParticipantIdRepairMigration,
+    /public\.video_date_daily_provider_session_id_from_event_v1\([\s\S]{0,80}vde\.provider_participant_id[\s\S]{0,80}vde\.payload/s,
+  );
+  assert.match(
+    providerParticipantIdRepairMigration,
+    /CREATE OR REPLACE FUNCTION public\.mark_video_date_daily_alive/,
+  );
+  assert.doesNotMatch(
+    providerParticipantIdRepairMigration,
+    /NULLIF\(vde\.payload->'payload'->>'session_id', ''\)/,
   );
 });
 
