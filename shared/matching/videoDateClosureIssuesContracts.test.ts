@@ -36,6 +36,10 @@ const definitiveCloudAlignmentMigration = readFileSync(
   "supabase/migrations/20260602005051_video_date_definitive_cloud_alignment.sql",
   "utf8",
 );
+const eventRegistrationDmlLockdownMigration = readFileSync(
+  "supabase/migrations/20260606164737_event_registration_rpc_owned_dml_lockdown.sql",
+  "utf8",
+);
 const packageJson = readFileSync("package.json", "utf8");
 const certificationEnvExample = readFileSync(".env.certification.example", "utf8");
 const requiredCertificationGate = readFileSync("scripts/certify-video-date-required.mjs", "utf8");
@@ -247,6 +251,9 @@ test("definitive cloud alignment closes anon Video Date RPC and table grants wit
   assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT, INSERT, UPDATE ON TABLE public\.date_feedback TO authenticated/);
   assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.event_registrations FROM PUBLIC, anon/);
   assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.event_registrations TO authenticated/);
+  assert.match(eventRegistrationDmlLockdownMigration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER[\s\S]+ON TABLE public\.event_registrations[\s\S]+FROM PUBLIC, anon, authenticated/);
+  assert.match(eventRegistrationDmlLockdownMigration, /GRANT SELECT ON TABLE public\.event_registrations TO authenticated/);
+  assert.doesNotMatch(eventRegistrationDmlLockdownMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.event_registrations TO authenticated/);
   assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.event_swipes FROM PUBLIC, anon/);
   assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT ON TABLE public\.event_swipes TO authenticated/);
   assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.video_sessions FROM PUBLIC, anon/);

@@ -36,7 +36,7 @@ test("native lobby treats backend event_not_active as a terminal gate", () => {
   assert.match(nativeLobby, /deckEmptyReason === ['"]event_not_active['"]/);
   assert.match(nativeLobby, /if \(isEventInactiveByServer\) return ['"]event_not_active['"]/);
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
-  assert.match(nativeLobby, /router\.replace\('\/\(tabs\)\/matches'\)/);
+  assert.match(nativeLobby, /router\.replace\(["']\/\(tabs\)\/matches["']\)/);
 });
 
 test("native lobby covers backend swipe outcome taxonomy without client side effects", () => {
@@ -81,12 +81,18 @@ test("native lobby respects deck availability state and media contract", () => {
 
   assert.match(nativeLobby, /currentAvailabilityState = current\?\.availability_state \?\? ['"]available['"]/);
   assert.match(nativeLobby, /currentIsSwipeable = currentAvailabilityState === ['"]available['"]/);
-  assert.match(nativeLobby, /currentSwipePending = current \? pendingSwipeTargetIds\.has\(current\.id\) : false/);
+  assert.match(
+    nativeLobby,
+    /currentSwipePending = current\s*\?\s*pendingSwipeTargetIds\.has\(current\.id\)\s*:\s*false/,
+  );
   assert.match(nativeLobby, /pendingSwipeTargetIdsRef\.current\.has\(current\.id\)/);
-  assert.match(nativeLobby, /swipeActionsDisabled = currentSwipePending \|\| !currentIsSwipeable \|\| swipeRateLimited/);
+  assert.match(
+    nativeLobby,
+    /swipeActionsDisabled =\s*currentSwipePending \|\| !currentIsSwipeable \|\| swipeRateLimited/,
+  );
   assert.match(nativeLobby, /disabled=\{swipeActionsDisabled/);
   assert.match(nativeLobby, /availabilityState = profile\.availability_state \?\? ['"]available['"]/);
-  assert.match(nativeLobby, /queueBadgeLabel = isUnavailable \? 'Unavailable' : 'In session'/);
+  assert.match(nativeLobby, /queueBadgeLabel = isUnavailable \? ["']Unavailable["'] : ["']In session["']/);
   assert.match(nativeLobby, /profile\.primary_photo_path \?\?/);
   assert.match(nativeLobby, /resolvePrimaryProfilePhotoPath/);
   assert.match(nativeLobby, /deckCardUrl\(photo, profile\.media_version\)/);
