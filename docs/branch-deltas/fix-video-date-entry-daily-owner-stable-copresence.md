@@ -30,17 +30,18 @@ Adds:
 
 Stable copresence requires both latest provider/client joined evidence active after any latest leave, both owner heartbeats newer than the later joined time, both latest heartbeats fresh within 15 seconds, and at least 2 seconds of stability unless canonical remote-seen is already present. The stability window is anchored to the first qualifying bilateral owner-heartbeat pair after the later join; ongoing heartbeat refreshes prove freshness but must not reset the 2-second stability timer.
 
-Audit correction: the first migration draft tied the 2-second stability check to the latest owner heartbeat. That would let continuous heartbeat refreshes keep the session in `owner_heartbeat_stabilizing`. The pending migration now separates first-heartbeat stability evidence from latest-heartbeat freshness evidence and returns `stable_copresence_since_at` plus per-participant first/latest owner heartbeat timestamps for diagnostics.
+Audit correction: the first migration draft tied the 2-second stability check to the latest owner heartbeat. That would let continuous heartbeat refreshes keep the session in `owner_heartbeat_stabilizing`. The applied migration separates first-heartbeat stability evidence from latest-heartbeat freshness evidence and returns `stable_copresence_since_at` plus per-participant first/latest owner heartbeat timestamps for diagnostics.
 
 ## Rollout Boundary
 
-The migration is dry-run validated but intentionally not applied to Supabase cloud yet. Applying it before the matching web/native/mobile clients are live could cause older clients to wait indefinitely because they do not send `mark_video_date_daily_alive` heartbeats.
+Merged via PR #1212 at `0a85449a0384f257d314a77c5a7fe455a71e2003` and applied to Supabase cloud on 2026-06-06 after the heartbeat-capable web/native/mobile client code was merged. Post-apply dry-run reports the remote database is up to date.
 
-Safe rollout order:
+Completed rollout order:
 
-1. Deploy web/native/mobile clients with shared owner and alive heartbeat support.
-2. Apply `20260606180000_video_date_stable_copresence_handshake_guard.sql`.
-3. Run the disposable two-user production proof and inspect `video_date_presence_events`, `mark_video_date_daily_alive` responses, and handshake reason codes.
+1. Merged web/native/mobile clients with shared owner and alive heartbeat support.
+2. Applied `20260606180000_video_date_stable_copresence_handshake_guard.sql` to Supabase cloud.
+3. Verified migration list/dry-run alignment plus live catalog markers for `video_date_presence_events`, `mark_video_date_daily_alive(...)`, and `video_date_stable_copresence_v1(session_id)`.
+4. Remaining acceptance work is still the disposable two-user production proof and inspection of `video_date_presence_events`, `mark_video_date_daily_alive` responses, and handshake reason codes.
 
 ## Verification
 
@@ -60,7 +61,7 @@ Passed:
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --level error --fail-on error`
 
-Supabase dry-run reports exactly one pending migration: `20260606180000_video_date_stable_copresence_handshake_guard.sql`.
+Supabase post-apply dry-run reports the remote database is up to date. Live catalog verification confirmed `video_date_presence_events` exists with RLS enabled, anon/authenticated cannot select it directly, `mark_video_date_daily_alive` exists, `mark_video_date_daily_joined` exists, and `video_date_stable_copresence_v1` returns a typed waiting payload for a missing session.
 
 ## Acceptance Boundary
 
