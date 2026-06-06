@@ -59,6 +59,21 @@ test("raw ended and completed statuses are terminal even before scheduled time",
   }
 });
 
+test("raw active statuses resolve live inside the scheduled window", () => {
+  for (const status of ["live", "upcoming", "scheduled"]) {
+    const lifecycle = resolveEventLifecycle({
+      status,
+      event_date: start,
+      duration_minutes: durationMinutes,
+      nowMs: startMs + 5 * 60_000,
+    });
+
+    assert.equal(lifecycle.lifecycle, "live", status);
+    assert.equal(lifecycle.isLive, true, status);
+    assert.equal(lifecycle.isEnded, false, status);
+  }
+});
+
 test("timezone-safe ISO/timestamptz parsing resolves the same instant", () => {
   const lifecycle = resolveEventLifecycle({
     status: "scheduled",

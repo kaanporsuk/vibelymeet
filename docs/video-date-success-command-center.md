@@ -758,6 +758,54 @@ Boundary:
 - This directly addresses the `cac485cd-da3b-475b-aa4c-27b70cd914d6` Ready Gate mark-ready timeout / `ready_b` expiry failure class across all clients that use the shared RPC contract.
 - This still is not product-health proof. The fresh disposable two-user production acceptance run remains required from match through survey completion, plus short Daily leave/rejoin under 12 seconds and real prolonged absence terminalization.
 
+### 15. Surface client-identity hardening after route remount audit
+
+Evidence source: attached chronological screenshots/network panels, source review, contract tests, and Supabase linked dry-run/list verification.
+
+Observed risk:
+
+- The UI could enter Ready Gate, `/date/:sessionId`, and Daily, but still show transient "Still connecting your date" / duplicate-owner overlays during route churn.
+- Network traces showed repeated `claim_video_date_surface`, `record_heartbeat_v2`, `video_date_transition`, `video-date-snapshot`, and date/session polling while the route remounted.
+- Web/native component remounts could create a new server-facing `client_instance_id` for the same user/session while the previous unexpired `video_date` surface claim still existed. That made one logical device look like a duplicate device to the backend.
+- A second race existed where stale cleanup could release a fresh remount's surface claim if cleanup only knew the session key, not the specific active owner token.
+
+Design decision:
+
+- Do not solve this by backend same-profile/same-session auto-reclaim. That shortcut would allow a true second browser, mobile web tab, or native device for the same user/session to silently take over and race the original device.
+- Keep backend duplicate-device conflict semantics strict: a different `client_instance_id` remains a conflict unless explicit takeover occurs.
+- Fix the root cause at the clients by keeping a stable server-facing client identity per user/session and by making cleanup owner-tokened.
+
+Implemented:
+
+- Web `useVideoDateDupTabGuard` now stores a stable server-facing surface client id at `vibely_vd_surface_client:${profileId}:${sessionId}` and sends that id to `claim_video_date_surface` / `release_video_date_surface_claim`.
+- Web keeps the tab-local lease owner separate from the server-facing surface client id, so duplicate-tab UX can remain local while the backend sees one stable logical device across remounts.
+- Web active surface cleanup is owner-tokened and delayed briefly. It only releases when the cleanup still owns the active marker and no fresh same-client owner has appeared.
+- Native/mobile `/date/[id]` mirrors this with `AsyncStorage` key `vibely_vd_native_surface_client:${profileId}:${sessionId}`, stable `vd-native-*` server client ids, owner-tokened active ownership, delayed guarded release, and a hydration gate so native cannot claim with a fallback id and then switch to the persisted id mid-session.
+- No new Supabase migration was kept for this pass. A proposed same-session SQL reclaim migration was intentionally deleted after review because it would weaken duplicate-device blocking.
+
+Verification after implementation, with no web or native build run:
+
+- `npx tsx shared/matching/videoDateSurfaceContinuityHardening.test.ts`
+- `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDateLatestFailureSurfaceOwnerContracts.test.ts`
+- `npm run typecheck:core`
+- `npx tsc --noEmit -p tsconfig.app.json`
+- `cd apps/mobile && npm run typecheck`
+- `git diff --check -- 'apps/mobile/app/date/[id].tsx' src/hooks/useVideoDateDupTabGuard.ts shared/matching/videoDateSurfaceContinuityHardening.test.ts shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+
+Cloud state:
+
+- Linked Supabase dry-run returned `Remote database is up to date`.
+- Local/remote migrations stayed aligned through `20260606100511_video_date_mark_ready_lint_cleanup.sql`.
+- No additional migration was applied for this client-identity hardening pass.
+
+Boundary:
+
+- This addresses the surface-owner self-conflict/remount-release race across web, mobile web, and native/mobile clients that use the shared surface RPC contract.
+- This still is not product-health proof. The fresh disposable two-user production acceptance run remains required from match through survey completion, plus short Daily leave/rejoin under 12 seconds and real prolonged absence terminalization.
+
 ---
 
 ## Current Architecture Decisions

@@ -5,6 +5,7 @@
 
 import "react-native-get-random-values";
 import * as Sentry from "@sentry/react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   useCallback,
   useEffect,
@@ -252,6 +253,9 @@ const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 30;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 10_000;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS = 1_000;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_MAX_MS = 15_000;
+const NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS = 1_000;
+const NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX =
+  "vibely_vd_native_surface_client";
 const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
@@ -267,6 +271,63 @@ function nextNativeSurfaceClaimBackoffMs(failureCount: number) {
     NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS *
       2 ** Math.min(failureCount, 4),
   );
+}
+
+const nativeVideoDateSurfaceClientInstanceIds = new Map<string, string>();
+type NativeVideoDateActiveSurfaceOwner = {
+  owner: string;
+  clientInstanceId: string;
+};
+const nativeVideoDateActiveSurfaceOwners = new Map<
+  string,
+  NativeVideoDateActiveSurfaceOwner
+>();
+
+function nativeVideoDateSurfaceStorageKey(sessionId: string, profileId: string) {
+  return `${NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX}:${profileId}:${sessionId}`;
+}
+
+function nativeVideoDateActiveSurfaceKey(sessionId: string, profileId: string) {
+  return `${profileId}:${sessionId}`;
+}
+
+function createNativeVideoDateClientInstanceId() {
+  const cryptoApi = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return `vd-native-${cryptoApi.randomUUID()}`;
+  }
+  return `vd-native-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function createNativeVideoDateSurfaceOwnerId() {
+  return `vd-native-owner-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function isValidNativeVideoDateClientInstanceId(
+  value: string | null | undefined,
+): value is string {
+  return typeof value === "string" && value.length >= 8 && value.length <= 120;
+}
+
+function getOrCreateNativeVideoDateClientInstanceId(
+  sessionId: string,
+  profileId: string,
+) {
+  const key = nativeVideoDateSurfaceStorageKey(sessionId, profileId);
+  const existing = nativeVideoDateSurfaceClientInstanceIds.get(key);
+  if (isValidNativeVideoDateClientInstanceId(existing)) return existing;
+  const next = createNativeVideoDateClientInstanceId();
+  nativeVideoDateSurfaceClientInstanceIds.set(key, next);
+  return next;
+}
+
+function getCachedNativeVideoDateClientInstanceId(
+  sessionId: string,
+  profileId: string,
+) {
+  const key = nativeVideoDateSurfaceStorageKey(sessionId, profileId);
+  const existing = nativeVideoDateSurfaceClientInstanceIds.get(key);
+  return isValidNativeVideoDateClientInstanceId(existing) ? existing : null;
 }
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
@@ -1194,6 +1255,8 @@ export default function VideoDateScreen() {
   }, []);
   const [surfaceClaimTakeoverBusy, setSurfaceClaimTakeoverBusy] =
     useState(false);
+  const [nativeSurfaceClientReady, setNativeSurfaceClientReady] =
+    useState(false);
 
   const handleSessionBroadcastEvent = useCallback(
     (event: VideoDateSessionBroadcastEvent) => {
@@ -1312,7 +1375,10 @@ export default function VideoDateScreen() {
     typeof setTimeout
   > | null>(null);
   const videoDateClientInstanceIdRef = useRef(
-    `vd-native-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+    createNativeVideoDateClientInstanceId(),
+  );
+  const videoDateSurfaceOwnerIdRef = useRef(
+    createNativeVideoDateSurfaceOwnerId(),
   );
   const surfaceClaimInFlightRef = useRef(false);
   const surfaceClaimInFlightPromiseRef =
@@ -1337,6 +1403,79 @@ export default function VideoDateScreen() {
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const localParticipantRef = useRef<DailyParticipant | null>(null);
   const remoteParticipantRef = useRef<DailyParticipant | null>(null);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id) {
+      setNativeSurfaceClientReady(false);
+      return;
+    }
+    const profileId = user.id;
+    const storageKey = nativeVideoDateSurfaceStorageKey(sessionId, profileId);
+    const cachedInstanceId = getCachedNativeVideoDateClientInstanceId(
+      sessionId,
+      profileId,
+    );
+    if (cachedInstanceId) {
+      videoDateClientInstanceIdRef.current = cachedInstanceId;
+      setNativeSurfaceClientReady(true);
+      return;
+    }
+    setNativeSurfaceClientReady(false);
+    let cancelled = false;
+
+    void AsyncStorage.getItem(storageKey)
+      .then(async (stored) => {
+        if (cancelled) return;
+        let clientInstanceId: string;
+        if (isValidNativeVideoDateClientInstanceId(stored)) {
+          clientInstanceId = stored;
+          nativeVideoDateSurfaceClientInstanceIds.set(
+            storageKey,
+            clientInstanceId,
+          );
+          videoDateClientInstanceIdRef.current = clientInstanceId;
+          setNativeSurfaceClientReady(true);
+          vdbg("native_video_date_surface_client_instance_hydrated", {
+            sessionId,
+            userId: profileId,
+            source: "async_storage",
+          });
+          return;
+        }
+        clientInstanceId = createNativeVideoDateClientInstanceId();
+        nativeVideoDateSurfaceClientInstanceIds.set(
+          storageKey,
+          clientInstanceId,
+        );
+        videoDateClientInstanceIdRef.current = clientInstanceId;
+        setNativeSurfaceClientReady(true);
+        await AsyncStorage.setItem(storageKey, clientInstanceId);
+        vdbg("native_video_date_surface_client_instance_created", {
+          sessionId,
+          userId: profileId,
+          source: "async_storage",
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const fallbackInstanceId = getOrCreateNativeVideoDateClientInstanceId(
+          sessionId,
+          profileId,
+        );
+        videoDateClientInstanceIdRef.current = fallbackInstanceId;
+        setNativeSurfaceClientReady(true);
+        vdbg("native_video_date_surface_client_instance_storage_failed", {
+          sessionId,
+          userId: profileId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, user?.id]);
+
   const markRemoteSeenOnServerRef = useRef<((source: string) => void) | null>(
     null,
   );
@@ -5775,6 +5914,18 @@ export default function VideoDateScreen() {
         setSurfaceClaimBlockedState(false);
         return { canContinue: true, confirmed: true };
       }
+      if (!nativeSurfaceClientReady) {
+        surfaceClaimBackoffUntilRef.current = 0;
+        surfaceClaimFailureCountRef.current = 0;
+        setSurfaceClaimBlockedState(false);
+        vdbg("native_video_date_surface_claim_waiting_for_client_identity", {
+          sessionId,
+          userId: user.id,
+          takeover,
+        });
+        return { canContinue: true, confirmed: false };
+      }
+      const profileId = user.id;
       const now = Date.now();
       if (takeover) {
         surfaceClaimBackoffUntilRef.current = 0;
@@ -5791,14 +5942,23 @@ export default function VideoDateScreen() {
         };
       }
       surfaceClaimInFlightRef.current = true;
+      const surfaceOwnerId = videoDateSurfaceOwnerIdRef.current;
       const claimPromise =
         (async (): Promise<NativeVideoDateSurfaceClaimResult> => {
+          const clientInstanceId = videoDateClientInstanceIdRef.current;
+          nativeVideoDateActiveSurfaceOwners.set(
+            nativeVideoDateActiveSurfaceKey(sessionId, profileId),
+            {
+              owner: surfaceOwnerId,
+              clientInstanceId,
+            },
+          );
           const { data, error } = await supabase.rpc(
             "claim_video_date_surface" as never,
             {
               p_session_id: sessionId,
               p_surface: "video_date",
-              p_client_instance_id: videoDateClientInstanceIdRef.current,
+              p_client_instance_id: clientInstanceId,
               p_takeover: takeover,
               p_ttl_seconds: NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS,
             } as never,
@@ -5823,7 +5983,8 @@ export default function VideoDateScreen() {
             }
             vdbg("native_video_date_surface_claim_result", {
               sessionId,
-              userId: user.id,
+              userId: profileId,
+              clientInstanceId,
               ok: false,
               takeover,
               blocked,
@@ -5843,7 +6004,8 @@ export default function VideoDateScreen() {
           setSurfaceClaimBlockedState(false);
           vdbg("native_video_date_surface_claim_result", {
             sessionId,
-            userId: user.id,
+            userId: profileId,
+            clientInstanceId,
             ok: true,
             takeover,
           });
@@ -5861,6 +6023,7 @@ export default function VideoDateScreen() {
     },
     [
       multiDeviceV2.enabled,
+      nativeSurfaceClientReady,
       sessionId,
       setSurfaceClaimBlockedState,
       showFeedback,
@@ -5919,10 +6082,12 @@ export default function VideoDateScreen() {
   }, [cleanupForAbortWithoutServerEnd, eventId, sessionId]);
 
   useEffect(() => {
+    const profileId = user?.id ?? null;
     const activeVideoSurface =
       multiDeviceV2.enabled &&
       Boolean(sessionId) &&
-      Boolean(user?.id) &&
+      Boolean(profileId) &&
+      nativeSurfaceClientReady &&
       !showFeedback &&
       (phase === "handshake" || phase === "date");
     if (!activeVideoSurface) {
@@ -5930,13 +6095,24 @@ export default function VideoDateScreen() {
       return;
     }
     let cancelled = false;
+    const activeSurfaceKey =
+      sessionId && profileId
+        ? nativeVideoDateActiveSurfaceKey(sessionId, profileId)
+        : null;
     const clientInstanceId = videoDateClientInstanceIdRef.current;
+    const surfaceOwnerId = videoDateSurfaceOwnerIdRef.current;
+    if (activeSurfaceKey) {
+      nativeVideoDateActiveSurfaceOwners.set(activeSurfaceKey, {
+        owner: surfaceOwnerId,
+        clientInstanceId,
+      });
+    }
     const tick = async () => {
       const claim = await claimNativeVideoDateSurface(false);
       if (!cancelled && !claim.canContinue) {
         vdbg("native_video_date_surface_claim_blocked", {
           sessionId,
-          userId: user?.id ?? null,
+          userId: profileId,
           phase,
         });
       }
@@ -5948,19 +6124,39 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
       clearInterval(interval);
+      const activeOwner = activeSurfaceKey
+        ? nativeVideoDateActiveSurfaceOwners.get(activeSurfaceKey)
+        : null;
+      if (
+        activeSurfaceKey &&
+        activeOwner?.owner === surfaceOwnerId &&
+        activeOwner.clientInstanceId === clientInstanceId
+      ) {
+        nativeVideoDateActiveSurfaceOwners.delete(activeSurfaceKey);
+      }
       if (sessionId) {
-        void supabase.rpc(
-          "release_video_date_surface_claim" as never,
-          {
-            p_session_id: sessionId,
-            p_client_instance_id: clientInstanceId,
-          } as never,
-        );
+        setTimeout(() => {
+          if (
+            activeSurfaceKey &&
+            nativeVideoDateActiveSurfaceOwners.get(activeSurfaceKey)
+              ?.clientInstanceId === clientInstanceId
+          ) {
+            return;
+          }
+          void supabase.rpc(
+            "release_video_date_surface_claim" as never,
+            {
+              p_session_id: sessionId,
+              p_client_instance_id: clientInstanceId,
+            } as never,
+          );
+        }, NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS);
       }
     };
   }, [
     claimNativeVideoDateSurface,
     multiDeviceV2.enabled,
+    nativeSurfaceClientReady,
     phase,
     sessionId,
     setSurfaceClaimBlockedState,

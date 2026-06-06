@@ -11,6 +11,7 @@ interface VenueCardProps {
   eventDurationMinutes?: number;
   eventStatus?: string | null;
   eventEndedAt?: Date | string | number | null;
+  eventArchivedAt?: Date | string | number | null;
   eventId?: string;
   isRegistered?: boolean;
   onAccessPress?: () => void;
@@ -23,6 +24,7 @@ const VenueCard = ({
   eventDurationMinutes = 60,
   eventStatus: rawEventStatus,
   eventEndedAt,
+  eventArchivedAt,
   eventId,
   isRegistered = false,
   onAccessPress,
@@ -31,7 +33,7 @@ const VenueCard = ({
 }: VenueCardProps) => {
   const navigate = useNavigate();
   const [timeUntil, setTimeUntil] = useState("");
-  const [eventStatus, setEventStatus] = useState<"upcoming" | "live" | "ended">("upcoming");
+  const [lobbyLifecycleStatus, setLobbyLifecycleStatus] = useState<"upcoming" | "live" | "ended">("upcoming");
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -44,24 +46,25 @@ const VenueCard = ({
         eventDate,
         durationMinutes: eventDurationMinutes,
         endedAt: eventEndedAt,
+        archivedAt: eventArchivedAt,
         nowMs: now.getTime(),
       });
 
-      if (lifecycle.isEnded) {
-        setEventStatus("ended");
+      if (lifecycle.isArchived || lifecycle.isEnded) {
+        setLobbyLifecycleStatus("ended");
         setTimeUntil("Event ended");
         return;
       }
 
       if (lifecycle.isLive) {
-        setEventStatus("live");
+        setLobbyLifecycleStatus("live");
         const remainingMs = endTime - now.getTime();
         const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
         setTimeUntil(`${remainingMinutes}m remaining`);
         return;
       }
 
-      setEventStatus("upcoming");
+      setLobbyLifecycleStatus("upcoming");
       
       if (diff <= 0) {
         setTimeUntil("Starting now!");
@@ -84,10 +87,10 @@ const VenueCard = ({
     updateCountdown();
     const interval = setInterval(updateCountdown, 10000);
     return () => clearInterval(interval);
-  }, [eventDate, eventDurationMinutes, eventEndedAt, rawEventStatus]);
+  }, [eventArchivedAt, eventDate, eventDurationMinutes, eventEndedAt, rawEventStatus]);
 
   const handleEnterLobby = () => {
-    if (eventId && eventStatus === "live") {
+    if (eventId && lobbyLifecycleStatus === "live") {
       navigate(`/event/${eventId}/lobby`);
     }
   };
@@ -134,7 +137,7 @@ const VenueCard = ({
           </div>
 
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            {eventStatus === "live" && isRegistered ? (
+            {lobbyLifecycleStatus === "live" && isRegistered ? (
               <>
                 <motion.div
                   animate={{ scale: [1, 1.2, 1] }}
@@ -146,7 +149,7 @@ const VenueCard = ({
                 </motion.div>
                 <span className="text-xs text-muted-foreground">{timeUntil}</span>
               </>
-            ) : eventStatus === "ended" ? (
+            ) : lobbyLifecycleStatus === "ended" ? (
               <>
                 <Lock className="w-6 h-6 text-muted-foreground" />
                 <span className="text-sm font-medium text-muted-foreground">Event has ended</span>
@@ -178,7 +181,7 @@ const VenueCard = ({
         </div>
 
         {/* Action Button */}
-        {eventStatus === "live" && isRegistered ? (
+        {lobbyLifecycleStatus === "live" && isRegistered ? (
           <Button 
             className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
             onMouseEnter={prefetchLobby}
@@ -188,7 +191,7 @@ const VenueCard = ({
             <Play className="w-4 h-4 mr-2" />
             Enter Lobby
           </Button>
-        ) : eventStatus === "ended" ? (
+        ) : lobbyLifecycleStatus === "ended" ? (
           <Button variant="outline" className="w-full" disabled>
             <Video className="w-4 h-4 mr-2" />
             Event Ended

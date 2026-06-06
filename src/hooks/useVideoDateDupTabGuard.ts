@@ -6,12 +6,54 @@ const TICK_MS = 5_000;
 const SERVER_TTL_SECONDS = 30;
 const SERVER_CLAIM_BACKOFF_BASE_MS = 1000;
 const SERVER_CLAIM_BACKOFF_MAX_MS = 15000;
+const SERVER_CLAIM_RELEASE_GRACE_MS = 1_000;
 
 function storageKey(sessionId: string, profileId: string) {
   return `vibely_vd_tab_lease:${profileId}:${sessionId}`;
 }
 
-type LeasePayload = { owner: string; exp: number };
+function serverClientStorageKey(sessionId: string, profileId: string) {
+  return `vibely_vd_surface_client:${profileId}:${sessionId}`;
+}
+
+type LeasePayload = {
+  owner: string;
+  exp: number;
+  serverClientInstanceId?: string;
+};
+
+type ActiveServerSurfaceOwner = {
+  owner: string;
+  serverClientInstanceId: string;
+};
+
+const activeServerSurfaceOwners = new Map<string, ActiveServerSurfaceOwner>();
+
+function activeServerSurfaceKey(sessionId: string, profileId: string) {
+  return `${profileId}:${sessionId}`;
+}
+
+function getLocalStorage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function createServerClientInstanceId() {
+  const cryptoApi = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  if (typeof cryptoApi?.randomUUID === "function") {
+    return `vd-web-${cryptoApi.randomUUID()}`;
+  }
+  return `vd-web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function isValidServerClientInstanceId(
+  value: string | null | undefined,
+): value is string {
+  return typeof value === "string" && value.length >= 8 && value.length <= 120;
+}
 
 function nextServerClaimBackoffMs(failureCount: number) {
   return Math.min(SERVER_CLAIM_BACKOFF_MAX_MS, SERVER_CLAIM_BACKOFF_BASE_MS * 2 ** Math.min(failureCount, 4));
@@ -27,30 +69,78 @@ export function useVideoDateDupTabGuard(
   profileId: string | undefined,
   leaseActive: boolean,
 ) {
-  const ownerRef = useRef(`vd-${Math.random().toString(36).slice(2)}`);
+  const ownerRef = useRef(`vd-tab-${Math.random().toString(36).slice(2)}`);
+  const serverClientInstanceRef = useRef<string | null>(null);
   const serverClaimInFlightRef = useRef(false);
   const serverClaimBackoffUntilRef = useRef(0);
   const serverClaimFailureCountRef = useRef(0);
   const [dupBlocked, setDupBlocked] = useState(false);
   const key = sessionId && profileId ? storageKey(sessionId, profileId) : null;
+  const activeKey = sessionId && profileId ? activeServerSurfaceKey(sessionId, profileId) : null;
+
+  const resolveServerClientInstanceId = useCallback((): string => {
+    if (!sessionId || !profileId) {
+      const fallback =
+        serverClientInstanceRef.current ?? createServerClientInstanceId();
+      serverClientInstanceRef.current = fallback;
+      return fallback;
+    }
+
+    const storage = getLocalStorage();
+    const storageIdKey = serverClientStorageKey(sessionId, profileId);
+    if (storage) {
+      try {
+        const stored = storage.getItem(storageIdKey);
+        if (isValidServerClientInstanceId(stored)) {
+          serverClientInstanceRef.current = stored;
+          return stored;
+        }
+      } catch {
+        // localStorage is best-effort; a memory instance still works with the server reclaim guard.
+      }
+    }
+
+    const next = createServerClientInstanceId();
+    serverClientInstanceRef.current = next;
+    if (storage) {
+      try {
+        storage.setItem(storageIdKey, next);
+      } catch {
+        // Persistence failure should not block date entry.
+      }
+    }
+    return next;
+  }, [profileId, sessionId]);
 
   const takeOver = useCallback(() => {
-    if (!key || typeof localStorage === "undefined") return;
-    const payload: LeasePayload = { owner: ownerRef.current, exp: Date.now() + LEASE_MS };
-    localStorage.setItem(key, JSON.stringify(payload));
+    if (!key) return;
+    const storage = getLocalStorage();
+    const serverClientInstanceId = resolveServerClientInstanceId();
+    const payload: LeasePayload = {
+      owner: ownerRef.current,
+      exp: Date.now() + LEASE_MS,
+      serverClientInstanceId,
+    };
+    if (storage) {
+      try {
+        storage.setItem(key, JSON.stringify(payload));
+      } catch {
+        // Local duplicate-tab feedback is best-effort; the server claim below is authoritative.
+      }
+    }
     serverClaimBackoffUntilRef.current = 0;
     serverClaimFailureCountRef.current = 0;
     if (sessionId) {
       void supabase.rpc("claim_video_date_surface", {
         p_session_id: sessionId,
         p_surface: "video_date",
-        p_client_instance_id: ownerRef.current,
+        p_client_instance_id: serverClientInstanceId,
         p_takeover: true,
         p_ttl_seconds: SERVER_TTL_SECONDS,
       });
     }
     setDupBlocked(false);
-  }, [key, sessionId]);
+  }, [key, resolveServerClientInstanceId, sessionId]);
 
   useEffect(() => {
     if (!key || typeof window === "undefined" || !leaseActive) {
@@ -60,11 +150,19 @@ export function useVideoDateDupTabGuard(
       return;
     }
     const owner = ownerRef.current;
+    const serverClientInstanceId = resolveServerClientInstanceId();
+    const storage = getLocalStorage();
     let cancelled = false;
+    if (activeKey) {
+      activeServerSurfaceOwners.set(activeKey, {
+        owner,
+        serverClientInstanceId,
+      });
+    }
 
     const readLease = (): LeasePayload | null => {
       try {
-        const raw = localStorage.getItem(key);
+        const raw = storage?.getItem(key);
         if (!raw) return null;
         return JSON.parse(raw) as LeasePayload;
       } catch {
@@ -81,7 +179,7 @@ export function useVideoDateDupTabGuard(
         const { data, error } = await supabase.rpc("claim_video_date_surface", {
           p_session_id: sessionId,
           p_surface: "video_date",
-          p_client_instance_id: owner,
+          p_client_instance_id: serverClientInstanceId,
           p_takeover: false,
           p_ttl_seconds: SERVER_TTL_SECONDS,
         });
@@ -113,8 +211,16 @@ export function useVideoDateDupTabGuard(
         return;
       }
       setDupBlocked(false);
-      const payload: LeasePayload = { owner, exp: now + LEASE_MS };
-      localStorage.setItem(key, JSON.stringify(payload));
+      const payload: LeasePayload = {
+        owner,
+        exp: now + LEASE_MS,
+        serverClientInstanceId,
+      };
+      try {
+        storage?.setItem(key, JSON.stringify(payload));
+      } catch {
+        // Local lease persistence can fail in hardened browsers; keep renewing the server claim.
+      }
       void claimServerSurface();
     };
 
@@ -140,16 +246,46 @@ export function useVideoDateDupTabGuard(
       window.removeEventListener("storage", onStorage);
       const cur = readLease();
       if (cur?.owner === owner) {
-        localStorage.removeItem(key);
+        try {
+          storage?.removeItem(key);
+        } catch {
+          // Best-effort cleanup only.
+        }
+      }
+      const activeOwner = activeKey
+        ? activeServerSurfaceOwners.get(activeKey)
+        : null;
+      if (
+        activeKey &&
+        activeOwner?.owner === owner &&
+        activeOwner.serverClientInstanceId === serverClientInstanceId
+      ) {
+        activeServerSurfaceOwners.delete(activeKey);
       }
       if (sessionId) {
-        void supabase.rpc("release_video_date_surface_claim", {
-          p_session_id: sessionId,
-          p_client_instance_id: owner,
-        });
+        window.setTimeout(() => {
+          if (
+            activeKey &&
+            activeServerSurfaceOwners.get(activeKey)?.serverClientInstanceId ===
+              serverClientInstanceId
+          ) {
+            return;
+          }
+          const latestLease = readLease();
+          if (
+            latestLease?.serverClientInstanceId === serverClientInstanceId &&
+            latestLease.exp > Date.now()
+          ) {
+            return;
+          }
+          void supabase.rpc("release_video_date_surface_claim", {
+            p_session_id: sessionId,
+            p_client_instance_id: serverClientInstanceId,
+          });
+        }, SERVER_CLAIM_RELEASE_GRACE_MS);
       }
     };
-  }, [key, leaseActive, sessionId]);
+  }, [activeKey, key, leaseActive, resolveServerClientInstanceId, sessionId]);
 
   return { dupBlocked, takeOver };
 }

@@ -66,11 +66,11 @@ test("peer-missing watchdog suppresses terminal UI only when server truth requir
   assert.match(webVideoCall, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
   assert.match(webVideoCall, /onTerminalSurveyTruth\?\.\("peer_missing_watchdog_survey_truth"\)/);
   assert.doesNotMatch(webVideoCall, /hasTerminalSurveyTruth \|\| hasHistoricalRemoteSeenTruth/);
-  assert.match(nativeDateRoute, /videoSessionHasPostDateSurveyTruth\(truth \?\? null\)/);
+  assert.match(nativeDateRoute, /videoSessionHasPostDateSurveyTruth\(\s*truth \?\? null,\s*\)/);
   assert.match(nativeDateRoute, /videoSessionHasEncounterExposureTruth\(truth \?\? null\)/);
   assert.match(nativeDateRoute, /peer_missing_terminal_suppressed/);
   assert.match(nativeDateRoute, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
-  assert.match(nativeDateRoute, /openNativePostDateSurveyFromTerminalTruth\('peer_missing_watchdog_survey_truth'/);
+  assert.match(nativeDateRoute, /openNativePostDateSurveyFromTerminalTruth\(\s*["']peer_missing_watchdog_survey_truth["']/);
   assert.doesNotMatch(nativeDateRoute, /hasTerminalSurveyTruth \|\| hasHistoricalRemoteSeenTruth/);
   assert.match(observability, /"peer_missing_suppressed_remote_seen"/);
   assert.match(observability, /"peer_missing_suppressed_survey_truth"/);
@@ -91,7 +91,10 @@ test("terminal survey hard-stop gates Daily start, surface claims, and route-sta
   assert.match(webVideoDate, /onTerminalSurveyTruth: \(source\) =>/);
   assert.match(webVideoDate, /readyRedirectForceSurveyState\?\.forceSurvey/);
   assert.match(webVideoDate, /!terminalSurveyRecoveryActive[\s\S]{0,120}phase !== "ended"/);
-  assert.match(webVideoDate, /phase === "ended" \|\| showFeedback \|\| terminalSurveyRecoveryActive \|\| terminalSurveyRecoveryInFlightRef\.current/);
+  assert.match(
+    webVideoDate,
+    /phase === "ended"[\s\S]{0,80}showFeedback[\s\S]{0,80}terminalSurveyRecoveryActive[\s\S]{0,80}terminalSurveyRecoveryInFlightRef\.current/,
+  );
   assert.match(readyRedirect, /forceSurvey = false/);
   assert.match(readyRedirect, /recovery\.action === "go_survey"/);
   assert.match(readyRedirect, /canonicalRoute\.target === "survey"/);
@@ -100,11 +103,11 @@ test("terminal survey hard-stop gates Daily start, surface claims, and route-sta
 test("native Daily participant-left also waits for local transport grace", () => {
   assert.match(nativeDateRoute, /NATIVE_DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000/);
   assert.match(nativeDateRoute, /partnerAwayAfterTransportGraceTimerRef/);
-  assert.match(nativeDateRoute, /clearPartnerAwayAfterTransportGrace\('participant_joined'\)/);
-  assert.match(nativeDateRoute, /clearPartnerAwayAfterTransportGrace\('participant_updated'\)/);
+  assert.match(nativeDateRoute, /clearPartnerAwayAfterTransportGrace\(["']participant_joined["']\)/);
+  assert.match(nativeDateRoute, /clearPartnerAwayAfterTransportGrace\(["']participant_updated["']\)/);
   assert.match(nativeDateRoute, /daily_participant_left_transport_grace_started/);
   assert.match(nativeDateRoute, /daily_participant_left_transport_grace_expired/);
-  assert.match(nativeDateRoute, /markReconnectPartnerAway\(sessionId, 'daily_transport_grace_expired'\)/);
+  assert.match(nativeDateRoute, /markReconnectPartnerAway\(\s*sessionId,\s*["']daily_transport_grace_expired["'],\s*\)/);
   assert.match(nativeVideoDateApi, /p_reason: reason/);
 });
 
@@ -149,7 +152,7 @@ test("web lifecycle leaves are soft telemetry while Daily is active or starting"
   assert.match(webVideoDate, /"freeze"/);
   assert.doesNotMatch(lifecycleBlock, /source !== "visibilitychange"/);
   assert.match(lifecycleBlock, /localInDailyRoom \|\| isConnecting \|\| isConnected/);
-  assert.match(lifecycleBlock, /dailyMeetingState === "joining-meeting" \|\| dailyMeetingState === "joined-meeting"/);
+  assert.match(lifecycleBlock, /dailyMeetingState === "joining-meeting"[\s\S]{0,40}dailyMeetingState === "joined-meeting"/);
   assert.match(lifecycleBlock, /web_lifecycle_away_suppressed_active_daily/);
   assert.match(lifecycleBlock, /send_suppressed/);
   assert.match(lifecycleBlock, /schedule_suppressed/);
@@ -163,21 +166,58 @@ test("web and native video-date surface claims survive launch route churn", () =
   assert.match(webDupTabGuard, /const LEASE_MS = 15_000/);
   assert.match(webDupTabGuard, /const TICK_MS = 5_000/);
   assert.match(webDupTabGuard, /const SERVER_TTL_SECONDS = 30/);
+  assert.match(webDupTabGuard, /serverClientStorageKey/);
+  assert.match(
+    webDupTabGuard,
+    /vibely_vd_surface_client:\$\{profileId\}:\$\{sessionId\}/,
+  );
+  assert.match(webDupTabGuard, /serverClientInstanceId/);
+  assert.match(webDupTabGuard, /activeServerSurfaceOwners/);
+  assert.match(webDupTabGuard, /type ActiveServerSurfaceOwner/);
+  assert.match(webDupTabGuard, /activeOwner\?\.owner === owner/);
+  assert.match(
+    webDupTabGuard,
+    /activeServerSurfaceOwners\.get\(activeKey\)\?\.serverClientInstanceId/,
+  );
+  assert.match(webDupTabGuard, /SERVER_CLAIM_RELEASE_GRACE_MS = 1_000/);
+  assert.match(webDupTabGuard, /getLocalStorage\(\)/);
   assert.match(nativeDateRoute, /const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 30/);
   assert.match(nativeDateRoute, /const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 10_000/);
+  assert.match(
+    nativeDateRoute,
+    /NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX/,
+  );
+  assert.match(nativeDateRoute, /AsyncStorage\.getItem\(storageKey\)/);
+  assert.match(nativeDateRoute, /nativeVideoDateActiveSurfaceOwners/);
+  assert.match(nativeDateRoute, /type NativeVideoDateActiveSurfaceOwner/);
+  assert.match(nativeDateRoute, /getCachedNativeVideoDateClientInstanceId/);
+  assert.match(nativeDateRoute, /nativeSurfaceClientReady/);
+  assert.match(nativeDateRoute, /!nativeSurfaceClientReady/);
+  assert.match(
+    nativeDateRoute,
+    /if \(!nativeSurfaceClientReady\) \{[\s\S]{0,500}confirmed: false/,
+  );
+  assert.match(nativeDateRoute, /videoDateSurfaceOwnerIdRef/);
+  assert.match(nativeDateRoute, /activeOwner\?\.owner === surfaceOwnerId/);
+  assert.match(nativeDateRoute, /\?\.clientInstanceId === clientInstanceId/);
+  assert.match(
+    nativeDateRoute,
+    /NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS = 1_000/,
+  );
+  assert.match(nativeDateRoute, /p_client_instance_id:\s*clientInstanceId/);
 });
 
 test("native background only sends backend away after local grace expiry", () => {
   const backgroundBlock = block(
     nativeDateRoute,
-    /if \(next === 'background' \|\| next === 'inactive'\)/,
-    /requestReconnectSyncRef\.current\('app_background'\)/,
+    /if \(next === ["']background["'] \|\| next === ["']inactive["']\)/,
+    /requestReconnectSyncRef\.current\(["']app_background["']\)/,
   );
 
   assert.match(backgroundBlock, /native_background_grace_started/);
   assert.match(backgroundBlock, /await cleanupDailyAndLocalState\(\)/);
-  assert.doesNotMatch(backgroundBlock, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
-  assert.match(backgroundBlock, /signalVideoDateLeave\(sessionId, 'app_background_timeout'\)/);
+  assert.doesNotMatch(backgroundBlock, /signalVideoDateLeave\(\s*sessionId,\s*["']app_background["']/);
+  assert.match(backgroundBlock, /signalVideoDateLeave\(\s*sessionId,\s*["']app_background_timeout["'],\s*\)/);
 });
 
 test("latest presence migration repairs joins, soft-away, and reconnect expiry", () => {

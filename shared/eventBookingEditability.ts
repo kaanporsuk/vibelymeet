@@ -43,7 +43,7 @@ export function resolveEventBookingEditability(
     closedReason = "cancelled";
   } else if (rawStatus === "completed") {
     closedReason = "completed";
-  } else if (hasValue(input.archivedAt ?? input.archived_at)) {
+  } else if (rawStatus === "archived" || lifecycle.isArchived || hasValue(input.archivedAt ?? input.archived_at)) {
     closedReason = "archived";
   } else if (rawStatus === "ended" || hasValue(input.endedAt ?? input.ended_at) || lifecycle.isEnded) {
     closedReason = "ended";

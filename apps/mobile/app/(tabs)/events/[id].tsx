@@ -623,6 +623,7 @@ export default function EventDetailScreen() {
     eventDurationMinutes: durationMin,
     status: eventRow.status,
     ended_at: eventRow.ended_at,
+    archived_at: eventRow.archived_at,
     nowMs: phaseClockMs,
   });
   const eventEnded = eventPhase.isEnded;
@@ -922,6 +923,7 @@ export default function EventDetailScreen() {
           eventDurationMinutes={durationMin}
           eventStatus={eventRow.status}
           eventEndedAt={eventRow.ended_at}
+          eventArchivedAt={eventRow.archived_at}
           currentTimeMs={phaseClockMs}
           eventId={event.id}
           isRegistered={isConfirmed}

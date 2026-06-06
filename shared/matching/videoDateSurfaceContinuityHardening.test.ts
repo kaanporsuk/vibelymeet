@@ -63,6 +63,10 @@ test("surface claim migration adds server-owned duplicate active UI ownership", 
     migration,
     /CREATE OR REPLACE FUNCTION public\.release_video_date_surface_claim/,
   );
+  assert.match(
+    migration,
+    /v_existing\.session_id IS DISTINCT FROM p_session_id[\s\S]{0,120}v_existing\.client_instance_id IS DISTINCT FROM v_client_instance_id/,
+  );
 });
 
 test("active-session audit remains service-role-only and uses the shared active-surface predicate", () => {
@@ -109,6 +113,23 @@ test("web duplicate-tab guard renews and releases backend surface claims", () =>
   assert.match(webDupGuard, /nextServerClaimBackoffMs/);
   assert.match(webDupGuard, /payload\.retryable !== true/);
   assert.match(webDupGuard, /Date\.now\(\) \+ nextServerClaimBackoffMs/);
+  assert.match(webDupGuard, /serverClientStorageKey/);
+  assert.match(
+    webDupGuard,
+    /vibely_vd_surface_client:\$\{profileId\}:\$\{sessionId\}/,
+  );
+  assert.match(webDupGuard, /vd-tab-/);
+  assert.match(webDupGuard, /serverClientInstanceId/);
+  assert.match(webDupGuard, /type ActiveServerSurfaceOwner/);
+  assert.match(webDupGuard, /activeServerSurfaceOwners/);
+  assert.match(webDupGuard, /activeOwner\?\.owner === owner/);
+  assert.match(
+    webDupGuard,
+    /activeServerSurfaceOwners\.get\(activeKey\)\?\.serverClientInstanceId/,
+  );
+  assert.match(webDupGuard, /SERVER_CLAIM_RELEASE_GRACE_MS = 1_000/);
+  assert.match(webDupGuard, /p_client_instance_id:\s*serverClientInstanceId/);
+  assert.match(webDupGuard, /getLocalStorage\(\)/);
 
   assert.match(
     nativeDateRoute,
@@ -127,6 +148,29 @@ test("web duplicate-tab guard renews and releases backend surface claims", () =>
     nativeDateRoute,
     /canContinue: !surfaceClaimBlockedRef\.current/,
   );
+  assert.match(nativeDateRoute, /AsyncStorage\.getItem\(storageKey\)/);
+  assert.match(
+    nativeDateRoute,
+    /NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX/,
+  );
+  assert.match(nativeDateRoute, /nativeVideoDateActiveSurfaceOwners/);
+  assert.match(nativeDateRoute, /type NativeVideoDateActiveSurfaceOwner/);
+  assert.match(nativeDateRoute, /getCachedNativeVideoDateClientInstanceId/);
+  assert.match(nativeDateRoute, /nativeSurfaceClientReady/);
+  assert.match(nativeDateRoute, /setNativeSurfaceClientReady\(false\)/);
+  assert.match(nativeDateRoute, /!nativeSurfaceClientReady/);
+  assert.match(
+    nativeDateRoute,
+    /if \(!nativeSurfaceClientReady\) \{[\s\S]{0,500}native_video_date_surface_claim_waiting_for_client_identity[\s\S]{0,500}confirmed: false/,
+  );
+  assert.match(nativeDateRoute, /videoDateSurfaceOwnerIdRef/);
+  assert.match(nativeDateRoute, /activeOwner\?\.owner === surfaceOwnerId/);
+  assert.match(nativeDateRoute, /\?\.clientInstanceId === clientInstanceId/);
+  assert.match(
+    nativeDateRoute,
+    /NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS = 1_000/,
+  );
+  assert.match(nativeDateRoute, /p_client_instance_id:\s*clientInstanceId/);
   assert.doesNotMatch(
     nativeDateRoute,
     /surfaceClaimInFlightRef\.current \|\| now < surfaceClaimBackoffUntilRef\.current\) \{[\s\S]{0,120}setSurfaceClaimBlockedState\(false\)/,

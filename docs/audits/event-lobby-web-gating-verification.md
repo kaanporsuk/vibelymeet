@@ -97,5 +97,5 @@ Cloud deploy requirements:
 ## Risks
 
 - This is client gating only. If web local state is stale, backend RPCs remain the source of truth.
-- The live condition intentionally mirrors the backend invariant by requiring `status = live` and local time inside the event window.
+- 2026-06-06 clarification: current `main` no longer requires raw `status = live`; web derives lobby-live from `resolveEventLifecycle`, so raw `upcoming` and compatibility `scheduled` rows are live when inside the scheduled event window, matching server active-state truth. The event-details CTA also treats `archived_at` or raw `status = archived` as closed before showing an Enter Lobby action.
 - No production data mutation or Supabase deploy is needed for this stream.
