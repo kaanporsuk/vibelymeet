@@ -949,25 +949,40 @@ export function useReadyGate(
           : supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action })
     );
     let transitionResult = await callReadyGateTransitionRpc();
-    if (action === 'mark_ready' && !transitionResult.error) {
+    if (action === 'mark_ready') {
       for (const fallbackDelayMs of MARK_READY_RETRY_DELAYS_MS) {
-        if (!shouldRetryReadyGateMarkReadyPayload(transitionResult.data)) break;
+        const retryRpcError = Boolean(transitionResult.error);
+        const retryPayload =
+          !retryRpcError && shouldRetryReadyGateMarkReadyPayload(transitionResult.data);
+        if (!retryRpcError && !retryPayload) break;
 
-        const delayMs = readReadyGateMarkReadyRetryDelayMs(transitionResult.data, fallbackDelayMs);
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'retryable_mark_ready_payload_retrying', {
-          session_id: sessionId,
-          event_id: options?.eventId ?? null,
-          delay_ms: delayMs,
-          ready_gate_status:
-            transitionResult.data.ready_gate_status ??
-            transitionResult.data.status ??
-            transitionResult.data.result_ready_gate_status ??
-            transitionResult.data.result_status ??
-            null,
-          reason: transitionResult.data.reason ?? transitionResult.data.error ?? null,
-          code: transitionResult.data.error_code ?? transitionResult.data.code ?? null,
-          command_status: transitionResult.data.commandStatus ?? null,
-        });
+        const delayMs = retryPayload
+          ? readReadyGateMarkReadyRetryDelayMs(transitionResult.data, fallbackDelayMs)
+          : fallbackDelayMs;
+        if (retryRpcError) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'mark_ready_rpc_error_retrying', {
+            session_id: sessionId,
+            event_id: options?.eventId ?? null,
+            delay_ms: delayMs,
+            code: transitionResult.error?.code ?? null,
+            message_snippet: String(transitionResult.error?.message ?? '').slice(0, 120),
+          });
+        } else {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'retryable_mark_ready_payload_retrying', {
+            session_id: sessionId,
+            event_id: options?.eventId ?? null,
+            delay_ms: delayMs,
+            ready_gate_status:
+              transitionResult.data.ready_gate_status ??
+              transitionResult.data.status ??
+              transitionResult.data.result_ready_gate_status ??
+              transitionResult.data.result_status ??
+              null,
+            reason: transitionResult.data.reason ?? transitionResult.data.error ?? null,
+            code: transitionResult.data.error_code ?? transitionResult.data.code ?? null,
+            command_status: transitionResult.data.commandStatus ?? null,
+          });
+        }
         await readyGateTransitionRetrySleep(delayMs);
         if (activeReadyGateSessionIdRef.current !== sessionId) {
           return {
@@ -978,7 +993,6 @@ export function useReadyGate(
           };
         }
         transitionResult = await callReadyGateTransitionRpc();
-        if (transitionResult.error) break;
       }
     }
     const { error } = transitionResult;
