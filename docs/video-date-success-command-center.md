@@ -700,6 +700,64 @@ Implemented and cloud-applied for this section:
 - Native/mobile `apps/mobile/app/date/[id].tsx` now mirrors the web peer-missing and post-encounter absence behavior.
 - Shared contracts now pin this incident through `shared/matching/videoDateTerminalSurveyLifecycleHardening.test.ts`, `shared/matching/videoSessionDailyGate.test.ts`, and updated warm-up/review follow-up tests.
 
+### 14. Latest failed test after single-owner hardening: Ready Gate mark-ready timed out before Daily
+
+Evidence source: attached chronological screenshots/network panels, read-only Supabase investigation, local source review, and Supabase cloud verification for linked project `schdyxcunwcvddlcshwd`.
+
+Identifiers:
+
+- Event: `21497965-394a-45fe-8700-5d91bf927f65`
+- Video session: `cac485cd-da3b-475b-aa4c-27b70cd914d6`
+- Participants:
+  - `267aa05e-0802-4b87-9a7b-ff78b97fdfa7` / Kaan Apple / participant 1
+  - `2a0995e1-8ec8-4a11-bdfe-0877c3383f5c` / Direk / participant 2
+
+Observed flow:
+
+- Participant 2 committed Ready Gate readiness at `2026-06-06T07:52:49.519065Z`, moving the session to `ready_b`.
+- Participant 1 then attempted `mark_ready`, but repeated `video_session_mark_ready_v2` commands were rejected with SQLSTATE `57014` and `READY_GATE_TRANSITION_TIMEOUT`.
+- The browser Network panel showed repeated `ready_gate_transition`, `get_video_date_start_snapshot_v1`, `video_session_mark_ready_v2`, profile/event/session reads, and one visible 500 from `get_video_date_start_snapshot_v1`.
+- No `both_ready` row was reached. There was no Daily room metadata, Daily webhook row, surface claim, remote-seen evidence, date start, or feedback row for this session.
+- At `2026-06-06T07:53:39.056628Z`, the session expired as `ready_gate_expired`.
+
+Interpretation:
+
+- This failure is distinct from the post-Ready Gate Daily-owner and survey failures. It regressed at the earliest critical intent boundary: the second user's ready tap did not durably write `ready_participant_1_at`.
+- Prior mark-ready work still allowed a wrapper/preflight/observability path to consume enough time that the critical ready timestamp was never committed before retry/expires handling.
+- The frontend retried explicit retryable payloads, but an RPC transport/PostgREST error could still stop the mark-ready attempt after the first failed call.
+
+Implemented for this section:
+
+- Supabase migration `20260606092944_video_date_decisive_mark_ready_commit.sql` replaces the public `video_session_mark_ready_v2(uuid,text,text)` with one direct decisive hot path.
+- Supabase migration `20260606100511_video_date_mark_ready_lint_cleanup.sql` keeps that public function behavior unchanged but removes the unused event-append variable that linked DB lint flagged after the first apply.
+- The new hot path begins the idempotent command before locking `video_sessions`, commits the actor's ready timestamp and deterministic `both_ready` Daily room metadata before observability/event/outbox work, and extends `ready_gate_expires_at` to at least `now() + 45 seconds` on every real ready tap.
+- Idempotency remains compatible with deployed clients: committed replay returns current DB truth, retryable rejected replay reopens the same command, and stale `processing` commands older than six seconds can be reclaimed.
+- Existing `ready_gate_transition('mark_ready')` bridges to the same public RPC, so web, mobile web, native/mobile, and older clients share the same backend behavior.
+- Web `src/hooks/useReadyGate.ts` and native/mobile `apps/mobile/lib/readyGateApi.ts` now retry bounded mark-ready RPC errors with the same deterministic idempotency key, in addition to retrying explicit retryable backend payloads.
+- New contract `shared/matching/readyGateDecisiveMarkReadyCommit.test.ts` pins the direct backend path, post-commit auxiliary work ordering, idempotency recovery, grants, and web/native RPC-error retry parity. It is wired into `npm run test:video-date-v4`.
+- Existing Ready Gate 57014 reliability contracts were made whitespace-tolerant where line wrapping had made assertions brittle without changing product behavior.
+
+Verification after implementation, with no web or native build triggered:
+
+- `npx tsx shared/matching/readyGateDecisiveMarkReadyCommit.test.ts`
+- `npx tsx shared/matching/readyGate57014ReliabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDatePhase3Contracts.test.ts`
+- `npx tsx shared/matching/videoDateStartSnapshotContracts.test.ts`
+- `npx tsc --noEmit -p tsconfig.app.json`
+- `cd apps/mobile && npm run typecheck`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- live marker query confirmed `decisive_live=true`, `authenticated_execute=true`, and `anon_execute=false` for `video_session_mark_ready_v2(uuid,text,text)`
+- no-auth smoke call returned structured `not_authenticated` JSON rather than a raw database error
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked` completed with only pre-existing warnings/notices unrelated to this migration
+- post-cleanup live marker query confirmed `unused_event_removed=true`; a second linked DB lint no longer reported `public.video_session_mark_ready_v2`
+
+Boundary:
+
+- This directly addresses the `cac485cd-da3b-475b-aa4c-27b70cd914d6` Ready Gate mark-ready timeout / `ready_b` expiry failure class across all clients that use the shared RPC contract.
+- This still is not product-health proof. The fresh disposable two-user production acceptance run remains required from match through survey completion, plus short Daily leave/rejoin under 12 seconds and real prolonged absence terminalization.
+
 ---
 
 ## Current Architecture Decisions
@@ -712,11 +770,13 @@ The client should render and retry, not invent lifecycle state. Authoritative tr
 
 `video_session_mark_ready_v2` must stay narrow:
 
+- start/recover the idempotent command before taking the session row lock,
 - verify participant,
 - preserve idempotency,
 - persist readiness,
 - derive canonical room metadata at both-ready,
-- enqueue provider work fail-soft,
+- commit the command result before observability, event append, or provider outbox work,
+- enqueue provider work fail-soft after readiness is already durable,
 - return structured payload.
 
 It must not synchronously create/provider-verify Daily rooms or depend on network/provider latency.
@@ -807,6 +867,7 @@ These are not claims that the current code is broken; they are the unproven area
 14. **Sticky survey lifecycle needs production proof.** Cloud function markers prove `update_participant_status` now protects pending survey rows until feedback exists; a fresh run must prove normal web/native/mobile lifecycle writes no longer knock either participant out of survey.
 15. **Terminal Daily room repair has cloud data proof, but still needs runtime proof.** Cloud verification restored the failed session and found zero remaining ended survey-eligible rows with missing/non-canonical Daily metadata. A fresh run must prove terminal `date_timeout` and replay/already-ended responses preserve or repair `daily_room_name` / `daily_room_url` naturally.
 16. **Lifecycle RPC fail-soft wrappers are cloud-applied but still need runtime proof.** Catalog verification proves the wrappers are installed and call the preserved base implementations, but the next live run must confirm browser/native clients no longer see raw 500s from stale/duplicate/terminal lifecycle calls.
+17. **Decisive mark-ready commit is cloud-applied but still needs production proof.** Catalog verification proves `20260606092944_video_date_decisive_mark_ready_commit.sql` and lint cleanup `20260606100511_video_date_mark_ready_lint_cleanup.sql` are live, callable by authenticated clients only, and warning-free in linked lint; the next run must prove both ready taps commit without retry/expiry collapse under real web/native/mobile timing.
 
 ---
 
@@ -848,7 +909,7 @@ Run this on a fresh disposable test pair after deployment has propagated:
 23. Confirm provider/client return clears `reconnect_grace_ends_at` via `reconnect_grace_cleared_by_daily_join`, `reconnect_grace_cleared_by_provider_join`, or `reconnect_grace_cleared_by_return`.
 24. Simulate post-encounter peer disappearance after `date_started_at`; confirm the remaining user sees peer-missing, the server ends with a survey-eligible reason, both registrations remain `in_survey` until feedback, and both users can complete survey.
 25. Confirm terminal rows retain deterministic Daily room metadata after timeout/replay/already-ended paths.
-24. Confirm a real prolonged absence still ends the session with `reconnect_grace_expired`.
+26. Confirm a real prolonged absence still ends the session with `reconnect_grace_expired`.
 
 Pass condition: both users complete the full journey from match through survey completion without lobby cycling, stale Ready Gate invalidation, or split-room Daily behavior.
 
@@ -881,6 +942,8 @@ If Video Date fails again, collect this before changing code:
 - Whether duplicate-tab behavior came from local browser storage, server `video_date_surface_claims`, or a real same-user duplicate surface.
 - Whether any payload included:
   - `retryable_command_reopened`
+  - `reclaimed_processing_command`
+  - `decisive_mark_ready_commit`
   - `expiry_grace_applied`
   - `hot_path`
   - `sqlstate`
@@ -944,6 +1007,14 @@ Backend / migrations:
 - `supabase/migrations/20260605152058_video_date_pending_survey_registration_repair.sql`
 - `supabase/migrations/20260605170249_video_date_surface_owner_outer_failsoft.sql`
 - `supabase/migrations/20260605174703_video_date_vibe_question_outer_base_name_repair.sql`
+- `supabase/migrations/20260605200729_video_date_beforeunload_active_presence_repair.sql`
+- `supabase/migrations/20260605203904_video_date_remote_seen_grace_payload_preserve.sql`
+- `supabase/migrations/20260605211924_video_date_surface_claim_expiry_current_guard.sql`
+- `supabase/migrations/20260605221535_review_comments_1199_1204_followups.sql`
+- `supabase/migrations/20260605222458_review_comments_helper_name_repair.sql`
+- `supabase/migrations/20260605232304_video_date_single_owner_runtime_hardening.sql`
+- `supabase/migrations/20260606092944_video_date_decisive_mark_ready_commit.sql`
+- `supabase/migrations/20260606100511_video_date_mark_ready_lint_cleanup.sql`
 - `supabase/functions/video-date-outbox-drainer/index.ts`
 - `supabase/functions/video-date-room-cleanup/index.ts`
 - `supabase/functions/video-date-orphan-room-cleanup/index.ts`
@@ -977,6 +1048,7 @@ Provider / notification:
 Contracts:
 
 - `shared/matching/readyGate57014ReliabilityContracts.test.ts`
+- `shared/matching/readyGateDecisiveMarkReadyCommit.test.ts`
 - `shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
 - `shared/matching/videoDateEndToEndHardening.test.ts`
 - `shared/matching/videoDateDefinitiveHandoffRecovery.test.ts`
@@ -995,6 +1067,14 @@ Runbooks:
 ---
 
 ## Update Log
+
+### 2026-06-06
+
+- Investigated latest failed two-user production session `cac485cd-da3b-475b-aa4c-27b70cd914d6` for event `21497965-394a-45fe-8700-5d91bf927f65`. This run failed before Daily: participant 2 committed `ready_b`, participant 1's mark-ready attempts returned SQLSTATE `57014` / `READY_GATE_TRANSITION_TIMEOUT`, no `both_ready` or Daily room metadata was created, and the session expired as `ready_gate_expired`.
+- Implemented and cloud-applied Supabase migration `20260606092944_video_date_decisive_mark_ready_commit.sql`. The public `video_session_mark_ready_v2` now commits participant readiness and deterministic `both_ready` room metadata before auxiliary observability/event/outbox work, preserves deployed idempotency/replay semantics, reclaims stale processing commands, and remains the target reached by legacy `ready_gate_transition('mark_ready')` bridges.
+- Follow-up migration `20260606100511_video_date_mark_ready_lint_cleanup.sql` removes the unused `v_event` variable from the final live function definition after linked DB lint caught it. Reverification showed `unused_event_removed=true`, remote dry-run up to date, and linked DB lint no longer reports `public.video_session_mark_ready_v2`.
+- Web `src/hooks/useReadyGate.ts` and native/mobile `apps/mobile/lib/readyGateApi.ts` now retry bounded mark-ready RPC transport errors with the same deterministic idempotency key, matching the existing retryable-payload behavior.
+- Verification passed without triggering web or native builds: focused decisive mark-ready, 57014, Phase 3, and start-snapshot contracts; app TypeScript check; mobile typecheck; Supabase cloud apply/list/dry-run; live marker query; no-auth structured-response smoke; and linked DB lint with only pre-existing warnings/notices. This is still not acceptance proof; the fresh two-user production flow through survey completion remains required.
 
 ### 2026-06-05
 

@@ -1062,25 +1062,40 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
             })
     );
     let transitionResult = await callReadyGateTransitionRpc();
-    if (action === "mark_ready" && !transitionResult.error) {
+    if (action === "mark_ready") {
       for (const fallbackDelayMs of MARK_READY_RETRY_DELAYS_MS) {
-        if (!shouldRetryReadyGateMarkReadyPayload(transitionResult.data)) break;
+        const retryRpcError = Boolean(transitionResult.error);
+        const retryPayload =
+          !retryRpcError && shouldRetryReadyGateMarkReadyPayload(transitionResult.data);
+        if (!retryRpcError && !retryPayload) break;
 
-        const delayMs = readReadyGateMarkReadyRetryDelayMs(transitionResult.data, fallbackDelayMs);
-        readyGateDebug("retryable mark_ready payload; retrying deterministic command", {
-          sessionId,
-          eventId: eventId ?? null,
-          delayMs,
-          status:
-            transitionResult.data.ready_gate_status ??
-            transitionResult.data.status ??
-            transitionResult.data.result_ready_gate_status ??
-            transitionResult.data.result_status ??
-            null,
-          reason: transitionResult.data.reason ?? transitionResult.data.error ?? null,
-          code: transitionResult.data.error_code ?? transitionResult.data.code ?? null,
-          commandStatus: transitionResult.data.commandStatus ?? null,
-        });
+        const delayMs = retryPayload
+          ? readReadyGateMarkReadyRetryDelayMs(transitionResult.data, fallbackDelayMs)
+          : fallbackDelayMs;
+        if (retryRpcError) {
+          readyGateDebug("mark_ready RPC error; retrying deterministic command", {
+            sessionId,
+            eventId: eventId ?? null,
+            delayMs,
+            code: transitionResult.error?.code ?? null,
+            message: transitionResult.error?.message ?? null,
+          });
+        } else {
+          readyGateDebug("retryable mark_ready payload; retrying deterministic command", {
+            sessionId,
+            eventId: eventId ?? null,
+            delayMs,
+            status:
+              transitionResult.data.ready_gate_status ??
+              transitionResult.data.status ??
+              transitionResult.data.result_ready_gate_status ??
+              transitionResult.data.result_status ??
+              null,
+            reason: transitionResult.data.reason ?? transitionResult.data.error ?? null,
+            code: transitionResult.data.error_code ?? transitionResult.data.code ?? null,
+            commandStatus: transitionResult.data.commandStatus ?? null,
+          });
+        }
         await readyGateTransitionRetrySleep(delayMs);
         if (activeReadyGateSessionIdRef.current !== sessionId) {
           return {
@@ -1091,7 +1106,6 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           };
         }
         transitionResult = await callReadyGateTransitionRpc();
-        if (transitionResult.error) break;
       }
     }
     const { error } = transitionResult;

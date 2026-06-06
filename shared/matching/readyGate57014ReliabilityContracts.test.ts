@@ -34,14 +34,14 @@ test("web and native lobbies pause deck pressure while Ready Gate is active", ()
   assert.match(webLobby, /const readyGatePressureActive = Boolean\(/);
   assert.match(webLobby, /const deckFetchEnabled = deckEnabled && !readyGatePressureActive/);
   assert.match(webLobby, /useEventDeck\([\s\S]*enabled: deckFetchEnabled/s);
-  assert.match(webLobby, /deckPrefetchPolishEnabled \|\| readyGatePressureActive/);
+  assert.match(webLobby, /deckPrefetchPolishEnabled\s*\|\|\s*readyGatePressureActive/);
   assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)[\s\S]{0,140}!readyGatePressureActive/s);
 
   assert.match(nativeLobby, /const sameEventActiveSession = useMemo/);
-  assert.match(nativeLobby, /const readyGatePressureActive = Boolean\(activeSessionId\) \|\| sameEventActiveSession\?\.kind === ['"]ready_gate['"]/);
+  assert.match(nativeLobby, /const readyGatePressureActive =\s*Boolean\(activeSessionId\)\s*\|\|\s*sameEventActiveSession\?\.kind === ['"]ready_gate['"]/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]*!readyGatePressureActive/s);
   assert.match(nativeLobby, /if \(readyGatePressureActive\) \{[\s\S]*lobby_deck_refresh_suppressed_ready_gate/s);
-  assert.match(nativeLobby, /deckPrefetchPolishEnabled \|\| readyGatePressureActive/);
+  assert.match(nativeLobby, /deckPrefetchPolishEnabled\s*\|\|\s*readyGatePressureActive/);
   assert.match(nativeLobby, /shouldTopUp && !readyGatePressureActive/);
 });
 
