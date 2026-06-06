@@ -1283,6 +1283,26 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callInstanceId: input.callInstanceId ?? null,
         providerSessionId,
       });
+
+      if (!providerBackedJoined) {
+        vdbg("mark_video_date_daily_alive_skipped_provider_missing", {
+          sessionId: input.sessionId,
+          userId: input.userId,
+          roomName: input.roomName,
+          source: input.source,
+          ownerId,
+          callInstanceId: input.callInstanceId ?? null,
+          providerSessionId,
+          meetingState,
+          ownerState: dailyOwnerState,
+          terminal: dailyOwnerState === "lost",
+        });
+        if (dailyOwnerState === "lost") {
+          clearDailyAliveHeartbeatTimer("provider_missing_terminal_state");
+        }
+        return;
+      }
+
       const args = {
         p_session_id: input.sessionId,
         p_owner_id: ownerId,
@@ -1312,6 +1332,29 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           payload: data ?? null,
           error: error ? { code: error.code, message: error.message } : null,
         });
+        const payload =
+          data && typeof data === "object" && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : null;
+        if (
+          payload?.terminal === true ||
+          payload?.error === "session_ended" ||
+          payload?.provider_presence_terminal === true
+        ) {
+          clearDailyAliveHeartbeatTimer(
+            payload.error === "session_ended"
+              ? "server_session_ended"
+              : "provider_presence_terminal",
+          );
+          if (
+            payload.error === "session_ended" ||
+            payload.queue_status === "in_survey"
+          ) {
+            optionsRef.current?.onTerminalSurveyTruth?.(
+              "daily_alive_terminal_survey_truth",
+            );
+          }
+        }
       } catch (error) {
         vdbg("mark_video_date_daily_alive_failed", {
           sessionId: input.sessionId,
@@ -1331,7 +1374,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
       }
     },
-    [],
+    [clearDailyAliveHeartbeatTimer],
   );
 
   const startDailyAliveHeartbeat = useCallback(
