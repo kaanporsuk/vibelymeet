@@ -36,6 +36,8 @@ Audit correction: the first migration draft tied the 2-second stability check to
 
 Merged via PR #1212 at `0a85449a0384f257d314a77c5a7fe455a71e2003` and applied to Supabase cloud on 2026-06-06 after the heartbeat-capable web/native/mobile client code was merged. Post-apply dry-run reports the remote database is up to date.
 
+Rollout documentation was synchronized afterward in PR #1213 at `a3c34dd2b2400908c3cf529d8c3146a141b7ebb8`; the parent workspace has no remote and records the nested app pointer locally at `9d0536877ebb9c808abb8b538c68935bf0581702`.
+
 Completed rollout order:
 
 1. Merged web/native/mobile clients with shared owner and alive heartbeat support.

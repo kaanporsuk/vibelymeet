@@ -44,6 +44,7 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useNonBlockingVideoDateReadiness } from "@/hooks/useVideoDateReadiness";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
+import { useMysteryMatch } from "@/hooks/useMysteryMatch";
 import { useActiveSession } from "@/hooks/useActiveSession";
 import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -741,6 +742,21 @@ const EventLobby = () => {
       user?.id,
     ],
   );
+
+  const mysteryMatchEnabled = lobbySideEffectsEnabled;
+  const {
+    findMysteryMatch,
+    cancelSearch: cancelMysteryMatch,
+    isSearching: isMysterySearching,
+    isWaiting: isMysteryWaiting,
+  } = useMysteryMatch({
+    eventId,
+    enabled: mysteryMatchEnabled,
+    onMatchFound: (sessionId) => {
+      openReadyGateSession(sessionId, "mystery_match");
+      scheduleLobbyConvergenceRefresh(sessionId, "mystery_match");
+    },
+  });
 
   const clearReadyGateSession = useCallback((source: string) => {
     if (dateNavigationSessionIdRef.current) {
@@ -3446,6 +3462,15 @@ const EventLobby = () => {
                 ? handleEndBreak
                 : undefined
             }
+            showMysteryMatch={
+              !postSurveyReturnContext &&
+              emptyDeckUiState.showMysteryMatch &&
+              mysteryMatchEnabled
+            }
+            isMysterySearching={isMysterySearching}
+            isMysteryWaiting={isMysteryWaiting}
+            onMysteryMatch={findMysteryMatch}
+            onCancelMysteryMatch={cancelMysteryMatch}
           />
         ) : (
           <div className="w-full space-y-3">

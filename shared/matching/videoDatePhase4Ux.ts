@@ -218,7 +218,7 @@ function emptyState(input: {
     actionLabel: "Refresh now",
     actionTarget: "refresh",
     showRefresh: true,
-    showMysteryMatch: input.platform === "native",
+    showMysteryMatch: true,
     retryable: input.retryable ?? true,
     terminal: false,
   };
