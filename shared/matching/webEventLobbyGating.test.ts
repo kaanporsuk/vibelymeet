@@ -163,8 +163,8 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
   assert.match(nativeLobby, /resolveEventLifecycle/);
-  assert.match(nativeLobby, /if \(row\.ended_at \|\| status === 'ended' \|\| status === 'completed'\) setShowEventEndedModal\(true\)/);
-  assert.match(nativeLobby, /status === 'cancelled' \|\| status === 'archived' \|\| status === 'draft' \|\| row\.archived_at/);
+  assert.match(nativeLobby, /if \(row\.ended_at \|\| status === ['"]ended['"] \|\| status === ['"]completed['"]\) setShowEventEndedModal\(true\)/);
+  assert.match(nativeLobby, /status === ['"]cancelled['"] \|\| status === ['"]archived['"] \|\| status === ['"]draft['"] \|\| row\.archived_at/);
   assert.match(nativeEventsApi, /resolveEventLifecycle/);
   assert.match(nativeEventStatus, /enabledRef/);
   assert.match(nativeEventStatus, /if \(!enabledRef\.current\) return/);

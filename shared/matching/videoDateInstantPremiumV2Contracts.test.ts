@@ -90,8 +90,8 @@ test("deck buffer and top-up rules remain the shipped 5/2 server-dealt contract"
 
 test("web and native lobbies prefetch leading deck media, track paint/cache/top-up, and refetch stale deck state", () => {
   for (const source of [webLobby, nativeLobby]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.deck_prefetch_polish_v2["']\)/);
-    assert.match(source, /useFeatureFlag\(["']video_date\.deck_optimistic_v1["']\)/);
+    assert.match(source, /useFeatureFlag\(\s*["']video_date\.deck_prefetch_polish_v2["']\s*,?\s*\)/);
+    assert.match(source, /useFeatureFlag\(\s*["']video_date\.deck_optimistic_v1["']\s*,?\s*\)/);
     assert.match(source, /isFeatureFlagEnabledWithAlias/);
     assert.match(source, /getVideoDateDeckPrefetchItems\(sortedProfiles\)/);
     assert.match(source, /video_date_deck_prefetch_cache_hit/);
@@ -100,14 +100,14 @@ test("web and native lobbies prefetch leading deck media, track paint/cache/top-
     assert.match(source, /video_date_deck_swipe_next_card_paint/);
     assert.match(source, /video_date_deck_top_up_decision/);
     assert.match(source, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
-    assert.match(source, /invalidateQueries\(\{ queryKey: \[[^\]]*event-deck/);
+    assert.match(source, /invalidateQueries\(\{\s*queryKey:\s*\[[\s\S]*?event-deck/);
     assert.match(source, /pendingSwipeTargetIds/);
     assert.match(source, /pendingSwipeTargetIdsRef/);
     assert.match(source, /optimisticSwipeSequenceRef/);
     assert.match(source, /optimisticSwipeSequenceRef\.current = 0/);
     assert.match(source, /shouldRestoreVideoDateDeckCardAfterSwipeFailure/);
     assert.match(source, /video_date_deck_optimistic_restore_skipped/);
-    assert.match(source, /video_date_deck_optimistic_restore_skipped[\s\S]+removeVideoDateDeckRecentSwipe\(recentSwipeTargetsRef\.current, profile\.id\)/);
+    assert.match(source, /video_date_deck_optimistic_restore_skipped[\s\S]+removeVideoDateDeckRecentSwipe\(\s*recentSwipeTargetsRef\.current,\s*profile\.id,\s*\)/);
     assert.match(source, /currentCardRetryState/);
     assert.match(source, /finally\s*\{\s*removePendingSwipeTargetId\(targetId\);/);
   }
@@ -120,30 +120,30 @@ test("web and native lobbies prefetch leading deck media, track paint/cache/top-
 
 test("web and native lobbies use timeline v2 plus private active-session Broadcast with legacy fallbacks", () => {
   for (const source of [webLobby, nativeLobby]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.lobby_timeline_v2["']\)/);
+    assert.match(source, /useFeatureFlag\(\s*["']video_date\.lobby_timeline_v2["']\s*,?\s*\)/);
     assert.match(source, /requestAnimationFrame/);
     assert.match(source, /setInterval/);
     assert.match(source, /createVideoDateSessionChannel/);
     assert.match(source, /resolveVideoDateSessionSeqDecision/);
     assert.match(source, /resolveVideoDateTimelineCountdown/);
     assert.match(source, /ready_gate_both_ready/);
-    assert.match(source, /lobbyTimelineV2\.enabled && lobbyBroadcastSessionId/);
+    assert.match(source, /lobbyTimelineV2\.enabled\s*&&\s*lobbyBroadcastSessionId/);
   }
-  assert.match(nativeLobby, /useCountdown\(eventEndTime, !lobbyTimelineV2\.enabled\)/);
+  assert.match(nativeLobby, /useCountdown\(\s*eventEndTime,\s*!lobbyTimelineV2\.enabled,\s*\)/);
   assert.match(nativeLobby, /formatEventCountdown\(eventEndTimeMs, lobbyClockMs\)/);
 });
 
 test("post-date instant next is prestaged, deck-prefetched, optimistic for normal verdicts, and server-confirmed for safety paths", () => {
-  assert.match(webVideoDate, /useFeatureFlag\("video_date\.post_date_instant_next_v2"\)/);
+  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.post_date_instant_next_v2["']\s*,?\s*\)/);
   assert.match(webVideoDate, /post_date_survey_prestaged/);
   assert.match(webVideoDate, /preloadRouteOnIdle\("eventLobby"\)/);
-  assert.match(nativeVideoDate, /useFeatureFlag\('video_date\.post_date_instant_next_v2'\)/);
+  assert.match(nativeVideoDate, /useFeatureFlag\(\s*["']video_date\.post_date_instant_next_v2["']\s*,?\s*\)/);
   assert.match(nativeVideoDate, /postDateSurveyShellPrestaged/);
   assert.match(nativeVideoDate, /postDateSurveyPrestageShell/);
   assert.match(nativeVideoDate, /post_date_survey_prestaged/);
 
   for (const source of [webSurvey, nativeSurvey]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.post_date_instant_next_v2["']\)/);
+    assert.match(source, /useFeatureFlag\(\s*["']video_date\.post_date_instant_next_v2["']\s*,?\s*\)/);
     assert.match(source, /prefetchQuery\(\{/);
     assert.match(source, /fetchEventDeck\(/);
     assert.match(source, /getVideoDateDeckPrefetchItems/);
@@ -160,7 +160,7 @@ test("post-date instant next is prestaged, deck-prefetched, optimistic for norma
 
 test("resilience v2 improves reconnect UI and applies Daily adaptation only behind capability checks", () => {
   for (const source of [webVideoDate, nativeVideoDate]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.resilience_v2["']\)/);
+    assert.match(source, /useFeatureFlag\(\s*["']video_date\.resilience_v2["']\s*,?\s*\)/);
     assert.match(source, /video_date_resilience_low_quality_mode/);
     assert.match(source, /networkTier|netQualityTier/);
     assert.match(source, /resilienceV2=\{resilienceV2\.enabled\}/);
@@ -239,8 +239,8 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(nativeVideoDate, /idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS/);
   assert.match(nativeVideoDate, /daily_call_singleton_idle_reuse_rejected/);
   assert.match(nativeVideoDate, /idleSingletonEntry\.call\.participants\(\)/);
-  assert.match(nativeVideoDate, /dailyCallSingletonV2\.enabled && \(dateEstablishedRef\.current \|\| showFeedback\)/);
-  assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled &&[\s\S]{0,120}phaseRef\.current === 'ended'/);
+  assert.match(nativeVideoDate, /dailyCallSingletonV2\.enabled\s*&&\s*\(\s*dateEstablishedRef\.current\s*\|\|\s*showFeedback\s*\)/);
+  assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled &&[\s\S]{0,120}phaseRef\.current === ['"]ended['"]/);
 });
 
 test("match ETA hint is sanitized, participant-visible, and gated by post-date instant-next full rollout", () => {

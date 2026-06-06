@@ -1,4 +1,11 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -38,8 +45,15 @@ import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { fetchEventDeck, type EventDeckFetchResult } from "@/hooks/useEventDeck";
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
+import {
+  fetchEventDeck,
+  type EventDeckFetchResult,
+} from "@/hooks/useEventDeck";
+import {
+  SUPABASE_PUBLISHABLE_KEY,
+  SUPABASE_URL,
+  supabase,
+} from "@/integrations/supabase/client";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
@@ -180,7 +194,11 @@ type VideoDateEndReason =
   | "date_timeout";
 type VideoDateManualExitStepStatus = "completed" | "failed" | "timed_out";
 
-type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
+type WebLifecycleLeaveSource =
+  | "beforeunload"
+  | "pagehide"
+  | "visibilitychange"
+  | "freeze";
 const WEB_SOFT_LIFECYCLE_LEAVE_SOURCES = new Set<WebLifecycleLeaveSource>([
   "beforeunload",
   "pagehide",
@@ -193,10 +211,15 @@ function waitForVideoDateRuntimeRecovery(ms: number): Promise<void> {
 }
 
 function normalizedDateExtraSeconds(raw: unknown): number {
-  return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? Math.max(0, Math.floor(raw))
+    : 0;
 }
 
-function makeExtensionIdempotencyKey(sessionId: string, type: "extra_time" | "extended_vibe"): string {
+function makeExtensionIdempotencyKey(
+  sessionId: string,
+  type: "extra_time" | "extended_vibe",
+): string {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -204,7 +227,10 @@ function makeExtensionIdempotencyKey(sessionId: string, type: "extra_time" | "ex
   return buildVideoDateExtensionIdempotencyKey(sessionId, type, random);
 }
 
-function makeMutualExtensionIdempotencyKey(sessionId: string, type: "extra_time" | "extended_vibe"): string {
+function makeMutualExtensionIdempotencyKey(
+  sessionId: string,
+  type: "extra_time" | "extended_vibe",
+): string {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -212,8 +238,12 @@ function makeMutualExtensionIdempotencyKey(sessionId: string, type: "extra_time"
   return buildVideoDateMutualExtensionIdempotencyKey(sessionId, type, random);
 }
 
-function serializeManualExitError(error: unknown): Record<string, unknown> | string {
-  return error instanceof Error ? { name: error.name, message: error.message } : String(error);
+function serializeManualExitError(
+  error: unknown,
+): Record<string, unknown> | string {
+  return error instanceof Error
+    ? { name: error.name, message: error.message }
+    : String(error);
 }
 
 function showWarmupChoiceNoticeToast(notice: VideoDateWarmupChoiceNotice) {
@@ -272,7 +302,11 @@ function runVideoDateManualExitStep(
         if (settled) return;
         settled = true;
         clearTimeout(timeoutId);
-        vdbg("video_date_manual_exit_step", { step, status: "completed", timeoutMs });
+        vdbg("video_date_manual_exit_step", {
+          step,
+          status: "completed",
+          timeoutMs,
+        });
         resolve({ status: "completed" });
       },
       (error) => {
@@ -315,13 +349,20 @@ function messageForHandshakeFailure(code?: string): string {
   return "Could not start your video date. Go back and try again.";
 }
 
-function messageForRetryableStartFailure(failure: VideoCallStartFailure | null): string {
-  if (!failure) return "We’re still connecting your video date. Please try again.";
-  if (failure.kind === "network") return "Your connection dropped while starting the date. Try again.";
+function messageForRetryableStartFailure(
+  failure: VideoCallStartFailure | null,
+): string {
+  if (!failure)
+    return "We’re still connecting your video date. Please try again.";
+  if (failure.kind === "network")
+    return "Your connection dropped while starting the date. Try again.";
   if (failure.kind === "DAILY_PROVIDER_ERROR") {
     return "The video service is still spinning up. Try again in a moment.";
   }
-  if (failure.kind === "DAILY_PROVIDER_UNAVAILABLE" || failure.kind === "DAILY_RATE_LIMIT") {
+  if (
+    failure.kind === "DAILY_PROVIDER_UNAVAILABLE" ||
+    failure.kind === "DAILY_RATE_LIMIT"
+  ) {
     return "The video service is still spinning up. Try again in a moment.";
   }
   if (failure.kind === "daily_join_failed") {
@@ -408,7 +449,8 @@ function summarizeWebVideoDateRuntime() {
   const ua = navigator.userAgent ?? "";
   const vendor = navigator.vendor ?? "";
   const isIOS = /\b(iPhone|iPad|iPod)\b/i.test(ua);
-  const isSafari = /Safari/i.test(ua) && !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR)/i.test(ua);
+  const isSafari =
+    /Safari/i.test(ua) && !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR)/i.test(ua);
   const browserFamily = /CriOS|Chrome|Chromium/i.test(ua)
     ? "chrome"
     : /FxiOS|Firefox/i.test(ua)
@@ -427,10 +469,16 @@ function summarizeWebVideoDateRuntime() {
 }
 
 function videoSessionIndicatesTerminalEnd(
-  row: { ended_at?: string | null; state?: string | null; phase?: string | null } | null
+  row: {
+    ended_at?: string | null;
+    state?: string | null;
+    phase?: string | null;
+  } | null,
 ): boolean {
   if (!row) return false;
-  return Boolean(row.ended_at || row.state === "ended" || row.phase === "ended");
+  return Boolean(
+    row.ended_at || row.state === "ended" || row.phase === "ended",
+  );
 }
 
 function shouldOpenPostDateSurveyForTerminalSession(
@@ -462,41 +510,63 @@ const VideoDate = () => {
       : null;
   const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
   const timelineV2 = useFeatureFlag("video_date.timeline_v2");
-  const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
-  const handshakeAutoPromoteV2 = useFeatureFlag("video_date.outbox_v2.handshake_auto_promote");
+  const continueHandshakeV2 = useFeatureFlag(
+    "video_date.outbox_v2.continue_handshake",
+  );
+  const handshakeAutoPromoteV2 = useFeatureFlag(
+    "video_date.outbox_v2.handshake_auto_promote",
+  );
   const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
   const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
   const extensionMutualV2 = useFeatureFlag("video_date.extension_mutual_v2");
   const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
   const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
-  const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
+  const postDateInstantNextV2 = useFeatureFlag(
+    "video_date.post_date_instant_next_v2",
+  );
   const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
-  const dailyTokenRefreshV2 = useFeatureFlag("video_date.daily_token_refresh_v2");
+  const dailyTokenRefreshV2 = useFeatureFlag(
+    "video_date.daily_token_refresh_v2",
+  );
   const pushPayloadV2 = useFeatureFlag("video_date.push_payload_v2");
   const initialPushTimeline = useMemo(
-    () => pushPayloadV2.enabled ? readVideoDatePushPreloadTimeline(id) : null,
+    () => (pushPayloadV2.enabled ? readVideoDatePushPreloadTimeline(id) : null),
     [id, pushPayloadV2.enabled],
   );
   const initialPushCountdown = useMemo(
-    () => initialPushTimeline ? resolveVideoDateTimelineCountdown(initialPushTimeline) : null,
+    () =>
+      initialPushTimeline
+        ? resolveVideoDateTimelineCountdown(initialPushTimeline)
+        : null,
     [initialPushTimeline],
   );
 
-  const [phase, setPhase] = useState<CallPhase>(initialPushTimeline?.phase === "date" ? "date" : "handshake");
+  const [phase, setPhase] = useState<CallPhase>(
+    initialPushTimeline?.phase === "date" ? "date" : "handshake",
+  );
   /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
   const [dateExtraSeconds, setDateExtraSeconds] = useState(0);
   const [dateStartedAt, setDateStartedAt] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number | null>(initialPushCountdown?.remainingSeconds ?? null);
-  const [videoDateAccess, setVideoDateAccess] = useState<VideoDateAccess>("loading");
-  const [deniedEventId, setDeniedEventId] = useState<string | undefined>(undefined);
+  const [timeLeft, setTimeLeft] = useState<number | null>(
+    initialPushCountdown?.remainingSeconds ?? null,
+  );
+  const [videoDateAccess, setVideoDateAccess] =
+    useState<VideoDateAccess>("loading");
+  const [deniedEventId, setDeniedEventId] = useState<string | undefined>(
+    undefined,
+  );
   const [timingReady, setTimingReady] = useState(false);
   const [handshakeStartFailed, setHandshakeStartFailed] = useState(false);
-  const [handshakeFailureCode, setHandshakeFailureCode] = useState<string | undefined>(undefined);
+  const [handshakeFailureCode, setHandshakeFailureCode] = useState<
+    string | undefined
+  >(undefined);
   const [blurAmount, setBlurAmount] = useState(20);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [terminalSurveyRecoveryActive, setTerminalSurveyRecoveryActive] = useState(false);
+  const [terminalSurveyRecoveryActive, setTerminalSurveyRecoveryActive] =
+    useState(false);
   const [callStarted, setCallStarted] = useState(false);
-  const [callStartFailure, setCallStartFailure] = useState<VideoCallStartFailure | null>(null);
+  const [callStartFailure, setCallStartFailure] =
+    useState<VideoCallStartFailure | null>(null);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showAudioOutputPicker, setShowAudioOutputPicker] = useState(false);
   const [showIceBreaker, setShowIceBreaker] = useState(true);
@@ -506,19 +576,26 @@ const VideoDate = () => {
     expiresAt: string | null;
   } | null>(null);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
-  const [safetySubmitOutcome, setSafetySubmitOutcome] = useState<VideoDateSafetySubmitOutcome | null>(null);
+  const [safetySubmitOutcome, setSafetySubmitOutcome] =
+    useState<VideoDateSafetySubmitOutcome | null>(null);
   const [showEndDateConfirm, setShowEndDateConfirm] = useState(false);
   const [isEndDateConfirming, setIsEndDateConfirming] = useState(false);
   const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
-  const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
-  const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
-  const [serverTimeline, setServerTimeline] = useState<VideoDateTimelineState | null>(initialPushTimeline);
+  const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(
+    null,
+  );
+  const [handshakeTruth, setHandshakeTruth] =
+    useState<VideoDateHandshakeTruth | null>(null);
+  const [serverTimeline, setServerTimeline] =
+    useState<VideoDateTimelineState | null>(initialPushTimeline);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
   const [eventId, setEventId] = useState<string | undefined>(undefined);
   const [partnerPhotoUrl, setPartnerPhotoUrl] = useState<string | null>(null);
-  const [remoteFrameSnapshotUrl, setRemoteFrameSnapshotUrl] = useState<string | null>(null);
+  const [remoteFrameSnapshotUrl, setRemoteFrameSnapshotUrl] = useState<
+    string | null
+  >(null);
   const [partner, setPartner] = useState<PartnerData>({
     name: "Your date",
     age: 0,
@@ -538,8 +615,12 @@ const VideoDate = () => {
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
-  const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const checkMutualVibeRef = useRef<((source?: string, allowRetry?: boolean) => void) | null>(null);
+  const handshakeCompletionRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const checkMutualVibeRef = useRef<
+    ((source?: string, allowRetry?: boolean) => void) | null
+  >(null);
   const firstRemoteFrameAtMsRef = useRef<number | null>(null);
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
   const canonicalRoomNameRef = useRef<string | null>(null);
@@ -574,15 +655,22 @@ const VideoDate = () => {
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
   const broadcastPendingRefetchSeqRef = useRef<number | null>(null);
-  const broadcastGapRecoveryRef = useRef<VideoDateBroadcastGapRecoveryState | null>(null);
-  const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const attemptBroadcastGapSnapshotRecoveryRef = useRef<(source: string) => void>(() => {});
+  const broadcastGapRecoveryRef =
+    useRef<VideoDateBroadcastGapRecoveryState | null>(null);
+  const broadcastGapRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const attemptBroadcastGapSnapshotRecoveryRef = useRef<
+    (source: string) => void
+  >(() => {});
   const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
   const terminalDailyStopRef = useRef<((reason: string) => void) | null>(null);
   const terminalDailyStopRequestedRef = useRef(false);
   const postEncounterPeerMissingEndRequestedRef = useRef<string | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
-  const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
+  const handleCallEndRef = useRef<
+    ((reason?: VideoDateEndReason) => Promise<void>) | null
+  >(null);
 
   const clearHandshakeGraceState = useCallback(() => {}, []);
 
@@ -598,7 +686,11 @@ const VideoDate = () => {
   }, []);
 
   const logJourney = useCallback(
-    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
+    (
+      event: VideoDateJourneyEvent,
+      payload?: Record<string, unknown>,
+      dedupeKey?: string,
+    ) => {
       const key = dedupeKey ?? event;
       if (loggedJourneyRef.current.has(key)) return;
       loggedJourneyRef.current.add(key);
@@ -608,15 +700,20 @@ const VideoDate = () => {
         event_id: eventId,
         ...(payload ?? {}),
       });
-      vdbg(`journey_${event}`, { sessionId: id ?? null, eventId: eventId ?? null, ...(payload ?? {}) });
+      vdbg(`journey_${event}`, {
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+        ...(payload ?? {}),
+      });
     },
-    [id, eventId]
+    [id, eventId],
   );
 
   const enterTerminalSurveyHardStop = useCallback(
     (reason: string) => {
       terminalSurveyRecoveryInFlightRef.current = true;
       setTerminalSurveyRecoveryActive(true);
+      if (id) markVideoDateRouteOwned(id, user?.id ?? null);
       const stopDailyForTerminal = terminalDailyStopRef.current;
       if (!terminalDailyStopRequestedRef.current && stopDailyForTerminal) {
         terminalDailyStopRequestedRef.current = true;
@@ -666,11 +763,15 @@ const VideoDate = () => {
           outcome: "recovered",
           reason_code: reason,
         });
-        logJourney("survey_recovered", { reason }, `survey_recovered_${reason}`);
+        logJourney(
+          "survey_recovered",
+          { reason },
+          `survey_recovered_${reason}`,
+        );
       }
       return true;
     },
-    [enterTerminalSurveyHardStop, id, eventId, logJourney]
+    [enterTerminalSurveyHardStop, id, eventId, logJourney],
   );
 
   const hydrateTerminalSurveyContext = useCallback(
@@ -684,7 +785,9 @@ const VideoDate = () => {
       source: string,
     ) => {
       const isP1 = sessionRow.participant_1_id === user?.id;
-      const resolvedPartnerId = isP1 ? sessionRow.participant_2_id : sessionRow.participant_1_id;
+      const resolvedPartnerId = isP1
+        ? sessionRow.participant_2_id
+        : sessionRow.participant_1_id;
       if (sessionRow.daily_room_name) {
         canonicalRoomNameRef.current = sessionRow.daily_room_name;
       }
@@ -708,17 +811,23 @@ const VideoDate = () => {
   );
 
   const recoverTerminalPostDateSurvey = useCallback(
-    async (source: string, sessionOverride?: TerminalSurveySessionRow | null) => {
+    async (
+      source: string,
+      sessionOverride?: TerminalSurveySessionRow | null,
+    ) => {
       if (!id || !user?.id) return false;
       const sessionResult = sessionOverride
         ? { data: sessionOverride, error: null }
         : await supabase
-          .from("video_sessions")
-          .select(TERMINAL_SURVEY_SESSION_SELECT)
-          .eq("id", id)
-          .maybeSingle();
+            .from("video_sessions")
+            .select(TERMINAL_SURVEY_SESSION_SELECT)
+            .eq("id", id)
+            .maybeSingle();
       if (sessionResult.error) {
-        captureSupabaseError("terminal_post_date_survey_session_fetch_failed", sessionResult.error);
+        captureSupabaseError(
+          "terminal_post_date_survey_session_fetch_failed",
+          sessionResult.error,
+        );
         recordUserAction("terminal_post_date_survey_session_fetch_failed", {
           surface: "video_date",
           session_id: id,
@@ -746,7 +855,8 @@ const VideoDate = () => {
         return false;
       }
 
-      const hasPostDateSurveyTruth = videoSessionHasPostDateSurveyTruth(sessionRow);
+      const hasPostDateSurveyTruth =
+        videoSessionHasPostDateSurveyTruth(sessionRow);
       if (hasPostDateSurveyTruth) {
         enterTerminalSurveyHardStop(source);
         hydrateTerminalSurveyContext(sessionRow, source);
@@ -760,7 +870,10 @@ const VideoDate = () => {
         .eq("user_id", user.id)
         .maybeSingle();
       if (verdictError) {
-        captureSupabaseError("terminal_post_date_survey_verdict_fetch_failed", verdictError);
+        captureSupabaseError(
+          "terminal_post_date_survey_verdict_fetch_failed",
+          verdictError,
+        );
         recordUserAction("terminal_post_date_survey_verdict_fetch_failed", {
           surface: "video_date",
           session_id: id,
@@ -783,7 +896,10 @@ const VideoDate = () => {
       }
       const verdictFetchFailed = Boolean(verdictError);
 
-      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
+      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(
+        sessionRow,
+        verdict,
+      );
       vdbg("terminal_post_date_survey_recovery_checked", {
         sessionId: id,
         userId: user.id,
@@ -798,8 +914,12 @@ const VideoDate = () => {
         phase: sessionRow.phase ?? null,
         participant1Joined: Boolean(sessionRow.participant_1_joined_at),
         participant2Joined: Boolean(sessionRow.participant_2_joined_at),
-        participant1RemoteSeen: Boolean(sessionRow.participant_1_remote_seen_at),
-        participant2RemoteSeen: Boolean(sessionRow.participant_2_remote_seen_at),
+        participant1RemoteSeen: Boolean(
+          sessionRow.participant_1_remote_seen_at,
+        ),
+        participant2RemoteSeen: Boolean(
+          sessionRow.participant_2_remote_seen_at,
+        ),
       });
 
       if (shouldOpenSurvey || (hasPostDateSurveyTruth && verdictFetchFailed)) {
@@ -847,7 +967,7 @@ const VideoDate = () => {
         supabase
           .from("video_sessions")
           .select(
-            "event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url"
+            "event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url",
           )
           .eq("id", id)
           .maybeSingle(),
@@ -872,7 +992,8 @@ const VideoDate = () => {
       const reason =
         recovery.action === "go_date"
           ? null
-          : recovery.action === "show_terminal" || recovery.action === "go_survey"
+          : recovery.action === "show_terminal" ||
+              recovery.action === "go_survey"
             ? "session_ended"
             : canAttemptDaily
               ? "video_truth_startable_after_refetch"
@@ -917,29 +1038,55 @@ const VideoDate = () => {
       if (!canAttemptDaily && recovery.action === "go_ready_gate") {
         const target = `/ready/${encodeURIComponent(id)}`;
         clearDateEntryTransition(id);
-        logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
+        logJourney(
+          "date_route_bounced",
+          { reason: source, target },
+          `date_route_bounced_${source}`,
+        );
         vdbgRedirect(target, source, { sessionId: id, userId: user.id });
         navigate(target, { replace: true });
         return true;
       }
 
       const fallbackEventId = vs?.event_id ?? eventId;
-      if (!canAttemptDaily && recovery.action === "go_lobby" && fallbackEventId) {
+      if (
+        !canAttemptDaily &&
+        recovery.action === "go_lobby" &&
+        fallbackEventId
+      ) {
         const target = `/event/${encodeURIComponent(fallbackEventId)}/lobby`;
         clearDateEntryTransition(id);
-        logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
-        vdbgRedirect(target, source, { sessionId: id, userId: user.id, eventId: fallbackEventId });
+        logJourney(
+          "date_route_bounced",
+          { reason: source, target },
+          `date_route_bounced_${source}`,
+        );
+        vdbgRedirect(target, source, {
+          sessionId: id,
+          userId: user.id,
+          eventId: fallbackEventId,
+        });
         navigate(target, { replace: true });
         return true;
       }
 
-      if (recovery.action === "show_terminal" || recovery.action === "go_survey") {
+      if (
+        recovery.action === "show_terminal" ||
+        recovery.action === "go_survey"
+      ) {
         return recoverTerminalPostDateSurvey(`${source}_ended_truth`);
       }
 
       return false;
     },
-    [eventId, id, logJourney, navigate, recoverTerminalPostDateSurvey, user?.id]
+    [
+      eventId,
+      id,
+      logJourney,
+      navigate,
+      recoverTerminalPostDateSurvey,
+      user?.id,
+    ],
   );
 
   const recoverFromEndedSessionTruth = recoverTerminalPostDateSurvey;
@@ -983,24 +1130,39 @@ const VideoDate = () => {
       !showFeedback &&
       phase !== "ended" &&
       (phase === "handshake" ||
-      phase === "date" ||
-      Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(handshakeTruth)),
+        phase === "date" ||
+        Boolean(dateStartedAt) ||
+        videoSessionHasEncounterExposureTruth(handshakeTruth)),
     videoSessionState: phase,
     localDecisionPersisted: Boolean(
       handshakeTruth &&
-        user?.id &&
-        ((handshakeTruth.participant_1_id === user.id && handshakeTruth.participant_1_decided_at) ||
-          (handshakeTruth.participant_2_id === user.id && handshakeTruth.participant_2_decided_at))
+      user?.id &&
+      ((handshakeTruth.participant_1_id === user.id &&
+        handshakeTruth.participant_1_decided_at) ||
+        (handshakeTruth.participant_2_id === user.id &&
+          handshakeTruth.participant_2_decided_at)),
     ),
     onCallEnded: () => {
-      Sentry.addBreadcrumb({ category: "video-date", message: "Call ended", level: "info" });
+      Sentry.addBreadcrumb({
+        category: "video-date",
+        message: "Call ended",
+        level: "info",
+      });
     },
     onPartnerJoined: () => {
-      Sentry.addBreadcrumb({ category: "video-date", message: "Partner connected", level: "info" });
+      Sentry.addBreadcrumb({
+        category: "video-date",
+        message: "Partner connected",
+        level: "info",
+      });
     },
     onPartnerLeft: () => {
-      if (phaseRef.current === "ended" || surveyOpenedRef.current || terminalSurveyRecoveryInFlightRef.current) return;
+      if (
+        phaseRef.current === "ended" ||
+        surveyOpenedRef.current ||
+        terminalSurveyRecoveryInFlightRef.current
+      )
+        return;
       reconnection.startGraceWindow();
     },
     onPartnerTransientDisconnect: () => {
@@ -1023,7 +1185,10 @@ const VideoDate = () => {
       void endCall(`terminal_survey_hard_stop:${reason}`);
     };
     terminalDailyStopRef.current = stopDailyForTerminal;
-    if (terminalSurveyRecoveryInFlightRef.current && !terminalDailyStopRequestedRef.current) {
+    if (
+      terminalSurveyRecoveryInFlightRef.current &&
+      !terminalDailyStopRequestedRef.current
+    ) {
       terminalDailyStopRequestedRef.current = true;
       stopDailyForTerminal("terminal_survey_ref_attached");
     }
@@ -1054,11 +1219,14 @@ const VideoDate = () => {
       !terminalSurveyRecoveryActive &&
       phase !== "ended",
   );
-  const [showDuplicateTabConflict, setShowDuplicateTabConflict] = useState(false);
+  const [showDuplicateTabConflict, setShowDuplicateTabConflict] =
+    useState(false);
 
   const reconnection = useReconnection({
     sessionId:
-      videoDateAccess === "allowed" && !terminalSurveyRecoveryActive && !terminalSurveyRecoveryInFlightRef.current
+      videoDateAccess === "allowed" &&
+      !terminalSurveyRecoveryActive &&
+      !terminalSurveyRecoveryInFlightRef.current
         ? id
         : undefined,
     isConnected,
@@ -1067,7 +1235,8 @@ const VideoDate = () => {
       toast("They're back! 💚", { duration: 2000 });
     },
     onGraceExpired: () => {
-      if (terminalSurveyRecoveryInFlightRef.current || surveyOpenedRef.current) return;
+      if (terminalSurveyRecoveryInFlightRef.current || surveyOpenedRef.current)
+        return;
       toast("Your date got disconnected — we hope you enjoyed the chat! 💚", {
         duration: 3000,
       });
@@ -1106,7 +1275,13 @@ const VideoDate = () => {
     (source: string) => {
       if (!resilienceV2.enabled) return;
       const videoEl = remoteVideoRef.current;
-      if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth <= 0 || videoEl.videoHeight <= 0) return;
+      if (
+        !videoEl ||
+        videoEl.readyState < 2 ||
+        videoEl.videoWidth <= 0 ||
+        videoEl.videoHeight <= 0
+      )
+        return;
 
       try {
         const maxWidth = 480;
@@ -1154,7 +1329,10 @@ const VideoDate = () => {
       return;
     }
     syncRemoteBackdropVideo("connected_effect");
-    const intervalId = window.setInterval(() => syncRemoteBackdropVideo("connected_interval"), 1_000);
+    const intervalId = window.setInterval(
+      () => syncRemoteBackdropVideo("connected_interval"),
+      1_000,
+    );
     return () => window.clearInterval(intervalId);
   }, [isConnected, showFeedback, syncRemoteBackdropVideo]);
 
@@ -1168,10 +1346,13 @@ const VideoDate = () => {
       const videoRect = videoEl.getBoundingClientRect();
       const containerRect = containerEl.getBoundingClientRect();
       const computed = window.getComputedStyle(videoEl);
-      const stream = videoEl.srcObject instanceof MediaStream ? videoEl.srcObject : null;
+      const stream =
+        videoEl.srcObject instanceof MediaStream ? videoEl.srcObject : null;
       const videoTrack = stream?.getVideoTracks()[0] ?? null;
       const trackSettings =
-        videoTrack && typeof videoTrack.getSettings === "function" ? videoTrack.getSettings() : null;
+        videoTrack && typeof videoTrack.getSettings === "function"
+          ? videoTrack.getSettings()
+          : null;
       const diagnosticKey = [
         source,
         phase,
@@ -1199,19 +1380,31 @@ const VideoDate = () => {
         capture_profile: captureProfile,
         video_intrinsic_width: videoEl.videoWidth,
         video_intrinsic_height: videoEl.videoHeight,
-        video_intrinsic_aspect_ratio: videoDateAspectRatio(videoEl.videoWidth, videoEl.videoHeight),
+        video_intrinsic_aspect_ratio: videoDateAspectRatio(
+          videoEl.videoWidth,
+          videoEl.videoHeight,
+        ),
         rendered_rect_width: Math.round(videoRect.width),
         rendered_rect_height: Math.round(videoRect.height),
-        rendered_rect_aspect_ratio: videoDateAspectRatio(videoRect.width, videoRect.height),
+        rendered_rect_aspect_ratio: videoDateAspectRatio(
+          videoRect.width,
+          videoRect.height,
+        ),
         container_rect_width: Math.round(containerRect.width),
         container_rect_height: Math.round(containerRect.height),
-        container_rect_aspect_ratio: videoDateAspectRatio(containerRect.width, containerRect.height),
+        container_rect_aspect_ratio: videoDateAspectRatio(
+          containerRect.width,
+          containerRect.height,
+        ),
         receiver_object_fit: computed.objectFit,
         receiver_object_position: computed.objectPosition,
         receiver_transform: computed.transform,
         track_width: trackSettings?.width ?? null,
         track_height: trackSettings?.height ?? null,
-        track_aspect_ratio: videoDateAspectRatio(trackSettings?.width, trackSettings?.height),
+        track_aspect_ratio: videoDateAspectRatio(
+          trackSettings?.width,
+          trackSettings?.height,
+        ),
         track_frame_rate: trackSettings?.frameRate ?? null,
         track_facing_mode: trackSettings?.facingMode ?? null,
         video_track_id: videoTrack?.id ?? null,
@@ -1227,7 +1420,10 @@ const VideoDate = () => {
         videoIntrinsic: {
           width: videoEl.videoWidth,
           height: videoEl.videoHeight,
-          aspectRatio: videoDateAspectRatio(videoEl.videoWidth, videoEl.videoHeight),
+          aspectRatio: videoDateAspectRatio(
+            videoEl.videoWidth,
+            videoEl.videoHeight,
+          ),
         },
         renderedRect: {
           width: Math.round(videoRect.width),
@@ -1237,7 +1433,10 @@ const VideoDate = () => {
         containerRect: {
           width: Math.round(containerRect.width),
           height: Math.round(containerRect.height),
-          aspectRatio: videoDateAspectRatio(containerRect.width, containerRect.height),
+          aspectRatio: videoDateAspectRatio(
+            containerRect.width,
+            containerRect.height,
+          ),
         },
         css: {
           objectFit: computed.objectFit,
@@ -1245,13 +1444,26 @@ const VideoDate = () => {
           transform: computed.transform,
         },
         trackSettings,
-        trackAspectRatio: videoDateAspectRatio(trackSettings?.width, trackSettings?.height),
+        trackAspectRatio: videoDateAspectRatio(
+          trackSettings?.width,
+          trackSettings?.height,
+        ),
         videoTrackId: videoTrack?.id ?? null,
         browser: summarizeWebVideoDateRuntime(),
       });
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECEIVER_LAYOUT_DIAGNOSTIC, diagnosticPayload);
+      trackEvent(
+        LobbyPostDateEvents.VIDEO_DATE_RECEIVER_LAYOUT_DIAGNOSTIC,
+        diagnosticPayload,
+      );
     },
-    [captureProfile, eventId, id, phase, remoteVideoRef, syncRemoteBackdropVideo]
+    [
+      captureProfile,
+      eventId,
+      id,
+      phase,
+      remoteVideoRef,
+      syncRemoteBackdropVideo,
+    ],
   );
 
   useEffect(() => {
@@ -1296,7 +1508,9 @@ const VideoDate = () => {
     }
     const timeout = window.setTimeout(() => {
       setPendingPartnerExtension((current) =>
-        current?.expiresAt === pendingPartnerExtension.expiresAt ? null : current,
+        current?.expiresAt === pendingPartnerExtension.expiresAt
+          ? null
+          : current,
       );
     }, delayMs + 250);
     return () => window.clearTimeout(timeout);
@@ -1307,7 +1521,10 @@ const VideoDate = () => {
   }, [serverTimeline]);
 
   useEffect(() => {
-    if (typeof handshakeTruth?.session_seq === "number" && Number.isFinite(handshakeTruth.session_seq)) {
+    if (
+      typeof handshakeTruth?.session_seq === "number" &&
+      Number.isFinite(handshakeTruth.session_seq)
+    ) {
       sessionSeqRef.current = handshakeTruth.session_seq;
     }
   }, [handshakeTruth?.session_seq]);
@@ -1315,11 +1532,14 @@ const VideoDate = () => {
   useEffect(() => {
     let mounted = true;
     void supabase.auth.getSession().then(({ data }) => {
-      if (mounted) leaveSignalTokenRef.current = data.session?.access_token ?? null;
+      if (mounted)
+        leaveSignalTokenRef.current = data.session?.access_token ?? null;
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      leaveSignalTokenRef.current = session?.access_token ?? null;
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        leaveSignalTokenRef.current = session?.access_token ?? null;
+      },
+    );
     return () => {
       mounted = false;
       listener.subscription.unsubscribe();
@@ -1337,7 +1557,10 @@ const VideoDate = () => {
   }, [phase, timeLeft]);
 
   const trackTimerDriftRecovery = useCallback(
-    (correctedTimeLeftSeconds: number, recoverySource: "session_reload" | "realtime" | "foreground_reconcile") => {
+    (
+      correctedTimeLeftSeconds: number,
+      recoverySource: "session_reload" | "realtime" | "foreground_reconcile",
+    ) => {
       if (timelineV2.enabled) return;
       if (!timerDriftTrackingReadyRef.current) return;
       const payload = buildVideoDateTimerDriftRecoveredPayload({
@@ -1420,7 +1643,10 @@ const VideoDate = () => {
       dailyReconnectState === "partner_reconnecting" ||
       dailyReconnectState === "partner_left_grace";
 
-    if (isReconnectActive && dailyReconnectPerformanceStartedAtRef.current === null) {
+    if (
+      isReconnectActive &&
+      dailyReconnectPerformanceStartedAtRef.current === null
+    ) {
       const startedAt = Date.now();
       dailyReconnectPerformanceStartedAtRef.current = startedAt;
       dailyReconnectPerformanceSourceRef.current = dailyReconnectState;
@@ -1439,9 +1665,13 @@ const VideoDate = () => {
     const startedAt = dailyReconnectPerformanceStartedAtRef.current;
     if (startedAt === null) return;
 
-    if (dailyReconnectState === "recovered" || dailyReconnectState === "connected") {
+    if (
+      dailyReconnectState === "recovered" ||
+      dailyReconnectState === "connected"
+    ) {
       const durationMs = Math.max(0, Date.now() - startedAt);
-      const reconnectSource = dailyReconnectPerformanceSourceRef.current ?? dailyReconnectState;
+      const reconnectSource =
+        dailyReconnectPerformanceSourceRef.current ?? dailyReconnectState;
       dailyReconnectPerformanceStartedAtRef.current = null;
       dailyReconnectPerformanceSourceRef.current = null;
       trackDailyPerformanceCheckpoint({
@@ -1460,7 +1690,8 @@ const VideoDate = () => {
 
     if (dailyReconnectState === "failed_after_grace") {
       const durationMs = Math.max(0, Date.now() - startedAt);
-      const reconnectSource = dailyReconnectPerformanceSourceRef.current ?? dailyReconnectState;
+      const reconnectSource =
+        dailyReconnectPerformanceSourceRef.current ?? dailyReconnectState;
       dailyReconnectPerformanceStartedAtRef.current = null;
       dailyReconnectPerformanceSourceRef.current = null;
       trackDailyPerformanceCheckpoint({
@@ -1476,10 +1707,22 @@ const VideoDate = () => {
         },
       });
     }
-  }, [dailyReconnectState, id, phase, showFeedback, trackDailyPerformanceCheckpoint]);
+  }, [
+    dailyReconnectState,
+    id,
+    phase,
+    showFeedback,
+    trackDailyPerformanceCheckpoint,
+  ]);
 
   useEffect(() => {
-    if (!postDateInstantNextV2.enabled || !id || showFeedback || phase !== "date") return;
+    if (
+      !postDateInstantNextV2.enabled ||
+      !id ||
+      showFeedback ||
+      phase !== "date"
+    )
+      return;
     if ((timeLeft ?? Number.POSITIVE_INFINITY) > 30) return;
     if (postDatePrestageKeyRef.current === id) return;
     postDatePrestageKeyRef.current = id;
@@ -1494,7 +1737,9 @@ const VideoDate = () => {
         })
         .then(() => {
           if (typeof window === "undefined") return;
-          const profiles = queryClient.getQueryData<EventDeckFetchResult>(queryKey)?.profiles ?? [];
+          const profiles =
+            queryClient.getQueryData<EventDeckFetchResult>(queryKey)
+              ?.profiles ?? [];
           for (const item of getVideoDateDeckPrefetchItems(profiles)) {
             const src = deckCardUrl(item.source);
             if (!src) continue;
@@ -1511,10 +1756,20 @@ const VideoDate = () => {
       event_id: eventId ?? null,
       remaining_seconds: timeLeft ?? null,
     });
-  }, [eventId, id, phase, postDateInstantNextV2.enabled, queryClient, showFeedback, timeLeft, user?.id]);
+  }, [
+    eventId,
+    id,
+    phase,
+    postDateInstantNextV2.enabled,
+    queryClient,
+    showFeedback,
+    timeLeft,
+    user?.id,
+  ]);
 
   useEffect(() => {
-    if (!resilienceV2.enabled || !id || showFeedback || networkTier === "good") return;
+    if (!resilienceV2.enabled || !id || showFeedback || networkTier === "good")
+      return;
     const key = `${id}:${networkTier}`;
     if (resilienceModeTrackedKeyRef.current === key) return;
     resilienceModeTrackedKeyRef.current = key;
@@ -1528,22 +1783,39 @@ const VideoDate = () => {
   }, [eventId, id, networkTier, resilienceV2.enabled, showFeedback]);
 
   const applyTimelineSnapshot = useCallback(
-    (snapshot: Awaited<ReturnType<typeof fetchVideoDateSnapshot>>, source: string) => {
+    (
+      snapshot: Awaited<ReturnType<typeof fetchVideoDateSnapshot>>,
+      source: string,
+    ) => {
       if (!timelineV2.enabled) return null;
-      const decision = applyVideoDateTimelineSnapshot(snapshot, serverTimelineRef.current, {
-        clientNowMs: Date.now(),
-        expectedSessionId: id,
-      });
+      const decision = applyVideoDateTimelineSnapshot(
+        snapshot,
+        serverTimelineRef.current,
+        {
+          clientNowMs: Date.now(),
+          expectedSessionId: id,
+        },
+      );
       if (decision.action !== "accepted") return decision;
 
       const timeline = decision.timeline;
-      if (sessionSeqRef.current !== null && timeline.seq < sessionSeqRef.current) {
-        return { action: "stale", timeline: serverTimelineRef.current, reason: "snapshot_seq_behind_cursor" };
+      if (
+        sessionSeqRef.current !== null &&
+        timeline.seq < sessionSeqRef.current
+      ) {
+        return {
+          action: "stale",
+          timeline: serverTimelineRef.current,
+          reason: "snapshot_seq_behind_cursor",
+        };
       }
       serverTimelineRef.current = timeline;
       setServerTimeline(timeline);
       if (timeline.eventId) setEventId(timeline.eventId);
-      sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, timeline.seq);
+      sessionSeqRef.current = Math.max(
+        sessionSeqRef.current ?? 0,
+        timeline.seq,
+      );
 
       const countdown = resolveVideoDateTimelineCountdown(timeline);
       if (timeline.phase === "handshake" || timeline.phase === "date") {
@@ -1579,14 +1851,19 @@ const VideoDate = () => {
   const confirmTerminalPostDateSurveyFromServerTruth = useCallback(
     async (source: string) => {
       if (!id || !user?.id) return false;
-      for (let attempt = 0; attempt < TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length; attempt += 1) {
+      for (
+        let attempt = 0;
+        attempt < TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length;
+        attempt += 1
+      ) {
         const delayMs = TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS[attempt];
         if (delayMs > 0) {
           await waitForVideoDateRuntimeRecovery(delayMs);
         }
         if (surveyOpenedRef.current) return true;
 
-        const attemptSource = attempt === 0 ? source : `${source}_retry_${attempt}`;
+        const attemptSource =
+          attempt === 0 ? source : `${source}_retry_${attempt}`;
         const { data: sessionRow, error: sessionError } = await supabase
           .from("video_sessions")
           .select(TERMINAL_SURVEY_SESSION_SELECT)
@@ -1598,16 +1875,26 @@ const VideoDate = () => {
             userId: user.id,
             source: attemptSource,
             attempt,
-            error: sessionError ? { code: sessionError.code, message: sessionError.message } : null,
+            error: sessionError
+              ? { code: sessionError.code, message: sessionError.message }
+              : null,
           });
         } else if (videoSessionIndicatesTerminalEnd(sessionRow)) {
-          const recovered = await recoverTerminalPostDateSurvey(attemptSource, sessionRow);
+          const recovered = await recoverTerminalPostDateSurvey(
+            attemptSource,
+            sessionRow,
+          );
           if (recovered) return true;
         }
 
         if (timelineV2.enabled) {
-          const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
-          const decision = applyTimelineSnapshot(snapshot, `${attemptSource}_snapshot`);
+          const snapshot = await fetchVideoDateSnapshot(id, {
+            includeToken: false,
+          });
+          const decision = applyTimelineSnapshot(
+            snapshot,
+            `${attemptSource}_snapshot`,
+          );
           if (
             snapshot.ok === true &&
             decision?.action === "accepted" &&
@@ -1701,21 +1988,37 @@ const VideoDate = () => {
     let cancelled = false;
     void (async () => {
       if (cancelled) return;
-      const recovered = await recoverTerminalPostDateSurvey("ended_phase_hydration_recovery");
+      const recovered = await recoverTerminalPostDateSurvey(
+        "ended_phase_hydration_recovery",
+      );
       if (cancelled || !recovered) return;
       if (surveyOpenedRef.current) {
-        logJourney("date_route_recovered", { source: "ended_phase_hydration_recovery" }, "date_route_recovered");
-        logJourney("survey_lost_prevented", { source: "ended_phase_hydration_recovery" });
+        logJourney(
+          "date_route_recovered",
+          { source: "ended_phase_hydration_recovery" },
+          "date_route_recovered",
+        );
+        logJourney("survey_lost_prevented", {
+          source: "ended_phase_hydration_recovery",
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, showFeedback, phase, recoverTerminalPostDateSurvey, logJourney]);
+  }, [
+    id,
+    user?.id,
+    showFeedback,
+    phase,
+    recoverTerminalPostDateSurvey,
+    logJourney,
+  ]);
 
   useEffect(() => {
     if (!id || !user?.id || !readyRedirectForceSurveyState?.forceSurvey) return;
-    const source = readyRedirectForceSurveyState.source ?? "ready_redirect_force_survey";
+    const source =
+      readyRedirectForceSurveyState.source ?? "ready_redirect_force_survey";
     void recoverTerminalPostDateSurvey(source);
   }, [
     id,
@@ -1728,7 +2031,10 @@ const VideoDate = () => {
   useLayoutEffect(() => {
     if (!id) return;
     markVideoDateEntryPipelineStarted(id);
-    videoDateDebug("date-entry pipeline latch marked", { sessionId: id, userId: user?.id ?? null });
+    videoDateDebug("date-entry pipeline latch marked", {
+      sessionId: id,
+      userId: user?.id ?? null,
+    });
   }, [id, user?.id]);
 
   useEffect(() => {
@@ -1806,8 +2112,11 @@ const VideoDate = () => {
   }, [eventId, id, user?.id, logJourney]);
 
   useEffect(() => {
-    if (!id || !user?.id || videoDateAccess !== "allowed" || phase === "ended" || showFeedback) return;
+    if (!id || !user?.id || videoDateAccess !== "allowed") return;
+    const terminalSurveyOwner =
+      showFeedback || terminalSurveyRecoveryActive || phase === "ended";
     const shouldOwnDateRoute =
+      terminalSurveyOwner ||
       isConnecting ||
       isConnected ||
       callStarted ||
@@ -1839,17 +2148,29 @@ const VideoDate = () => {
     localInDailyRoom,
     phase,
     showFeedback,
+    terminalSurveyRecoveryActive,
     user?.id,
     videoDateAccess,
   ]);
 
   useEffect(() => {
-    if (!timelineV2.enabled || !id || !user?.id || videoDateAccess !== "allowed") return;
+    if (
+      !timelineV2.enabled ||
+      !id ||
+      !user?.id ||
+      videoDateAccess !== "allowed"
+    )
+      return;
     let cancelled = false;
     void (async () => {
-      const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+      const snapshot = await fetchVideoDateSnapshot(id, {
+        includeToken: false,
+      });
       if (cancelled) return;
-      const decision = applyTimelineSnapshot(snapshot, "date_route_timeline_refresh");
+      const decision = applyTimelineSnapshot(
+        snapshot,
+        "date_route_timeline_refresh",
+      );
       if (
         !cancelled &&
         snapshot.ok &&
@@ -1967,7 +2288,9 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, session_seq, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
+          .select(
+            "participant_1_id, participant_2_id, event_id, session_seq, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at",
+          )
           .eq("id", id)
           .maybeSingle();
 
@@ -1977,7 +2300,9 @@ const VideoDate = () => {
           sessionId: id,
           userId: user.id,
           row: sessionRow ?? null,
-          error: sessionErr ? { code: sessionErr.code, message: sessionErr.message } : null,
+          error: sessionErr
+            ? { code: sessionErr.code, message: sessionErr.message }
+            : null,
         });
 
         if (sessionErr || !sessionRow) {
@@ -1985,7 +2310,9 @@ const VideoDate = () => {
             sessionId: id,
             userId: user.id,
             reason: "missing_session",
-            error: sessionErr ? { code: sessionErr.code, message: sessionErr.message } : null,
+            error: sessionErr
+              ? { code: sessionErr.code, message: sessionErr.message }
+              : null,
           });
           setVideoDateAccess("not_found");
           return;
@@ -1994,7 +2321,8 @@ const VideoDate = () => {
 
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
-        const sessionIsDateCapable = videoSessionRowIndicatesHandshakeOrDate(sessionRow);
+        const sessionIsDateCapable =
+          videoSessionRowIndicatesHandshakeOrDate(sessionRow);
         const routeRecovery = adviseVideoSessionTruthRecovery({
           sessionId: id,
           eventId: sessionRow.event_id,
@@ -2016,12 +2344,17 @@ const VideoDate = () => {
         }
 
         if (videoSessionIndicatesTerminalEnd(sessionRow)) {
-          await recoverTerminalPostDateSurvey("session_load_terminal", sessionRow);
+          await recoverTerminalPostDateSurvey(
+            "session_load_terminal",
+            sessionRow,
+          );
           return;
         }
 
         let registrationQueueStatus: string | null = null;
-        const logRegistrationStatus = (queueStatus: string | null | undefined) => {
+        const logRegistrationStatus = (
+          queueStatus: string | null | undefined,
+        ) => {
           if (!queueStatus) return;
           if (queueStatus === "in_ready_gate" && sessionIsDateCapable) {
             vdbg("date_guard_ready_gate_stale_registration_ignored", {
@@ -2033,9 +2366,15 @@ const VideoDate = () => {
               phase: sessionRow.phase,
               handshakeStarted: Boolean(sessionRow.handshake_started_at),
               latchActive: isDateEntryTransitionActive(id),
-              readyGateStatus: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+              readyGateStatus:
+                (sessionRow as { ready_gate_status?: string | null })
+                  .ready_gate_status ?? null,
               readyGateExpiresAt:
-                (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null,
+                (
+                  sessionRow as {
+                    ready_gate_expires_at?: string | number | null;
+                  }
+                ).ready_gate_expires_at ?? null,
             });
             return;
           }
@@ -2070,7 +2409,10 @@ const VideoDate = () => {
                 eventId: sessionRow.event_id,
                 state: sessionRow.state,
                 phase: sessionRow.phase,
-                error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+                error:
+                  error instanceof Error
+                    ? { name: error.name, message: error.message }
+                    : String(error),
               });
             }
           })();
@@ -2087,13 +2429,18 @@ const VideoDate = () => {
           const dateRouteOwned = isVideoDateRouteOwned(id, user.id);
 
           if (registrationQueueStatus === "in_ready_gate") {
-            const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
+            const rgStatus =
+              (sessionRow as { ready_gate_status?: string | null })
+                .ready_gate_status ?? null;
             const rgExpiresRaw =
-              (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
-            const readyGateBranch = rgStatus === "both_ready"
-              ? "both_ready_not_provider_prepared_redirecting"
-              : "no_both_ready_redirecting";
-            const shouldRouteReadyGate = routeRecovery.action === "go_ready_gate";
+              (sessionRow as { ready_gate_expires_at?: string | number | null })
+                .ready_gate_expires_at ?? null;
+            const readyGateBranch =
+              rgStatus === "both_ready"
+                ? "both_ready_not_provider_prepared_redirecting"
+                : "no_both_ready_redirecting";
+            const shouldRouteReadyGate =
+              routeRecovery.action === "go_ready_gate";
             vdbg("date_guard_ready_gate_branch", {
               sessionId: id,
               userId: user.id,
@@ -2112,16 +2459,19 @@ const VideoDate = () => {
               handshakeStarted: Boolean(sessionRow.handshake_started_at),
             });
             if (dateRouteOwned) {
-              vdbg("date_guard_ready_gate_bounce_suppressed_by_route_ownership", {
-                sessionId: id,
-                userId: user.id,
-                eventId: sessionRow.event_id,
-                queueStatus: registrationQueueStatus,
-                state: sessionRow.state,
-                phase: sessionRow.phase,
-                readyGateStatus: rgStatus,
-                readyGateExpiresAt: rgExpiresRaw,
-              });
+              vdbg(
+                "date_guard_ready_gate_bounce_suppressed_by_route_ownership",
+                {
+                  sessionId: id,
+                  userId: user.id,
+                  eventId: sessionRow.event_id,
+                  queueStatus: registrationQueueStatus,
+                  state: sessionRow.state,
+                  phase: sessionRow.phase,
+                  readyGateStatus: rgStatus,
+                  readyGateExpiresAt: rgExpiresRaw,
+                },
+              );
               logRegistrationStatus(registrationQueueStatus);
               setVideoDateAccess("allowed");
               markVideoDateRouteOwned(id, user.id);
@@ -2136,7 +2486,9 @@ const VideoDate = () => {
               phase: sessionRow.phase,
             });
             videoDateDebug("date_refresh_routing", {
-              outcome: shouldRouteReadyGate ? "redirect_ready_gate" : "redirect_lobby",
+              outcome: shouldRouteReadyGate
+                ? "redirect_ready_gate"
+                : "redirect_lobby",
               reason: shouldRouteReadyGate
                 ? "canonical_ready_gate_without_provider_prepared_truth"
                 : "in_ready_gate_without_provider_prepared_truth",
@@ -2147,7 +2499,9 @@ const VideoDate = () => {
                 phase: sessionRow.phase ?? null,
                 handshake_started_at: sessionRow.handshake_started_at ?? null,
                 date_started_at: sessionRow.date_started_at ?? null,
-                ready_gate_status: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+                ready_gate_status:
+                  (sessionRow as { ready_gate_status?: string | null })
+                    .ready_gate_status ?? null,
               },
               latchActive: isDateEntryTransitionActive(id),
               target: shouldRouteReadyGate
@@ -2157,18 +2511,22 @@ const VideoDate = () => {
             const target = shouldRouteReadyGate
               ? `/ready/${encodeURIComponent(id)}`
               : `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`;
-            vdbgRedirect(target, shouldRouteReadyGate
-              ? "canonical_ready_gate_without_provider_prepared_truth"
-              : "in_ready_gate_without_provider_prepared_truth", {
-              sessionId: id,
-              userId: user.id,
-              eventId: sessionRow.event_id,
-              queueStatus: registrationQueueStatus,
-              state: sessionRow.state,
-              phase: sessionRow.phase,
-              handshakeStarted: Boolean(sessionRow.handshake_started_at),
-              latchActive: isDateEntryTransitionActive(id),
-            });
+            vdbgRedirect(
+              target,
+              shouldRouteReadyGate
+                ? "canonical_ready_gate_without_provider_prepared_truth"
+                : "in_ready_gate_without_provider_prepared_truth",
+              {
+                sessionId: id,
+                userId: user.id,
+                eventId: sessionRow.event_id,
+                queueStatus: registrationQueueStatus,
+                state: sessionRow.state,
+                phase: sessionRow.phase,
+                handshakeStarted: Boolean(sessionRow.handshake_started_at),
+                latchActive: isDateEntryTransitionActive(id),
+              },
+            );
             logJourney("date_route_bounced", {
               reason: shouldRouteReadyGate
                 ? "canonical_ready_gate_without_provider_prepared_truth"
@@ -2182,14 +2540,17 @@ const VideoDate = () => {
           if (routeRecovery.action === "go_ready_gate") {
             const target = `/ready/${encodeURIComponent(id)}`;
             if (dateRouteOwned) {
-              vdbg("date_guard_canonical_ready_bounce_suppressed_by_route_ownership", {
-                sessionId: id,
-                userId: user.id,
-                eventId: sessionRow.event_id,
-                queueStatus: registrationQueueStatus,
-                state: sessionRow.state,
-                phase: sessionRow.phase,
-              });
+              vdbg(
+                "date_guard_canonical_ready_bounce_suppressed_by_route_ownership",
+                {
+                  sessionId: id,
+                  userId: user.id,
+                  eventId: sessionRow.event_id,
+                  queueStatus: registrationQueueStatus,
+                  state: sessionRow.state,
+                  phase: sessionRow.phase,
+                },
+              );
               setVideoDateAccess("allowed");
               markVideoDateRouteOwned(id, user.id);
               return;
@@ -2205,7 +2566,9 @@ const VideoDate = () => {
                 phase: sessionRow.phase ?? null,
                 handshake_started_at: sessionRow.handshake_started_at ?? null,
                 date_started_at: sessionRow.date_started_at ?? null,
-                ready_gate_status: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+                ready_gate_status:
+                  (sessionRow as { ready_gate_status?: string | null })
+                    .ready_gate_status ?? null,
               },
               latchActive: isDateEntryTransitionActive(id),
               target,
@@ -2228,10 +2591,14 @@ const VideoDate = () => {
             return;
           }
 
-          if (routeRecovery.action === "go_lobby" || routeRecovery.action === "go_home") {
-            const target = routeRecovery.action === "go_lobby" && sessionRow.event_id
-              ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-              : "/home";
+          if (
+            routeRecovery.action === "go_lobby" ||
+            routeRecovery.action === "go_home"
+          ) {
+            const target =
+              routeRecovery.action === "go_lobby" && sessionRow.event_id
+                ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+                : "/home";
             if (routeRecovery.action === "go_lobby" && dateRouteOwned) {
               vdbg("date_guard_lobby_bounce_suppressed_by_route_ownership", {
                 sessionId: id,
@@ -2247,7 +2614,10 @@ const VideoDate = () => {
             }
             clearDateEntryTransition(id);
             videoDateDebug("date_refresh_routing", {
-              outcome: routeRecovery.action === "go_lobby" ? "redirect_lobby" : "redirect_home",
+              outcome:
+                routeRecovery.action === "go_lobby"
+                  ? "redirect_lobby"
+                  : "redirect_home",
               reason: "date_guard_canonical_not_startable",
               sessionId: id,
               queueStatus: registrationQueueStatus,
@@ -2256,7 +2626,9 @@ const VideoDate = () => {
                 phase: sessionRow.phase ?? null,
                 handshake_started_at: sessionRow.handshake_started_at ?? null,
                 date_started_at: sessionRow.date_started_at ?? null,
-                ready_gate_status: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+                ready_gate_status:
+                  (sessionRow as { ready_gate_status?: string | null })
+                    .ready_gate_status ?? null,
               },
               latchActive: isDateEntryTransitionActive(id),
               target,
@@ -2286,7 +2658,9 @@ const VideoDate = () => {
         }
         setIsParticipant1(isP1);
         setEventId(sessionRow.event_id);
-        const pId = isP1 ? sessionRow.participant_2_id : sessionRow.participant_1_id;
+        const pId = isP1
+          ? sessionRow.participant_2_id
+          : sessionRow.participant_1_id;
         setPartnerId(pId);
 
         videoDateDebug("date_refresh_routing", {
@@ -2306,9 +2680,12 @@ const VideoDate = () => {
 
         void (async () => {
           try {
-            const { data: profile, error: profileError } = await supabase.rpc("get_profile_for_viewer", {
-              p_target_id: pId,
-            });
+            const { data: profile, error: profileError } = await supabase.rpc(
+              "get_profile_for_viewer",
+              {
+                p_target_id: pId,
+              },
+            );
 
             if (cancelled) return;
 
@@ -2316,28 +2693,41 @@ const VideoDate = () => {
               vdbg("date_guard_partner_profile_failed", {
                 sessionId: id,
                 eventId: sessionRow.event_id ?? null,
-                error: { code: profileError.code, message: profileError.message },
+                error: {
+                  code: profileError.code,
+                  message: profileError.message,
+                },
               });
             }
 
             if (profile) {
               const row = profile as Record<string, unknown>;
               const tags = Array.isArray(row.vibes)
-                ? row.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+                ? row.vibes.filter(
+                    (v): v is string =>
+                      typeof v === "string" && v.trim().length > 0,
+                  )
                 : [];
 
               let prompts: { question: string; answer: string }[] = [];
               if (Array.isArray(row.prompts)) {
-                prompts = (row.prompts as Array<{ question?: string; answer?: string }>).map((p) => ({
+                prompts = (
+                  row.prompts as Array<{ question?: string; answer?: string }>
+                ).map((p) => ({
                   question: p.question || "",
                   answer: p.answer || "",
                 }));
               }
 
-              const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === "string") : [];
-              const avatarUrl = typeof row.avatar_url === "string" ? row.avatar_url : null;
+              const photoArr = Array.isArray(row.photos)
+                ? row.photos.filter((p): p is string => typeof p === "string")
+                : [];
+              const avatarUrl =
+                typeof row.avatar_url === "string" ? row.avatar_url : null;
               const primaryPath = photoArr[0] || avatarUrl;
-              const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
+              const resolvedUrl = primaryPath
+                ? resolvePhoto(primaryPath)
+                : null;
               setPartnerPhotoUrl(resolvedUrl);
 
               const resolvedPhotos: string[] = photoArr
@@ -2351,10 +2741,13 @@ const VideoDate = () => {
                 tags,
                 avatarUrl: resolvedUrl || undefined,
                 photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-                about_me: typeof row.about_me === "string" ? row.about_me : undefined,
+                about_me:
+                  typeof row.about_me === "string" ? row.about_me : undefined,
                 job: typeof row.job === "string" ? row.job : undefined,
-                location: typeof row.location === "string" ? row.location : undefined,
-                heightCm: typeof row.height_cm === "number" ? row.height_cm : undefined,
+                location:
+                  typeof row.location === "string" ? row.location : undefined,
+                heightCm:
+                  typeof row.height_cm === "number" ? row.height_cm : undefined,
                 prompts,
               });
             }
@@ -2363,9 +2756,10 @@ const VideoDate = () => {
               vdbg("date_guard_partner_profile_failed", {
                 sessionId: id,
                 eventId: sessionRow.event_id ?? null,
-                error: profileErr instanceof Error
-                  ? { name: profileErr.name, message: profileErr.message }
-                  : String(profileErr),
+                error:
+                  profileErr instanceof Error
+                    ? { name: profileErr.name, message: profileErr.message }
+                    : String(profileErr),
               });
             }
           }
@@ -2375,7 +2769,10 @@ const VideoDate = () => {
         vdbg("date_guard_exception", {
           sessionId: id,
           userId: user.id,
-          error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+          error:
+            err instanceof Error
+              ? { name: err.name, message: err.message }
+              : String(err),
         });
         if (!cancelled) {
           setVideoDateAccess("not_found");
@@ -2431,20 +2828,35 @@ const VideoDate = () => {
       );
       setDateExtraSeconds(extraNorm);
 
-      if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
+      if (
+        data.ended_at ||
+        (data.state as string) === "ended" ||
+        data.phase === "ended"
+      ) {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
         setHandshakeStartedAt(null);
         await recoverTerminalPostDateSurvey("timing_terminal");
-        setDateStartedAt(typeof data.date_started_at === "string" ? data.date_started_at : null);
+        setDateStartedAt(
+          typeof data.date_started_at === "string"
+            ? data.date_started_at
+            : null,
+        );
         setTimingReady(true);
         return;
       }
 
-      if ((data.state as string) === "date" || data.phase === "date" || Boolean(data.date_started_at)) {
+      if (
+        (data.state as string) === "date" ||
+        data.phase === "date" ||
+        Boolean(data.date_started_at)
+      ) {
         vdbg("date_timing_existing_date", { sessionId: id, row: data });
         markDateFlowEntered();
         setHandshakeStartedAt(null);
-        const dateStartedAt = typeof data.date_started_at === "string" ? data.date_started_at : null;
+        const dateStartedAt =
+          typeof data.date_started_at === "string"
+            ? data.date_started_at
+            : null;
         setDateStartedAt(dateStartedAt);
         const correctedTimeLeft = remainingDatePhaseSeconds({
           dateStartedAtIso: dateStartedAt,
@@ -2473,7 +2885,9 @@ const VideoDate = () => {
         clearHandshakeGraceState();
         if (handshakeRemaining <= 0) {
           window.setTimeout(() => {
-            void checkMutualVibeRef.current?.("handshake_timing_refetch_deadline_elapsed");
+            void checkMutualVibeRef.current?.(
+              "handshake_timing_refetch_deadline_elapsed",
+            );
           }, 0);
         }
         setTimingReady(true);
@@ -2510,10 +2924,20 @@ const VideoDate = () => {
 
   // Browser foreground/online recovery mirrors native AppState reconciliation without polling storms.
   useEffect(() => {
-    if (!id || videoDateAccess !== "allowed" || showFeedback || terminalSurveyRecoveryActive) return;
+    if (
+      !id ||
+      videoDateAccess !== "allowed" ||
+      showFeedback ||
+      terminalSurveyRecoveryActive
+    )
+      return;
 
     const reconcile = (source: "visibilitychange" | "online") => {
-      if (source === "visibilitychange" && document.visibilityState !== "visible") return;
+      if (
+        source === "visibilitychange" &&
+        document.visibilityState !== "visible"
+      )
+        return;
       if (
         phaseRef.current === "ended" ||
         surveyOpenedRef.current ||
@@ -2535,16 +2959,24 @@ const VideoDate = () => {
       void (async () => {
         try {
           if (source === "visibilitychange") {
-            const { data: returnData, error: returnError } = await supabase
-              .rpc("video_date_transition", { p_session_id: id, p_action: "mark_reconnect_return" });
-            const returnPayload = returnData as { success?: boolean; code?: string | null; retryable?: boolean } | null;
+            const { data: returnData, error: returnError } = await supabase.rpc(
+              "video_date_transition",
+              { p_session_id: id, p_action: "mark_reconnect_return" },
+            );
+            const returnPayload = returnData as {
+              success?: boolean;
+              code?: string | null;
+              retryable?: boolean;
+            } | null;
             const returnRejected = returnPayload?.success === false;
             vdbg("video_date_foreground_return_result", {
               sessionId: id,
               source,
               ok: !returnError && !returnRejected,
               payload: returnData ?? null,
-              error: returnError ? { code: returnError.code, message: returnError.message } : null,
+              error: returnError
+                ? { code: returnError.code, message: returnError.message }
+                : null,
             });
             if (!returnError && !returnRejected) {
               trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
@@ -2554,19 +2986,26 @@ const VideoDate = () => {
                 source: "visibilitychange",
               });
             } else {
-              trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
-                platform: "web",
-                session_id: id,
-                event_id: eventId ?? null,
-                source,
-                step: "mark_reconnect_return",
-                code: returnError?.code ?? returnPayload?.code ?? null,
-                retryable: returnError ? true : returnPayload?.retryable === true,
-              });
+              trackEvent(
+                LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED,
+                {
+                  platform: "web",
+                  session_id: id,
+                  event_id: eventId ?? null,
+                  source,
+                  step: "mark_reconnect_return",
+                  code: returnError?.code ?? returnPayload?.code ?? null,
+                  retryable: returnError
+                    ? true
+                    : returnPayload?.retryable === true,
+                },
+              );
             }
           }
-          const { data, error } = await supabase
-            .rpc("video_date_transition", { p_session_id: id, p_action: "sync_reconnect" });
+          const { data, error } = await supabase.rpc("video_date_transition", {
+            p_session_id: id,
+            p_action: "sync_reconnect",
+          });
           const reconnectPayload = data as {
             success?: boolean;
             code?: string | null;
@@ -2584,15 +3023,18 @@ const VideoDate = () => {
             error: error ? { code: error.code, message: error.message } : null,
           });
           if (error || reconnectRejected) {
-            trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
-              platform: "web",
-              session_id: id,
-              event_id: eventId ?? null,
-              source,
-              step: "sync_reconnect",
-              code: error?.code ?? reconnectPayload?.code ?? null,
-              retryable: error ? true : reconnectPayload?.retryable === true,
-            });
+            trackEvent(
+              LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED,
+              {
+                platform: "web",
+                session_id: id,
+                event_id: eventId ?? null,
+                source,
+                step: "sync_reconnect",
+                code: error?.code ?? reconnectPayload?.code ?? null,
+                retryable: error ? true : reconnectPayload?.retryable === true,
+              },
+            );
             if (reconnectPayload?.retryable === true) return;
           }
           if (
@@ -2602,20 +3044,25 @@ const VideoDate = () => {
               reconnectPayload?.state === "ended" ||
               reconnectPayload?.phase === "ended")
           ) {
-            const handled = await recoverTerminalPostDateSurvey(`${source}_sync_reconnect_terminal`);
+            const handled = await recoverTerminalPostDateSurvey(
+              `${source}_sync_reconnect_terminal`,
+            );
             if (handled) return;
           }
           setTimingRefreshNonce((n) => n + 1);
           attemptBroadcastGapSnapshotRecoveryRef.current(`${source}_resume`);
         } catch (error) {
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
-            platform: "web",
-            session_id: id,
-            event_id: eventId ?? null,
-            source,
-            step: "exception",
-            error_name: error instanceof Error ? error.name : "unknown",
-          });
+          trackEvent(
+            LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED,
+            {
+              platform: "web",
+              session_id: id,
+              event_id: eventId ?? null,
+              source,
+              step: "exception",
+              error_name: error instanceof Error ? error.name : "unknown",
+            },
+          );
         } finally {
           foregroundReconcileInFlightRef.current = false;
         }
@@ -2630,13 +3077,26 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
     };
-  }, [eventId, id, recoverTerminalPostDateSurvey, showFeedback, terminalSurveyRecoveryActive, videoDateAccess]);
+  }, [
+    eventId,
+    id,
+    recoverTerminalPostDateSurvey,
+    showFeedback,
+    terminalSurveyRecoveryActive,
+    videoDateAccess,
+  ]);
 
   // Start Daily as soon as the participant guard passes; timing hydration can finish in parallel.
   useEffect(() => {
     if (!id) return;
     if (videoDateAccess !== "allowed" || handshakeStartFailed) return;
-    if (phase === "ended" || showFeedback || terminalSurveyRecoveryActive || terminalSurveyRecoveryInFlightRef.current) return;
+    if (
+      phase === "ended" ||
+      showFeedback ||
+      terminalSurveyRecoveryActive ||
+      terminalSurveyRecoveryInFlightRef.current
+    )
+      return;
     if (dupBlocked) return;
     if (callStarted) return;
     if (callStartFailure) return;
@@ -2652,7 +3112,11 @@ const VideoDate = () => {
       event_id: eventId,
       is_retry: joinCycle > 1,
     });
-    Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
+    Sentry.addBreadcrumb({
+      category: "video-date",
+      message: "Joined video date",
+      level: "info",
+    });
     startCall(id, { mediaPromptIntent }).then((result) => {
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
@@ -2695,7 +3159,9 @@ const VideoDate = () => {
 
       if (failure.kind === "READY_GATE_NOT_READY") {
         void (async () => {
-          const redirected = await recoverFromNotStartableDateTruth("create_date_room_not_ready");
+          const redirected = await recoverFromNotStartableDateTruth(
+            "create_date_room_not_ready",
+          );
           if (!redirected) {
             setHandshakeStartFailed(true);
             setHandshakeFailureCode("READY_GATE_NOT_READY");
@@ -2728,7 +3194,10 @@ const VideoDate = () => {
         return;
       }
 
-      if (failure.kind === "SESSION_NOT_FOUND" || failure.kind === "ROOM_NOT_FOUND") {
+      if (
+        failure.kind === "SESSION_NOT_FOUND" ||
+        failure.kind === "ROOM_NOT_FOUND"
+      ) {
         setVideoDateAccess("not_found");
         return;
       }
@@ -2773,8 +3242,13 @@ const VideoDate = () => {
           filter: `id=eq.${id}`,
         },
         (payload) => {
-          const row = payload.new as VideoDateHandshakeTruth & { session_seq?: number | null };
-          if (typeof row.session_seq === "number" && Number.isFinite(row.session_seq)) {
+          const row = payload.new as VideoDateHandshakeTruth & {
+            session_seq?: number | null;
+          };
+          if (
+            typeof row.session_seq === "number" &&
+            Number.isFinite(row.session_seq)
+          ) {
             sessionSeqRef.current = row.session_seq;
           }
           setHandshakeTruth({ id, ...row });
@@ -2782,7 +3256,11 @@ const VideoDate = () => {
 
           if (row.ended_at || newState === "ended") {
             setHandshakeStartedAt(null);
-            setDateStartedAt(typeof row.date_started_at === "string" ? row.date_started_at : null);
+            setDateStartedAt(
+              typeof row.date_started_at === "string"
+                ? row.date_started_at
+                : null,
+            );
             void recoverTerminalPostDateSurvey("realtime_terminal", row);
             return;
           }
@@ -2791,9 +3269,14 @@ const VideoDate = () => {
             markDateFlowEntered();
             clearHandshakeGraceState();
             setHandshakeStartedAt(null);
-            const extraNorm = normalizedDateExtraSeconds(row.date_extra_seconds);
+            const extraNorm = normalizedDateExtraSeconds(
+              row.date_extra_seconds,
+            );
             setDateExtraSeconds(extraNorm);
-            const dateStartedAt = typeof row.date_started_at === "string" ? row.date_started_at : null;
+            const dateStartedAt =
+              typeof row.date_started_at === "string"
+                ? row.date_started_at
+                : null;
             setDateStartedAt(dateStartedAt);
             const correctedTimeLeft = remainingDatePhaseSeconds({
               dateStartedAtIso: dateStartedAt,
@@ -2817,11 +3300,13 @@ const VideoDate = () => {
             setTimeLeft(handshakeRemaining);
             clearHandshakeGraceState();
             if (handshakeRemaining <= 0) {
-              void checkMutualVibeRef.current?.("handshake_realtime_deadline_elapsed");
+              void checkMutualVibeRef.current?.(
+                "handshake_realtime_deadline_elapsed",
+              );
             }
             setPhase("handshake");
           }
-        }
+        },
       )
       .subscribe();
 
@@ -2841,11 +3326,16 @@ const VideoDate = () => {
   const handleExtensionBroadcastEvent = useCallback(
     (event: VideoDateSessionBroadcastEvent) => {
       if (extensionBroadcastSeenRef.current.has(event.id)) return;
-      if (event.kind !== "date_extension_requested" && event.kind !== "date_extension_applied") return;
+      if (
+        event.kind !== "date_extension_requested" &&
+        event.kind !== "date_extension_applied"
+      )
+        return;
       extensionBroadcastSeenRef.current.add(event.id);
 
       const addedSeconds =
-        typeof event.payload.added_seconds === "number" && Number.isFinite(event.payload.added_seconds)
+        typeof event.payload.added_seconds === "number" &&
+        Number.isFinite(event.payload.added_seconds)
           ? Math.max(0, Math.floor(event.payload.added_seconds))
           : 0;
       const minutes = addedSeconds > 0 ? addedSeconds / 60 : null;
@@ -2856,17 +3346,24 @@ const VideoDate = () => {
             ? String(minutes)
             : minutes.toFixed(1);
       const creditType =
-        event.payload.credit_type === "extra_time" || event.payload.credit_type === "extended_vibe"
+        event.payload.credit_type === "extra_time" ||
+        event.payload.credit_type === "extended_vibe"
           ? event.payload.credit_type
           : null;
       const requestExpiresAt =
-        typeof event.payload.request_expires_at === "string" ? event.payload.request_expires_at : null;
-      const effectiveRequestExpiresAt = requestExpiresAt ?? new Date(Date.now() + 45_000).toISOString();
+        typeof event.payload.request_expires_at === "string"
+          ? event.payload.request_expires_at
+          : null;
+      const effectiveRequestExpiresAt =
+        requestExpiresAt ?? new Date(Date.now() + 45_000).toISOString();
 
       if (event.kind === "date_extension_requested") {
         if (event.actor && event.actor === user?.id) return;
         if (creditType) {
-          setPendingPartnerExtension({ type: creditType, expiresAt: effectiveRequestExpiresAt });
+          setPendingPartnerExtension({
+            type: creditType,
+            expiresAt: effectiveRequestExpiresAt,
+          });
         }
         toast(
           minutesLabel
@@ -2887,9 +3384,12 @@ const VideoDate = () => {
       setPendingPartnerExtension(null);
       void refetchCredits();
       if (event.actor && event.actor === user?.id) return;
-      toast.success(`${minutesLabel ?? "Extra"} ${minutes === 1 ? "minute" : "minutes"} added!`, {
-        duration: 2500,
-      });
+      toast.success(
+        `${minutesLabel ?? "Extra"} ${minutes === 1 ? "minute" : "minutes"} added!`,
+        {
+          duration: 2500,
+        },
+      );
     },
     [eventId, id, refetchCredits, user?.id],
   );
@@ -2909,21 +3409,36 @@ const VideoDate = () => {
 
       broadcastRefetchInFlightRef.current = true;
       try {
-        const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+        const snapshot = await fetchVideoDateSnapshot(id, {
+          includeToken: false,
+        });
         const latestState =
           broadcastGapRecoveryRef.current?.sessionId === state.sessionId
             ? broadcastGapRecoveryRef.current
             : state;
         if (snapshot.ok === true) {
           applyTimelineSnapshot(snapshot, source);
-          sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
-          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoverySuccess(latestState, snapshot.seq);
+          sessionSeqRef.current = Math.max(
+            sessionSeqRef.current ?? 0,
+            snapshot.seq,
+          );
+          broadcastGapRecoveryRef.current =
+            recordVideoDateBroadcastGapRecoverySuccess(
+              latestState,
+              snapshot.seq,
+            );
           if (snapshot.phase === "ended") {
-            const handled = await recoverTerminalPostDateSurvey(`${source}_terminal`);
+            const handled = await recoverTerminalPostDateSurvey(
+              `${source}_terminal`,
+            );
             if (handled) return;
           }
         } else {
-          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(latestState, snapshot.error);
+          broadcastGapRecoveryRef.current =
+            recordVideoDateBroadcastGapRecoveryFailure(
+              latestState,
+              snapshot.error,
+            );
         }
         Sentry.addBreadcrumb({
           category: "video-date-broadcast",
@@ -2941,13 +3456,16 @@ const VideoDate = () => {
         });
         setTimingRefreshNonce((n) => n + 1);
       } catch (error) {
-        broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(state, error);
+        broadcastGapRecoveryRef.current =
+          recordVideoDateBroadcastGapRecoveryFailure(state, error);
       } finally {
         broadcastRefetchInFlightRef.current = false;
       }
 
       clearBroadcastGapRetryTimer();
-      const delayMs = videoDateBroadcastGapRetryDelayMs(broadcastGapRecoveryRef.current);
+      const delayMs = videoDateBroadcastGapRetryDelayMs(
+        broadcastGapRecoveryRef.current,
+      );
       if (delayMs != null) {
         broadcastGapRetryTimerRef.current = setTimeout(() => {
           broadcastGapRetryTimerRef.current = null;
@@ -2972,16 +3490,23 @@ const VideoDate = () => {
   const reconcileBroadcastEvent = useCallback(
     async (event: VideoDateSessionBroadcastEvent) => {
       if (!id || !user?.id || videoDateAccess !== "allowed") return;
-      const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
-      if (decision.action === "invalid" || decision.action === "duplicate") return;
+      const decision = resolveVideoDateSessionSeqDecision(
+        sessionSeqRef.current,
+        event.sessionSeq,
+      );
+      if (decision.action === "invalid" || decision.action === "duplicate")
+        return;
 
       handleExtensionBroadcastEvent(event);
       if (decision.action === "gap") {
-        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(broadcastGapRecoveryRef.current, {
-          sessionId: id,
-          targetSeq: event.sessionSeq,
-          expectedSeq: decision.expectedSeq,
-        });
+        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(
+          broadcastGapRecoveryRef.current,
+          {
+            sessionId: id,
+            targetSeq: event.sessionSeq,
+            expectedSeq: decision.expectedSeq,
+          },
+        );
         if (broadcastRefetchInFlightRef.current) {
           broadcastPendingRefetchSeqRef.current = Math.max(
             broadcastPendingRefetchSeqRef.current ?? 0,
@@ -2993,10 +3518,11 @@ const VideoDate = () => {
         return;
       }
 
-      const shouldRetainGapRecovery = shouldRetainVideoDateBroadcastGapRecoveryForEvent(
-        broadcastGapRecoveryRef.current,
-        event.sessionSeq,
-      );
+      const shouldRetainGapRecovery =
+        shouldRetainVideoDateBroadcastGapRecoveryForEvent(
+          broadcastGapRecoveryRef.current,
+          event.sessionSeq,
+        );
       if (!shouldRetainGapRecovery) {
         clearBroadcastGapRetryTimer();
         broadcastGapRecoveryRef.current = null;
@@ -3015,15 +3541,24 @@ const VideoDate = () => {
         while (pendingRefetchSeq !== null) {
           const refetchSeq = pendingRefetchSeq;
           broadcastPendingRefetchSeqRef.current = null;
-          const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+          const snapshot = await fetchVideoDateSnapshot(id, {
+            includeToken: false,
+          });
           if (snapshot.ok === true) {
             applyTimelineSnapshot(
               snapshot,
-              refetchSeq === event.sessionSeq ? "broadcast_seq_gap" : "broadcast_queued_seq",
+              refetchSeq === event.sessionSeq
+                ? "broadcast_seq_gap"
+                : "broadcast_queued_seq",
             );
-            sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
+            sessionSeqRef.current = Math.max(
+              sessionSeqRef.current ?? 0,
+              snapshot.seq,
+            );
             if (snapshot.phase === "ended") {
-              const handled = await recoverTerminalPostDateSurvey("broadcast_snapshot_terminal");
+              const handled = await recoverTerminalPostDateSurvey(
+                "broadcast_snapshot_terminal",
+              );
               if (handled) return;
             }
           }
@@ -3066,7 +3601,13 @@ const VideoDate = () => {
   );
 
   useEffect(() => {
-    if (!id || !user?.id || videoDateAccess !== "allowed" || !broadcastV2.enabled) return;
+    if (
+      !id ||
+      !user?.id ||
+      videoDateAccess !== "allowed" ||
+      !broadcastV2.enabled
+    )
+      return;
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId: id,
       onEvent: (event) => {
@@ -3107,7 +3648,7 @@ const VideoDate = () => {
   // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
     if (isConnected) {
-      trackEvent('video_date_started', { session_id: id, phase: 'handshake' });
+      trackEvent("video_date_started", { session_id: id, phase: "handshake" });
       remoteReadableTrackedRef.current = false;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -3129,7 +3670,11 @@ const VideoDate = () => {
       if (!element) return;
       const result = await applyStoredAudioOutputPreference(element);
       if (cancelled) return;
-      if (!result.ok && result.reason !== "unsupported_browser" && result.reason !== "no_device_id") {
+      if (
+        !result.ok &&
+        result.reason !== "unsupported_browser" &&
+        result.reason !== "no_device_id"
+      ) {
         trackEvent("video_date_audio_output_apply_failed", {
           surface: "video_date",
           session_id: id,
@@ -3143,7 +3688,13 @@ const VideoDate = () => {
   }, [isConnected, id, remoteVideoRef]);
 
   useEffect(() => {
-    if (!isConnected || blurAmount !== 0 || remoteReadableTrackedRef.current || !id) return;
+    if (
+      !isConnected ||
+      blurAmount !== 0 ||
+      remoteReadableTrackedRef.current ||
+      !id
+    )
+      return;
     const timerId = window.setTimeout(() => {
       if (remoteReadableTrackedRef.current) return;
       remoteReadableTrackedRef.current = true;
@@ -3187,11 +3738,14 @@ const VideoDate = () => {
         ? candidateTimeline
         : null;
     const useTimelineCountdown =
-      timelineV2.enabled &&
-      timelineForCountdown !== null;
+      timelineV2.enabled && timelineForCountdown !== null;
     const hasAuthoritativeStart = useTimelineCountdown
       ? true
-      : phase === "handshake" ? Boolean(handshakeStartedAt) : phase === "date" ? Boolean(dateStartedAt) : false;
+      : phase === "handshake"
+        ? Boolean(handshakeStartedAt)
+        : phase === "date"
+          ? Boolean(dateStartedAt)
+          : false;
     if (!hasAuthoritativeStart) return;
 
     let completionFired = false;
@@ -3222,7 +3776,9 @@ const VideoDate = () => {
           sessionId: id ?? null,
           trigger: "complete_handshake",
         });
-        void checkMutualVibeRef.current?.("handshake_visible_countdown_elapsed");
+        void checkMutualVibeRef.current?.(
+          "handshake_visible_countdown_elapsed",
+        );
       }
     };
 
@@ -3273,7 +3829,13 @@ const VideoDate = () => {
   }, [id]);
 
   useEffect(() => {
-    if (!id || !user?.id || videoDateAccess !== "allowed" || terminalSurveyRecoveryActive) return;
+    if (
+      !id ||
+      !user?.id ||
+      videoDateAccess !== "allowed" ||
+      terminalSurveyRecoveryActive
+    )
+      return;
     let lifecycleAwayTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearLifecycleAwayTimer = () => {
@@ -3281,13 +3843,22 @@ const VideoDate = () => {
       clearTimeout(lifecycleAwayTimer);
       lifecycleAwayTimer = null;
     };
-    const shouldTreatLifecycleAwayAsSoftTelemetry = (source: WebLifecycleLeaveSource) => {
+    const shouldTreatLifecycleAwayAsSoftTelemetry = (
+      source: WebLifecycleLeaveSource,
+    ) => {
       if (!WEB_SOFT_LIFECYCLE_LEAVE_SOURCES.has(source)) return false;
       if (localInDailyRoom || isConnecting || isConnected) return true;
-      if (dailyMeetingState === "joining-meeting" || dailyMeetingState === "joined-meeting") return true;
+      if (
+        dailyMeetingState === "joining-meeting" ||
+        dailyMeetingState === "joined-meeting"
+      )
+        return true;
       return phaseRef.current === "handshake" || phaseRef.current === "date";
     };
-    const recordSoftLifecycleTelemetry = (source: WebLifecycleLeaveSource, action: string) => {
+    const recordSoftLifecycleTelemetry = (
+      source: WebLifecycleLeaveSource,
+      action: string,
+    ) => {
       vdbg("web_lifecycle_away_suppressed_active_daily", {
         sessionId: id,
         userId: user.id,
@@ -3333,23 +3904,29 @@ const VideoDate = () => {
       if (!token) return;
       leaveSignalSentRef.current = true;
       const postLeaveSignal = async (idempotencyKey?: string) => {
-        const response = await fetch(`${SUPABASE_URL}/functions/v1/daily-room`, {
-          method: "POST",
-          keepalive: true,
-          headers: {
-            "Content-Type": "application/json",
-            apikey: SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${token}`,
+        const response = await fetch(
+          `${SUPABASE_URL}/functions/v1/daily-room`,
+          {
+            method: "POST",
+            keepalive: true,
+            headers: {
+              "Content-Type": "application/json",
+              apikey: SUPABASE_PUBLISHABLE_KEY,
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              action: "video_date_leave",
+              sessionId: id,
+              reason: `web_${source}`,
+              idempotency_key: idempotencyKey,
+            }),
           },
-          body: JSON.stringify({
-            action: "video_date_leave",
-            sessionId: id,
-            reason: `web_${source}`,
-            idempotency_key: idempotencyKey,
-          }),
-        });
+        );
         const payload = await response.json().catch(() => null);
-        if (!response.ok || (payload as { success?: boolean } | null)?.success === false) {
+        if (
+          !response.ok ||
+          (payload as { success?: boolean } | null)?.success === false
+        ) {
           throw new Error(
             `video_date_leave_failed:${response.status}:${String((payload as { code?: unknown } | null)?.code ?? "unknown")}`,
           );
@@ -3385,8 +3962,10 @@ const VideoDate = () => {
           void sendVideoDateSignalWithRetry({
             sessionId: id,
             action: "video_date_leave",
-            operation: (_attempt, idempotencyKey) => postLeaveSignal(idempotencyKey),
-            isSuccess: (payload) => (payload as { success?: boolean } | null)?.success !== false,
+            operation: (_attempt, idempotencyKey) =>
+              postLeaveSignal(idempotencyKey),
+            isSuccess: (payload) =>
+              (payload as { success?: boolean } | null)?.success !== false,
           }).then((result) => {
             if (result.ok) {
               markSent(result.attempts);
@@ -3397,15 +3976,17 @@ const VideoDate = () => {
           });
           return;
         }
-        void postLeaveSignal().then(() => markSent()).catch(() => {
-          leaveSignalSentRef.current = false;
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_FAILED, {
-            platform: "web",
-            session_id: id,
-            event_id: eventId ?? null,
-            source,
+        void postLeaveSignal()
+          .then(() => markSent())
+          .catch(() => {
+            leaveSignalSentRef.current = false;
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_FAILED, {
+              platform: "web",
+              session_id: id,
+              event_id: eventId ?? null,
+              source,
+            });
           });
-        });
       } catch {
         leaveSignalSentRef.current = false;
         /* best-effort during browser teardown */
@@ -3413,7 +3994,10 @@ const VideoDate = () => {
     };
 
     const scheduleLifecycleAway = (
-      source: Extract<WebLifecycleLeaveSource, "visibilitychange" | "pagehide" | "freeze">,
+      source: Extract<
+        WebLifecycleLeaveSource,
+        "visibilitychange" | "pagehide" | "freeze"
+      >,
     ) => {
       if (
         showFeedback ||
@@ -3445,7 +4029,9 @@ const VideoDate = () => {
       });
     };
 
-    const sendLifecycleAwayIfGraceElapsed = (source: Extract<WebLifecycleLeaveSource, "pagehide" | "freeze">) => {
+    const sendLifecycleAwayIfGraceElapsed = (
+      source: Extract<WebLifecycleLeaveSource, "pagehide" | "freeze">,
+    ) => {
       const startedAt = lifecycleHiddenStartedAtRef.current ?? Date.now();
       lifecycleHiddenStartedAtRef.current = startedAt;
       const elapsedMs = Math.max(0, Date.now() - startedAt);
@@ -3458,11 +4044,17 @@ const VideoDate = () => {
     };
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isConnected && !showFeedback && explicitEndRequestedRef.current === "idle") {
+      if (
+        isConnected &&
+        !showFeedback &&
+        explicitEndRequestedRef.current === "idle"
+      ) {
         e.preventDefault();
-        e.returnValue = "You're in a video date. Are you sure you want to leave?";
+        e.returnValue =
+          "You're in a video date. Are you sure you want to leave?";
       }
-      const softLifecycleAway = shouldTreatLifecycleAwayAsSoftTelemetry("beforeunload");
+      const softLifecycleAway =
+        shouldTreatLifecycleAwayAsSoftTelemetry("beforeunload");
       if (softLifecycleAway) {
         recordSoftLifecycleTelemetry("beforeunload", "beforeunload_suppressed");
       } else {
@@ -3542,158 +4134,177 @@ const VideoDate = () => {
   ]);
 
   // Record user's explicit handshake decision.
-  const handleHandshakeDecision = useCallback(async (action: "vibe" | "pass"): Promise<boolean> => {
-    if (!id || !user?.id) return false;
-    if (handshakeDecisionInFlightRef.current) return false;
-    handshakeDecisionInFlightRef.current = true;
-    try {
-      const result = await persistHandshakeDecisionWithVerification({
-        sessionId: id,
-        actorUserId: user.id,
-        action,
-        rpc: async (args) => {
-          vdbg("video_date_transition_before", {
-            action,
-            sessionId: id,
-            actorUserId: user.id,
-            currentPhase: phaseRef.current,
-            args,
-          });
-          const { data, error } =
-            action === "vibe" && continueHandshakeV2.enabled
-              ? await supabase.rpc("video_session_continue_handshake_v2" as never, {
-                  p_session_id: args.p_session_id,
-                  p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
-                    args.p_session_id,
-                    "continue_handshake",
-                  ),
-                } as never)
-              : await supabase.rpc("video_date_transition", args);
-          return {
-            data: data ?? null,
-            error: error ? { code: error.code, message: error.message, name: error.name } : null,
-          };
-        },
-        fetchTruth: async () => {
-          const { data, error } = await supabase
-            .from("video_sessions")
-            .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
-            .eq("id", id)
-            .maybeSingle();
-          return {
-            truth: (data as VideoDateHandshakeTruth | null) ?? null,
-            error: error ? { code: error.code, message: error.message, name: error.name } : null,
-          };
-        },
-        log: (event, payload) => {
-          vdbg(event, {
-            ...payload,
-            currentPhase: phaseRef.current,
-          });
-          if (event === "handshake_decision_rpc_after") {
-            vdbg("video_date_transition_after", {
+  const handleHandshakeDecision = useCallback(
+    async (action: "vibe" | "pass"): Promise<boolean> => {
+      if (!id || !user?.id) return false;
+      if (handshakeDecisionInFlightRef.current) return false;
+      handshakeDecisionInFlightRef.current = true;
+      try {
+        const result = await persistHandshakeDecisionWithVerification({
+          sessionId: id,
+          actorUserId: user.id,
+          action,
+          rpc: async (args) => {
+            vdbg("video_date_transition_before", {
               action,
               sessionId: id,
               actorUserId: user.id,
               currentPhase: phaseRef.current,
-              ok: payload.ok,
-              payload: payload.rpcPayload ?? null,
-              error: payload.error ?? null,
-              participant_1_liked: payload.participant_1_liked ?? null,
-              participant_2_liked: payload.participant_2_liked ?? null,
-              participant_1_decided_at: payload.participant_1_decided_at ?? null,
-              participant_2_decided_at: payload.participant_2_decided_at ?? null,
-              actorDecisionPersisted: payload.actorDecisionPersisted,
+              args,
             });
-          }
-        },
-      });
+            const { data, error } =
+              action === "vibe" && continueHandshakeV2.enabled
+                ? await supabase.rpc(
+                    "video_session_continue_handshake_v2" as never,
+                    {
+                      p_session_id: args.p_session_id,
+                      p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
+                        args.p_session_id,
+                        "continue_handshake",
+                      ),
+                    } as never,
+                  )
+                : await supabase.rpc("video_date_transition", args);
+            return {
+              data: data ?? null,
+              error: error
+                ? { code: error.code, message: error.message, name: error.name }
+                : null,
+            };
+          },
+          fetchTruth: async () => {
+            const { data, error } = await supabase
+              .from("video_sessions")
+              .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+              .eq("id", id)
+              .maybeSingle();
+            return {
+              truth: (data as VideoDateHandshakeTruth | null) ?? null,
+              error: error
+                ? { code: error.code, message: error.message, name: error.name }
+                : null,
+            };
+          },
+          log: (event, payload) => {
+            vdbg(event, {
+              ...payload,
+              currentPhase: phaseRef.current,
+            });
+            if (event === "handshake_decision_rpc_after") {
+              vdbg("video_date_transition_after", {
+                action,
+                sessionId: id,
+                actorUserId: user.id,
+                currentPhase: phaseRef.current,
+                ok: payload.ok,
+                payload: payload.rpcPayload ?? null,
+                error: payload.error ?? null,
+                participant_1_liked: payload.participant_1_liked ?? null,
+                participant_2_liked: payload.participant_2_liked ?? null,
+                participant_1_decided_at:
+                  payload.participant_1_decided_at ?? null,
+                participant_2_decided_at:
+                  payload.participant_2_decided_at ?? null,
+                actorDecisionPersisted: payload.actorDecisionPersisted,
+              });
+            }
+          },
+        });
 
-      if (!("reason" in result)) {
-        setHandshakeTruth(result.truth);
-        const transitionedToDate =
-          action === "vibe" &&
-          (result.state === "date" ||
-            result.truth.state === "date" ||
-            result.truth.phase === "date" ||
-            Boolean(result.truth.date_started_at));
-        if (transitionedToDate) {
-          clearHandshakeGraceState();
-          markDateFlowEntered();
-          const dateStartedAt = result.truth.date_started_at ?? new Date().toISOString();
-          const nextExtraSeconds = normalizedDateExtraSeconds(result.truth.date_extra_seconds);
-          setDateStartedAt(dateStartedAt);
-          setDateExtraSeconds(nextExtraSeconds);
-          setPhase("date");
-          setTimeLeft(
-            remainingDatePhaseSeconds({
-              dateStartedAtIso: dateStartedAt,
-              baseDateSeconds: DATE_TIME,
-              dateExtraSeconds: nextExtraSeconds,
-            }),
-          );
-          setShowMutualToast(true);
+        if (!("reason" in result)) {
+          setHandshakeTruth(result.truth);
+          const transitionedToDate =
+            action === "vibe" &&
+            (result.state === "date" ||
+              result.truth.state === "date" ||
+              result.truth.phase === "date" ||
+              Boolean(result.truth.date_started_at));
+          if (transitionedToDate) {
+            clearHandshakeGraceState();
+            markDateFlowEntered();
+            const dateStartedAt =
+              result.truth.date_started_at ?? new Date().toISOString();
+            const nextExtraSeconds = normalizedDateExtraSeconds(
+              result.truth.date_extra_seconds,
+            );
+            setDateStartedAt(dateStartedAt);
+            setDateExtraSeconds(nextExtraSeconds);
+            setPhase("date");
+            setTimeLeft(
+              remainingDatePhaseSeconds({
+                dateStartedAtIso: dateStartedAt,
+                baseDateSeconds: DATE_TIME,
+                dateExtraSeconds: nextExtraSeconds,
+              }),
+            );
+            setShowMutualToast(true);
+          }
+          vdbg("handshake_decision_ui_result", {
+            sessionId: id,
+            actorUserId: user.id,
+            action,
+            ok: true,
+            attempts: result.attempts,
+            reason: null,
+            actorDecisionPersisted: result.actorDecisionPersisted,
+            participant_1_liked: result.truth.participant_1_liked ?? null,
+            participant_2_liked: result.truth.participant_2_liked ?? null,
+            participant_1_decided_at:
+              result.truth.participant_1_decided_at ?? null,
+            participant_2_decided_at:
+              result.truth.participant_2_decided_at ?? null,
+            completeHandshakeTriggeredAfterPersistence: false,
+            completeHandshakeTriggerReason: "decision_rpc_owns_transition",
+          });
+          return true;
         }
+        setHandshakeTruth(result.truth ?? null);
+        setTimingRefreshNonce((n) => n + 1);
         vdbg("handshake_decision_ui_result", {
           sessionId: id,
           actorUserId: user.id,
           action,
-          ok: true,
+          ok: false,
           attempts: result.attempts,
-          reason: null,
+          reason: result.reason,
           actorDecisionPersisted: result.actorDecisionPersisted,
-          participant_1_liked: result.truth.participant_1_liked ?? null,
-          participant_2_liked: result.truth.participant_2_liked ?? null,
-          participant_1_decided_at: result.truth.participant_1_decided_at ?? null,
-          participant_2_decided_at: result.truth.participant_2_decided_at ?? null,
+          participant_1_liked: result.truth?.participant_1_liked ?? null,
+          participant_2_liked: result.truth?.participant_2_liked ?? null,
+          participant_1_decided_at:
+            result.truth?.participant_1_decided_at ?? null,
+          participant_2_decided_at:
+            result.truth?.participant_2_decided_at ?? null,
           completeHandshakeTriggeredAfterPersistence: false,
-          completeHandshakeTriggerReason: "decision_rpc_owns_transition",
+          completeHandshakeTriggerReason: "decision_not_persisted",
         });
-        return true;
-      }
-      setHandshakeTruth(result.truth ?? null);
-      setTimingRefreshNonce((n) => n + 1);
-      vdbg("handshake_decision_ui_result", {
-        sessionId: id,
-        actorUserId: user.id,
-        action,
-        ok: false,
-        attempts: result.attempts,
-        reason: result.reason,
-        actorDecisionPersisted: result.actorDecisionPersisted,
-        participant_1_liked: result.truth?.participant_1_liked ?? null,
-        participant_2_liked: result.truth?.participant_2_liked ?? null,
-        participant_1_decided_at: result.truth?.participant_1_decided_at ?? null,
-        participant_2_decided_at: result.truth?.participant_2_decided_at ?? null,
-        completeHandshakeTriggeredAfterPersistence: false,
-        completeHandshakeTriggerReason: "decision_not_persisted",
-      });
-      const sessionEnded = handshakeDecisionFailureIndicatesSessionEnded({
-        truth: result.truth,
-        rpcPayload: result.rpcPayload,
-      });
-      if (sessionEnded) {
-        clearHandshakeGraceState();
+        const sessionEnded = handshakeDecisionFailureIndicatesSessionEnded({
+          truth: result.truth,
+          rpcPayload: result.rpcPayload,
+        });
+        if (sessionEnded) {
+          clearHandshakeGraceState();
+          toast.error(result.userMessage);
+          void (async () => {
+            await endCall("handshake_decision_terminal_failure");
+            await handleCallEndRef.current?.();
+          })();
+          return false;
+        }
         toast.error(result.userMessage);
-        void (async () => {
-          await endCall("handshake_decision_terminal_failure");
-          await handleCallEndRef.current?.();
-        })();
         return false;
+      } finally {
+        handshakeDecisionInFlightRef.current = false;
       }
-      toast.error(result.userMessage);
-      return false;
-    } finally {
-      handshakeDecisionInFlightRef.current = false;
-    }
-  }, [
-    id,
-    user?.id,
-    continueHandshakeV2.enabled,
-    clearHandshakeGraceState,
-    markDateFlowEntered,
-    endCall,
-  ]);
+    },
+    [
+      id,
+      user?.id,
+      continueHandshakeV2.enabled,
+      clearHandshakeGraceState,
+      markDateFlowEntered,
+      endCall,
+    ],
+  );
 
   const handleUserVibe = useCallback(() => {
     recordUserAction("video_date_handshake_decision_clicked", {
@@ -3723,243 +4334,271 @@ const VideoDate = () => {
   const partnerHandshakeHasDecided = handshakeUiState.partnerHasDecided;
 
   // Check mutual vibe at the backend-owned handshake deadline.
-  const checkMutualVibe = useCallback(async (source = "handshake_server_deadline", allowRetry = true) => {
-    if (!id) return;
-    if (phaseRef.current !== "handshake") return;
-    if (handshakeCompletionInFlightRef.current) {
-      vdbg("complete_handshake_skip", {
-        sessionId: id,
-        source,
-        reason: "in_flight",
-      });
-      return;
-    }
-    if (handshakeDecisionInFlightRef.current) {
-      vdbg("complete_handshake_skip", {
-        sessionId: id,
-        source,
-        reason: "local_decision_persistence_in_flight",
-        retryScheduled: allowRetry,
-      });
-      setTimingRefreshNonce((n) => n + 1);
-      if (allowRetry && phaseRef.current === "handshake") {
-        if (handshakeCompletionRetryTimerRef.current) {
-          clearTimeout(handshakeCompletionRetryTimerRef.current);
-        }
-        handshakeCompletionRetryTimerRef.current = setTimeout(() => {
-          handshakeCompletionRetryTimerRef.current = null;
-          void checkMutualVibe(`${source}_after_decision_persistence`, false);
-        }, 900);
-      }
-      return;
-    }
-
-    if (allowRetry && firstRemoteFrameAtMsRef.current != null) {
-      const mediaAge = Date.now() - firstRemoteFrameAtMsRef.current;
-      const deferMs = MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS - mediaAge;
-      if (deferMs > 0) {
-        vdbg("complete_handshake_deferred_for_remote_frame_window", {
+  const checkMutualVibe = useCallback(
+    async (source = "handshake_server_deadline", allowRetry = true) => {
+      if (!id) return;
+      if (phaseRef.current !== "handshake") return;
+      if (handshakeCompletionInFlightRef.current) {
+        vdbg("complete_handshake_skip", {
           sessionId: id,
           source,
-          deferMs,
-          mediaAgeMs: mediaAge,
+          reason: "in_flight",
+        });
+        return;
+      }
+      if (handshakeDecisionInFlightRef.current) {
+        vdbg("complete_handshake_skip", {
+          sessionId: id,
+          source,
+          reason: "local_decision_persistence_in_flight",
+          retryScheduled: allowRetry,
         });
         setTimingRefreshNonce((n) => n + 1);
+        if (allowRetry && phaseRef.current === "handshake") {
+          if (handshakeCompletionRetryTimerRef.current) {
+            clearTimeout(handshakeCompletionRetryTimerRef.current);
+          }
+          handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+            handshakeCompletionRetryTimerRef.current = null;
+            void checkMutualVibe(`${source}_after_decision_persistence`, false);
+          }, 900);
+        }
+        return;
+      }
+
+      if (allowRetry && firstRemoteFrameAtMsRef.current != null) {
+        const mediaAge = Date.now() - firstRemoteFrameAtMsRef.current;
+        const deferMs = MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS - mediaAge;
+        if (deferMs > 0) {
+          vdbg("complete_handshake_deferred_for_remote_frame_window", {
+            sessionId: id,
+            source,
+            deferMs,
+            mediaAgeMs: mediaAge,
+          });
+          setTimingRefreshNonce((n) => n + 1);
+          if (handshakeCompletionRetryTimerRef.current) {
+            clearTimeout(handshakeCompletionRetryTimerRef.current);
+          }
+          handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+            handshakeCompletionRetryTimerRef.current = null;
+            void checkMutualVibe(`${source}_after_remote_frame_window`, false);
+          }, deferMs + 200);
+          return;
+        }
+      }
+
+      const scheduleRetry = (reason: string) => {
+        vdbg("complete_handshake_uncertain", {
+          sessionId: id,
+          source,
+          reason,
+          retryScheduled: allowRetry,
+        });
+        setTimingRefreshNonce((n) => n + 1);
+        if (!allowRetry || phaseRef.current !== "handshake") return;
         if (handshakeCompletionRetryTimerRef.current) {
           clearTimeout(handshakeCompletionRetryTimerRef.current);
         }
         handshakeCompletionRetryTimerRef.current = setTimeout(() => {
           handshakeCompletionRetryTimerRef.current = null;
-          void checkMutualVibe(`${source}_after_remote_frame_window`, false);
-        }, deferMs + 200);
-        return;
-      }
-    }
+          void checkMutualVibe(`${source}_retry`, false);
+        }, 1500);
+      };
 
-    const scheduleRetry = (reason: string) => {
-      vdbg("complete_handshake_uncertain", {
-        sessionId: id,
-        source,
-        reason,
-        retryScheduled: allowRetry,
-      });
-      setTimingRefreshNonce((n) => n + 1);
-      if (!allowRetry || phaseRef.current !== "handshake") return;
-      if (handshakeCompletionRetryTimerRef.current) {
-        clearTimeout(handshakeCompletionRetryTimerRef.current);
-      }
-      handshakeCompletionRetryTimerRef.current = setTimeout(() => {
-        handshakeCompletionRetryTimerRef.current = null;
-        void checkMutualVibe(`${source}_retry`, false);
-      }, 1500);
-    };
-
-    handshakeCompletionInFlightRef.current = true;
-    const args = {
-      p_session_id: id,
-      p_action: "complete_handshake",
-    };
-    try {
-      const { data: truthBefore } = await supabase
-        .from("video_sessions")
-        .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
-        .eq("id", id)
-        .maybeSingle();
-      vdbg("complete_handshake_truth_before", {
-        action: "complete_handshake",
-        sessionId: id,
-        source,
-        ...handshakeTruthLogPayload((truthBefore as VideoDateHandshakeTruth | null) ?? null),
-      });
-      vdbg("video_date_transition_before", { action: "complete_handshake", source, args });
-      const { data: result, error } = handshakeAutoPromoteV2.enabled
-        ? await supabase.rpc("video_session_handshake_auto_promote_v2" as never, {
-            p_session_id: args.p_session_id,
-            p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
-              args.p_session_id,
-              "handshake_auto_promote",
-            ),
-          } as never)
-        : await supabase.rpc("video_date_transition", args);
-      if (phaseRef.current !== "handshake") return;
-      const { data: truthAfter } = await supabase
-        .from("video_sessions")
-        .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
-        .eq("id", id)
-        .maybeSingle();
-      setHandshakeTruth((truthAfter as VideoDateHandshakeTruth | null) ?? null);
-      vdbg("video_date_transition_after", {
-        action: "complete_handshake",
-        source,
-        ok: !error,
-        payload: result ?? null,
-        error: error ? { code: error.code, message: error.message } : null,
-      });
-      vdbg("complete_handshake_truth_after", {
-        action: "complete_handshake",
-        sessionId: id,
-        source,
-        ok: !error,
-        rpcPayload: result ?? null,
-        ...handshakeTruthLogPayload((truthAfter as VideoDateHandshakeTruth | null) ?? null),
-      });
-
-      if (error || !result) {
-        scheduleRetry(error ? "rpc_error" : "null_result");
-        return;
-      }
-
-      const payload = result as CompleteHandshakePayload | null;
-      if (payload?.success === false && payload.retryable === true) {
-        scheduleRetry(payload.code ?? payload.reason ?? "retryable_transition_payload");
-        return;
-      }
-      if (payload?.state === "date") {
-        const dateTruth = (truthAfter as VideoDateHandshakeTruth | null) ?? null;
-        const extraNorm = normalizedDateExtraSeconds(dateTruth?.date_extra_seconds);
-        const startedAt = typeof dateTruth?.date_started_at === "string" ? dateTruth.date_started_at : null;
-        markDateFlowEntered();
-        clearHandshakeGraceState();
-        setDateExtraSeconds(extraNorm);
-        setDateStartedAt(startedAt);
-        setTimeLeft(
-          remainingDatePhaseSeconds({
-            dateStartedAtIso: startedAt,
-            baseDateSeconds: DATE_TIME,
-            dateExtraSeconds: extraNorm,
-          }),
-        );
-        setShowMutualToast(true);
-      } else if (payload?.state === "handshake") {
-        clearHandshakeGraceState();
-        const positiveExtensionSeconds =
-          payload.extended === true &&
-          typeof payload.seconds_remaining === "number" &&
-          Number.isFinite(payload.seconds_remaining) &&
-          payload.seconds_remaining > 0
-            ? Math.ceil(payload.seconds_remaining)
-            : null;
-        if (positiveExtensionSeconds !== null) {
-          const extensionStartedAt =
-            typeof payload.extension_started_at === "string"
-              ? payload.extension_started_at
-              : typeof (truthAfter as VideoDateHandshakeTruth | null)?.handshake_started_at === "string"
-                ? (truthAfter as VideoDateHandshakeTruth).handshake_started_at
-                : null;
-          if (handshakeCompletionRetryTimerRef.current) {
-            clearTimeout(handshakeCompletionRetryTimerRef.current);
-            handshakeCompletionRetryTimerRef.current = null;
-          }
-          handshakeCompletionDeadlineKeyRef.current = null;
-          if (extensionStartedAt) {
-            setHandshakeStartedAt(extensionStartedAt);
-          }
-          setPhase("handshake");
-          setTimeLeft(positiveExtensionSeconds);
-          setTimingRefreshNonce((n) => n + 1);
-          vdbg("complete_handshake_extension_applied", {
-            sessionId: id,
-            source,
-            seconds_remaining: positiveExtensionSeconds,
-            extension_started_at: extensionStartedAt,
-            reason: payload.reason ?? null,
-          });
-          return;
-        }
-        scheduleRetry("handshake_deadline_not_terminal");
-        return;
-      } else {
-        clearHandshakeGraceState();
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_HANDSHAKE_NOT_MUTUAL, {
-          platform: "web",
-          session_id: id,
-          event_id: eventId,
-          reason: payload?.reason ?? null,
+      handshakeCompletionInFlightRef.current = true;
+      const args = {
+        p_session_id: id,
+        p_action: "complete_handshake",
+      };
+      try {
+        const { data: truthBefore } = await supabase
+          .from("video_sessions")
+          .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+          .eq("id", id)
+          .maybeSingle();
+        vdbg("complete_handshake_truth_before", {
+          action: "complete_handshake",
+          sessionId: id,
+          source,
+          ...handshakeTruthLogPayload(
+            (truthBefore as VideoDateHandshakeTruth | null) ?? null,
+          ),
         });
-        if (payload?.reason === "handshake_timeout") {
-          const notice = getVideoDateWarmupChoiceNotice({
-            waitingForSelf: payload.waiting_for_self,
-            waitingForPartner: payload.waiting_for_partner,
-          });
-          showWarmupChoiceNoticeToast(notice);
-        } else if (payload?.reason === "handshake_grace_expired") {
-          showWarmupChoiceNoticeToast(getVideoDateWarmupChoiceNotice());
-        } else {
-          toast("Great meeting you! 👋", { duration: 2500 });
-        }
-        const handledTerminalSurvey = await recoverTerminalPostDateSurvey(
-          payload?.survey_required === true
-            ? "complete_handshake_survey_required"
-            : "complete_handshake_terminal",
+        vdbg("video_date_transition_before", {
+          action: "complete_handshake",
+          source,
+          args,
+        });
+        const { data: result, error } = handshakeAutoPromoteV2.enabled
+          ? await supabase.rpc(
+              "video_session_handshake_auto_promote_v2" as never,
+              {
+                p_session_id: args.p_session_id,
+                p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
+                  args.p_session_id,
+                  "handshake_auto_promote",
+                ),
+              } as never,
+            )
+          : await supabase.rpc("video_date_transition", args);
+        if (phaseRef.current !== "handshake") return;
+        const { data: truthAfter } = await supabase
+          .from("video_sessions")
+          .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+          .eq("id", id)
+          .maybeSingle();
+        setHandshakeTruth(
+          (truthAfter as VideoDateHandshakeTruth | null) ?? null,
         );
-        if (handledTerminalSurvey) {
-          void endCall("complete_handshake_not_mutual");
+        vdbg("video_date_transition_after", {
+          action: "complete_handshake",
+          source,
+          ok: !error,
+          payload: result ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+        });
+        vdbg("complete_handshake_truth_after", {
+          action: "complete_handshake",
+          sessionId: id,
+          source,
+          ok: !error,
+          rpcPayload: result ?? null,
+          ...handshakeTruthLogPayload(
+            (truthAfter as VideoDateHandshakeTruth | null) ?? null,
+          ),
+        });
+
+        if (error || !result) {
+          scheduleRetry(error ? "rpc_error" : "null_result");
           return;
         }
-        await endCall("complete_handshake_not_mutual");
-        void handleCallEndRef.current?.();
+
+        const payload = result as CompleteHandshakePayload | null;
+        if (payload?.success === false && payload.retryable === true) {
+          scheduleRetry(
+            payload.code ?? payload.reason ?? "retryable_transition_payload",
+          );
+          return;
+        }
+        if (payload?.state === "date") {
+          const dateTruth =
+            (truthAfter as VideoDateHandshakeTruth | null) ?? null;
+          const extraNorm = normalizedDateExtraSeconds(
+            dateTruth?.date_extra_seconds,
+          );
+          const startedAt =
+            typeof dateTruth?.date_started_at === "string"
+              ? dateTruth.date_started_at
+              : null;
+          markDateFlowEntered();
+          clearHandshakeGraceState();
+          setDateExtraSeconds(extraNorm);
+          setDateStartedAt(startedAt);
+          setTimeLeft(
+            remainingDatePhaseSeconds({
+              dateStartedAtIso: startedAt,
+              baseDateSeconds: DATE_TIME,
+              dateExtraSeconds: extraNorm,
+            }),
+          );
+          setShowMutualToast(true);
+        } else if (payload?.state === "handshake") {
+          clearHandshakeGraceState();
+          const positiveExtensionSeconds =
+            payload.extended === true &&
+            typeof payload.seconds_remaining === "number" &&
+            Number.isFinite(payload.seconds_remaining) &&
+            payload.seconds_remaining > 0
+              ? Math.ceil(payload.seconds_remaining)
+              : null;
+          if (positiveExtensionSeconds !== null) {
+            const extensionStartedAt =
+              typeof payload.extension_started_at === "string"
+                ? payload.extension_started_at
+                : typeof (truthAfter as VideoDateHandshakeTruth | null)
+                      ?.handshake_started_at === "string"
+                  ? (truthAfter as VideoDateHandshakeTruth).handshake_started_at
+                  : null;
+            if (handshakeCompletionRetryTimerRef.current) {
+              clearTimeout(handshakeCompletionRetryTimerRef.current);
+              handshakeCompletionRetryTimerRef.current = null;
+            }
+            handshakeCompletionDeadlineKeyRef.current = null;
+            if (extensionStartedAt) {
+              setHandshakeStartedAt(extensionStartedAt);
+            }
+            setPhase("handshake");
+            setTimeLeft(positiveExtensionSeconds);
+            setTimingRefreshNonce((n) => n + 1);
+            vdbg("complete_handshake_extension_applied", {
+              sessionId: id,
+              source,
+              seconds_remaining: positiveExtensionSeconds,
+              extension_started_at: extensionStartedAt,
+              reason: payload.reason ?? null,
+            });
+            return;
+          }
+          scheduleRetry("handshake_deadline_not_terminal");
+          return;
+        } else {
+          clearHandshakeGraceState();
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_HANDSHAKE_NOT_MUTUAL, {
+            platform: "web",
+            session_id: id,
+            event_id: eventId,
+            reason: payload?.reason ?? null,
+          });
+          if (payload?.reason === "handshake_timeout") {
+            const notice = getVideoDateWarmupChoiceNotice({
+              waitingForSelf: payload.waiting_for_self,
+              waitingForPartner: payload.waiting_for_partner,
+            });
+            showWarmupChoiceNoticeToast(notice);
+          } else if (payload?.reason === "handshake_grace_expired") {
+            showWarmupChoiceNoticeToast(getVideoDateWarmupChoiceNotice());
+          } else {
+            toast("Great meeting you! 👋", { duration: 2500 });
+          }
+          const handledTerminalSurvey = await recoverTerminalPostDateSurvey(
+            payload?.survey_required === true
+              ? "complete_handshake_survey_required"
+              : "complete_handshake_terminal",
+          );
+          if (handledTerminalSurvey) {
+            void endCall("complete_handshake_not_mutual");
+            return;
+          }
+          await endCall("complete_handshake_not_mutual");
+          void handleCallEndRef.current?.();
+        }
+      } catch (err) {
+        console.error("Error checking mutual vibe:", err);
+        vdbg("video_date_transition_after", {
+          action: "complete_handshake",
+          source,
+          ok: false,
+          error:
+            err instanceof Error
+              ? { name: err.name, message: err.message }
+              : String(err),
+        });
+        scheduleRetry("exception");
+      } finally {
+        handshakeCompletionInFlightRef.current = false;
       }
-    } catch (err) {
-      console.error("Error checking mutual vibe:", err);
-      vdbg("video_date_transition_after", {
-        action: "complete_handshake",
-        source,
-        ok: false,
-        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
-      });
-      scheduleRetry("exception");
-    } finally {
-      handshakeCompletionInFlightRef.current = false;
-    }
-  }, [
-    id,
-    eventId,
-    endCall,
-    clearHandshakeGraceState,
-    markDateFlowEntered,
-    recoverTerminalPostDateSurvey,
-    handshakeAutoPromoteV2.enabled,
-  ]);
+    },
+    [
+      id,
+      eventId,
+      endCall,
+      clearHandshakeGraceState,
+      markDateFlowEntered,
+      recoverTerminalPostDateSurvey,
+      handshakeAutoPromoteV2.enabled,
+    ],
+  );
 
   useEffect(() => {
     checkMutualVibeRef.current = checkMutualVibe;
@@ -3971,11 +4610,7 @@ const VideoDate = () => {
   }, [checkMutualVibe]);
 
   useEffect(() => {
-    if (
-      !id ||
-      phase !== "handshake" ||
-      showFeedback
-    ) {
+    if (!id || phase !== "handshake" || showFeedback) {
       return;
     }
 
@@ -3990,7 +4625,9 @@ const VideoDate = () => {
     const timelineDeadlineMs = timelineForHandshake
       ? timelineForHandshake.phaseDeadlineAtMs
       : null;
-    const startedMs = handshakeStartedAt ? new Date(handshakeStartedAt).getTime() : null;
+    const startedMs = handshakeStartedAt
+      ? new Date(handshakeStartedAt).getTime()
+      : null;
     const legacyDeadlineMs =
       typeof startedMs === "number" && Number.isFinite(startedMs)
         ? startedMs + HANDSHAKE_TIME * 1000
@@ -4043,36 +4680,63 @@ const VideoDate = () => {
     setShowIceBreaker(true);
 
     // Server already transitioned to date via video_date_transition; no client-owned writes needed here.
-  }, [id, eventId, clearHandshakeGraceState, markDateFlowEntered, dateExtraSeconds, dateStartedAt]);
+  }, [
+    id,
+    eventId,
+    clearHandshakeGraceState,
+    markDateFlowEntered,
+    dateExtraSeconds,
+    dateStartedAt,
+  ]);
 
   const handleExtend = useCallback(
-    async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<VideoDateExtendOutcome> => {
+    async (
+      minutes: number,
+      type: "extra_time" | "extended_vibe",
+    ): Promise<VideoDateExtendOutcome> => {
       if (extensionSpendInFlightRef.current) {
         return { ok: false, userMessage: "", silent: true };
       }
       if (!id) {
-        return { ok: false, userMessage: userMessageForExtensionSpendFailure("session_not_found") };
+        return {
+          ok: false,
+          userMessage: userMessageForExtensionSpendFailure("session_not_found"),
+        };
       }
       extensionSpendInFlightRef.current = true;
       const useMutualExtension = extensionMutualV2.enabled;
       const retry =
-        extensionSpendRetryRef.current?.type === type && extensionSpendRetryRef.current.mutual === useMutualExtension
+        extensionSpendRetryRef.current?.type === type &&
+        extensionSpendRetryRef.current.mutual === useMutualExtension
           ? extensionSpendRetryRef.current
           : null;
       const idempotencyKey =
         retry?.key ??
-        (useMutualExtension ? makeMutualExtensionIdempotencyKey(id, type) : makeExtensionIdempotencyKey(id, type));
-      extensionSpendRetryRef.current = { type, key: idempotencyKey, mutual: useMutualExtension };
+        (useMutualExtension
+          ? makeMutualExtensionIdempotencyKey(id, type)
+          : makeExtensionIdempotencyKey(id, type));
+      extensionSpendRetryRef.current = {
+        type,
+        key: idempotencyKey,
+        mutual: useMutualExtension,
+      };
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_ATTEMPTED, {
         platform: "web",
         session_id: id,
         event_id: eventId,
         credit_type: type,
       });
-      const extensionMode = useMutualExtension ? "mutual_v2" : extensionV2.enabled ? "single_v2" : "legacy";
+      const extensionMode = useMutualExtension
+        ? "mutual_v2"
+        : extensionV2.enabled
+          ? "single_v2"
+          : "legacy";
       const extensionRefreshStartedAt = Date.now();
       const trackExtensionRefreshCheckpoint = (
-        checkpoint: "extension_refresh_started" | "extension_refresh_success" | "extension_refresh_failure",
+        checkpoint:
+          | "extension_refresh_started"
+          | "extension_refresh_success"
+          | "extension_refresh_failure",
         outcome: "success" | "failure",
         reasonCode?: string | null,
         extra?: Record<string, string | number | boolean | null | undefined>,
@@ -4100,17 +4764,23 @@ const VideoDate = () => {
       trackExtensionRefreshCheckpoint("extension_refresh_started", "success");
       try {
         const { data, error } = useMutualExtension
-          ? await supabase.rpc("video_session_request_extension_v2" as never, {
-              p_session_id: id,
-              p_credit_type: type,
-              p_idempotency_key: idempotencyKey,
-            } as never)
+          ? await supabase.rpc(
+              "video_session_request_extension_v2" as never,
+              {
+                p_session_id: id,
+                p_credit_type: type,
+                p_idempotency_key: idempotencyKey,
+              } as never,
+            )
           : extensionV2.enabled
-            ? await supabase.rpc("video_session_extend_date_v2" as never, {
-              p_session_id: id,
-              p_credit_type: type,
-              p_idempotency_key: idempotencyKey,
-            } as never)
+            ? await supabase.rpc(
+                "video_session_extend_date_v2" as never,
+                {
+                  p_session_id: id,
+                  p_credit_type: type,
+                  p_idempotency_key: idempotencyKey,
+                } as never,
+              )
             : await supabase.rpc("spend_video_date_credit_extension", {
                 p_session_id: id,
                 p_credit_type: type,
@@ -4132,12 +4802,20 @@ const VideoDate = () => {
             credit_type: type,
             reason: "rpc_transport",
           });
-          trackExtensionRefreshCheckpoint("extension_refresh_failure", "failure", "rpc_transport", {
-            extension_awaiting_partner: false,
-            extension_applied: false,
-          });
+          trackExtensionRefreshCheckpoint(
+            "extension_refresh_failure",
+            "failure",
+            "rpc_transport",
+            {
+              extension_awaiting_partner: false,
+              extension_applied: false,
+            },
+          );
           void refetchCredits();
-          return { ok: false, userMessage: userMessageForExtensionSpendFailure("rpc_transport") };
+          return {
+            ok: false,
+            userMessage: userMessageForExtensionSpendFailure("rpc_transport"),
+          };
         }
         const parsed = parseSpendVideoDateCreditExtensionPayload(data);
         if (parsed.success === false) {
@@ -4149,12 +4827,20 @@ const VideoDate = () => {
             credit_type: type,
             reason: parsed.error,
           });
-          trackExtensionRefreshCheckpoint("extension_refresh_failure", "failure", parsed.error, {
-            extension_awaiting_partner: false,
-            extension_applied: false,
-          });
+          trackExtensionRefreshCheckpoint(
+            "extension_refresh_failure",
+            "failure",
+            parsed.error,
+            {
+              extension_awaiting_partner: false,
+              extension_applied: false,
+            },
+          );
           void refetchCredits();
-          return { ok: false, userMessage: userMessageForExtensionSpendFailure(parsed.error) };
+          return {
+            ok: false,
+            userMessage: userMessageForExtensionSpendFailure(parsed.error),
+          };
         }
         extensionSpendRetryRef.current = null;
         if (parsed.awaitingPartner === true) {
@@ -4175,10 +4861,15 @@ const VideoDate = () => {
             credit_type: type,
             request_expires_at: parsed.requestExpiresAt ?? null,
           });
-          trackExtensionRefreshCheckpoint("extension_refresh_success", "success", "awaiting_partner", {
-            extension_awaiting_partner: true,
-            extension_applied: false,
-          });
+          trackExtensionRefreshCheckpoint(
+            "extension_refresh_success",
+            "success",
+            "awaiting_partner",
+            {
+              extension_awaiting_partner: true,
+              extension_applied: false,
+            },
+          );
           return {
             ok: true,
             awaitingPartner: true,
@@ -4226,10 +4917,15 @@ const VideoDate = () => {
           date_extra_seconds: nextExtra,
           idempotent: parsed.idempotent === true,
         });
-        trackExtensionRefreshCheckpoint("extension_refresh_success", "success", "extension_applied", {
-          extension_awaiting_partner: false,
-          extension_applied: true,
-        });
+        trackExtensionRefreshCheckpoint(
+          "extension_refresh_success",
+          "success",
+          "extension_applied",
+          {
+            extension_awaiting_partner: false,
+            extension_applied: true,
+          },
+        );
         void refetchCredits();
         return {
           ok: true,
@@ -4247,12 +4943,20 @@ const VideoDate = () => {
           credit_type: type,
           reason: "exception",
         });
-        trackExtensionRefreshCheckpoint("extension_refresh_failure", "failure", "exception", {
-          extension_awaiting_partner: false,
-          extension_applied: false,
-        });
+        trackExtensionRefreshCheckpoint(
+          "extension_refresh_failure",
+          "failure",
+          "exception",
+          {
+            extension_awaiting_partner: false,
+            extension_applied: false,
+          },
+        );
         void refetchCredits();
-        return { ok: false, userMessage: userMessageForExtensionSpendFailure("rpc_transport") };
+        return {
+          ok: false,
+          userMessage: userMessageForExtensionSpendFailure("rpc_transport"),
+        };
       } finally {
         extensionSpendInFlightRef.current = false;
       }
@@ -4266,166 +4970,192 @@ const VideoDate = () => {
       id,
       refetchCredits,
       trackDailyPerformanceCheckpoint,
-    ]
+    ],
   );
 
   // End call: server-owned `video_date_transition(end, …)` + survey/navigation UX (no direct session row writes here).
-  const handleCallEnd = useCallback(async (reason: VideoDateEndReason = "ended_from_client") => {
-    if (explicitEndRequestedRef.current !== "idle") return;
-    explicitEndRequestedRef.current = "sending";
-    recordUserAction("video_date_end_requested", {
-      surface: "video_date",
-      session_id: id,
-      phase,
-      reason,
-    });
-    const analyticsBudgetSeconds =
-      phase === "handshake"
-        ? HANDSHAKE_TIME
-        : HANDSHAKE_TIME + effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
-    const emitConfirmedEndedAnalytics = () => {
-      trackEvent('video_date_ended', {
+  const handleCallEnd = useCallback(
+    async (reason: VideoDateEndReason = "ended_from_client") => {
+      if (explicitEndRequestedRef.current !== "idle") return;
+      explicitEndRequestedRef.current = "sending";
+      recordUserAction("video_date_end_requested", {
+        surface: "video_date",
         session_id: id,
-        duration_seconds: analyticsBudgetSeconds - (timeLeft ?? 0),
         phase,
         reason,
       });
-    };
-    if (reason !== "date_timeout") {
-      emitConfirmedEndedAnalytics();
-    }
-    if (!id) {
-      explicitEndRequestedRef.current = "idle";
-      return;
-    }
-
-    const args = {
-      p_session_id: id,
-      p_action: "end",
-      p_reason: reason,
-    };
-    const useDateTimeoutV2 = reason === "date_timeout" && dateTimeoutV2.enabled;
-    vdbg("video_date_transition_before", { action: "end", args });
-    const transitionResult = await sendVideoDateSignalWithRetry({
-      sessionId: id,
-      action: useDateTimeoutV2 ? "phase3:date_timeout" : "end",
-      operation: async (attempt, idempotencyKey) => {
-        const { data, error } = useDateTimeoutV2
-          ? await supabase.rpc("video_session_date_timeout_v2" as never, {
-              p_session_id: id,
-              p_idempotency_key: idempotencyKey,
-            } as never)
-          : await supabase.rpc("video_date_transition", args);
-        vdbg("video_date_transition_after", {
-          action: "end",
-          ok: !error,
-          payload: data ?? null,
-          error: error ? { code: error.code, message: error.message } : null,
-          attempt,
-          idempotencyKey,
+      const analyticsBudgetSeconds =
+        phase === "handshake"
+          ? HANDSHAKE_TIME
+          : HANDSHAKE_TIME +
+            effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
+      const emitConfirmedEndedAnalytics = () => {
+        trackEvent("video_date_ended", {
+          session_id: id,
+          duration_seconds: analyticsBudgetSeconds - (timeLeft ?? 0),
+          phase,
+          reason,
         });
-        if (error) throw error;
-        return data;
-      },
-      isSuccess: (data) => {
-        const payload = data as { success?: boolean; state?: string; phase?: string; already_ended?: boolean } | null;
-        if (payload?.success === false) return false;
-        if (!useDateTimeoutV2) return true;
-        return payload?.already_ended === true || payload?.state === "ended" || payload?.phase === "ended";
-      },
-    });
+      };
+      if (reason !== "date_timeout") {
+        emitConfirmedEndedAnalytics();
+      }
+      if (!id) {
+        explicitEndRequestedRef.current = "idle";
+        return;
+      }
 
-    try {
-      if (!transitionResult.ok) {
+      const args = {
+        p_session_id: id,
+        p_action: "end",
+        p_reason: reason,
+      };
+      const useDateTimeoutV2 =
+        reason === "date_timeout" && dateTimeoutV2.enabled;
+      vdbg("video_date_transition_before", { action: "end", args });
+      const transitionResult = await sendVideoDateSignalWithRetry({
+        sessionId: id,
+        action: useDateTimeoutV2 ? "phase3:date_timeout" : "end",
+        operation: async (attempt, idempotencyKey) => {
+          const { data, error } = useDateTimeoutV2
+            ? await supabase.rpc(
+                "video_session_date_timeout_v2" as never,
+                {
+                  p_session_id: id,
+                  p_idempotency_key: idempotencyKey,
+                } as never,
+              )
+            : await supabase.rpc("video_date_transition", args);
+          vdbg("video_date_transition_after", {
+            action: "end",
+            ok: !error,
+            payload: data ?? null,
+            error: error ? { code: error.code, message: error.message } : null,
+            attempt,
+            idempotencyKey,
+          });
+          if (error) throw error;
+          return data;
+        },
+        isSuccess: (data) => {
+          const payload = data as {
+            success?: boolean;
+            state?: string;
+            phase?: string;
+            already_ended?: boolean;
+          } | null;
+          if (payload?.success === false) return false;
+          if (!useDateTimeoutV2) return true;
+          return (
+            payload?.already_ended === true ||
+            payload?.state === "ended" ||
+            payload?.phase === "ended"
+          );
+        },
+      });
+
+      try {
+        if (!transitionResult.ok) {
+          recordUserAction("video_date_end_failed", {
+            surface: "video_date",
+            session_id: id,
+            phase,
+            reason,
+            failure_kind: "transition_not_ok",
+          });
+          const { data: sessionRow } = await supabase
+            .from("video_sessions")
+            .select(TERMINAL_SURVEY_SESSION_SELECT)
+            .eq("id", id)
+            .maybeSingle();
+          if (videoSessionIndicatesTerminalEnd(sessionRow)) {
+            const recovered = await recoverTerminalPostDateSurvey(
+              "local_end_recovered_after_rpc_error",
+              sessionRow,
+            );
+            if (!recovered) {
+              toast.error("Couldn't finish ending the date. Please try again.");
+              explicitEndRequestedRef.current = "idle";
+              return;
+            }
+            explicitEndRequestedRef.current = "acked";
+            return;
+          }
+          if (reason === "date_timeout") {
+            countdownCompletionKeyRef.current = null;
+            setTimingRefreshNonce((n) => n + 1);
+            explicitEndRequestedRef.current = "idle";
+            return;
+          }
+          toast.error("Couldn't finish ending the date. Please try again.");
+          explicitEndRequestedRef.current = "idle";
+          return;
+        }
+
+        if (reason === "date_timeout") {
+          toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+          emitConfirmedEndedAnalytics();
+        }
+        explicitEndRequestedRef.current = "acked";
+        recordUserAction("video_date_end_succeeded", {
+          surface: "video_date",
+          session_id: id,
+          phase,
+          reason,
+        });
+        const terminalHandled =
+          await confirmTerminalPostDateSurveyFromServerTruth("local_end");
+        if (terminalHandled) {
+          markDateFlowEntered();
+          return;
+        }
+
         recordUserAction("video_date_end_failed", {
           surface: "video_date",
           session_id: id,
           phase,
           reason,
-          failure_kind: "transition_not_ok",
+          failure_kind: "terminal_confirmation_missing",
         });
-        const { data: sessionRow } = await supabase
-          .from("video_sessions")
-          .select(TERMINAL_SURVEY_SESSION_SELECT)
-          .eq("id", id)
-          .maybeSingle();
-        if (videoSessionIndicatesTerminalEnd(sessionRow)) {
-          const recovered = await recoverTerminalPostDateSurvey("local_end_recovered_after_rpc_error", sessionRow);
-          if (!recovered) {
-            toast.error("Couldn't finish ending the date. Please try again.");
-            explicitEndRequestedRef.current = "idle";
-            return;
-          }
-          explicitEndRequestedRef.current = "acked";
-          return;
-        }
         if (reason === "date_timeout") {
           countdownCompletionKeyRef.current = null;
           setTimingRefreshNonce((n) => n + 1);
-          explicitEndRequestedRef.current = "idle";
-          return;
         }
+        toast.error(
+          "We're still confirming the date ended. Please try again in a moment.",
+        );
+        explicitEndRequestedRef.current = "idle";
+      } catch (error) {
+        recordUserAction("video_date_end_failed", {
+          surface: "video_date",
+          session_id: id,
+          phase,
+          reason,
+          failure_kind: "exception",
+        });
+        vdbg("video_date_transition_after", {
+          action: "end",
+          ok: false,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        });
         toast.error("Couldn't finish ending the date. Please try again.");
         explicitEndRequestedRef.current = "idle";
-        return;
       }
-
-      if (reason === "date_timeout") {
-        toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-        emitConfirmedEndedAnalytics();
-      }
-      explicitEndRequestedRef.current = "acked";
-      recordUserAction("video_date_end_succeeded", {
-        surface: "video_date",
-        session_id: id,
-        phase,
-        reason,
-      });
-      const terminalHandled = await confirmTerminalPostDateSurveyFromServerTruth("local_end");
-      if (terminalHandled) {
-        markDateFlowEntered();
-        return;
-      }
-
-      recordUserAction("video_date_end_failed", {
-        surface: "video_date",
-        session_id: id,
-        phase,
-        reason,
-        failure_kind: "terminal_confirmation_missing",
-      });
-      if (reason === "date_timeout") {
-        countdownCompletionKeyRef.current = null;
-        setTimingRefreshNonce((n) => n + 1);
-      }
-      toast.error("We're still confirming the date ended. Please try again in a moment.");
-      explicitEndRequestedRef.current = "idle";
-    } catch (error) {
-      recordUserAction("video_date_end_failed", {
-        surface: "video_date",
-        session_id: id,
-        phase,
-        reason,
-        failure_kind: "exception",
-      });
-      vdbg("video_date_transition_after", {
-        action: "end",
-        ok: false,
-        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-      });
-      toast.error("Couldn't finish ending the date. Please try again.");
-      explicitEndRequestedRef.current = "idle";
-    }
-  }, [
-    id,
-    phase,
-    timeLeft,
-    dateExtraSeconds,
-    dateTimeoutV2.enabled,
-    recoverTerminalPostDateSurvey,
-    confirmTerminalPostDateSurveyFromServerTruth,
-    markDateFlowEntered,
-  ]);
+    },
+    [
+      id,
+      phase,
+      timeLeft,
+      dateExtraSeconds,
+      dateTimeoutV2.enabled,
+      recoverTerminalPostDateSurvey,
+      confirmTerminalPostDateSurveyFromServerTruth,
+      markDateFlowEntered,
+    ],
+  );
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -4458,7 +5188,8 @@ const VideoDate = () => {
       eventId: eventId ?? null,
       phase: phaseRef.current,
       dateStartedAt,
-      hasEncounterExposureTruth: videoSessionHasEncounterExposureTruth(handshakeTruth),
+      hasEncounterExposureTruth:
+        videoSessionHasEncounterExposureTruth(handshakeTruth),
     });
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
       platform: "web",
@@ -4484,7 +5215,9 @@ const VideoDate = () => {
   const resolveVideoDateExitTarget = useCallback(
     (overrideEventId?: string | null) => {
       const destinationEventId = overrideEventId ?? eventId;
-      return destinationEventId ? `/event/${encodeURIComponent(destinationEventId)}/lobby` : "/events";
+      return destinationEventId
+        ? `/event/${encodeURIComponent(destinationEventId)}/lobby`
+        : "/events";
     },
     [eventId],
   );
@@ -4506,7 +5239,10 @@ const VideoDate = () => {
         sessionId: id,
         action: "end",
         operation: async (attempt, idempotencyKey) => {
-          const { data, error } = await supabase.rpc("video_date_transition", args);
+          const { data, error } = await supabase.rpc(
+            "video_date_transition",
+            args,
+          );
           vdbg("video_date_transition_after", {
             action: "end",
             source: "manual_pre_date_exit",
@@ -4519,7 +5255,8 @@ const VideoDate = () => {
           if (error) throw error;
           return data;
         },
-        isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
+        isSuccess: (data) =>
+          (data as { success?: boolean } | null)?.success !== false,
       });
 
       recordUserAction(
@@ -4540,7 +5277,11 @@ const VideoDate = () => {
   );
 
   const retryPreDateManualEndInBackground = useCallback(
-    (reason: VideoDateEndReason, source: string, firstStatus: VideoDateManualExitStepStatus) => {
+    (
+      reason: VideoDateEndReason,
+      source: string,
+      firstStatus: VideoDateManualExitStepStatus,
+    ) => {
       if (!id) return;
       window.setTimeout(() => {
         void signalPreDateManualEnd(reason).then(
@@ -4559,26 +5300,42 @@ const VideoDate = () => {
               },
             );
             if (!ok) {
-              Sentry.captureMessage("video_date_pre_date_exit_end_background_retry_failed", {
-                level: "warning",
-                tags: { surface: "video_date", flow: "manual_pre_date_exit" },
-                extra: { session_id: id, reason, source, first_status: firstStatus },
-              });
+              Sentry.captureMessage(
+                "video_date_pre_date_exit_end_background_retry_failed",
+                {
+                  level: "warning",
+                  tags: { surface: "video_date", flow: "manual_pre_date_exit" },
+                  extra: {
+                    session_id: id,
+                    reason,
+                    source,
+                    first_status: firstStatus,
+                  },
+                },
+              );
             }
           },
           (error) => {
-            recordUserAction("video_date_pre_date_exit_end_background_retry_exception", {
-              surface: "video_date",
-              session_id: id,
-              phase: phaseRef.current,
-              reason,
-              source,
-              first_status: firstStatus,
-              error: serializeManualExitError(error),
-            });
+            recordUserAction(
+              "video_date_pre_date_exit_end_background_retry_exception",
+              {
+                surface: "video_date",
+                session_id: id,
+                phase: phaseRef.current,
+                reason,
+                source,
+                first_status: firstStatus,
+                error: serializeManualExitError(error),
+              },
+            );
             Sentry.captureException(error, {
               tags: { surface: "video_date", flow: "manual_pre_date_exit" },
-              extra: { session_id: id, reason, source, first_status: firstStatus },
+              extra: {
+                session_id: id,
+                reason,
+                source,
+                first_status: firstStatus,
+              },
             });
           },
         );
@@ -4614,7 +5371,9 @@ const VideoDate = () => {
 
       const [dailyCleanup, serverEnd] = await Promise.all([
         runVideoDateManualExitStep("daily_cleanup", () => endCall(source)),
-        runVideoDateManualExitStep("server_end", () => signalPreDateManualEnd(reason)),
+        runVideoDateManualExitStep("server_end", () =>
+          signalPreDateManualEnd(reason),
+        ),
       ]);
       if (serverEnd.status !== "completed") {
         retryPreDateManualEndInBackground(reason, source, serverEnd.status);
@@ -4663,27 +5422,43 @@ const VideoDate = () => {
     ],
   );
 
-  const handleLeave = useCallback(async (opts?: { reason?: VideoDateEndReason }) => {
-    const hasDateEntryTruth = hasEnteredDateFlowRef.current || phaseRef.current === "date" || Boolean(dateStartedAt) || videoSessionHasEncounterExposureTruth(handshakeTruth);
-    if (!hasDateEntryTruth) {
-      await handlePreDateExit({
-        reason: opts?.reason ?? "ended_from_client",
-        source: "pre_date_leave_button",
-      });
-      return;
-    }
+  const handleLeave = useCallback(
+    async (opts?: { reason?: VideoDateEndReason }) => {
+      const hasDateEntryTruth =
+        hasEnteredDateFlowRef.current ||
+        phaseRef.current === "date" ||
+        Boolean(dateStartedAt) ||
+        videoSessionHasEncounterExposureTruth(handshakeTruth);
+      if (!hasDateEntryTruth) {
+        await handlePreDateExit({
+          reason: opts?.reason ?? "ended_from_client",
+          source: "pre_date_leave_button",
+        });
+        return;
+      }
 
-    recordUserAction("video_date_leave_clicked", {
-      surface: "video_date",
-      session_id: id,
+      recordUserAction("video_date_leave_clicked", {
+        surface: "video_date",
+        session_id: id,
+        phase,
+        reason: opts?.reason ?? "ended_from_client",
+      });
+      clearHandshakeGraceState();
+      await endCall("user_leave_button");
+      toast("You left the date — stay safe! 💚", { duration: 2000 });
+      await handleCallEnd(opts?.reason);
+    },
+    [
+      dateStartedAt,
+      endCall,
+      handleCallEnd,
+      handlePreDateExit,
+      clearHandshakeGraceState,
+      handshakeTruth,
+      id,
       phase,
-      reason: opts?.reason ?? "ended_from_client",
-    });
-    clearHandshakeGraceState();
-    await endCall("user_leave_button");
-    toast("You left the date — stay safe! 💚", { duration: 2000 });
-    await handleCallEnd(opts?.reason);
-  }, [dateStartedAt, endCall, handleCallEnd, handlePreDateExit, clearHandshakeGraceState, handshakeTruth, id, phase]);
+    ],
+  );
 
   const requestEndDateConfirmation = useCallback(() => {
     if (isLeavingVideoDate || isEndDateConfirming) return;
@@ -4703,24 +5478,43 @@ const VideoDate = () => {
 
   useEffect(() => {
     if (!peerMissing.terminal || !id) return;
-    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION, {
-      platform: "web",
-      session_id: id,
-      event_id: eventId ?? null,
-    });
+    trackEvent(
+      LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION,
+      {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+      },
+    );
   }, [eventId, id, peerMissing.terminal]);
 
   useEffect(() => {
-    if (!id || videoDateAccess !== "allowed" || showFeedback || terminalSurveyRecoveryActive || phase === "ended") return;
+    if (
+      !id ||
+      videoDateAccess !== "allowed" ||
+      showFeedback ||
+      terminalSurveyRecoveryActive ||
+      phase === "ended"
+    )
+      return;
     if (mediaPermissionError) return;
     const shouldReconcileTerminalSurvey =
-      peerMissing.terminal || remotePlayback.playRejected || isConnecting || !isConnected;
+      peerMissing.terminal ||
+      remotePlayback.playRejected ||
+      isConnecting ||
+      !isConnected;
     if (!shouldReconcileTerminalSurvey) return;
 
     let cancelled = false;
     let inFlight = false;
     const reconcileTerminalSurvey = async (source: string) => {
-      if (cancelled || inFlight || surveyOpenedRef.current || terminalSurveyRecoveryInFlightRef.current) return;
+      if (
+        cancelled ||
+        inFlight ||
+        surveyOpenedRef.current ||
+        terminalSurveyRecoveryInFlightRef.current
+      )
+        return;
       if (explicitEndRequestedRef.current !== "idle") return;
       inFlight = true;
       try {
@@ -4784,11 +5578,14 @@ const VideoDate = () => {
 
   const handlePeerMissingLeave = useCallback(() => {
     if (id) {
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
-        platform: "web",
-        session_id: id,
-        event_id: eventId ?? null,
-      });
+      trackEvent(
+        LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP,
+        {
+          platform: "web",
+          session_id: id,
+          event_id: eventId ?? null,
+        },
+      );
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
         platform: "web",
         session_id: id,
@@ -4805,8 +5602,18 @@ const VideoDate = () => {
       void handleLeave({ reason: "partner_absent_after_confirmed_encounter" });
       return;
     }
-    void handlePreDateExit({ reason: "partial_join_peer_timeout", source: "peer_missing_back_to_lobby" });
-  }, [dateStartedAt, eventId, handleLeave, handlePreDateExit, handshakeTruth, id]);
+    void handlePreDateExit({
+      reason: "partial_join_peer_timeout",
+      source: "peer_missing_back_to_lobby",
+    });
+  }, [
+    dateStartedAt,
+    eventId,
+    handleLeave,
+    handlePreDateExit,
+    handshakeTruth,
+    id,
+  ]);
 
   useEffect(() => {
     if (phase === "date" || phase === "ended") {
@@ -4838,19 +5645,33 @@ const VideoDate = () => {
       explicitEndRequestedRef.current = "acked";
       setShowFeedback(false);
       const target = resolveVideoDateExitTarget(eventId);
-      vdbgRedirect(target, "safety_report_report_only_ended", { sessionId: id ?? null, eventId: eventId ?? null });
+      vdbgRedirect(target, "safety_report_report_only_ended", {
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+      });
       navigate(target, { replace: true });
     },
     [endCall, eventId, id, navigate, resolveVideoDateExitTarget],
   );
 
   const handleServerEndedAfterInCallReport = useCallback(
-    async (result: { surveyRequired?: boolean }, outcome?: VideoDateSafetySubmitOutcome) => {
+    async (
+      result: { surveyRequired?: boolean },
+      outcome?: VideoDateSafetySubmitOutcome,
+    ) => {
       setSafetySubmitOutcome((current) =>
         outcome
-          ? { ...outcome, ended: true, surveyRequired: result.surveyRequired === true }
+          ? {
+              ...outcome,
+              ended: true,
+              surveyRequired: result.surveyRequired === true,
+            }
           : current
-            ? { ...current, ended: true, surveyRequired: result.surveyRequired === true }
+            ? {
+                ...current,
+                ended: true,
+                surveyRequired: result.surveyRequired === true,
+              }
             : {
                 mode: "end",
                 alsoBlock: false,
@@ -4858,7 +5679,8 @@ const VideoDate = () => {
                 surveyRequired: result.surveyRequired === true,
                 idempotent: false,
                 reportRecorded: true,
-                nextDestination: result.surveyRequired === true ? "survey" : "lobby",
+                nextDestination:
+                  result.surveyRequired === true ? "survey" : "lobby",
               },
       );
       setShowProfileSheet(false);
@@ -4871,7 +5693,10 @@ const VideoDate = () => {
         survey_required: result.surveyRequired === true,
       });
       if (result.surveyRequired === true) {
-        const terminalHandled = await confirmTerminalPostDateSurveyFromServerTruth("safety_report_server_ended");
+        const terminalHandled =
+          await confirmTerminalPostDateSurveyFromServerTruth(
+            "safety_report_server_ended",
+          );
         if (terminalHandled) {
           markDateFlowEntered();
           return;
@@ -4880,7 +5705,10 @@ const VideoDate = () => {
       }
       setShowFeedback(false);
       const target = resolveVideoDateExitTarget(eventId);
-      vdbgRedirect(target, "safety_report_server_ended_no_survey", { sessionId: id ?? null, eventId: eventId ?? null });
+      vdbgRedirect(target, "safety_report_server_ended_no_survey", {
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+      });
       navigate(target, { replace: true });
     },
     [
@@ -4914,19 +5742,35 @@ const VideoDate = () => {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [callStarted, dupBlocked, eventId, id, showFeedback, user?.id, videoDateAccess]);
+  }, [
+    callStarted,
+    dupBlocked,
+    eventId,
+    id,
+    showFeedback,
+    user?.id,
+    videoDateAccess,
+  ]);
 
   const totalTime =
-    phase === "handshake" ? HANDSHAKE_TIME : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
+    phase === "handshake"
+      ? HANDSHAKE_TIME
+      : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
   const handshakeTimerDisplayLeft = timeLeft ?? 0;
   const handshakeTimerTotal = totalTime;
   const handshakeTimerStarted =
     phase !== "handshake" || Boolean(handshakeStartedAt);
   const partnerFirstName = partner.name.trim().split(/\s+/)[0] || partner.name;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
-  const suppressPartnerControlsAfterSafety = safetySubmitOutcome?.alsoBlock === true || safetySubmitOutcome?.ended === true;
+  const suppressPartnerControlsAfterSafety =
+    safetySubmitOutcome?.alsoBlock === true ||
+    safetySubmitOutcome?.ended === true;
   const canOpenInCallSafety = Boolean(
-    partnerId && id && !showFeedback && phase !== "ended" && !suppressPartnerControlsAfterSafety,
+    partnerId &&
+    id &&
+    !showFeedback &&
+    phase !== "ended" &&
+    !suppressPartnerControlsAfterSafety,
   );
   const transportReconnectVisible =
     dailyReconnectState === "interrupted" ||
@@ -4934,8 +5778,11 @@ const VideoDate = () => {
     dailyReconnectState === "partner_left_grace" ||
     dailyReconnectState === "failed_after_grace";
   const reconnectOverlayMode =
-    dailyReconnectState === "partner_left_grace" ? "partner_away" : "network_interrupted";
-  const anyReconnectVisible = transportReconnectVisible || reconnection.isPartnerDisconnected;
+    dailyReconnectState === "partner_left_grace"
+      ? "partner_away"
+      : "network_interrupted";
+  const anyReconnectVisible =
+    transportReconnectVisible || reconnection.isPartnerDisconnected;
 
   useEffect(() => {
     if (!resilienceV2.enabled) return;
@@ -4946,7 +5793,12 @@ const VideoDate = () => {
     if (isConnected) {
       setRemoteFrameSnapshotUrl(null);
     }
-  }, [anyReconnectVisible, captureRemoteFrameSnapshot, isConnected, resilienceV2.enabled]);
+  }, [
+    anyReconnectVisible,
+    captureRemoteFrameSnapshot,
+    isConnected,
+    resilienceV2.enabled,
+  ]);
 
   const showFloatingIceBreaker = shouldShowVideoDateIceBreaker({
     baseVisible:
@@ -5016,14 +5868,18 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">We couldn&apos;t open this date</h1>
+        <h1 className="text-xl font-display font-semibold">
+          We couldn&apos;t open this date
+        </h1>
         <p className="text-muted-foreground text-sm max-w-sm">
           This link may be invalid or the session no longer exists.
         </p>
         <Button
           type="button"
           onClick={() => {
-            vdbgRedirect("/events", "not_found_back_to_events", { sessionId: id ?? null });
+            vdbgRedirect("/events", "not_found_back_to_events", {
+              sessionId: id ?? null,
+            });
             navigate("/events");
           }}
         >
@@ -5055,8 +5911,12 @@ const VideoDate = () => {
               <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
             </div>
             <div>
-              <p className="text-lg font-display font-semibold">Opening your date</p>
-              <p className="text-sm text-white/55 mt-1">Preparing camera, room, and timing together.</p>
+              <p className="text-lg font-display font-semibold">
+                Opening your date
+              </p>
+              <p className="text-sm text-white/55 mt-1">
+                Preparing camera, room, and timing together.
+              </p>
             </div>
           </div>
           <div className="absolute left-5 right-5 bottom-8 h-24 rounded-2xl border border-white/10 bg-white/[0.035]" />
@@ -5069,7 +5929,9 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">You don&apos;t have access to this date</h1>
+        <h1 className="text-xl font-display font-semibold">
+          You don&apos;t have access to this date
+        </h1>
         <p className="text-muted-foreground text-sm max-w-sm">
           This video date is for matched participants only.
         </p>
@@ -5079,7 +5941,10 @@ const VideoDate = () => {
             const target = deniedEventId
               ? `/event/${encodeURIComponent(deniedEventId)}/lobby`
               : "/events";
-            vdbgRedirect(target, "denied_back", { sessionId: id ?? null, eventId: deniedEventId ?? null });
+            vdbgRedirect(target, "denied_back", {
+              sessionId: id ?? null,
+              eventId: deniedEventId ?? null,
+            });
             navigate(target);
           }}
         >
@@ -5101,25 +5966,31 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">{mediaPermissionTitle(permissionBlock)}</h1>
+        <h1 className="text-xl font-display font-semibold">
+          {mediaPermissionTitle(permissionBlock)}
+        </h1>
         <p className="text-muted-foreground text-sm max-w-sm">
           {mediaPermissionMessage(permissionBlock)}
         </p>
         {permissionBlock.recoveryAction === "open_settings" ? (
           <p className="text-xs text-muted-foreground max-w-sm">
-            Use the camera icon in the address bar or this browser's site settings, then return here.
+            Use the camera icon in the address bar or this browser's site
+            settings, then return here.
           </p>
         ) : null}
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             type="button"
             onClick={() => {
-              trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_RETRY, {
-                platform: "web",
-                session_id: id,
-                event_id: eventId ?? null,
-                source: "retry_tap",
-              });
+              trackEvent(
+                LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_RETRY,
+                {
+                  platform: "web",
+                  session_id: id,
+                  event_id: eventId ?? null,
+                  source: "retry_tap",
+                },
+              );
               nextVideoDateMediaPromptIntentRef.current = "user_retry";
               setCallStartFailure(null);
               setHandshakeStartFailed(false);
@@ -5127,14 +5998,21 @@ const VideoDate = () => {
               clearMediaPermissionError();
             }}
           >
-            {permissionBlock.recoveryAction === "open_settings" ? "I updated settings" : "Try again"}
+            {permissionBlock.recoveryAction === "open_settings"
+              ? "I updated settings"
+              : "Try again"}
           </Button>
           <Button
             type="button"
             variant="outline"
             onClick={() => {
-              const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
-              vdbgRedirect(target, "camera_permission_denied_exit", { sessionId: id ?? null, eventId: eventId ?? null });
+              const target = eventId
+                ? `/event/${encodeURIComponent(eventId)}/lobby`
+                : "/events";
+              vdbgRedirect(target, "camera_permission_denied_exit", {
+                sessionId: id ?? null,
+                eventId: eventId ?? null,
+              });
               navigate(target);
             }}
           >
@@ -5149,8 +6027,12 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">Video date couldn&apos;t start</h1>
-        <p className="text-muted-foreground text-sm max-w-sm">{messageForHandshakeFailure(handshakeFailureCode)}</p>
+        <h1 className="text-xl font-display font-semibold">
+          Video date couldn&apos;t start
+        </h1>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          {messageForHandshakeFailure(handshakeFailureCode)}
+        </p>
         <Button
           type="button"
           onClick={() => {
@@ -5175,7 +6057,9 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">Still connecting your date</h1>
+        <h1 className="text-xl font-display font-semibold">
+          Still connecting your date
+        </h1>
         <p className="text-muted-foreground text-sm max-w-sm">
           {messageForRetryableStartFailure(callStartFailure)}
         </p>
@@ -5216,399 +6100,449 @@ const VideoDate = () => {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_10%,hsl(var(--primary)/0.18),transparent_32%),radial-gradient(circle_at_50%_95%,hsl(var(--accent)/0.14),transparent_30%),hsl(var(--background))] md:flex md:items-center md:justify-center md:p-4">
-      <div className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(135deg,rgba(10,10,16,0.92),rgba(5,5,9,0.98))] md:block" aria-hidden />
-      {showDuplicateTabConflict && videoDateAccess === "allowed" && !showFeedback && (
-        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-background/95 p-6 text-center">
-          <p className="text-lg font-display font-semibold text-foreground max-w-sm">
-            This date is already open on another device
-          </p>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            Switch here only if you want this device to take over the live call.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
-            <Button
-              type="button"
-              className="w-full"
-              onClick={() => {
-                setShowDuplicateTabConflict(false);
-                takeOver();
-              }}
-            >
-              Switch here
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-full"
-              onClick={() => {
-                const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
-                vdbgRedirect(target, "duplicate_tab_back", { sessionId: id ?? null, eventId: eventId ?? null });
-                navigate(target);
-              }}
-            >
-              Back
-            </Button>
+      <div
+        className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(135deg,rgba(10,10,16,0.92),rgba(5,5,9,0.98))] md:block"
+        aria-hidden
+      />
+      {showDuplicateTabConflict &&
+        videoDateAccess === "allowed" &&
+        !showFeedback && (
+          <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-background/95 p-6 text-center">
+            <p className="text-lg font-display font-semibold text-foreground max-w-sm">
+              This date is already open on another device
+            </p>
+            <p className="text-sm text-muted-foreground max-w-sm">
+              Switch here only if you want this device to take over the live
+              call.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => {
+                  setShowDuplicateTabConflict(false);
+                  takeOver();
+                }}
+              >
+                Switch here
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  const target = eventId
+                    ? `/event/${encodeURIComponent(eventId)}/lobby`
+                    : "/events";
+                  vdbgRedirect(target, "duplicate_tab_back", {
+                    sessionId: id ?? null,
+                    eventId: eventId ?? null,
+                  });
+                  navigate(target);
+                }}
+              >
+                Back
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       <div
         data-video-date-stage
         className="relative z-10 flex h-[100dvh] w-screen flex-col overflow-hidden bg-background md:h-[min(calc(100dvh_-_2rem),920px)] md:max-h-[920px] md:w-[min(calc(100vw_-_2rem),500px)] md:translate-y-2 md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_34px_110px_rgba(0,0,0,0.56),0_0_60px_rgba(139,92,246,0.12)]"
       >
-      <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
+        <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
 
-      {/* ─── Top HUD ─── */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 px-4 pb-3 md:px-5"
-        style={{
-          paddingTop: "max(1rem, env(safe-area-inset-top))",
-          background:
-            "linear-gradient(to bottom, hsl(var(--background) / 0.92), hsl(var(--background) / 0.42) 62%, transparent)",
-        }}
-      >
-        {/* Partner info pill */}
-        <motion.button
-          whileTap={{ scale: 0.95 }}
-          onClick={() => isConnected && setShowProfileSheet(true)}
-          aria-label={`View ${partner.name}'s profile`}
-          className="flex min-w-0 max-w-[9.75rem] items-center gap-2 rounded-full border border-white/[0.12] bg-black/[0.45] px-2.5 py-2 text-left shadow-[0_16px_46px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl transition-colors hover:bg-black/[0.55] sm:max-w-[15rem]"
+        {/* ─── Top HUD ─── */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 px-4 pb-3 md:px-5"
+          style={{
+            paddingTop: "max(1rem, env(safe-area-inset-top))",
+            background:
+              "linear-gradient(to bottom, hsl(var(--background) / 0.92), hsl(var(--background) / 0.42) 62%, transparent)",
+          }}
         >
-          {partnerPhotoUrl ? (
-            <img
-              src={partnerPhotoUrl}
-              alt={partner.name}
-              className="w-10 h-10 rounded-full object-cover border border-primary/35 shadow-[0_0_18px_hsl(var(--primary)/0.2)]"
-              loading="eager"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
-          ) : (
-            <ProfilePhoto
-              name={partner.name}
-              size="sm"
-              rounded="full"
-              loading="eager"
-              className="w-10 h-10"
-            />
-          )}
-          <div className="min-w-0 text-left">
-            <p className="truncate text-[15px] font-display font-semibold text-foreground leading-tight">
-              {partnerFirstName}
-              {partner.age > 0 && (
-                <span className="font-normal text-foreground/60 ml-1">
-                  {partner.age}
-                </span>
-              )}
-            </p>
-            {isConnected && (
-              <div className="flex min-w-0 flex-col items-start gap-0.5">
-                <div className="flex items-center gap-1.5">
-                  <motion.div
-                    className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.75)]"
-                    animate={{ opacity: [1, 0.5, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  />
-                  <span className="text-[11px] font-medium text-green-400">
-                    {phase === "handshake" ? (handshakeTimerStarted ? "Warm up" : "Settling in") : "Live"}
-                  </span>
-                </div>
-                {networkTier !== "good" && (
-                  <span
-                    className={`max-w-[118px] truncate text-[10px] ${networkTier === "poor" ? "text-destructive" : "text-amber-400"}`}
-                  >
-                    {networkTier === "poor" ? "Connection is fragile" : "Connection is settling"}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </motion.button>
-
-        {/* Phase indicator + Timer */}
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
-            {isConnected && phase === "handshake" && (
-              <motion.div
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-              >
-                <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
-                  {handshakeTimerStarted ? "Warm up" : "Settling in"}
-                </span>
-              </motion.div>
-            )}
-            {isConnected && phase === "date" && (
-              <motion.div
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="px-3 py-2 rounded-full bg-accent/15 border border-accent/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-              >
-                <span className="text-[11px] font-display font-semibold text-accent uppercase tracking-[0.18em]">
-                  Date
-                </span>
-              </motion.div>
-            )}
-            {handshakeTimerStarted ? (
-              <HandshakeTimer
-                timeLeft={handshakeTimerDisplayLeft}
-                totalTime={handshakeTimerTotal}
-                phase={phase}
+          {/* Partner info pill */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => isConnected && setShowProfileSheet(true)}
+            aria-label={`View ${partner.name}'s profile`}
+            className="flex min-w-0 max-w-[9.75rem] items-center gap-2 rounded-full border border-white/[0.12] bg-black/[0.45] px-2.5 py-2 text-left shadow-[0_16px_46px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl transition-colors hover:bg-black/[0.55] sm:max-w-[15rem]"
+          >
+            {partnerPhotoUrl ? (
+              <img
+                src={partnerPhotoUrl}
+                alt={partner.name}
+                className="w-10 h-10 rounded-full object-cover border border-primary/35 shadow-[0_0_18px_hsl(var(--primary)/0.2)]"
+                loading="eager"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
               />
             ) : (
-              <motion.div
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="px-3 py-2 rounded-full bg-black/40 border border-white/10 backdrop-blur-xl"
-              >
-                <span className="text-[11px] text-white/60">Waiting together</span>
-              </motion.div>
+              <ProfilePhoto
+                name={partner.name}
+                size="sm"
+                rounded="full"
+                loading="eager"
+                className="w-10 h-10"
+              />
+            )}
+            <div className="min-w-0 text-left">
+              <p className="truncate text-[15px] font-display font-semibold text-foreground leading-tight">
+                {partnerFirstName}
+                {partner.age > 0 && (
+                  <span className="font-normal text-foreground/60 ml-1">
+                    {partner.age}
+                  </span>
+                )}
+              </p>
+              {isConnected && (
+                <div className="flex min-w-0 flex-col items-start gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <motion.div
+                      className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.75)]"
+                      animate={{ opacity: [1, 0.5, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    />
+                    <span className="text-[11px] font-medium text-green-400">
+                      {phase === "handshake"
+                        ? handshakeTimerStarted
+                          ? "Warm up"
+                          : "Settling in"
+                        : "Live"}
+                    </span>
+                  </div>
+                  {networkTier !== "good" && (
+                    <span
+                      className={`max-w-[118px] truncate text-[10px] ${networkTier === "poor" ? "text-destructive" : "text-amber-400"}`}
+                    >
+                      {networkTier === "poor"
+                        ? "Connection is fragile"
+                        : "Connection is settling"}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.button>
+
+          {/* Phase indicator + Timer */}
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              {isConnected && phase === "handshake" && (
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+                >
+                  <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
+                    {handshakeTimerStarted ? "Warm up" : "Settling in"}
+                  </span>
+                </motion.div>
+              )}
+              {isConnected && phase === "date" && (
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="px-3 py-2 rounded-full bg-accent/15 border border-accent/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+                >
+                  <span className="text-[11px] font-display font-semibold text-accent uppercase tracking-[0.18em]">
+                    Date
+                  </span>
+                </motion.div>
+              )}
+              {handshakeTimerStarted ? (
+                <HandshakeTimer
+                  timeLeft={handshakeTimerDisplayLeft}
+                  totalTime={handshakeTimerTotal}
+                  phase={phase}
+                />
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="px-3 py-2 rounded-full bg-black/40 border border-white/10 backdrop-blur-xl"
+                >
+                  <span className="text-[11px] text-white/60">
+                    Waiting together
+                  </span>
+                </motion.div>
+              )}
+            </div>
+
+            {/* Keep the Vibe — credits extension (date phase only) */}
+            {isConnected && phase === "date" && !showFeedback && (
+              <KeepTheVibe
+                extraTimeCredits={credits.extraTime}
+                extendedVibeCredits={credits.extendedVibe}
+                onExtend={handleExtend}
+                mutualMode={extensionMutualV2.enabled}
+                pendingPartnerRequestType={
+                  pendingPartnerExtension?.type ?? null
+                }
+                analyticsSessionId={id}
+                analyticsEventId={eventId}
+              />
             )}
           </div>
+        </motion.div>
 
-          {/* Keep the Vibe — credits extension (date phase only) */}
-          {isConnected && phase === "date" && !showFeedback && (
-            <KeepTheVibe
-              extraTimeCredits={credits.extraTime}
-              extendedVibeCredits={credits.extendedVibe}
-              onExtend={handleExtend}
-              mutualMode={extensionMutualV2.enabled}
-              pendingPartnerRequestType={pendingPartnerExtension?.type ?? null}
-              analyticsSessionId={id}
-              analyticsEventId={eventId}
-            />
-          )}
+        {/* ─── Remote Video with Progressive Blur ─── */}
+        <div
+          className={REMOTE_DATE_VIDEO_CONTAINER_CLASS}
+          ref={remoteContainerRef}
+        >
+          <video
+            ref={remoteBackdropVideoRef}
+            aria-hidden="true"
+            tabIndex={-1}
+            autoPlay
+            playsInline
+            muted
+            className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl saturate-[0.72]"
+            style={{
+              backgroundColor: "#000",
+              filter: `blur(${Math.max(18, blurAmount + 14)}px)`,
+            }}
+          />
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className={REMOTE_DATE_VIDEO_CLASS}
+            onLoadedMetadata={() => logRemoteVideoLayout("loadedmetadata")}
+            onPlaying={() => logRemoteVideoLayout("playing")}
+            onResize={() => logRemoteVideoLayout("resize")}
+            style={{
+              width: "100%",
+              height: "100%",
+              position: "relative",
+              zIndex: 1,
+              backgroundColor: "#000",
+              objectFit: VIDEO_DATE_REMOTE_OBJECT_FIT,
+              objectPosition: VIDEO_DATE_REMOTE_OBJECT_POSITION,
+              filter: `blur(${blurAmount}px)`,
+              transition: "filter 10s linear",
+            }}
+          />
+
+          {/* Connection overlay */}
+          <AnimatePresence>
+            {(isConnecting || !isConnected || remotePlayback.playRejected) &&
+              !showFeedback &&
+              !mediaPermissionError &&
+              !anyReconnectVisible && (
+                <ConnectionOverlay
+                  isConnecting={isConnecting}
+                  remotePlayback={remotePlayback}
+                  peerMissing={peerMissing}
+                  onRetryRemotePlayback={retryRemotePlayback}
+                  onRetryPeerMissing={handlePeerMissingRetry}
+                  onKeepWaitingPeerMissing={handlePeerMissingKeepWaiting}
+                  onLeave={
+                    peerMissing.terminal
+                      ? handlePeerMissingLeave
+                      : handlePreDateExit
+                  }
+                  isLeaving={isLeavingVideoDate}
+                  partnerName={partnerFirstName}
+                  partnerAvatarUrl={partnerPhotoUrl}
+                />
+              )}
+          </AnimatePresence>
+
+          {/* Reconnection overlay */}
+          <ReconnectionOverlay
+            isVisible={anyReconnectVisible}
+            partnerName={partner.name}
+            graceTimeLeft={
+              transportReconnectVisible
+                ? reconnectGraceTimeLeft
+                : reconnection.graceTimeLeft
+            }
+            mode={
+              transportReconnectVisible ? reconnectOverlayMode : "partner_away"
+            }
+            networkTier={networkTier}
+            resilienceV2={resilienceV2.enabled}
+            backdropImageUrl={
+              resilienceV2.enabled
+                ? (remoteFrameSnapshotUrl ?? partnerPhotoUrl)
+                : null
+            }
+          />
+
+          {/* Cinematic glass wash */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_15%,rgba(168,85,247,0.10),transparent_48%),linear-gradient(to_bottom,rgba(0,0,0,0.16),transparent_32%,rgba(0,0,0,0.16))] pointer-events-none" />
+
+          {/* Bottom gradient */}
+          <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-background via-background/70 to-transparent pointer-events-none" />
         </div>
-      </motion.div>
 
-      {/* ─── Remote Video with Progressive Blur ─── */}
-      <div className={REMOTE_DATE_VIDEO_CONTAINER_CLASS} ref={remoteContainerRef}>
-        <video
-          ref={remoteBackdropVideoRef}
-          aria-hidden="true"
-          tabIndex={-1}
-          autoPlay
-          playsInline
-          muted
-          className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl saturate-[0.72]"
-          style={{
-            backgroundColor: "#000",
-            filter: `blur(${Math.max(18, blurAmount + 14)}px)`,
-          }}
-        />
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className={REMOTE_DATE_VIDEO_CLASS}
-          onLoadedMetadata={() => logRemoteVideoLayout("loadedmetadata")}
-          onPlaying={() => logRemoteVideoLayout("playing")}
-          onResize={() => logRemoteVideoLayout("resize")}
-          style={{
-            width: "100%",
-            height: "100%",
-            position: "relative",
-            zIndex: 1,
-            backgroundColor: "#000",
-            objectFit: VIDEO_DATE_REMOTE_OBJECT_FIT,
-            objectPosition: VIDEO_DATE_REMOTE_OBJECT_POSITION,
-            filter: `blur(${blurAmount}px)`,
-            transition: "filter 10s linear",
-          }}
-        />
+        {/* ─── Self-View PIP ─── */}
+        {isConnected && !showFeedback && (
+          <SelfViewPIP
+            stream={localStream}
+            isVideoOff={isVideoOff}
+            isMuted={isMuted}
+            containerRef={remoteContainerRef}
+            blurAmount={blurAmount}
+            sessionId={id}
+            eventId={eventId ?? null}
+            canFlipCamera={canFlipCamera}
+            isFlippingCamera={isFlippingCamera}
+            onFlipCamera={flipCamera}
+          />
+        )}
 
-        {/* Connection overlay */}
+        {/* ─── Ice Breaker (floating prompt) ─── */}
         <AnimatePresence>
-          {(isConnecting || !isConnected || remotePlayback.playRejected) &&
-            !showFeedback &&
-            !mediaPermissionError &&
-            !anyReconnectVisible && (
-              <ConnectionOverlay
-                isConnecting={isConnecting}
-                remotePlayback={remotePlayback}
-                peerMissing={peerMissing}
-                onRetryRemotePlayback={retryRemotePlayback}
-                onRetryPeerMissing={handlePeerMissingRetry}
-                onKeepWaitingPeerMissing={handlePeerMissingKeepWaiting}
-                onLeave={peerMissing.terminal ? handlePeerMissingLeave : handlePreDateExit}
-                isLeaving={isLeavingVideoDate}
-                partnerName={partnerFirstName}
-                partnerAvatarUrl={partnerPhotoUrl}
+          {showFloatingIceBreaker && (
+            <motion.div
+              initial={{ y: -10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -8, opacity: 0 }}
+              className={`pointer-events-auto absolute left-4 right-4 z-20 mx-auto max-w-[520px] ${iceBreakerPositionClass}`}
+            >
+              <IceBreakerCard
+                sessionId={id}
+                onDismiss={dismissIceBreakerTemporarily}
               />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showCollapsedIceBreaker && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowIceBreaker(true)}
+              className={`absolute left-4 z-20 flex items-center gap-2 rounded-full border border-primary/25 bg-black/[0.48] px-3.5 py-2 text-xs font-display font-semibold text-primary shadow-[0_14px_36px_rgba(0,0,0,0.34)] backdrop-blur-2xl ${iceBreakerPositionClass}`}
+              aria-label="Show ice-breaker question"
+            >
+              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              Icebreaker
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        {/* ─── Pass/Vibe decision rail (handshake only) ─── */}
+        <AnimatePresence>
+          {isConnected &&
+            phase === "handshake" &&
+            handshakeTimerStarted &&
+            !showFeedback && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute bottom-[7.5rem] left-0 right-0 z-[25] flex justify-center"
+              >
+                <VibeCheckButton
+                  timeLeft={timeLeft ?? 0}
+                  decision={localHandshakeDecision}
+                  localHasDecided={localHandshakeHasDecided}
+                  partnerHasDecided={partnerHandshakeHasDecided}
+                  onVibe={handleUserVibe}
+                  onPass={handleUserPass}
+                />
+              </motion.div>
             )}
         </AnimatePresence>
 
-        {/* Reconnection overlay */}
-        <ReconnectionOverlay
-          isVisible={anyReconnectVisible}
-          partnerName={partner.name}
-          graceTimeLeft={transportReconnectVisible ? reconnectGraceTimeLeft : reconnection.graceTimeLeft}
-          mode={transportReconnectVisible ? reconnectOverlayMode : "partner_away"}
-          networkTier={networkTier}
-          resilienceV2={resilienceV2.enabled}
-          backdropImageUrl={resilienceV2.enabled ? remoteFrameSnapshotUrl ?? partnerPhotoUrl : null}
-        />
+        {/* ─── Mutual Vibe Celebration ─── */}
+        <AnimatePresence>
+          {showMutualToast && (
+            <MutualVibeToast onComplete={handleMutualToastComplete} />
+          )}
+        </AnimatePresence>
 
-        {/* Cinematic glass wash */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_15%,rgba(168,85,247,0.10),transparent_48%),linear-gradient(to_bottom,rgba(0,0,0,0.16),transparent_32%,rgba(0,0,0,0.16))] pointer-events-none" />
-
-        {/* Bottom gradient */}
-        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-background via-background/70 to-transparent pointer-events-none" />
-      </div>
-
-      {/* ─── Self-View PIP ─── */}
-      {isConnected && !showFeedback && (
-        <SelfViewPIP
-          stream={localStream}
-          isVideoOff={isVideoOff}
-          isMuted={isMuted}
-          containerRef={remoteContainerRef}
-          blurAmount={blurAmount}
-          sessionId={id}
-          eventId={eventId ?? null}
-          canFlipCamera={canFlipCamera}
-          isFlippingCamera={isFlippingCamera}
-          onFlipCamera={flipCamera}
-        />
-      )}
-
-      {/* ─── Ice Breaker (floating prompt) ─── */}
-      <AnimatePresence>
-        {showFloatingIceBreaker && (
-          <motion.div
-            initial={{ y: -10, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -8, opacity: 0 }}
-            className={`pointer-events-auto absolute left-4 right-4 z-20 mx-auto max-w-[520px] ${iceBreakerPositionClass}`}
-          >
-            <IceBreakerCard
-              sessionId={id}
-              onDismiss={dismissIceBreakerTemporarily}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showCollapsedIceBreaker && (
-          <motion.button
-            type="button"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            whileTap={{ scale: 0.96 }}
-            onClick={() => setShowIceBreaker(true)}
-            className={`absolute left-4 z-20 flex items-center gap-2 rounded-full border border-primary/25 bg-black/[0.48] px-3.5 py-2 text-xs font-display font-semibold text-primary shadow-[0_14px_36px_rgba(0,0,0,0.34)] backdrop-blur-2xl ${iceBreakerPositionClass}`}
-            aria-label="Show ice-breaker question"
-          >
-            <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            Icebreaker
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Pass/Vibe decision rail (handshake only) ─── */}
-      <AnimatePresence>
-        {isConnected && phase === "handshake" && handshakeTimerStarted && !showFeedback && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            className="absolute bottom-[7.5rem] left-0 right-0 z-[25] flex justify-center"
-          >
-            <VibeCheckButton
-              timeLeft={timeLeft ?? 0}
-              decision={localHandshakeDecision}
-              localHasDecided={localHandshakeHasDecided}
-              partnerHasDecided={partnerHandshakeHasDecided}
-              onVibe={handleUserVibe}
-              onPass={handleUserPass}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Mutual Vibe Celebration ─── */}
-      <AnimatePresence>
-        {showMutualToast && (
-          <MutualVibeToast onComplete={handleMutualToastComplete} />
-        )}
-      </AnimatePresence>
-
-      {/* ─── Controls Dock ─── */}
-      <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-safe">
-        <VideoDateControls
-          isMuted={isMuted}
-          isVideoOff={isVideoOff}
-          onToggleMute={() => {
-            recordUserAction("video_date_control_clicked", {
-              surface: "video_date",
-              session_id: id,
-              control: "mute",
-              next_muted: !isMuted,
-            });
-            toggleMute();
-          }}
-          onToggleVideo={() => {
-            recordUserAction("video_date_control_clicked", {
-              surface: "video_date",
-              session_id: id,
-              control: "camera",
-              next_video_off: !isVideoOff,
-            });
-            toggleVideo();
-          }}
-          onLeave={requestEndDateConfirmation}
-          isLeaving={isLeavingVideoDate}
-          onViewProfile={
-            suppressPartnerControlsAfterSafety
-              ? undefined
-              : () => {
-                  recordUserAction("video_date_control_clicked", {
-                    surface: "video_date",
-                    session_id: id,
-                    control: "view_profile",
-                  });
-                  setShowProfileSheet(true);
-                }
-          }
-          onSafety={
-            canOpenInCallSafety
-              ? () => {
-                  recordUserAction("video_date_control_clicked", {
-                    surface: "video_date",
-                    session_id: id,
-                    control: "safety",
-                  });
-                  setShowInCallSafety(true);
-                }
-              : undefined
-          }
-          onAudioSettings={
-            isConnected && !showFeedback &&
+        {/* ─── Controls Dock ─── */}
+        <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-safe">
+          <VideoDateControls
+            isMuted={isMuted}
+            isVideoOff={isVideoOff}
+            onToggleMute={() => {
+              recordUserAction("video_date_control_clicked", {
+                surface: "video_date",
+                session_id: id,
+                control: "mute",
+                next_muted: !isMuted,
+              });
+              toggleMute();
+            }}
+            onToggleVideo={() => {
+              recordUserAction("video_date_control_clicked", {
+                surface: "video_date",
+                session_id: id,
+                control: "camera",
+                next_video_off: !isVideoOff,
+              });
+              toggleVideo();
+            }}
+            onLeave={requestEndDateConfirmation}
+            isLeaving={isLeavingVideoDate}
+            onViewProfile={
+              suppressPartnerControlsAfterSafety
+                ? undefined
+                : () => {
+                    recordUserAction("video_date_control_clicked", {
+                      surface: "video_date",
+                      session_id: id,
+                      control: "view_profile",
+                    });
+                    setShowProfileSheet(true);
+                  }
+            }
+            onSafety={
+              canOpenInCallSafety
+                ? () => {
+                    recordUserAction("video_date_control_clicked", {
+                      surface: "video_date",
+                      session_id: id,
+                      control: "safety",
+                    });
+                    setShowInCallSafety(true);
+                  }
+                : undefined
+            }
+            onAudioSettings={
+              isConnected &&
+              !showFeedback &&
               (isSetSinkIdSupported() || isAudioDeviceEnumerationSupported())
-              ? () => {
-                  recordUserAction("video_date_control_clicked", {
-                    surface: "video_date",
-                    session_id: id,
-                    control: "audio_settings",
-                  });
-                  setShowAudioOutputPicker(true);
-                }
-              : undefined
-          }
-        />
-      </div>
+                ? () => {
+                    recordUserAction("video_date_control_clicked", {
+                      surface: "video_date",
+                      session_id: id,
+                      control: "audio_settings",
+                    });
+                    setShowAudioOutputPicker(true);
+                  }
+                : undefined
+            }
+          />
+        </div>
       </div>
 
-      <AlertDialog open={showEndDateConfirm} onOpenChange={setShowEndDateConfirm}>
+      <AlertDialog
+        open={showEndDateConfirm}
+        onOpenChange={setShowEndDateConfirm}
+      >
         <AlertDialogContent className="w-[min(calc(100vw-2rem),24rem)] rounded-[1.75rem] border border-white/10 bg-[rgba(12,12,16,0.94)] text-foreground shadow-[0_26px_90px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
           <AlertDialogHeader className="text-center">
-            <AlertDialogTitle className="font-display text-xl">End this date?</AlertDialogTitle>
+            <AlertDialogTitle className="font-display text-xl">
+              End this date?
+            </AlertDialogTitle>
             <AlertDialogDescription className="text-center text-sm leading-relaxed text-muted-foreground">
-              Stay if you tapped by accident. Ending will close the call for you.
+              Stay if you tapped by accident. Ending will close the call for
+              you.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
@@ -5620,7 +6554,9 @@ const VideoDate = () => {
                 void confirmEndDate();
               }}
             >
-              {isLeavingVideoDate || isEndDateConfirming ? "Ending..." : "End date"}
+              {isLeavingVideoDate || isEndDateConfirming
+                ? "Ending..."
+                : "End date"}
             </AlertDialogAction>
             <AlertDialogCancel
               className="mt-0 w-full rounded-full border-white/10 bg-white/[0.06] text-foreground hover:bg-white/[0.1]"

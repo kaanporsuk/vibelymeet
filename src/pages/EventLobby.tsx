@@ -1,14 +1,43 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as Sentry from "@sentry/react";
-import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo, useReducedMotion } from "framer-motion";
-import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio, AlertCircle } from "lucide-react";
+import {
+  useParams,
+  useNavigate,
+  useSearchParams,
+  useLocation,
+} from "react-router-dom";
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  useTransform,
+  PanInfo,
+  useReducedMotion,
+} from "framer-motion";
+import {
+  ArrowLeft,
+  X,
+  Heart,
+  Star,
+  Clock,
+  Sparkles,
+  Moon,
+  Radio,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isVdbgEnabled, vdbg } from "@/lib/vdbg";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
-import { useEventDeck, type DeckProfile, type EventDeckFetchResult } from "@/hooks/useEventDeck";
+import {
+  useEventDetails,
+  useIsRegisteredForEvent,
+} from "@/hooks/useEventDetails";
+import {
+  useEventDeck,
+  type DeckProfile,
+  type EventDeckFetchResult,
+} from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -28,7 +57,10 @@ import { EventEndedModal } from "@/components/events/EventEndedModal";
 import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
-import { getWebEventLobbyGateState, type EventLobbyGateState } from "@/lib/eventLobbyGating";
+import {
+  getWebEventLobbyGateState,
+  type EventLobbyGateState,
+} from "@/lib/eventLobbyGating";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
@@ -116,7 +148,9 @@ const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
   "invalid_deck_token",
 ]);
 
-function shouldRetryVisibleCardMark(reason: string | null | undefined): boolean {
+function shouldRetryVisibleCardMark(
+  reason: string | null | undefined,
+): boolean {
   return !reason || !TERMINAL_VISIBLE_CARD_MARK_ERRORS.has(reason);
 }
 
@@ -156,12 +190,18 @@ function lobbyDebug(message: string, data?: Record<string, unknown>) {
   console.log(`[EventLobby] ${message}`, data ?? {});
 }
 
-function logVdbgSessionStage(message: string, sessionId: string, data?: Record<string, unknown>) {
+function logVdbgSessionStage(
+  message: string,
+  sessionId: string,
+  data?: Record<string, unknown>,
+) {
   if (!isVdbgEnabled()) return;
   vdbg(message, { sessionId, ...(data ?? {}) });
   void supabase
     .from("video_sessions")
-    .select("id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url")
+    .select(
+      "id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url",
+    )
     .eq("id", sessionId)
     .maybeSingle()
     .then(({ data: row, error }) => {
@@ -174,11 +214,17 @@ function logVdbgSessionStage(message: string, sessionId: string, data?: Record<s
     });
 }
 
-function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "in_date" | "in_survey" {
-  return status === "in_handshake" || status === "in_date" || status === "in_survey";
+function isActiveDateQueueStatus(
+  status: unknown,
+): status is "in_handshake" | "in_date" | "in_survey" {
+  return (
+    status === "in_handshake" || status === "in_date" || status === "in_survey"
+  );
 }
 
-function isDailyEntryQueueStatus(status: unknown): status is "in_handshake" | "in_date" {
+function isDailyEntryQueueStatus(
+  status: unknown,
+): status is "in_handshake" | "in_date" {
   return status === "in_handshake" || status === "in_date";
 }
 
@@ -214,7 +260,9 @@ function formatEventLobbyCountdown(
     { clientNowMs },
   );
   if (eventEndTimeMs == null) return "";
-  return (countdown.remainingSeconds ?? 0) <= 0 ? "Ended" : countdown.formattedTime;
+  return (countdown.remainingSeconds ?? 0) <= 0
+    ? "Ended"
+    : countdown.formattedTime;
 }
 
 const EventLobby = () => {
@@ -229,21 +277,28 @@ const EventLobby = () => {
   const [eventLifecycleOverride, setEventLifecycleOverride] = useState<
     "cancelled" | "archived" | "draft" | "ended" | null
   >(null);
-  const [eventEndedAtOverride, setEventEndedAtOverride] = useState<string | null>(null);
+  const [eventEndedAtOverride, setEventEndedAtOverride] = useState<
+    string | null
+  >(null);
 
   // Data hooks
   const { data: event, isLoading: eventLoading } = useEventDetails(eventId);
-  const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
+  const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(
+    eventId,
+    user?.id,
+  );
   const eventForLobbyGate = useMemo(
     () =>
       event
         ? {
             ...event,
             status: eventLifecycleOverride ?? event.status,
-            endedAt: eventEndedAtOverride ? new Date(eventEndedAtOverride) : event.endedAt,
+            endedAt: eventEndedAtOverride
+              ? new Date(eventEndedAtOverride)
+              : event.endedAt,
           }
         : event,
-    [event, eventEndedAtOverride, eventLifecycleOverride]
+    [event, eventEndedAtOverride, eventLifecycleOverride],
   );
   const resolvedEventLifecycle = useMemo(
     () =>
@@ -256,7 +311,7 @@ const EventLobby = () => {
             nowMs: lobbyClockMs,
           })
         : null,
-    [eventForLobbyGate, lobbyClockMs]
+    [eventForLobbyGate, lobbyClockMs],
   );
   const eventEndTime = resolvedEventLifecycle?.endsAt ?? null;
   const eventEndTimeMs = eventEndTime?.getTime() ?? null;
@@ -274,7 +329,9 @@ const EventLobby = () => {
           return;
         }
         await refreshProfile();
-        await queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+        await queryClient.invalidateQueries({
+          queryKey: ["event-deck", eventId, user.id],
+        });
         toast.success("You're visible again.");
       } finally {
         setEndingBreak(false);
@@ -302,18 +359,22 @@ const EventLobby = () => {
       regSnapshot,
       user?.id,
       user?.isPaused,
-    ]
+    ],
   );
   const deckEnabled = lobbyGate.canFetchDeck;
   const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
-  const lobbyActionsEnabled = lobbyGate.canUseLobbyActions && !showEventEndedModal;
+  const lobbyActionsEnabled =
+    lobbyGate.canUseLobbyActions && !showEventEndedModal;
 
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Ready Gate overlay state (server-backed; optimistic updates via refetch)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
-  const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] = useState(false);
+  const [dateNavigationSessionId, setDateNavigationSessionId] = useState<
+    string | null
+  >(null);
+  const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] =
+    useState(false);
   const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
   const singleOwnerActiveSessionEnabled = isActiveSessionSingleOwnerEnabled();
   const providerScopedHydration = useEventActiveSession(eventId);
@@ -325,9 +386,16 @@ const EventLobby = () => {
     activeSession: scopedSession,
     hydrated: sessionHydrated,
     refetch: refetchScopedSession,
-  } = singleOwnerActiveSessionEnabled ? providerScopedHydration : legacyScopedHydration;
+  } = singleOwnerActiveSessionEnabled
+    ? providerScopedHydration
+    : legacyScopedHydration;
   const sameEventScopedSession = useMemo(() => {
-    if (!sessionHydrated || !eventId || !scopedSession || scopedSession.eventId !== eventId) {
+    if (
+      !sessionHydrated ||
+      !eventId ||
+      !scopedSession ||
+      scopedSession.eventId !== eventId
+    ) {
       return null;
     }
     return scopedSession;
@@ -338,11 +406,16 @@ const EventLobby = () => {
   const hasScopedSession = scopedSessionId !== null;
   const readyGatePressureActive = Boolean(
     activeSessionId ||
-      dateNavigationSessionId ||
-      (sameEventScopedSession?.kind === "ready_gate" && sameEventScopedSession.sessionId) ||
-      (sameEventScopedSession?.kind === "video" && sameEventScopedSession.sessionId)
+    dateNavigationSessionId ||
+    (sameEventScopedSession?.kind === "ready_gate" &&
+      sameEventScopedSession.sessionId) ||
+    (sameEventScopedSession?.kind === "video" &&
+      sameEventScopedSession.sessionId),
   );
-  const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({ queuedCount: 0, visibleCount: 0 });
+  const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({
+    queuedCount: 0,
+    visibleCount: 0,
+  });
   const deckFetchEnabled = deckEnabled && !readyGatePressureActive;
   const deckAdaptiveRefetchIntervalMs = useMemo(
     () =>
@@ -353,7 +426,13 @@ const EventLobby = () => {
         queuedCount: deckAdaptiveInputs.queuedCount,
         visibleCount: deckAdaptiveInputs.visibleCount,
       }),
-    [deckAdaptiveInputs.queuedCount, deckAdaptiveInputs.visibleCount, deckFetchEnabled, eventEndTimeMs, lobbyClockMs],
+    [
+      deckAdaptiveInputs.queuedCount,
+      deckAdaptiveInputs.visibleCount,
+      deckFetchEnabled,
+      eventEndTimeMs,
+      lobbyClockMs,
+    ],
   );
   const {
     profiles,
@@ -389,13 +468,22 @@ const EventLobby = () => {
       }),
     [deckState?.inactive_reason, deckState?.reason],
   );
-  const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
+  const { setStatus, currentStatus } = useEventStatus({
+    eventId,
+    enabled: lobbySideEffectsEnabled,
+  });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
-  const deckPrefetchPolishV2 = useFeatureFlag("video_date.deck_prefetch_polish_v2");
+  const deckPrefetchPolishV2 = useFeatureFlag(
+    "video_date.deck_prefetch_polish_v2",
+  );
   const deckOptimisticAliasV1 = useFeatureFlag("video_date.deck_optimistic_v1");
   const lobbyTimelineV2 = useFeatureFlag("video_date.lobby_timeline_v2");
   const deckPrefetchPolishEnabled = useMemo(
-    () => isFeatureFlagEnabledWithAlias(deckPrefetchPolishV2, deckOptimisticAliasV1),
+    () =>
+      isFeatureFlagEnabledWithAlias(
+        deckPrefetchPolishV2,
+        deckOptimisticAliasV1,
+      ),
     [deckOptimisticAliasV1, deckPrefetchPolishV2],
   );
   useNonBlockingVideoDateReadiness(
@@ -408,8 +496,12 @@ const EventLobby = () => {
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
   const prepareNavigationInFlightRef = useRef<Set<string>>(new Set());
-  const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(new Map());
-  const lobbyConvergenceRefreshTimersRef = useRef<Map<string, number>>(new Map());
+  const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(
+    new Map(),
+  );
+  const lobbyConvergenceRefreshTimersRef = useRef<Map<string, number>>(
+    new Map(),
+  );
   const deferredLobbyWorkTimersRef = useRef<Set<number>>(new Set());
   const lobbyEnteredEventRef = useRef<string | null>(null);
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
@@ -444,7 +536,10 @@ const EventLobby = () => {
     (sessionId: string | null, source: string, delayMs = 180) => {
       const key = sessionId ?? "event";
       if (lobbyConvergenceRefreshTimersRef.current.has(key)) {
-        lobbyDebug("lobby convergence refresh coalesced", { sessionId, source });
+        lobbyDebug("lobby convergence refresh coalesced", {
+          sessionId,
+          source,
+        });
         return;
       }
       const timer = window.setTimeout(() => {
@@ -483,19 +578,24 @@ const EventLobby = () => {
     };
   }, []);
 
-  const isReadyGateManualExitSuppressed = useCallback((sessionId: string): boolean => {
-    const suppressUntil = readyGateManualExitSuppressUntilRef.current.get(sessionId);
-    if (!suppressUntil) return false;
-    if (suppressUntil <= Date.now()) {
-      readyGateManualExitSuppressUntilRef.current.delete(sessionId);
-      return false;
-    }
-    return true;
-  }, []);
+  const isReadyGateManualExitSuppressed = useCallback(
+    (sessionId: string): boolean => {
+      const suppressUntil =
+        readyGateManualExitSuppressUntilRef.current.get(sessionId);
+      if (!suppressUntil) return false;
+      if (suppressUntil <= Date.now()) {
+        readyGateManualExitSuppressUntilRef.current.delete(sessionId);
+        return false;
+      }
+      return true;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!eventForLobbyGate || !resolvedEventLifecycle) return;
-    const rawEndedAt = eventEndedAtOverride ?? eventForLobbyGate.endedAt?.toISOString() ?? null;
+    const rawEndedAt =
+      eventEndedAtOverride ?? eventForLobbyGate.endedAt?.toISOString() ?? null;
     const debugKey = [
       eventForLobbyGate.id,
       eventForLobbyGate.status ?? "",
@@ -519,7 +619,10 @@ const EventLobby = () => {
   useEffect(() => {
     setLobbyClockMs(Date.now());
     if (!eventEndTimeMs) return;
-    if (lobbyTimelineV2.enabled && typeof window.requestAnimationFrame === "function") {
+    if (
+      lobbyTimelineV2.enabled &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
       let rafId = 0;
       let lastSecond = -1;
       const tick = () => {
@@ -539,66 +642,84 @@ const EventLobby = () => {
     return () => clearInterval(intervalId);
   }, [eventEndTimeMs, lobbyTimelineV2.enabled]);
 
-  const openReadyGateSession = useCallback((sessionId: string, source: string) => {
-    if (!sessionId || dateNavigationSessionIdRef.current) return;
-    if (scopedSessionKind === "video" && scopedSessionId === sessionId) {
-      vdbg("ready_gate_open_suppressed_by_video_session_ownership", {
-        sessionId,
+  const openReadyGateSession = useCallback(
+    (sessionId: string, source: string) => {
+      if (!sessionId || dateNavigationSessionIdRef.current) return;
+      if (scopedSessionKind === "video" && scopedSessionId === sessionId) {
+        vdbg("ready_gate_open_suppressed_by_video_session_ownership", {
+          sessionId,
+          eventId,
+          source,
+          userId: user?.id ?? null,
+          activeSessionKind: scopedSessionKind,
+          activeSessionQueueStatus: scopedSessionQueueStatus,
+        });
+        scheduleLobbyConvergenceRefresh(
+          sessionId,
+          `${source}_video_session_ownership`,
+          0,
+        );
+        return;
+      }
+      if (isVideoDateRouteOwned(sessionId, user?.id ?? null)) {
+        vdbg("ready_gate_open_suppressed_by_date_route_ownership", {
+          sessionId,
+          eventId,
+          source,
+          userId: user?.id ?? null,
+        });
+        return;
+      }
+      if (isReadyGateManualExitSuppressed(sessionId)) {
+        lobbyDebug("ready gate open suppressed after manual exit", {
+          sessionId,
+          source,
+        });
+        scheduleLobbyConvergenceRefresh(
+          sessionId,
+          `${source}_manual_exit_suppressed`,
+          0,
+        );
+        return;
+      }
+      const isBackendHydratedSession = scopedSessionId === sessionId;
+      if (!lobbyActionsEnabled && !isBackendHydratedSession) {
+        lobbyDebug("ready gate open suppressed by lobby gate", {
+          sessionId,
+          source,
+          gate: lobbyGate.kind,
+        });
+        scheduleLobbyConvergenceRefresh(
+          sessionId,
+          `${source}_lobby_gate_suppressed`,
+          0,
+        );
+        return;
+      }
+      if (activeSessionIdRef.current !== sessionId) {
+        lobbyDebug("activeSessionId set", { sessionId, source });
+      }
+      logVdbgSessionStage("ready_gate_open", sessionId, {
+        trigger: source,
         eventId,
-        source,
-        userId: user?.id ?? null,
-        activeSessionKind: scopedSessionKind,
-        activeSessionQueueStatus: scopedSessionQueueStatus,
+        activeSessionId: activeSessionIdRef.current,
+        dateNavigationSessionId: dateNavigationSessionIdRef.current,
       });
-      scheduleLobbyConvergenceRefresh(sessionId, `${source}_video_session_ownership`, 0);
-      return;
-    }
-    if (isVideoDateRouteOwned(sessionId, user?.id ?? null)) {
-      vdbg("ready_gate_open_suppressed_by_date_route_ownership", {
-        sessionId,
-        eventId,
-        source,
-        userId: user?.id ?? null,
-      });
-      return;
-    }
-    if (isReadyGateManualExitSuppressed(sessionId)) {
-      lobbyDebug("ready gate open suppressed after manual exit", { sessionId, source });
-      scheduleLobbyConvergenceRefresh(sessionId, `${source}_manual_exit_suppressed`, 0);
-      return;
-    }
-    const isBackendHydratedSession = scopedSessionId === sessionId;
-    if (!lobbyActionsEnabled && !isBackendHydratedSession) {
-      lobbyDebug("ready gate open suppressed by lobby gate", {
-        sessionId,
-        source,
-        gate: lobbyGate.kind,
-      });
-      scheduleLobbyConvergenceRefresh(sessionId, `${source}_lobby_gate_suppressed`, 0);
-      return;
-    }
-    if (activeSessionIdRef.current !== sessionId) {
-      lobbyDebug("activeSessionId set", { sessionId, source });
-    }
-    logVdbgSessionStage("ready_gate_open", sessionId, {
-      trigger: source,
+      activeSessionIdRef.current = sessionId;
+      setActiveSessionId(sessionId);
+    },
+    [
       eventId,
-      activeSessionId: activeSessionIdRef.current,
-      dateNavigationSessionId: dateNavigationSessionIdRef.current,
-    });
-    activeSessionIdRef.current = sessionId;
-    setActiveSessionId(sessionId);
-  }, [
-    eventId,
-    isReadyGateManualExitSuppressed,
-    lobbyActionsEnabled,
-    lobbyGate.kind,
-    scheduleLobbyConvergenceRefresh,
-    scopedSessionId,
-    scopedSessionKind,
-    scopedSessionQueueStatus,
-    user?.id,
-  ]);
+      isReadyGateManualExitSuppressed,
+      lobbyActionsEnabled,
+      lobbyGate.kind,
+      scheduleLobbyConvergenceRefresh,
+      scopedSessionId,
+      scopedSessionKind,
+      scopedSessionQueueStatus,
+      user?.id,
+    ],
+  );
 
   const clearReadyGateSession = useCallback((source: string) => {
     if (dateNavigationSessionIdRef.current) {
@@ -609,22 +730,31 @@ const EventLobby = () => {
       return;
     }
     if (activeSessionIdRef.current) {
-      lobbyDebug("activeSessionId cleared", { sessionId: activeSessionIdRef.current, source });
+      lobbyDebug("activeSessionId cleared", {
+        sessionId: activeSessionIdRef.current,
+        source,
+      });
     }
     activeSessionIdRef.current = null;
     setActiveSessionId(null);
   }, []);
 
-  const suppressReadyGateSessionAfterManualExit = useCallback((sessionId: string) => {
-    const suppressUntilMs = Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS;
-    readyGateManualExitSuppressUntilRef.current.set(sessionId, suppressUntilMs);
-    if (readinessV2.enabled) {
-      void persistReadyGateSuppressionV2(sessionId, suppressUntilMs);
-    }
-    if (activeSessionIdRef.current === sessionId) {
-      clearReadyGateSession("ready_gate_manual_exit_confirmed");
-    }
-  }, [clearReadyGateSession, readinessV2.enabled]);
+  const suppressReadyGateSessionAfterManualExit = useCallback(
+    (sessionId: string) => {
+      const suppressUntilMs = Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS;
+      readyGateManualExitSuppressUntilRef.current.set(
+        sessionId,
+        suppressUntilMs,
+      );
+      if (readinessV2.enabled) {
+        void persistReadyGateSuppressionV2(sessionId, suppressUntilMs);
+      }
+      if (activeSessionIdRef.current === sessionId) {
+        clearReadyGateSession("ready_gate_manual_exit_confirmed");
+      }
+    },
+    [clearReadyGateSession, readinessV2.enabled],
+  );
 
   useEffect(() => {
     if (!eventId || !event) return;
@@ -633,7 +763,11 @@ const EventLobby = () => {
       setShowEventEndedModal(true);
     }
 
-    if (lobbyGate.kind !== "live" && activeSessionId && scopedSessionId !== activeSessionId) {
+    if (
+      lobbyGate.kind !== "live" &&
+      activeSessionId &&
+      scopedSessionId !== activeSessionId
+    ) {
       clearReadyGateSession(`lobby_gate_${lobbyGate.kind}`);
     }
 
@@ -641,22 +775,36 @@ const EventLobby = () => {
       .channel(`web-event-lifecycle-${eventId}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${eventId}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "events",
+          filter: `id=eq.${eventId}`,
+        },
         (payload) => {
-          const row = payload.new as { status?: string | null; ended_at?: string | null };
+          const row = payload.new as {
+            status?: string | null;
+            ended_at?: string | null;
+          };
           const status = (row.status ?? "").toLowerCase();
-          void queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
+          void queryClient.invalidateQueries({
+            queryKey: ["event-details", eventId],
+          });
           setLobbyClockMs(Date.now());
           if (row.ended_at || status === "ended" || status === "completed") {
             setEventEndedAtOverride(row.ended_at ?? null);
             setEventLifecycleOverride("ended");
             setShowEventEndedModal(true);
           }
-          if (status === "cancelled" || status === "archived" || status === "draft") {
+          if (
+            status === "cancelled" ||
+            status === "archived" ||
+            status === "draft"
+          ) {
             setEventLifecycleOverride(status);
             clearReadyGateSession(`event_status_${status}`);
           }
-        }
+        },
       )
       .subscribe();
 
@@ -682,7 +830,9 @@ const EventLobby = () => {
       if (!sessionId) return;
       const force = options.force === true || options.forceSurvey === true;
       if (!force && dateNavigationSessionIdRef.current === sessionId) return;
-      const claim = claimDateNavigation(sessionId, location.pathname, { force });
+      const claim = claimDateNavigation(sessionId, location.pathname, {
+        force,
+      });
       if (claim.ok === false) {
         vdbg("lobby_navigate_to_date_suppressed", {
           trigger: source,
@@ -699,7 +849,10 @@ const EventLobby = () => {
       dateNavigationSessionIdRef.current = sessionId;
       setDateNavigationSessionId(sessionId);
       markVideoDateRouteOwned(sessionId, user?.id ?? null);
-      lobbyDebug("ready-gate success path navigating to date", { sessionId, source });
+      lobbyDebug("ready-gate success path navigating to date", {
+        sessionId,
+        source,
+      });
       logVdbgSessionStage("lobby_navigate_to_date", sessionId, {
         trigger: source,
         target: `/date/${sessionId}`,
@@ -716,17 +869,21 @@ const EventLobby = () => {
       }
       navigate(`/date/${sessionId}`, {
         replace: true,
-        state: options.forceSurvey === true ? { source, forceSurvey: true } : { source },
+        state:
+          options.forceSurvey === true
+            ? { source, forceSurvey: true }
+            : { source },
       });
     },
-    [eventId, location.pathname, navigate, user?.id]
+    [eventId, location.pathname, navigate, user?.id],
   );
 
   const prepareAndNavigateToDateSession = useCallback(
     (sessionId: string, source: string) => {
       const pipelineActive = isDateEntryTransitionActive(sessionId);
       const routeOwned = isVideoDateRouteOwned(sessionId, user?.id ?? null);
-      const navigationAlreadyClaimed = dateNavigationSessionIdRef.current === sessionId;
+      const navigationAlreadyClaimed =
+        dateNavigationSessionIdRef.current === sessionId;
       if (pipelineActive || routeOwned || navigationAlreadyClaimed) {
         vdbg("event_lobby_prepare_entry_suppressed", {
           sessionId,
@@ -814,17 +971,20 @@ const EventLobby = () => {
             navigateAfterPrepare(`${source}_prepare_done`);
             return;
           }
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            source_surface: "event_lobby",
-            source_action: "prepare_entry_failed_no_nav",
-            code: result.code,
-            reason_code: result.code,
-            httpStatus: result.httpStatus ?? null,
-            retryable: result.retryable,
-          });
+          trackEvent(
+            LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,
+            {
+              platform: "web",
+              session_id: sessionId,
+              event_id: eventId,
+              source_surface: "event_lobby",
+              source_action: "prepare_entry_failed_no_nav",
+              code: result.code,
+              reason_code: result.code,
+              httpStatus: result.httpStatus ?? null,
+              retryable: result.retryable,
+            },
+          );
           vdbg("event_lobby_prepare_entry_failed_no_nav", {
             sessionId,
             eventId,
@@ -845,28 +1005,38 @@ const EventLobby = () => {
             httpStatus: result.httpStatus ?? null,
             retryable: result.retryable,
           });
-          openReadyGateSession(sessionId, `${source}_prepare_failed_ready_gate_recovery`);
+          openReadyGateSession(
+            sessionId,
+            `${source}_prepare_failed_ready_gate_recovery`,
+          );
         })
         .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            source_surface: "event_lobby",
-            source_action: "prepare_entry_exception_no_nav",
-            code: "PREPARE_ENTRY_EXCEPTION",
-            reason_code: "PREPARE_ENTRY_EXCEPTION",
-            httpStatus: null,
-            retryable: true,
-          });
+          const message =
+            error instanceof Error ? error.message : String(error);
+          trackEvent(
+            LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,
+            {
+              platform: "web",
+              session_id: sessionId,
+              event_id: eventId,
+              source_surface: "event_lobby",
+              source_action: "prepare_entry_exception_no_nav",
+              code: "PREPARE_ENTRY_EXCEPTION",
+              reason_code: "PREPARE_ENTRY_EXCEPTION",
+              httpStatus: null,
+              retryable: true,
+            },
+          );
           vdbg("event_lobby_prepare_entry_exception_no_nav", {
             sessionId,
             eventId,
             source,
             message,
           });
-          openReadyGateSession(sessionId, `${source}_prepare_exception_ready_gate_recovery`);
+          openReadyGateSession(
+            sessionId,
+            `${source}_prepare_exception_ready_gate_recovery`,
+          );
         })
         .finally(() => {
           prepareNavigationInFlightRef.current.delete(sessionId);
@@ -878,7 +1048,8 @@ const EventLobby = () => {
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
   useEffect(() => {
     const pending =
-      searchParams.get("pendingVideoSession") ?? searchParams.get("pendingMatch");
+      searchParams.get("pendingVideoSession") ??
+      searchParams.get("pendingMatch");
     if (pending) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete("pendingVideoSession");
@@ -931,8 +1102,12 @@ const EventLobby = () => {
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [userVibes, setUserVibes] = useState<string[]>([]);
-  const [pendingSwipeTargetIds, setPendingSwipeTargetIds] = useState<Set<string>>(() => new Set());
-  const [swipeRateLimitUntilMs, setSwipeRateLimitUntilMs] = useState<number | null>(null);
+  const [pendingSwipeTargetIds, setPendingSwipeTargetIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [swipeRateLimitUntilMs, setSwipeRateLimitUntilMs] = useState<
+    number | null
+  >(null);
   const pendingSwipeTargetIdsRef = useRef<Set<string>>(new Set());
 
   const addPendingSwipeTargetId = useCallback((targetId: string) => {
@@ -956,7 +1131,11 @@ const EventLobby = () => {
   }, []);
 
   // Queue drain / realtime — activates ready gate when a queued video session becomes ready
-  const { queuedCount, refreshQueueCount, isDraining: queueDrainInFlight } = useMatchQueue({
+  const {
+    queuedCount,
+    refreshQueueCount,
+    isDraining: queueDrainInFlight,
+  } = useMatchQueue({
     eventId,
     currentStatus: currentStatus || "browsing",
     enabled: lobbySideEffectsEnabled,
@@ -982,9 +1161,7 @@ const EventLobby = () => {
     },
   });
   const queueHintEnabled =
-    lobbySideEffectsEnabled &&
-    Boolean(eventId && user?.id) &&
-    queuedCount > 0;
+    lobbySideEffectsEnabled && Boolean(eventId && user?.id) && queuedCount > 0;
   const { data: queueHint = null } = useQuery({
     queryKey: ["video-date-queue-hint", eventId, user?.id],
     queryFn: () => fetchVideoDateQueueHint(eventId ?? "", user?.id ?? ""),
@@ -995,9 +1172,10 @@ const EventLobby = () => {
   });
   const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queuedCount);
   const queueHintLabel = queueHintCopy.compactLabel;
-  const queueHintDetailParts = queueHintCopy.detailParts.length > 0
-    ? queueHintCopy.detailParts
-    : [queueHintLabel];
+  const queueHintDetailParts =
+    queueHintCopy.detailParts.length > 0
+      ? queueHintCopy.detailParts
+      : [queueHintLabel];
 
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled) return;
@@ -1019,7 +1197,10 @@ const EventLobby = () => {
       if (data) {
         const labels = data
           .map((v) => {
-            const raw = v.vibe_tags as { label: string } | { label: string }[] | null;
+            const raw = v.vibe_tags as
+              | { label: string }
+              | { label: string }[]
+              | null;
             const tag = Array.isArray(raw) ? raw[0] : raw;
             return tag?.label;
           })
@@ -1044,7 +1225,10 @@ const EventLobby = () => {
           .eq("swipe_type", "super_vibe")
           .limit(1);
         if (cancelled) return;
-        if (import.meta.env.DEV && superVibeCountDiagLoggedRef.current !== diagKey) {
+        if (
+          import.meta.env.DEV &&
+          superVibeCountDiagLoggedRef.current !== diagKey
+        ) {
           superVibeCountDiagLoggedRef.current = diagKey;
           if (error) {
             lobbyDebug("super_vibe_count_load_failed", {
@@ -1066,7 +1250,10 @@ const EventLobby = () => {
         const used = count ?? 0;
         setSuperVibeRemaining(Math.max(0, 3 - used));
       } catch {
-        if (import.meta.env.DEV && superVibeCountDiagLoggedRef.current !== diagKey) {
+        if (
+          import.meta.env.DEV &&
+          superVibeCountDiagLoggedRef.current !== diagKey
+        ) {
           superVibeCountDiagLoggedRef.current = diagKey;
           lobbyDebug("super_vibe_count_load_failed", {
             eventId,
@@ -1085,9 +1272,17 @@ const EventLobby = () => {
 
   // Lobby presence only when no backend-owned active session is in flight.
   useEffect(() => {
-    if (!eventId || !lobbySideEffectsEnabled || lobbyEnteredEventRef.current === eventId) return;
+    if (
+      !eventId ||
+      !lobbySideEffectsEnabled ||
+      lobbyEnteredEventRef.current === eventId
+    )
+      return;
     lobbyEnteredEventRef.current = eventId;
-    trackEvent(EventLobbyObservabilityEvents.LOBBY_ENTERED, { event_id: eventId, platform: "web" });
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_ENTERED, {
+      event_id: eventId,
+      platform: "web",
+    });
   }, [eventId, lobbySideEffectsEnabled]);
 
   useEffect(() => {
@@ -1106,11 +1301,17 @@ const EventLobby = () => {
 
   useEffect(() => {
     return () => {
-      if (dateNavigationSessionIdRef.current || activeServerSessionRef.current) {
-        lobbyDebug("lobby offline status suppressed during active convergence", {
-          dateNavigationSessionId: dateNavigationSessionIdRef.current,
-          activeServerSessionId: activeServerSessionRef.current,
-        });
+      if (
+        dateNavigationSessionIdRef.current ||
+        activeServerSessionRef.current
+      ) {
+        lobbyDebug(
+          "lobby offline status suppressed during active convergence",
+          {
+            dateNavigationSessionId: dateNavigationSessionIdRef.current,
+            activeServerSessionId: activeServerSessionRef.current,
+          },
+        );
         return;
       }
       void setStatus("offline");
@@ -1123,7 +1324,8 @@ const EventLobby = () => {
 
     const expectedPath = `/event/${eventId}/lobby`;
     const isOnLobbyRoute = location.pathname === expectedPath;
-    const canStampStatus = currentStatus === "browsing" || currentStatus === "idle";
+    const canStampStatus =
+      currentStatus === "browsing" || currentStatus === "idle";
 
     if (!isOnLobbyRoute || !canStampStatus) return;
 
@@ -1154,7 +1356,14 @@ const EventLobby = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(intervalId);
     };
-  }, [eventId, user?.id, lobbySideEffectsEnabled, location.pathname, currentStatus, refreshQueueCount]);
+  }, [
+    eventId,
+    user?.id,
+    lobbySideEffectsEnabled,
+    location.pathname,
+    currentStatus,
+    refreshQueueCount,
+  ]);
 
   // Backend-truth-first: scoped active session for this event (ready gate vs /date)
   useEffect(() => {
@@ -1169,11 +1378,15 @@ const EventLobby = () => {
       stickySessionId: activeSessionIdRef.current,
     });
     if (scopedSessionId) {
-      logVdbgSessionStage("lobby_mount_active_session_detail", scopedSessionId, {
-        eventId,
-        activeSessionKind: scopedSessionKind,
-        activeSessionQueueStatus: scopedSessionQueueStatus,
-      });
+      logVdbgSessionStage(
+        "lobby_mount_active_session_detail",
+        scopedSessionId,
+        {
+          eventId,
+          activeSessionKind: scopedSessionKind,
+          activeSessionQueueStatus: scopedSessionQueueStatus,
+        },
+      );
     }
     lobbyDebug("active session hydration observed", {
       hydrated: sessionHydrated,
@@ -1191,7 +1404,9 @@ const EventLobby = () => {
       navigateToDateSession(
         scopedSessionId,
         "active_session_hydration",
-        scopedSessionQueueStatus === "in_survey" ? { force: true, forceSurvey: true } : {},
+        scopedSessionQueueStatus === "in_survey"
+          ? { force: true, forceSurvey: true }
+          : {},
       );
       return;
     }
@@ -1221,13 +1436,16 @@ const EventLobby = () => {
   useEffect(() => {
     const st = location.state as { lobbyRefresh?: boolean } | null;
     const hasPostSurveyQuery = searchParams.get("postSurveyComplete") === "1";
-    if ((!st?.lobbyRefresh && !hasPostSurveyQuery) || !eventId || !user?.id) return;
+    if ((!st?.lobbyRefresh && !hasPostSurveyQuery) || !eventId || !user?.id)
+      return;
     setCheckingNextDateAfterSurvey(true);
     setPostSurveyReturnContext(true);
     dateNavigationSessionIdRef.current = null;
     setDateNavigationSessionId(null);
     clearReadyGateSession("lobby_refresh");
-    void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+    void queryClient.invalidateQueries({
+      queryKey: ["event-deck", eventId, user.id],
+    });
     let nextSearch = location.search;
     if (hasPostSurveyQuery) {
       const nextParams = new URLSearchParams(searchParams);
@@ -1255,7 +1473,12 @@ const EventLobby = () => {
     if (queueDrainInFlight || !sessionHydrated || deckLoading) return;
     const timer = setTimeout(() => setCheckingNextDateAfterSurvey(false), 900);
     return () => clearTimeout(timer);
-  }, [checkingNextDateAfterSurvey, queueDrainInFlight, sessionHydrated, deckLoading]);
+  }, [
+    checkingNextDateAfterSurvey,
+    queueDrainInFlight,
+    sessionHydrated,
+    deckLoading,
+  ]);
 
   // FAILURE 1 FIX: Realtime subscription for own registration status changes
   // Uses profile_id filter for efficiency — only fires for THIS user's row
@@ -1277,46 +1500,82 @@ const EventLobby = () => {
 
           const queueStatus = newData.queue_status;
           const currentRoomId =
-            typeof newData.current_room_id === "string" ? newData.current_room_id : null;
+            typeof newData.current_room_id === "string"
+              ? newData.current_room_id
+              : null;
 
           if (queueStatus === "in_survey" && currentRoomId) {
-            lobbyDebug("same-session pending survey detected from registration realtime", {
-              sessionId: currentRoomId,
-              queueStatus,
-            });
-            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_pending_survey");
-            navigateToDateSession(currentRoomId, "registration_realtime_pending_survey", {
-              force: true,
-              forceSurvey: true,
-            });
+            lobbyDebug(
+              "same-session pending survey detected from registration realtime",
+              {
+                sessionId: currentRoomId,
+                queueStatus,
+              },
+            );
+            scheduleLobbyConvergenceRefresh(
+              currentRoomId,
+              "registration_realtime_pending_survey",
+            );
+            navigateToDateSession(
+              currentRoomId,
+              "registration_realtime_pending_survey",
+              {
+                force: true,
+                forceSurvey: true,
+              },
+            );
             return;
           }
 
           if (isDailyEntryQueueStatus(queueStatus) && currentRoomId) {
-            lobbyDebug("same-session active date detected from registration realtime", {
-              sessionId: currentRoomId,
-              queueStatus,
-            });
-            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_active_date");
-            prepareAndNavigateToDateSession(currentRoomId, "registration_realtime");
+            lobbyDebug(
+              "same-session active date detected from registration realtime",
+              {
+                sessionId: currentRoomId,
+                queueStatus,
+              },
+            );
+            scheduleLobbyConvergenceRefresh(
+              currentRoomId,
+              "registration_realtime_active_date",
+            );
+            navigateToDateSession(
+              currentRoomId,
+              "registration_realtime_active_date",
+            );
             return;
           }
 
           if (queueStatus === "in_ready_gate" && currentRoomId) {
-            lobbyDebug("ready gate detected from registration realtime", { sessionId: currentRoomId });
+            lobbyDebug("ready gate detected from registration realtime", {
+              sessionId: currentRoomId,
+            });
             openReadyGateSession(currentRoomId, "registration_realtime");
-            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_ready_gate");
+            scheduleLobbyConvergenceRefresh(
+              currentRoomId,
+              "registration_realtime_ready_gate",
+            );
             return;
           }
 
-          if (queueStatus === "in_ready_gate" || isActiveDateQueueStatus(queueStatus) || currentRoomId) {
-            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_ambiguous");
-            lobbyDebug("ambiguous active registration realtime (useActiveSession reconciles)", {
-              queueStatus,
+          if (
+            queueStatus === "in_ready_gate" ||
+            isActiveDateQueueStatus(queueStatus) ||
+            currentRoomId
+          ) {
+            scheduleLobbyConvergenceRefresh(
               currentRoomId,
-            });
+              "registration_realtime_ambiguous",
+            );
+            lobbyDebug(
+              "ambiguous active registration realtime (useActiveSession reconciles)",
+              {
+                queueStatus,
+                currentRoomId,
+              },
+            );
           }
-        }
+        },
       )
       .subscribe();
     return () => {
@@ -1325,7 +1584,6 @@ const EventLobby = () => {
   }, [
     user?.id,
     eventId,
-    prepareAndNavigateToDateSession,
     navigateToDateSession,
     openReadyGateSession,
     scheduleLobbyConvergenceRefresh,
@@ -1336,17 +1594,20 @@ const EventLobby = () => {
     if (lobbyTimelineV2.enabled && lobbyBroadcastSessionId) return;
     const handleVideoSessionChange = (
       payload: { new: Record<string, unknown> },
-      source: "video_session_realtime" | "video_session_insert"
+      source: "video_session_realtime" | "video_session_insert",
     ) => {
       const session = payload.new as Record<string, unknown>;
       if (session.event_id !== eventId) return;
       const isParticipant =
-        session.participant_1_id === user.id || session.participant_2_id === user.id;
+        session.participant_1_id === user.id ||
+        session.participant_2_id === user.id;
       if (!isParticipant) return;
       const sessionId = typeof session.id === "string" ? session.id : null;
       if (!sessionId) return;
       if (deckPrefetchPolishEnabled && !readyGatePressureActive) {
-        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+        void queryClient.invalidateQueries({
+          queryKey: ["event-deck", eventId, user.id],
+        });
       }
 
       const routeDecision = decideCanonicalVideoDateRoute({
@@ -1360,14 +1621,17 @@ const EventLobby = () => {
       });
 
       if (routeDecision.target === "survey") {
-        lobbyDebug("same-session pending survey detected from participant-scoped video session realtime", {
-          sessionId,
-          state: session.state,
-          phase: session.phase,
-          readyGateStatus: session.ready_gate_status,
-          readyGateExpiresAt: session.ready_gate_expires_at,
-          ...canonicalLog,
-        });
+        lobbyDebug(
+          "same-session pending survey detected from participant-scoped video session realtime",
+          {
+            sessionId,
+            state: session.state,
+            phase: session.phase,
+            readyGateStatus: session.ready_gate_status,
+            readyGateExpiresAt: session.ready_gate_expires_at,
+            ...canonicalLog,
+          },
+        );
         clearReadyGateSession(`${source}_pending_survey`);
         scheduleLobbyConvergenceRefresh(sessionId, `${source}_pending_survey`);
         navigateToDateSession(sessionId, `${source}_pending_survey`, {
@@ -1384,26 +1648,32 @@ const EventLobby = () => {
       }
 
       if (routeDecision.target === "date") {
-        lobbyDebug("same-session active date detected from participant-scoped video session realtime", {
-          sessionId,
-          state: session.state,
-          phase: session.phase,
-          readyGateStatus: session.ready_gate_status,
-          readyGateExpiresAt: session.ready_gate_expires_at,
-          ...canonicalLog,
-        });
+        lobbyDebug(
+          "same-session active date detected from participant-scoped video session realtime",
+          {
+            sessionId,
+            state: session.state,
+            phase: session.phase,
+            readyGateStatus: session.ready_gate_status,
+            readyGateExpiresAt: session.ready_gate_expires_at,
+            ...canonicalLog,
+          },
+        );
         scheduleLobbyConvergenceRefresh(sessionId, `${source}_active_date`);
-        prepareAndNavigateToDateSession(sessionId, source);
+        navigateToDateSession(sessionId, `${source}_active_date`);
         return;
       }
 
       if (routeDecision.target === "ready_gate") {
-        lobbyDebug("same-session Ready Gate detected from participant-scoped video session realtime", {
-          sessionId,
-          readyGateStatus: session.ready_gate_status,
-          readyGateExpiresAt: session.ready_gate_expires_at,
-          ...canonicalLog,
-        });
+        lobbyDebug(
+          "same-session Ready Gate detected from participant-scoped video session realtime",
+          {
+            sessionId,
+            readyGateStatus: session.ready_gate_status,
+            readyGateExpiresAt: session.ready_gate_expires_at,
+            ...canonicalLog,
+          },
+        );
         openReadyGateSession(sessionId, source);
         scheduleLobbyConvergenceRefresh(sessionId, source);
       }
@@ -1412,7 +1682,10 @@ const EventLobby = () => {
     const channel = supabase.channel(`lobby-video-${eventId}-${user.id}`);
     // Realtime cannot OR participant columns in one filter. Subscribe to each
     // participant side, then validate event/session truth before side effects.
-    for (const filter of [`participant_1_id=eq.${user.id}`, `participant_2_id=eq.${user.id}`]) {
+    for (const filter of [
+      `participant_1_id=eq.${user.id}`,
+      `participant_2_id=eq.${user.id}`,
+    ]) {
       channel
         .on(
           "postgres_changes",
@@ -1422,7 +1695,8 @@ const EventLobby = () => {
             table: "video_sessions",
             filter,
           },
-          (payload) => handleVideoSessionChange(payload, "video_session_realtime")
+          (payload) =>
+            handleVideoSessionChange(payload, "video_session_realtime"),
         )
         .on(
           "postgres_changes",
@@ -1432,7 +1706,8 @@ const EventLobby = () => {
             table: "video_sessions",
             filter,
           },
-          (payload) => handleVideoSessionChange(payload, "video_session_insert")
+          (payload) =>
+            handleVideoSessionChange(payload, "video_session_insert"),
         );
     }
     channel.subscribe();
@@ -1444,7 +1719,6 @@ const EventLobby = () => {
     user?.id,
     eventId,
     clearReadyGateSession,
-    prepareAndNavigateToDateSession,
     navigateToDateSession,
     openReadyGateSession,
     scheduleLobbyConvergenceRefresh,
@@ -1459,15 +1733,27 @@ const EventLobby = () => {
     (event: VideoDateSessionBroadcastEvent) => {
       if (!eventId || !user?.id) return;
       if (event.sessionId !== lobbyBroadcastSessionId) return;
-      const decision = resolveVideoDateSessionSeqDecision(lobbyBroadcastSessionSeqRef.current, event.sessionSeq);
-      if (decision.action === "invalid" || decision.action === "duplicate") return;
+      const decision = resolveVideoDateSessionSeqDecision(
+        lobbyBroadcastSessionSeqRef.current,
+        event.sessionSeq,
+      );
+      if (decision.action === "invalid" || decision.action === "duplicate")
+        return;
       lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
-      scheduleLobbyConvergenceRefresh(event.sessionId, `broadcast_${event.kind}`);
+      scheduleLobbyConvergenceRefresh(
+        event.sessionId,
+        `broadcast_${event.kind}`,
+      );
       if (deckPrefetchPolishEnabled && !readyGatePressureActive) {
-        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+        void queryClient.invalidateQueries({
+          queryKey: ["event-deck", eventId, user.id],
+        });
       }
       if (event.kind === "ready_gate_both_ready") {
-        prepareAndNavigateToDateSession(event.sessionId, "broadcast_ready_gate_both_ready");
+        prepareAndNavigateToDateSession(
+          event.sessionId,
+          "broadcast_ready_gate_both_ready",
+        );
       }
     },
     [
@@ -1483,12 +1769,19 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    if (!eventId || !user?.id || !lobbyTimelineV2.enabled || !lobbyBroadcastSessionId) {
+    if (
+      !eventId ||
+      !user?.id ||
+      !lobbyTimelineV2.enabled ||
+      !lobbyBroadcastSessionId
+    ) {
       lobbyBroadcastSessionSeqRef.current = null;
       lobbyBroadcastSessionSeqSessionRef.current = null;
       return;
     }
-    if (lobbyBroadcastSessionSeqSessionRef.current !== lobbyBroadcastSessionId) {
+    if (
+      lobbyBroadcastSessionSeqSessionRef.current !== lobbyBroadcastSessionId
+    ) {
       lobbyBroadcastSessionSeqRef.current = null;
       lobbyBroadcastSessionSeqSessionRef.current = lobbyBroadcastSessionId;
     }
@@ -1509,7 +1802,11 @@ const EventLobby = () => {
             status,
             error: error instanceof Error ? error.message : String(error ?? ""),
           });
-          scheduleLobbyConvergenceRefresh(lobbyBroadcastSessionId, "broadcast_channel_degraded", 0);
+          scheduleLobbyConvergenceRefresh(
+            lobbyBroadcastSessionId,
+            "broadcast_channel_degraded",
+            0,
+          );
         }
       },
     });
@@ -1544,19 +1841,32 @@ const EventLobby = () => {
         setTimeRemaining("Ended");
         return;
       }
-      setTimeRemaining(formatEventLobbyCountdown(eventId, eventEndTimeMs, Date.now()));
+      setTimeRemaining(
+        formatEventLobbyCountdown(eventId, eventEndTimeMs, Date.now()),
+      );
     };
 
     tick();
     if (lobbyTimelineV2.enabled) return;
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [eventEndTimeMs, eventForLobbyGate, eventId, lobbyTimelineV2.enabled, timelineCountdownTickMs]);
+  }, [
+    eventEndTimeMs,
+    eventForLobbyGate,
+    eventId,
+    lobbyTimelineV2.enabled,
+    timelineCountdownTickMs,
+  ]);
 
   // Server-dealt deck v3 is the only active source of deck exclusion truth.
   const sortedProfiles = useMemo(() => {
     const filtered = profiles.filter(
-      (profile) => !shouldSuppressVideoDateDeckProfile(profile, recentSwipeTargetsRef.current, lobbyClockMs),
+      (profile) =>
+        !shouldSuppressVideoDateDeckProfile(
+          profile,
+          recentSwipeTargetsRef.current,
+          lobbyClockMs,
+        ),
     );
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
@@ -1569,14 +1879,20 @@ const EventLobby = () => {
   useEffect(() => {
     setDeckAdaptiveInputs((current) => {
       const next = { queuedCount, visibleCount: sortedProfiles.length };
-      return current.queuedCount === next.queuedCount && current.visibleCount === next.visibleCount
+      return current.queuedCount === next.queuedCount &&
+        current.visibleCount === next.visibleCount
         ? current
         : next;
     });
   }, [queuedCount, sortedProfiles.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || deckPrefetchPolishEnabled || readyGatePressureActive) return;
+    if (
+      typeof window === "undefined" ||
+      deckPrefetchPolishEnabled ||
+      readyGatePressureActive
+    )
+      return;
     for (const profile of sortedProfiles.slice(0, 3)) {
       const src = deckCardUrl(
         profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url,
@@ -1591,15 +1907,22 @@ const EventLobby = () => {
 
   const deckPrefetchItems = useMemo(
     () =>
-      getVideoDateDeckPrefetchItems(sortedProfiles).map((item) => ({
-        ...item,
-        url: deckCardUrl(item.source, item.mediaVersion),
-      })).filter((item) => Boolean(item.url)),
+      getVideoDateDeckPrefetchItems(sortedProfiles)
+        .map((item) => ({
+          ...item,
+          url: deckCardUrl(item.source, item.mediaVersion),
+        }))
+        .filter((item) => Boolean(item.url)),
     [sortedProfiles],
   );
 
   useEffect(() => {
-    if (!deckPrefetchPolishEnabled || readyGatePressureActive || typeof window === "undefined") return;
+    if (
+      !deckPrefetchPolishEnabled ||
+      readyGatePressureActive ||
+      typeof window === "undefined"
+    )
+      return;
     for (const item of deckPrefetchItems) {
       const src = item.url;
       if (!src) continue;
@@ -1633,8 +1956,11 @@ const EventLobby = () => {
       const image = new Image();
       image.decoding = "async";
       if ("fetchPriority" in image) {
-        (image as HTMLImageElement & { fetchPriority?: "high" | "low" | "auto" }).fetchPriority =
-          item.rank === 0 ? "high" : "low";
+        (
+          image as HTMLImageElement & {
+            fetchPriority?: "high" | "low" | "auto";
+          }
+        ).fetchPriority = item.rank === 0 ? "high" : "low";
       }
       let settled = false;
       const trackPrefetchResult = (outcome: "success" | "failure") => {
@@ -1659,7 +1985,10 @@ const EventLobby = () => {
       };
       image.onload = () => {
         if (typeof image.decode === "function") {
-          void image.decode().then(() => trackPrefetchResult("success")).catch(() => trackPrefetchResult("failure"));
+          void image
+            .decode()
+            .then(() => trackPrefetchResult("success"))
+            .catch(() => trackPrefetchResult("failure"));
           return;
         }
         trackPrefetchResult("success");
@@ -1669,25 +1998,34 @@ const EventLobby = () => {
       };
       image.src = src;
     }
-  }, [deckPrefetchItems, deckPrefetchPolishEnabled, eventId, readyGatePressureActive]);
+  }, [
+    deckPrefetchItems,
+    deckPrefetchPolishEnabled,
+    eventId,
+    readyGatePressureActive,
+  ]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
   const thirdProfile = sortedProfiles[2] || null;
   const swipeRateLimitRemainingSeconds =
-    swipeRateLimitUntilMs != null ? Math.max(0, Math.ceil((swipeRateLimitUntilMs - lobbyClockMs) / 1000)) : 0;
+    swipeRateLimitUntilMs != null
+      ? Math.max(0, Math.ceil((swipeRateLimitUntilMs - lobbyClockMs) / 1000))
+      : 0;
   const swipeRateLimited = swipeRateLimitRemainingSeconds > 0;
   const currentCardRetryState = swipeRateLimited
     ? { remainingSeconds: swipeRateLimitRemainingSeconds }
     : null;
-  const currentSwipePending = currentProfile ? pendingSwipeTargetIds.has(currentProfile.id) : false;
+  const currentSwipePending = currentProfile
+    ? pendingSwipeTargetIds.has(currentProfile.id)
+    : false;
   const swipeControlsDisabled =
     currentSwipePending || !lobbyActionsEnabled || swipeRateLimited;
 
   const eventEndsAtForContinuity = eventEndTime;
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAtForContinuity),
-    [eventEndsAtForContinuity]
+    [eventEndsAtForContinuity],
   );
 
   useEffect(() => {
@@ -1698,7 +2036,10 @@ const EventLobby = () => {
   }, [eventId]);
 
   useEffect(() => {
-    if (swipeRateLimitUntilMs != null && swipeRateLimitUntilMs <= lobbyClockMs) {
+    if (
+      swipeRateLimitUntilMs != null &&
+      swipeRateLimitUntilMs <= lobbyClockMs
+    ) {
       setSwipeRateLimitUntilMs(null);
     }
   }, [lobbyClockMs, swipeRateLimitUntilMs]);
@@ -1751,7 +2092,14 @@ const EventLobby = () => {
       deck_count_bucket: bucketEventLobbyCount(profiles.length),
       visible_count_bucket: bucketEventLobbyCount(sortedProfiles.length),
     });
-  }, [deckFetchEnabled, deckError, deckLoading, eventId, profiles.length, sortedProfiles.length]);
+  }, [
+    deckFetchEnabled,
+    deckError,
+    deckLoading,
+    eventId,
+    profiles.length,
+    sortedProfiles.length,
+  ]);
 
   useEffect(() => {
     if (!eventId || !deckError || !deckFetchEnabled) return;
@@ -1824,14 +2172,18 @@ const EventLobby = () => {
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
       const paintStartedAt =
-        deckPrefetchPolishEnabled && typeof performance !== "undefined" ? performance.now() : null;
+        deckPrefetchPolishEnabled && typeof performance !== "undefined"
+          ? performance.now()
+          : null;
       let remainingVisible = 0;
       let nextProfileAfterSwipe: DeckProfile | null = null;
       queryClient.setQueryData<EventDeckFetchResult>(
         ["event-deck", eventId, user?.id, "deck_v3"],
         (current) => {
           if (!current) return current;
-          const next = current.profiles.filter((profile) => profile.id !== targetId);
+          const next = current.profiles.filter(
+            (profile) => profile.id !== targetId,
+          );
           remainingVisible = next.length;
           nextProfileAfterSwipe = next[0] ?? null;
           return {
@@ -1845,7 +2197,9 @@ const EventLobby = () => {
         },
       );
       if (remainingVisible === 0) {
-        const fallbackNext = profiles.filter((profile) => profile.id !== targetId);
+        const fallbackNext = profiles.filter(
+          (profile) => profile.id !== targetId,
+        );
         remainingVisible = fallbackNext.length;
         nextProfileAfterSwipe = fallbackNext[0] ?? null;
       }
@@ -1861,15 +2215,24 @@ const EventLobby = () => {
         if (paintStartedAt !== null) {
           const schedulePaint =
             typeof window.requestAnimationFrame === "function"
-              ? (callback: FrameRequestCallback) => window.requestAnimationFrame(callback)
-              : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0);
+              ? (callback: FrameRequestCallback) =>
+                  window.requestAnimationFrame(callback)
+              : (callback: FrameRequestCallback) =>
+                  window.setTimeout(() => callback(performance.now()), 0);
           schedulePaint(() => {
-            const source = getVideoDateDeckPrefetchSource(nextProfileAfterSwipe);
-            const src = source ? deckCardUrl(source.source, nextProfileAfterSwipe?.media_version) : null;
+            const source = getVideoDateDeckPrefetchSource(
+              nextProfileAfterSwipe,
+            );
+            const src = source
+              ? deckCardUrl(source.source, nextProfileAfterSwipe?.media_version)
+              : null;
             trackEvent("video_date_deck_swipe_next_card_paint", {
               platform: "web",
               event_id: eventId,
-              duration_ms: Math.max(0, Math.round(performance.now() - paintStartedAt)),
+              duration_ms: Math.max(
+                0,
+                Math.round(performance.now() - paintStartedAt),
+              ),
               cache_hit: src ? deckPrefetchLoadedRef.current.has(src) : null,
               next_profile_present: Boolean(nextProfileAfterSwipe),
               remaining_visible: remainingVisible,
@@ -1878,10 +2241,19 @@ const EventLobby = () => {
         }
       }
       if (shouldTopUp && !readyGatePressureActive) {
-        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+        void queryClient.invalidateQueries({
+          queryKey: ["event-deck", eventId, user?.id],
+        });
       }
     },
-    [deckPrefetchPolishEnabled, eventId, profiles, queryClient, readyGatePressureActive, user?.id]
+    [
+      deckPrefetchPolishEnabled,
+      eventId,
+      profiles,
+      queryClient,
+      readyGatePressureActive,
+      user?.id,
+    ],
   );
 
   const removeDeckProfileAfterTerminalVisibleMark = useCallback(
@@ -1906,7 +2278,9 @@ const EventLobby = () => {
             skipReason = "stale_deck_token";
             return current;
           }
-          const next = current.profiles.filter((profile) => profile.id !== targetId);
+          const next = current.profiles.filter(
+            (profile) => profile.id !== targetId,
+          );
           removed = true;
           remainingVisible = next.length;
           return {
@@ -1933,7 +2307,9 @@ const EventLobby = () => {
         shouldTopUpVideoDateDeck(remainingVisible) &&
         !readyGatePressureActive
       ) {
-        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+        void queryClient.invalidateQueries({
+          queryKey: ["event-deck", eventId, user?.id],
+        });
       }
     },
     [eventId, queryClient, readyGatePressureActive, user?.id],
@@ -1941,20 +2317,30 @@ const EventLobby = () => {
 
   const restoreDeckProfileAfterOptimisticSwipe = useCallback(
     (profile: DeckProfile, swipeSequence: number | null = null) => {
-      if (swipeSequence !== null && swipeSequence < optimisticSwipeSequenceRef.current) {
+      if (
+        swipeSequence !== null &&
+        swipeSequence < optimisticSwipeSequenceRef.current
+      ) {
         trackEvent("video_date_deck_optimistic_restore_skipped", {
           platform: "web",
           event_id: eventId,
           reason: "superseded",
           profile_id_present: Boolean(profile.id),
         });
-        recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
+        recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(
+          recentSwipeTargetsRef.current,
+          profile.id,
+        );
         return false;
       }
       queryClient.setQueryData<EventDeckFetchResult>(
         ["event-deck", eventId, user?.id, "deck_v3"],
         (current) => {
-          if (!current || current.profiles.some((candidate) => candidate.id === profile.id)) return current;
+          if (
+            !current ||
+            current.profiles.some((candidate) => candidate.id === profile.id)
+          )
+            return current;
           const nextProfiles = [profile, ...current.profiles];
           return {
             ...current,
@@ -1966,7 +2352,10 @@ const EventLobby = () => {
           };
         },
       );
-      recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
+      recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(
+        recentSwipeTargetsRef.current,
+        profile.id,
+      );
       return true;
     },
     [eventId, queryClient, user?.id],
@@ -1974,15 +2363,23 @@ const EventLobby = () => {
 
   const applySwipeRateLimit = useCallback(
     (result: unknown) => {
-      const payload = result as Parameters<typeof isVideoDateSwipeRateLimited>[0];
+      const payload = result as Parameters<
+        typeof isVideoDateSwipeRateLimited
+      >[0];
       if (!isVideoDateSwipeRateLimited(payload)) return false;
-      const retryUntilMs = getVideoDateSwipeRateLimitRetryUntilMs(payload, Date.now());
+      const retryUntilMs = getVideoDateSwipeRateLimitRetryUntilMs(
+        payload,
+        Date.now(),
+      );
       if (retryUntilMs != null) {
         setSwipeRateLimitUntilMs(retryUntilMs);
         trackEvent("video_date_deck_swipe_rate_limited", {
           platform: "web",
           event_id: eventId,
-          retry_after_seconds: Math.max(1, Math.ceil((retryUntilMs - Date.now()) / 1000)),
+          retry_after_seconds: Math.max(
+            1,
+            Math.ceil((retryUntilMs - Date.now()) / 1000),
+          ),
         });
       }
       return true;
@@ -1995,7 +2392,10 @@ const EventLobby = () => {
       const swipeSequence = optimisticSwipeSequenceRef.current + 1;
       optimisticSwipeSequenceRef.current = swipeSequence;
       addPendingSwipeTargetId(profile.id);
-      recentSwipeTargetsRef.current = recordVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
+      recentSwipeTargetsRef.current = recordVideoDateDeckRecentSwipe(
+        recentSwipeTargetsRef.current,
+        profile.id,
+      );
       advanceDeckAfterSwipe(profile.id);
       trackEvent("video_date_deck_optimistic_swipe", {
         platform: "web",
@@ -2006,11 +2406,21 @@ const EventLobby = () => {
       });
       return swipeSequence;
     },
-    [addPendingSwipeTargetId, advanceDeckAfterSwipe, eventId, pendingSwipeTargetIds.size],
+    [
+      addPendingSwipeTargetId,
+      advanceDeckAfterSwipe,
+      eventId,
+      pendingSwipeTargetIds.size,
+    ],
   );
 
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
+    if (
+      !currentProfile ||
+      swipeControlsDisabled ||
+      pendingSwipeTargetIdsRef.current.has(currentProfile.id)
+    )
+      return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     const targetProfile = currentProfile;
@@ -2036,7 +2446,10 @@ const EventLobby = () => {
       const code = rawCode === "swipe_recorded" ? "vibe_recorded" : rawCode;
       if (result.success === false) {
         applySwipeRateLimit(result);
-        if (!shouldAdvanceLobbyDeckAfterSwipe(code) && shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+        if (
+          !shouldAdvanceLobbyDeckAfterSwipe(code) &&
+          shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)
+        ) {
           restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         }
         rollbackOptimisticSwipeOnException = false;
@@ -2051,7 +2464,11 @@ const EventLobby = () => {
       }
 
       rollbackOptimisticSwipeOnException = false;
-      trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
+      trackEvent("lobby_profile_swiped", {
+        event_id: eventId,
+        swipe_type: "vibe",
+        target_present: true,
+      });
       recordUserAction("event_lobby_swipe_succeeded", {
         surface: "event_lobby",
         event_id: eventId,
@@ -2061,7 +2478,9 @@ const EventLobby = () => {
 
       if (code === "match" || code === "match_queued") {
         haptics.medium();
-        void queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["profile-live-counts"],
+        });
       }
     } catch (error) {
       if (rollbackOptimisticSwipeOnException) {
@@ -2071,7 +2490,11 @@ const EventLobby = () => {
         category: "event-lobby",
         message: "lobby_swipe_optimistic_exception",
         level: "warning",
-        data: { event_id: eventId, swipe_type: "vibe", error_name: error instanceof Error ? error.name : "unknown" },
+        data: {
+          event_id: eventId,
+          swipe_type: "vibe",
+          error_name: error instanceof Error ? error.name : "unknown",
+        },
       });
       toast.error("Something went wrong. Try again.");
     } finally {
@@ -2090,7 +2513,12 @@ const EventLobby = () => {
   ]);
 
   const handlePass = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
+    if (
+      !currentProfile ||
+      swipeControlsDisabled ||
+      pendingSwipeTargetIdsRef.current.has(currentProfile.id)
+    )
+      return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     const targetProfile = currentProfile;
@@ -2114,7 +2542,10 @@ const EventLobby = () => {
       const code = result.result ?? result.outcome ?? result.error;
       if (result.success === false) {
         applySwipeRateLimit(result);
-        if (!shouldAdvanceLobbyDeckAfterSwipe(code) && shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+        if (
+          !shouldAdvanceLobbyDeckAfterSwipe(code) &&
+          shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)
+        ) {
           restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         }
         rollbackOptimisticSwipeOnException = false;
@@ -2129,7 +2560,11 @@ const EventLobby = () => {
       }
 
       rollbackOptimisticSwipeOnException = false;
-      trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
+      trackEvent("lobby_profile_swiped", {
+        event_id: eventId,
+        swipe_type: "pass",
+        target_present: true,
+      });
       recordUserAction("event_lobby_swipe_succeeded", {
         surface: "event_lobby",
         event_id: eventId,
@@ -2144,7 +2579,11 @@ const EventLobby = () => {
         category: "event-lobby",
         message: "lobby_swipe_optimistic_exception",
         level: "warning",
-        data: { event_id: eventId, swipe_type: "pass", error_name: error instanceof Error ? error.name : "unknown" },
+        data: {
+          event_id: eventId,
+          swipe_type: "pass",
+          error_name: error instanceof Error ? error.name : "unknown",
+        },
       });
       toast.error("Something went wrong. Try again.");
     } finally {
@@ -2162,7 +2601,12 @@ const EventLobby = () => {
   ]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
+    if (
+      !currentProfile ||
+      swipeControlsDisabled ||
+      pendingSwipeTargetIdsRef.current.has(currentProfile.id)
+    )
+      return;
     void preloadRoute("videoDate");
     haptics.light();
     const targetId = currentProfile.id;
@@ -2177,7 +2621,11 @@ const EventLobby = () => {
     try {
       swipeSequence = startOptimisticSwipe(targetProfile, "super_vibe");
       rollbackOptimisticSwipeOnException = true;
-      const result = await swipe(targetId, "super_vibe", targetProfile.deck_token);
+      const result = await swipe(
+        targetId,
+        "super_vibe",
+        targetProfile.deck_token,
+      );
       if (!result) {
         restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         rollbackOptimisticSwipeOnException = false;
@@ -2187,7 +2635,10 @@ const EventLobby = () => {
       const code = result.result ?? result.outcome ?? result.error;
       if (result.success === false) {
         applySwipeRateLimit(result);
-        if (!shouldAdvanceLobbyDeckAfterSwipe(code) && shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+        if (
+          !shouldAdvanceLobbyDeckAfterSwipe(code) &&
+          shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)
+        ) {
           restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         }
         rollbackOptimisticSwipeOnException = false;
@@ -2204,10 +2655,17 @@ const EventLobby = () => {
       rollbackOptimisticSwipeOnException = false;
       if (code === "super_vibe_sent") {
         setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
-        trackEvent("super_vibe_used", { event_id: eventId, target_present: true });
+        trackEvent("super_vibe_used", {
+          event_id: eventId,
+          target_present: true,
+        });
       }
 
-      trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", target_present: true });
+      trackEvent("lobby_profile_swiped", {
+        event_id: eventId,
+        swipe_type: "super_vibe",
+        target_present: true,
+      });
       recordUserAction("event_lobby_swipe_succeeded", {
         surface: "event_lobby",
         event_id: eventId,
@@ -2222,7 +2680,11 @@ const EventLobby = () => {
         category: "event-lobby",
         message: "lobby_swipe_optimistic_exception",
         level: "warning",
-        data: { event_id: eventId, swipe_type: "super_vibe", error_name: error instanceof Error ? error.name : "unknown" },
+        data: {
+          event_id: eventId,
+          swipe_type: "super_vibe",
+          error_name: error instanceof Error ? error.name : "unknown",
+        },
       });
       toast.error("Something went wrong. Try again.");
     } finally {
@@ -2245,7 +2707,13 @@ const EventLobby = () => {
       if (event.defaultPrevented || event.repeat || !currentProfile) return;
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName?.toLowerCase();
-      if (tagName === "input" || tagName === "textarea" || tagName === "select" || target?.isContentEditable) return;
+      if (
+        tagName === "input" ||
+        tagName === "textarea" ||
+        tagName === "select" ||
+        target?.isContentEditable
+      )
+        return;
       if (event.key === "ArrowLeft") {
         if (swipeControlsDisabled) return;
         event.preventDefault();
@@ -2260,14 +2728,16 @@ const EventLobby = () => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [currentProfile, handlePass, handleVibe, swipeControlsDisabled]);
 
-  const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
+  const yieldingToVideoDateUi = Boolean(
+    dateNavigationSessionId || sameEventScopedSession?.kind === "video",
+  );
   const yieldingToReadyGateUi = Boolean(
     sameEventScopedSession?.kind === "ready_gate" &&
-      activeSessionId !== sameEventScopedSession.sessionId
+    activeSessionId !== sameEventScopedSession.sessionId,
   );
   const eventLiveForContinuity = Boolean(
     resolvedEventLifecycle?.isLive &&
-      (secondsUntilEventEnd == null || secondsUntilEventEnd > 0)
+    (secondsUntilEventEnd == null || secondsUntilEventEnd > 0),
   );
   const postSurveyContinuityDecision = useMemo(
     () =>
@@ -2291,7 +2761,7 @@ const EventLobby = () => {
       secondsUntilEventEnd,
       yieldingToReadyGateUi,
       yieldingToVideoDateUi,
-    ]
+    ],
   );
   const showPostSurveyQueueCheck =
     checkingNextDateAfterSurvey &&
@@ -2318,7 +2788,12 @@ const EventLobby = () => {
     let activeAttemptId: number | null = null;
 
     function scheduleRetry() {
-      if (cancelled || retryCount >= VISIBLE_CARD_MARK_MAX_RETRIES || typeof window === "undefined") return;
+      if (
+        cancelled ||
+        retryCount >= VISIBLE_CARD_MARK_MAX_RETRIES ||
+        typeof window === "undefined"
+      )
+        return;
       if (visibleDeckCardsRef.current.has(key)) return;
       retryCount += 1;
       retryTimer = window.setTimeout(markVisible, 1200 * retryCount);
@@ -2326,7 +2801,11 @@ const EventLobby = () => {
 
     function markVisible() {
       if (cancelled) return;
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState !== "visible"
+      )
+        return;
       if (visibleDeckCardsRef.current.has(key)) return;
       if (visibleDeckMarkAttempts.has(key)) return;
       const attemptId = ++visibleDeckMarkAttemptSeqRef.current;
@@ -2334,16 +2813,28 @@ const EventLobby = () => {
       visibleDeckMarkAttempts.set(key, attemptId);
       void (async () => {
         try {
-          const { data, error } = await supabase.rpc("record_event_deck_card_visible_v1" as never, {
-            p_event_id: eventId,
-            p_viewer_id: viewerId,
-            p_target_id: targetId,
-            p_deck_token: deckToken,
-          } as never);
-          if (cancelled || visibleDeckMarkAttempts.get(key) !== attemptId) return;
-          const result = data as { ok?: boolean; error?: string; reason?: string } | null;
+          const { data, error } = await supabase.rpc(
+            "record_event_deck_card_visible_v1" as never,
+            {
+              p_event_id: eventId,
+              p_viewer_id: viewerId,
+              p_target_id: targetId,
+              p_deck_token: deckToken,
+            } as never,
+          );
+          if (cancelled || visibleDeckMarkAttempts.get(key) !== attemptId)
+            return;
+          const result = data as {
+            ok?: boolean;
+            error?: string;
+            reason?: string;
+          } | null;
           if (error || result?.ok === false) {
-            const reason = error?.message ?? result?.error ?? result?.reason ?? "rpc_returned_not_ok";
+            const reason =
+              error?.message ??
+              result?.error ??
+              result?.reason ??
+              "rpc_returned_not_ok";
             if (visibleDeckMarkAttempts.get(key) === attemptId) {
               visibleDeckMarkAttempts.delete(key);
             }
@@ -2367,7 +2858,11 @@ const EventLobby = () => {
             if (shouldRetryVisibleCardMark(reason)) {
               scheduleRetry();
             } else {
-              removeDeckProfileAfterTerminalVisibleMark(targetId, deckToken, reason);
+              removeDeckProfileAfterTerminalVisibleMark(
+                targetId,
+                deckToken,
+                reason,
+              );
             }
             return;
           }
@@ -2383,7 +2878,8 @@ const EventLobby = () => {
             visibleDeckMarkAttempts.delete(key);
           }
         } catch (error) {
-          if (cancelled || visibleDeckMarkAttempts.get(key) !== attemptId) return;
+          if (cancelled || visibleDeckMarkAttempts.get(key) !== attemptId)
+            return;
           if (visibleDeckMarkAttempts.get(key) === attemptId) {
             visibleDeckMarkAttempts.delete(key);
           }
@@ -2437,17 +2933,23 @@ const EventLobby = () => {
     user?.isPaused,
   ]);
 
-  const showQueueWaitingPanel = queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence;
+  const showQueueWaitingPanel =
+    queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence;
   const readyGateOverlayAllowed = Boolean(
     activeSessionId &&
-      eventId &&
-      !yieldingToVideoDateUi &&
-      (lobbyGate.kind === "live" || sameEventScopedSession?.sessionId === activeSessionId)
+    eventId &&
+    !yieldingToVideoDateUi &&
+    (lobbyGate.kind === "live" ||
+      sameEventScopedSession?.sessionId === activeSessionId),
   );
 
   useEffect(() => {
     if (!postSurveyReturnContext || !eventId) return;
-    if (checkingNextDateAfterSurvey && postSurveyContinuityDecision.action === "refreshing_deck") return;
+    if (
+      checkingNextDateAfterSurvey &&
+      postSurveyContinuityDecision.action === "refreshing_deck"
+    )
+      return;
     if (postSurveyRouteTrackedRef.current) return;
     postSurveyRouteTrackedRef.current = postSurveyContinuityDecision.action;
     const route =
@@ -2511,7 +3013,12 @@ const EventLobby = () => {
           ? "post_survey_queue_check"
           : "ready_gate",
     });
-  }, [eventId, showPostSurveyQueueCheck, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
+  }, [
+    eventId,
+    showPostSurveyQueueCheck,
+    suppressDeckUiForConvergence,
+    yieldingToVideoDateUi,
+  ]);
 
   // Loading state
   if (lobbyGate.kind === "loading") {
@@ -2525,7 +3032,11 @@ const EventLobby = () => {
   if (lobbyGate.kind !== "live" && lobbyGate.kind !== "paused") {
     return (
       <>
-        <LobbyUnavailableState gate={lobbyGate} eventId={eventId} onNavigate={navigate} />
+        <LobbyUnavailableState
+          gate={lobbyGate}
+          eventId={eventId}
+          onNavigate={navigate}
+        />
         <EventEndedModal isOpen={showEventEndedModal} />
       </>
     );
@@ -2534,7 +3045,11 @@ const EventLobby = () => {
   if (serverInactiveDeckGate && !deckLoading && profiles.length === 0) {
     return (
       <>
-        <LobbyUnavailableState gate={serverInactiveDeckGate} eventId={eventId} onNavigate={navigate} />
+        <LobbyUnavailableState
+          gate={serverInactiveDeckGate}
+          eventId={eventId}
+          onNavigate={navigate}
+        />
         <EventEndedModal isOpen={showEventEndedModal} />
       </>
     );
@@ -2590,15 +3105,17 @@ const EventLobby = () => {
                   </span>
                   Live now
                 </span>
-                {queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence && (
-                  <span
-                    className="inline-flex max-w-[min(200px,46vw)] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25"
-                    title={`${queueHintLabel}. You will enter Ready Gate when promoted, not while this badge is showing.`}
-                  >
-                    <Sparkles className="w-3 h-3 shrink-0 opacity-90" />
-                    {queueHintLabel}
-                  </span>
-                )}
+                {queuedCount > 0 &&
+                  !activeSessionId &&
+                  !suppressDeckUiForConvergence && (
+                    <span
+                      className="inline-flex max-w-[min(200px,46vw)] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25"
+                      title={`${queueHintLabel}. You will enter Ready Gate when promoted, not while this badge is showing.`}
+                    >
+                      <Sparkles className="w-3 h-3 shrink-0 opacity-90" />
+                      {queueHintLabel}
+                    </span>
+                  )}
               </div>
             </div>
 
@@ -2614,7 +3131,9 @@ const EventLobby = () => {
                 aria-live="polite"
               >
                 <Clock className="w-3 h-3 shrink-0 opacity-80" />
-                <span className="text-[11px] font-semibold font-display">{timeRemaining || "—"}</span>
+                <span className="text-[11px] font-semibold font-display">
+                  {timeRemaining || "—"}
+                </span>
               </div>
               <PremiumPill />
             </div>
@@ -2689,7 +3208,7 @@ const EventLobby = () => {
                 ? "Taking you to the same video session as your match."
                 : showPostSurveyQueueCheck
                   ? postSurveyContinuityDecision.message
-                : "Syncing with your match. Almost there."}
+                  : "Syncing with your match. Almost there."}
             </p>
             {showPostSurveyQueueCheck && (
               <div className="mt-6 w-full">
@@ -2699,16 +3218,25 @@ const EventLobby = () => {
           </div>
         ) : user?.isPaused ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
-            <Moon className="w-16 h-16 text-amber-400/25 mb-4" strokeWidth={1.25} aria-hidden />
-            <h2 className="text-xl font-display font-semibold text-white mb-2">{"You're on a break"}</h2>
+            <Moon
+              className="w-16 h-16 text-amber-400/25 mb-4"
+              strokeWidth={1.25}
+              aria-hidden
+            />
+            <h2 className="text-xl font-display font-semibold text-white mb-2">
+              {"You're on a break"}
+            </h2>
             <p className="text-sm text-white/50 mb-1">
               {user.pauseUntil && user.pauseUntil > new Date()
-                ? `Discovery is paused until ${user.pauseUntil.toLocaleString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}`
+                ? `Discovery is paused until ${user.pauseUntil.toLocaleString(
+                    "en-US",
+                    {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    },
+                  )}`
                 : "Discovery is paused"}
             </p>
             <p className="text-sm text-white/45 mb-6 leading-relaxed">
@@ -2722,28 +3250,37 @@ const EventLobby = () => {
               disabled={endingBreak}
               onClick={handleEndBreak}
             >
-              {endingBreak ? "Ending break..." : "End break & start discovering"}
+              {endingBreak
+                ? "Ending break..."
+                : "End break & start discovering"}
             </Button>
           </div>
-        ) : deckError && deckEnabled && profiles.length === 0 && !deckLoading ? (
+        ) : deckError &&
+          deckEnabled &&
+          profiles.length === 0 &&
+          !deckLoading ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full gap-4">
-            <p className="text-lg font-display font-semibold text-white">{deckErrorUiState.title}</p>
-            <p className="text-sm text-white/55">
-              {deckErrorUiState.message}
+            <p className="text-lg font-display font-semibold text-white">
+              {deckErrorUiState.title}
             </p>
+            <p className="text-sm text-white/55">{deckErrorUiState.message}</p>
             {(deckErrorUiState.actionLabel || deckErrorUiState.showRefresh) && (
               <Button
                 type="button"
                 variant="outline"
                 className="border-white/20 bg-white/[0.06] text-white hover:bg-white/10"
-                disabled={deckErrorUiState.actionTarget === "end_break" && endingBreak}
+                disabled={
+                  deckErrorUiState.actionTarget === "end_break" && endingBreak
+                }
                 onClick={() => {
                   if (deckErrorUiState.actionTarget === "matches") {
                     navigate("/matches", { replace: true });
                     return;
                   }
                   if (deckErrorUiState.actionTarget === "event") {
-                    navigate(eventId ? `/events/${eventId}` : "/events", { replace: true });
+                    navigate(eventId ? `/events/${eventId}` : "/events", {
+                      replace: true,
+                    });
                     return;
                   }
                   if (deckErrorUiState.actionTarget === "end_break") {
@@ -2755,19 +3292,35 @@ const EventLobby = () => {
               >
                 {deckErrorUiState.actionTarget === "end_break" && endingBreak
                   ? "Ending break..."
-                  : deckErrorUiState.actionLabel ?? "Retry"}
+                  : (deckErrorUiState.actionLabel ?? "Retry")}
               </Button>
             )}
           </div>
         ) : deckLoading && sortedProfiles.length === 0 && !deckError ? (
-          <CardSkeleton decision={postSurveyReturnContext ? postSurveyContinuityDecision : undefined} />
+          <CardSkeleton
+            decision={
+              postSurveyReturnContext ? postSurveyContinuityDecision : undefined
+            }
+          />
         ) : isEmpty ? (
           <LobbyEmptyState
             eventId={eventId}
             onRefresh={refetchDeck}
-            badge={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckUiState.badge}
-            title={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckUiState.title}
-            message={postSurveyReturnContext ? postSurveyContinuityDecision.message : emptyDeckUiState.message}
+            badge={
+              postSurveyReturnContext
+                ? postSurveyContinuityDecision.title
+                : emptyDeckUiState.badge
+            }
+            title={
+              postSurveyReturnContext
+                ? postSurveyContinuityDecision.title
+                : emptyDeckUiState.title
+            }
+            message={
+              postSurveyReturnContext
+                ? postSurveyContinuityDecision.message
+                : emptyDeckUiState.message
+            }
             showAction={
               postSurveyReturnContext ||
               emptyDeckUiState.showRefresh ||
@@ -2775,7 +3328,11 @@ const EventLobby = () => {
             }
             actionLabel={emptyDeckUiState.actionLabel ?? "Refresh now"}
             showRefreshIcon={emptyDeckUiState.actionTarget !== "end_break"}
-            onAction={emptyDeckUiState.actionTarget === "end_break" ? handleEndBreak : undefined}
+            onAction={
+              emptyDeckUiState.actionTarget === "end_break"
+                ? handleEndBreak
+                : undefined
+            }
           />
         ) : (
           <div className="w-full space-y-3">
@@ -2783,18 +3340,33 @@ const EventLobby = () => {
               <PostSurveyLobbyStatus decision={postSurveyContinuityDecision} />
             )}
             <div className="text-center px-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Discover</p>
-              <p className="text-sm text-white/70 font-medium mt-0.5">Swipe fast — vibes are live in this room</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">
+                Discover
+              </p>
+              <p className="text-sm text-white/70 font-medium mt-0.5">
+                Swipe fast — vibes are live in this room
+              </p>
             </div>
-            <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}>
+            <div
+              className="relative w-full"
+              style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}
+            >
               {thirdProfile && (
                 <div className="absolute inset-0 scale-[0.92] opacity-30 pointer-events-none translate-y-2">
-                  <LobbyProfileCard profile={thirdProfile} userVibes={userVibes} isBehind />
+                  <LobbyProfileCard
+                    profile={thirdProfile}
+                    userVibes={userVibes}
+                    isBehind
+                  />
                 </div>
               )}
               {nextProfile && (
                 <div className="absolute inset-0 scale-[0.96] opacity-60 pointer-events-none translate-y-1">
-                  <LobbyProfileCard profile={nextProfile} userVibes={userVibes} isBehind />
+                  <LobbyProfileCard
+                    profile={nextProfile}
+                    userVibes={userVibes}
+                    isBehind
+                  />
                 </div>
               )}
 
@@ -2853,7 +3425,10 @@ const EventLobby = () => {
                 className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
                 aria-label="Super vibe"
               >
-                <Star className="w-[22px] h-[22px] text-neon-yellow" fill="hsl(var(--neon-yellow))" />
+                <Star
+                  className="w-[22px] h-[22px] text-neon-yellow"
+                  fill="hsl(var(--neon-yellow))"
+                />
                 {superVibeRemaining > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 min-w-[22px] h-[22px] px-1 rounded-full bg-neon-yellow text-zinc-950 text-[10px] font-bold flex items-center justify-center border-2 border-zinc-950">
                     {superVibeRemaining}
@@ -2869,7 +3444,10 @@ const EventLobby = () => {
                 className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
                 aria-label="Vibe"
               >
-                <Heart className="w-7 h-7 text-primary-foreground drop-shadow-sm" fill="white" />
+                <Heart
+                  className="w-7 h-7 text-primary-foreground drop-shadow-sm"
+                  fill="white"
+                />
               </button>
             </div>
             <p className="text-[10px] text-white/35 text-center font-medium tracking-wide">
@@ -2889,11 +3467,19 @@ const EventLobby = () => {
             onManualExitConfirmed={suppressReadyGateSessionAfterManualExit}
             onClose={() => {
               clearReadyGateSession("ready_gate_overlay_close");
-              scheduleLobbyConvergenceRefresh(activeSessionId, "ready_gate_overlay_close");
+              scheduleLobbyConvergenceRefresh(
+                activeSessionId,
+                "ready_gate_overlay_close",
+              );
               if (eventId && user?.id) {
-                scheduleDeferredLobbyWork("ready_gate_overlay_close_deck_refresh", () => {
-                  void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
-                });
+                scheduleDeferredLobbyWork(
+                  "ready_gate_overlay_close_deck_refresh",
+                  () => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ["event-deck", eventId, user.id],
+                    });
+                  },
+                );
               }
             }}
           />
@@ -2945,8 +3531,12 @@ const LobbyUnavailableState = ({
         <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
           <AlertCircle className="h-7 w-7 text-white/70" strokeWidth={1.6} />
         </div>
-        <h1 className="text-xl font-display font-bold text-white">{gate.title}</h1>
-        <p className="mt-2 text-sm leading-relaxed text-white/55">{gate.message}</p>
+        <h1 className="text-xl font-display font-bold text-white">
+          {gate.title}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-white/55">
+          {gate.message}
+        </p>
         <Button
           type="button"
           onClick={handleAction}
@@ -2983,7 +3573,11 @@ const SwipeableCard = ({
   const rotate = useTransform(x, [-200, 0, 200], [-5, 0, 5]);
   const vibeOpacity = useTransform(x, [0, 100], [0, 1]);
   const passOpacity = useTransform(x, [-100, 0], [1, 0]);
-  const cardOpacity = useTransform(x, [-200, -100, 0, 100, 200], [0.5, 0.8, 1, 0.8, 0.5]);
+  const cardOpacity = useTransform(
+    x,
+    [-200, -100, 0, 100, 200],
+    [0.5, 0.8, 1, 0.8, 0.5],
+  );
 
   const handleDragEnd = (_event: unknown, info: PanInfo) => {
     if (disabled) return;
@@ -2999,37 +3593,57 @@ const SwipeableCard = ({
   return (
     <motion.div
       className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
-      style={{ x, rotate: prefersReducedMotion ? 0 : rotate, opacity: prefersReducedMotion ? 1 : cardOpacity }}
+      style={{
+        x,
+        rotate: prefersReducedMotion ? 0 : rotate,
+        opacity: prefersReducedMotion ? 1 : cardOpacity,
+      }}
       drag={disabled ? false : "x"}
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={prefersReducedMotion ? 0.2 : 0.7}
       onDragEnd={handleDragEnd}
       initial={prefersReducedMotion ? false : { scale: 0.95, opacity: 0 }}
       animate={prefersReducedMotion ? { opacity: 1 } : { scale: 1, opacity: 1 }}
-      transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 25 }}
+      transition={
+        prefersReducedMotion
+          ? { duration: 0.12 }
+          : { type: "spring", stiffness: 300, damping: 25 }
+      }
     >
       {/* Swipe indicators */}
       <motion.div
         className="absolute top-6 left-6 z-20 px-4 py-2 rounded-xl border-2 border-green-400 bg-green-500/20 backdrop-blur-sm"
         style={{ opacity: vibeOpacity }}
       >
-        <span className="text-green-400 font-display font-bold text-lg">VIBE</span>
+        <span className="text-green-400 font-display font-bold text-lg">
+          VIBE
+        </span>
       </motion.div>
       <motion.div
         className="absolute top-6 right-6 z-20 px-4 py-2 rounded-xl border-2 border-destructive bg-destructive/20 backdrop-blur-sm"
         style={{ opacity: passOpacity }}
       >
-        <span className="text-destructive font-display font-bold text-lg">PASS</span>
+        <span className="text-destructive font-display font-bold text-lg">
+          PASS
+        </span>
       </motion.div>
 
-      <LobbyProfileCard profile={profile} userVibes={userVibes} retryState={retryState} />
+      <LobbyProfileCard
+        profile={profile}
+        userVibes={userVibes}
+        retryState={retryState}
+      />
     </motion.div>
   );
 };
 
 /* ---------- Card Skeleton ---------- */
 
-const PostSurveyLobbyStatus = ({ decision }: { decision: PostDateContinuityDecision }) => {
+const PostSurveyLobbyStatus = ({
+  decision,
+}: {
+  decision: PostDateContinuityDecision;
+}) => {
   const toneClass =
     decision.tone === "ready"
       ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
@@ -3038,15 +3652,22 @@ const PostSurveyLobbyStatus = ({ decision }: { decision: PostDateContinuityDecis
         : "border-white/10 bg-white/[0.05] text-white/75";
 
   return (
-    <div className={`rounded-2xl border px-3.5 py-3 text-left ${toneClass}`} aria-live="polite">
+    <div
+      className={`rounded-2xl border px-3.5 py-3 text-left ${toneClass}`}
+      aria-live="polite"
+    >
       <div className="flex items-center gap-2">
         <span className="relative flex h-2 w-2 shrink-0">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-35" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-current opacity-80" />
         </span>
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em]">{decision.title}</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em]">
+          {decision.title}
+        </p>
       </div>
-      <p className="mt-1 text-xs leading-relaxed text-white/55">{decision.message}</p>
+      <p className="mt-1 text-xs leading-relaxed text-white/55">
+        {decision.message}
+      </p>
     </div>
   );
 };
@@ -3060,7 +3681,10 @@ const CardSkeleton = ({
 }) => (
   <div
     className="relative w-full rounded-3xl overflow-hidden border border-white/[0.1] bg-zinc-900/80 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.75)]"
-    style={{ aspectRatio: "3/4", maxHeight: compact ? "min(34vh, 320px)" : "min(62vh, 520px)" }}
+    style={{
+      aspectRatio: "3/4",
+      maxHeight: compact ? "min(34vh, 320px)" : "min(62vh, 520px)",
+    }}
   >
     <div className="w-full h-full min-h-[280px] shimmer-effect opacity-80" />
     <div className="absolute bottom-0 left-0 right-0 h-2/5 bg-gradient-to-t from-black/90 to-transparent pointer-events-none rounded-b-3xl" />
@@ -3069,7 +3693,9 @@ const CardSkeleton = ({
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">
           {decision.title}
         </p>
-        <p className="mt-1 text-xs leading-relaxed text-white/50">{decision.message}</p>
+        <p className="mt-1 text-xs leading-relaxed text-white/50">
+          {decision.message}
+        </p>
       </div>
     )}
   </div>

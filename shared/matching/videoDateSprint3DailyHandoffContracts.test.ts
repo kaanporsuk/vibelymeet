@@ -98,7 +98,7 @@ test("Sprint 3 web and native recover token-refresh room_not_ready through prepa
   assert.match(webVideoCall, /prepared\.data\.room_url === roomData\.room_url/);
   assert.match(webVideoCall, /recovered_via_prepare_entry: true/);
 
-  assert.match(nativeDate, /refreshed\.ok === false[\s\S]*refreshed\.error === 'room_not_ready'[\s\S]*prepareVideoDateEntry\(sessionId/);
+  assert.match(nativeDate, /refreshed\.ok === false[\s\S]*refreshed\.error === ['"]room_not_ready['"][\s\S]*prepareVideoDateEntry\(sessionId/);
   assert.match(nativeDate, /source: `\$\{sourceAction\}_room_recovery`/);
   assert.match(nativeDate, /prepared\.data\.room_name === tokenResult\.room_name/);
   assert.match(nativeDate, /prepared\.data\.room_url === tokenResult\.room_url/);
@@ -137,7 +137,10 @@ test("Sprint 3 native date route keeps prepare_date_entry as the route-confirmin
   assert.match(nativeDate, /willCallEnterHandshake: false/);
   assert.match(nativeDate, /prepare_date_entry_owns_handshake/);
   assert.match(nativeDate, /const handoff = consumePreparedVideoDateEntry\(sessionId, user\.id\)/);
-  assert.match(nativeDate, /getDailyRoomTokenWithTimeout\(sessionId, PREJOIN_STEP_TIMEOUT_MS, user\.id\)/);
+  assert.match(
+    nativeDate,
+    /getDailyRoomTokenWithTimeout\(\s*sessionId,\s*PREJOIN_STEP_TIMEOUT_MS,\s*user\.id,\s*\)/,
+  );
 });
 
 test("Sprint 3 certification blocks launch without explicit Daily production config, webhook, and cleanup secret", () => {

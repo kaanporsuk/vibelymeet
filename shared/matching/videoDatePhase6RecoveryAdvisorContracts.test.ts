@@ -61,10 +61,10 @@ test("web and native date recovery use advisor for truth and token decisions", (
   assert.match(nativeVideoDate, /adviseVideoSessionTruthRecovery/);
   assert.match(webVideoCall, /adviseVideoDateTokenRecovery/);
   assert.match(nativeVideoDate, /adviseVideoDateTokenRecovery/);
-  assert.match(webVideoCall, /trigger: "before_join"/);
-  assert.match(nativeVideoDate, /trigger: 'before_join'/);
-  assert.match(webVideoCall, /trigger: "active_refresh_timer"/);
-  assert.match(nativeVideoDate, /trigger: 'active_refresh_timer'/);
+  assert.match(webVideoCall, /trigger: ["']before_join["']/);
+  assert.match(nativeVideoDate, /trigger: ["']before_join["']/);
+  assert.match(webVideoCall, /trigger: ["']active_refresh_timer["']/);
+  assert.match(nativeVideoDate, /trigger: ["']active_refresh_timer["']/);
   for (const source of [webVideoDate, nativeVideoDate, webReadyGate, nativeReadyGate, webReadyRedirect, nativeReadyRoute]) {
     assert.doesNotMatch(source, /canAttemptDailyRoomFromVideoSessionTruth/);
     assert.doesNotMatch(source, /decideVideoSessionRouteFromTruth/);

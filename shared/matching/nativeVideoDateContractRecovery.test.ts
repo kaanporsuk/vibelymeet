@@ -68,7 +68,7 @@ test("native date route exists and gates bootstrap on backend video-date truth",
   assert.match(nativeDateRoute, /fetchVideoSessionDateEntryTruthCoalesced\(sessionId\)/);
   assert.match(nativeDateRoute, /getVideoSessionPartnerIdForUser\(vs, user\.id\)/);
   assert.match(nativeDateRoute, /adviseVideoSessionTruthRecovery/);
-  assert.match(nativeDateRoute, /recovery\.action === 'go_date'/);
+  assert.match(nativeDateRoute, /recovery\.action === ['"]go_date['"]/);
   assert.match(nativeDateRoute, /setDateEntryPermissionEligible\(true\)/);
   assert.match(nativeDateRoute, /setDateEntryPermissionEligible\(false\)/);
 });
@@ -109,7 +109,7 @@ test("native video-date lifecycle uses backend RPC surfaces", () => {
 test("native date route handles ended and event-inactive/stale blockers without retry loops", () => {
   assert.match(nativeDateRoute, /case 'SESSION_ENDED':/);
   assert.match(nativeDateRoute, /case 'EVENT_NOT_ACTIVE':/);
-  assert.match(nativeDateRoute, /truthDecision === 'ended'/);
+  assert.match(nativeDateRoute, /truthDecision === ['"]ended['"]/);
   assert.match(nativeDateRoute, /shouldRecoverPendingPostDateSurvey/);
   assert.match(nativeDateRoute, /recoverFromNotStartableDateTruth/);
   assert.match(nativeDateRoute, /clearDateEntryTransition\(sessionId\)/);

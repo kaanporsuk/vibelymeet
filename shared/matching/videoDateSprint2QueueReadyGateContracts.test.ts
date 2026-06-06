@@ -93,10 +93,10 @@ test("Sprint 2 web lobby starts convergence immediately after queued swipe and q
 test("Sprint 2 native lobby and queue count stay on the shared hint and drain path", () => {
   assert.match(nativeLobby, /fetchVideoDateQueueHint/);
   assert.match(nativeLobby, /getQueuedMatchCount\(requestEventId, requestUserId\)/);
-  assert.match(nativeLobby, /sourceAction: 'queue_drain_interval'/);
-  assert.match(nativeLobby, /openReadyGateWithSession\(promotedSessionId, 'queue_drain_interval'\)/);
-  assert.match(nativeLobby, /sourceAction: 'video_session_insert_queue_drain'/);
-  assert.match(nativeLobby, /scheduleLobbyRefreshBurst\('video_session_insert_queue_drain'\)/);
+  assert.match(nativeLobby, /sourceAction: ['"]queue_drain_interval['"]/);
+  assert.match(nativeLobby, /openReadyGateWithSession\(promotedSessionId, ['"]queue_drain_interval['"]\)/);
+  assert.match(nativeLobby, /sourceAction: ['"]video_session_insert_queue_drain['"]/);
+  assert.match(nativeLobby, /scheduleLobbyRefreshBurst\(['"]video_session_insert_queue_drain['"]\)/);
   assert.match(nativeLobby, /queueRefreshSeqRef/);
   assert.match(nativeLobby, /queueRefreshScopeRef/);
   assert.match(nativeLobby, /!isActiveLobbyContextRef\.current/);
@@ -111,7 +111,7 @@ test("Sprint 2 post-date survey queue drain uses the same eligibility surface on
   assert.match(webPostDateSurvey, /sourceSurface: "post_date_survey"/);
   assert.match(nativePostDateSurvey, /getQueuedMatchCount\(eventId, userId\)/);
   assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativePostDateSurvey, /sourceSurface: 'post_date_survey'/);
+  assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
 });
 
 test("Sprint 2 Ready Gate actions keep server truth authoritative across web and native", () => {

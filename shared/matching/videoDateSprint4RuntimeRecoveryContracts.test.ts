@@ -112,11 +112,23 @@ test("Sprint 4 web terminal paths cannot open post-date survey from local optimi
   assert.match(webDate, /videoSessionIndicatesTerminalEnd\(sessionRow\)/);
   assert.match(webDate, /terminal_post_date_survey_session_fetch_failed/);
   assert.match(webDate, /terminal_post_date_survey_verdict_fetch_failed/);
-  assert.match(webDate, /captureSupabaseError\("terminal_post_date_survey_verdict_fetch_failed", verdictError\)/);
-  assert.match(webDate, /recoverTerminalPostDateSurvey\(attemptSource, sessionRow\)/);
+  assert.match(
+    webDate,
+    /captureSupabaseError\(\s*["']terminal_post_date_survey_verdict_fetch_failed["'],\s*verdictError,\s*\)/,
+  );
+  assert.match(
+    webDate,
+    /recoverTerminalPostDateSurvey\(\s*attemptSource,\s*sessionRow,\s*\)/,
+  );
   assert.match(webDate, /terminal_post_date_survey_confirmation_row_unavailable/);
-  assert.match(webDate, /select\(TERMINAL_SURVEY_SESSION_SELECT\)[\s\S]*recoverTerminalPostDateSurvey\("local_end_recovered_after_rpc_error", sessionRow\)/);
-  assert.match(webDate, /fetchVideoDateSnapshot\(id, \{ includeToken: false \}\)/);
+  assert.match(
+    webDate,
+    /select\(TERMINAL_SURVEY_SESSION_SELECT\)[\s\S]*recoverTerminalPostDateSurvey\(\s*["']local_end_recovered_after_rpc_error["'],\s*sessionRow,\s*\)/,
+  );
+  assert.match(
+    webDate,
+    /fetchVideoDateSnapshot\(id,\s*\{\s*includeToken: false,\s*\}\)/,
+  );
   assert.match(webDate, /setTimingRefreshNonce\(\(n\) => n \+ 1\)/);
   assert.match(webDate, /terminal_confirmation_missing/);
   assert.match(webDate, /safety_report_server_ended/);
@@ -130,14 +142,20 @@ test("Sprint 4 web manual pre-date exit retries failed server end in the backgro
   assert.match(webDate, /video_date_pre_date_exit_end_background_retry_succeeded/);
   assert.match(webDate, /video_date_pre_date_exit_end_background_retry_failed/);
   assert.match(webDate, /video_date_pre_date_exit_end_background_retry_exception/);
-  assert.match(webDate, /Sentry\.captureMessage\("video_date_pre_date_exit_end_background_retry_failed"/);
+  assert.match(
+    webDate,
+    /Sentry\.captureMessage\(\s*["']video_date_pre_date_exit_end_background_retry_failed["']/,
+  );
 });
 
 test("Sprint 4 native terminal paths cannot grant survey without terminal DB truth", () => {
   assert.match(nativeDate, /confirmNativeTerminalPostDateRecovery/);
   assert.match(nativeDate, /NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS/);
   assert.match(nativeDate, /nativeVideoSessionIndicatesTerminalEnd/);
-  assert.match(nativeDate, /openNativePostDateSurveyFromTerminalTruth\(attemptSource, sessionRow\)/);
+  assert.match(
+    nativeDate,
+    /openNativePostDateSurveyFromTerminalTruth\(\s*attemptSource,\s*sessionRow,\s*\)/,
+  );
   assert.match(nativeDate, /terminal_post_date_survey_confirmation_row_unavailable/);
   assert.match(nativeDate, /app_foreground_after_background_timeout/);
   assert.match(nativeDate, /native_background_timeout_end_result/);
@@ -174,7 +192,7 @@ test("Sprint 4 duplicate web start attempts wait for the real in-flight result",
 
 test("Sprint 4 runtime recovery contracts cover timeout, reconnect, slow join, first frame, extensions, and abort cleanup", () => {
   assert.match(webDate, /handleCallEndRef\.current\?\.\("date_timeout"\)/);
-  assert.match(nativeDate, /handleCallEnd\('local_end', 'date_timeout'\)/);
+  assert.match(nativeDate, /handleCallEnd\(["']local_end["'], ["']date_timeout["']\)/);
   assert.match(webDate, /TERMINAL_SURVEY_RECONCILE_INTERVAL_MS/);
   assert.match(nativeDate, /syncVideoDateReconnect/);
   assert.match(nativeDate, /NATIVE_BACKGROUND_GRACE_MS/);

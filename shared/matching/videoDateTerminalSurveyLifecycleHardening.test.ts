@@ -143,7 +143,7 @@ test("post-encounter peer absence ends as survey-eligible across web and native"
   );
   assert.match(
     nativeDateRoute,
-    /const dateWasEstablished =[\s\S]{0,220}reason === 'partner_absent_after_confirmed_encounter'/,
+    /const dateWasEstablished =[\s\S]{0,220}reason === ['"]partner_absent_after_confirmed_encounter['"]/,
   );
 });
 

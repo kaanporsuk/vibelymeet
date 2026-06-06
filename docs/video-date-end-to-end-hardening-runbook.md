@@ -1,6 +1,6 @@
 # Video Date End-to-End Hardening Runbook
 
-Current recovery overlay (2026-06-05): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; current terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions that preserve terminal room metadata and stamp provider-delete markers. Verify current Git/Supabase state before assuming deployment, and treat the manual match -> survey acceptance run as still unproven until a fresh test completes.
+Current recovery overlay (2026-06-06): this runbook is historical context for the earlier hardening chain. For current Video Date recovery work, start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; current terminal-survey lifecycle hardening adds `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed cleanup/outbox Edge Functions that preserve terminal room metadata and stamp provider-delete markers. The latest single-owner runtime hardening adds `20260605232304_video_date_single_owner_runtime_hardening.sql` for active date/survey route ownership, fail-soft transition/queue/surface RPCs, append-only surface-claim audit, and widened client stuck observability. The 2026-06-06 third-pass audit adds the native notification pending-survey deep-link lesson: a `/date/:sessionId` notification tap is also a date/survey owner surface, so pending-survey terminal truth must route to `/date/:sessionId` with route ownership instead of falling through to lobby/tabs. Verify current Git/Supabase state before assuming deployment, and treat the manual match -> survey acceptance run as still unproven until a fresh test completes.
 
 Branch: `fix/video-date-end-to-end-hardening`
 
@@ -25,6 +25,9 @@ Supabase cloud deploy is required before production use because the client now s
 - Daily `participant-left` is local transport evidence first. Backend `mark_reconnect_partner_away` should happen only after local transport grace expires with `p_reason = daily_transport_grace_expired`.
 - Browser `visibilitychange` is soft telemetry during active Daily handoff/warm-up/date and should not mark self away while Daily is joining/joined.
 - Ended sessions with survey-required encounter evidence must open `PostDateSurvey` on `/date/:sessionId` and stop Daily start/retry, surface claim, reconnect, and peer-missing loops.
+- Active `in_handshake` / `in_date` sessions must route directly to the date owner from web and native/mobile lobbies. Lobby/Ready Gate surfaces must not rerun Daily prepare or restart a same-session Daily call after active date ownership exists.
+- Native notification deep links targeting `/date/:sessionId` must reconcile snapshot and fallback truth through the same route-owner contract: `go_date` and `go_survey` both route to the Date stack, fallback `go_survey` emits `pending_survey_terminal_encounter`, and pending-survey terminal truth must not open lobby/tabs.
+- Transition, queue hint, queue drain, and surface-claim RPCs should return structured retryable JSON under stale/duplicate/terminal churn instead of raw transport failures.
 - Historical remote-seen/date-entry proof makes an ended session survey-eligible, but it must not suppress current peer-missing UI after later Daily leave/rejoin churn. Only terminal survey truth suppresses peer-missing.
 - After `date_started_at`, peer absence should terminalize with survey-eligible `partner_absent_after_confirmed_encounter` instead of pre-date `partial_join_peer_timeout`.
 - `in_survey` is sticky until the current user submits `date_feedback`; client `offline`/`idle`/`browsing` status writes must not clear it while a survey-eligible ended session is pending.
@@ -78,10 +81,14 @@ The pack checks:
 23. Confirm no `/date` <-> `/ready` cycling after terminal survey truth; `/date/:sessionId` should host survey recovery.
 24. Simulate post-encounter peer disappearance after `date_started_at`; confirm `partner_absent_after_confirmed_encounter` or another survey-eligible terminal path, sticky `in_survey`, and survey completion for both users.
 25. Confirm terminal rows keep deterministic Daily room metadata for support forensics.
+26. Confirm `video_date_surface_claim_events` and stuck observability rows preserve surface ownership, route ownership, same-session Daily continuity, and singleton parking fields during any retry/rejoin path.
+27. Tap a native notification that targets an ended survey-eligible session with no `date_feedback`; confirm it opens `/date/:sessionId` and the survey recovery surface, not lobby/tabs or Ready Gate.
 
 ## Validation Commands
 
 Run from repo root:
+
+If the active recovery instruction says not to run builds, skip `npm run build`; it remains here for release-owner/manual build validation only.
 
 ```bash
 git status --short

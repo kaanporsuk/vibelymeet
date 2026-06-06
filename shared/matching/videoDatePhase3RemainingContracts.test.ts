@@ -210,9 +210,9 @@ test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
   assert.match(transitionCommands, /clientRequestId: string/);
   assert.match(transitionCommands, /`phase3:extension:\$\{creditType\}:\$\{clientRequestId\}`/);
 
-  assert.match(webVideoDate, /useFeatureFlag\("video_date\.outbox_v2\.handshake_auto_promote"\)/);
-  assert.match(webVideoDate, /useFeatureFlag\("video_date\.outbox_v2\.date_timeout"\)/);
-  assert.match(webVideoDate, /useFeatureFlag\("video_date\.outbox_v2\.extension"\)/);
+  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);
+  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
+  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
   assert.match(webVideoDate, /video_session_handshake_auto_promote_v2/);
   assert.match(webVideoDate, /video_session_date_timeout_v2/);
   assert.match(webVideoDate, /video_session_extend_date_v2/);
@@ -225,50 +225,53 @@ test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
   assert.match(nativeVideoDateApi, /video_session_handshake_auto_promote_v2/);
   assert.match(nativeVideoDateApi, /video_session_date_timeout_v2/);
   assert.match(nativeVideoDateApi, /video_session_extend_date_v2/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\('video_date\.outbox_v2\.handshake_auto_promote'\)/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\('video_date\.outbox_v2\.date_timeout'\)/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\('video_date\.outbox_v2\.submit_verdict'\)/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\('video_date\.outbox_v2\.extension'\)/);
-  assert.match(nativeVideoDateScreen, /handleCallEnd\('local_end', 'date_timeout'\)/);
+  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);
+  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
+  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.submit_verdict["'],?\s*\)/);
+  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
+  assert.match(nativeVideoDateScreen, /handleCallEnd\(["']local_end["'], ["']date_timeout["']\)/);
 });
 
 test("date-timeout v2 only opens terminal UX after backend confirms the session ended", () => {
-  assert.match(webVideoDate, /const useDateTimeoutV2 = reason === "date_timeout" && dateTimeoutV2\.enabled/);
-  assert.match(webVideoDate, /action: useDateTimeoutV2 \? "phase3:date_timeout" : "end"/);
+  assert.match(webVideoDate, /const useDateTimeoutV2 =\s*reason === ["']date_timeout["'] && dateTimeoutV2\.enabled/);
+  assert.match(webVideoDate, /action: useDateTimeoutV2 \? ["']phase3:date_timeout["'] : ["']end["']/);
   assert.match(webVideoDate, /video_session_date_timeout_v2[\s\S]+p_idempotency_key: idempotencyKey/);
   assert.match(
     webVideoDate,
-    /payload\?\.already_ended === true \|\| payload\?\.state === "ended" \|\| payload\?\.phase === "ended"/,
+    /payload\?\.already_ended === true \|\|[\s\S]*payload\?\.state === ["']ended["'] \|\|[\s\S]*payload\?\.phase === ["']ended["']/,
   );
   assert.match(
     webVideoDate,
-    /if \(reason === "date_timeout"\) \{\s+countdownCompletionKeyRef\.current = null;\s+setTimingRefreshNonce\(\(n\) => n \+ 1\);\s+explicitEndRequestedRef\.current = "idle";\s+return;\s+\}/,
+    /if \(reason === ["']date_timeout["']\) \{\s+countdownCompletionKeyRef\.current = null;\s+setTimingRefreshNonce\(\(n\) => n \+ 1\);\s+explicitEndRequestedRef\.current = ["']idle["'];\s+return;\s+\}/,
   );
-  assert.match(webVideoDate, /if \(reason !== "date_timeout"\) \{\s+emitConfirmedEndedAnalytics\(\);\s+\}/);
+  assert.match(webVideoDate, /if \(reason !== ["']date_timeout["']\) \{\s+emitConfirmedEndedAnalytics\(\);\s+\}/);
   assert.match(
     webVideoDate,
-    /if \(reason === "date_timeout"\) \{\s+toast\("Time flies! Thanks for a great date[\s\S]+emitConfirmedEndedAnalytics\(\);\s+\}/,
+    /if \(reason === ["']date_timeout["']\) \{\s+toast\(["']Time flies! Thanks for a great date[\s\S]+emitConfirmedEndedAnalytics\(\);\s+\}/,
   );
   assert.doesNotMatch(
     webVideoDate,
-    /toast\("Time flies! Thanks for a great date[\s\S]{0,160}handleCallEndRef\.current\?\.\("date_timeout"\)/,
+    /toast\(["']Time flies! Thanks for a great date[\s\S]{0,160}handleCallEndRef\.current\?\.\(["']date_timeout["']\)/,
   );
 
-  assert.match(nativeVideoDateApi, /const useDateTimeoutV2 = reason === 'date_timeout' && options\?\.dateTimeoutV2 === true/);
-  assert.match(nativeVideoDateApi, /action: useDateTimeoutV2 \? 'phase3:date_timeout' : 'end'/);
+  assert.match(nativeVideoDateApi, /const useDateTimeoutV2 = reason === ['"]date_timeout['"] && options\?\.dateTimeoutV2 === true/);
+  assert.match(nativeVideoDateApi, /action: useDateTimeoutV2 \? ['"]phase3:date_timeout['"] : ['"]end['"]/);
   assert.match(nativeVideoDateApi, /video_session_date_timeout_v2[\s\S]+p_idempotency_key: idempotencyKey/);
   assert.match(
     nativeVideoDateApi,
-    /payload\?\.already_ended === true \|\| payload\?\.state === 'ended' \|\| payload\?\.phase === 'ended'/,
+    /payload\?\.already_ended === true \|\| payload\?\.state === ['"]ended['"] \|\| payload\?\.phase === ['"]ended['"]/,
   );
   assert.match(
     nativeVideoDateScreen,
-    /if \(reason === 'date_timeout'\) \{\s+videoDateEndedRef\.current = false;\s+countdownCompletionKeyRef\.current = null;\s+setShowFeedback\(false\);\s+await refetchVideoSession\(\);\s+return;\s+\}/,
+    /if \(reason === ['"]date_timeout['"]\) \{\s+videoDateEndedRef\.current = false;\s+countdownCompletionKeyRef\.current = null;\s+setShowFeedback\(false\);\s+await refetchVideoSession\(\);\s+return;\s+\}/,
   );
-  assert.match(nativeVideoDateScreen, /if \(reason !== 'date_timeout'\) \{\s+emitConfirmedEndedAnalytics\(\);\s+\}/);
-  assert.match(nativeVideoDateScreen, /if \(reason === 'date_timeout'\) \{\s+emitConfirmedEndedAnalytics\(\);\s+\}/);
+  assert.match(nativeVideoDateScreen, /if \(reason !== ['"]date_timeout['"]\) \{\s+emitConfirmedEndedAnalytics\(\);\s+\}/);
+  assert.match(nativeVideoDateScreen, /if \(reason === ['"]date_timeout['"]\) \{\s+emitConfirmedEndedAnalytics\(\);\s+\}/);
 
-  const nativeDateTimeoutRecoveryIndex = nativeVideoDateScreen.indexOf("if (reason === 'date_timeout') {");
+  const nativeDateTimeoutRecoveryIndex = Math.max(
+    nativeVideoDateScreen.indexOf("if (reason === 'date_timeout') {"),
+    nativeVideoDateScreen.indexOf('if (reason === "date_timeout") {'),
+  );
   const nativeManualEndAlertIndex = nativeVideoDateScreen.indexOf("Could not end date yet", nativeDateTimeoutRecoveryIndex);
   assert.ok(nativeDateTimeoutRecoveryIndex > -1, "missing native automatic date-timeout recovery branch");
   assert.ok(
@@ -282,7 +285,7 @@ test("post-date outbox can opt into verdict v3 without changing report-only safe
   assert.match(webSurvey, /useFeatureFlag\("video_date\.outbox_v2\.submit_verdict"\)/);
   assert.match(webSurvey, /backendVersion: submitVerdictV3\.enabled \? "v3" : "v2"/);
   assert.match(webPostDateOutbox, /transition_version: item\.payload\.backendVersion \?\? "v2"/);
-  assert.match(nativePostDateOutbox, /transition_version: item\.payload\.backendVersion \?\? 'v2'/);
+  assert.match(nativePostDateOutbox, /transition_version: item\.payload\.backendVersion \?\? ['"]v2['"]/);
   assert.match(nativeVideoDateScreen, /submitVerdictV3: submitVerdictV3\.enabled/);
   assert.match(postDateVerdictEdge, /transition_version\?: "v2" \| "v3"/);
   assert.match(postDateVerdictEdge, /body\?\.transition_version === "v3"[\s\S]+submit_post_date_verdict_v3/);

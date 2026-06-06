@@ -159,7 +159,7 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(safetyRpc, /submitVideoDateSafetyReportRpc/);
   assert.match(safetyRpc, /submit_video_date_safety_report_v2/);
 
-  assert.match(webVideoDate, /useFeatureFlag\("video_date\.outbox_v2\.safety"\)/);
+  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.safety["'],?\s*\)/);
   assert.match(webVideoDate, /safetyV2=\{safetyV2\.enabled(?: \|\| safetyAlwaysOnV2\.enabled)?\}/);
   assert.match(webVideoDate, /onServerEndedAfterReport=\{handleServerEndedAfterInCallReport\}/);
   assert.match(webSafetyModal, /submitVideoDateSafetyReportRpc/);
@@ -168,7 +168,7 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(webSafetyModal, /catch \(error\)/);
   assert.match(webSafetyModal, /safetyV2 && sessionId/);
 
-  assert.match(nativeVideoDate, /useFeatureFlag\('video_date\.outbox_v2\.safety'\)/);
+  assert.match(nativeVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.safety["'],?\s*\)/);
   assert.match(nativeVideoDate, /safetyV2=\{safetyV2\.enabled(?: \|\| safetyAlwaysOnV2\.enabled)?\}/);
   assert.match(nativeVideoDate, /onServerEndedAfterReport=\{handleServerEndedAfterInCallReport\}/);
   assert.match(nativeSafetySheet, /submitVideoDateSafetyReportRpc/);
@@ -177,7 +177,7 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(nativeSafetySheet, /catch \(error\)/);
   assert.match(nativeSafetySheet, /safetyV2 && sessionId/);
 
-  assert.match(webMatchQueue, /useFeatureFlag\("video_date\.outbox_v2\.drain_match_queue"\)/);
+  assert.match(webMatchQueue, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
   assert.match(webMatchQueue, /drain_match_queue_v2/);
   assert.match(webMatchQueue, /buildVideoDateQueueDrainIdempotencyKey/);
   assert.match(webMatchQueue, /if \(error\)/);
@@ -188,16 +188,16 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(nativeEventsApi, /drain_match_queue_v2/);
   assert.match(nativeEventsApi, /buildVideoDateQueueDrainIdempotencyKey/);
   assert.match(nativeEventsApi, /catch \(error\)/);
-  assert.match(nativeLobby, /useFeatureFlag\('video_date\.outbox_v2\.drain_match_queue'\)/);
+  assert.match(nativeLobby, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
   assert.match(nativeLobby, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativePostDateSurvey, /useFeatureFlag\('video_date\.outbox_v2\.drain_match_queue'\)/);
-  assert.match(nativePostDateSurvey, /drainQueueV2\.enabled \? 'v2' : 'legacy'/);
-  assert.match(nativePostDateSurvey, /sourceAction: 'survey_queue_drain'/);
-  assert.match(nativePostDateSurvey, /sourceSurface: 'post_date_survey'/);
+  assert.match(nativePostDateSurvey, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
+  assert.match(nativePostDateSurvey, /drainQueueV2\.enabled \? ['"]v2['"] : ['"]legacy['"]/);
+  assert.match(nativePostDateSurvey, /sourceAction: ['"]survey_queue_drain['"]/);
+  assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
   assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativeNotificationDeepLink, /useFeatureFlag\('video_date\.outbox_v2\.drain_match_queue'\)/);
-  assert.match(nativeNotificationDeepLink, /sourceAction: 'notification_queued_session_rescue'/);
-  assert.match(nativeNotificationDeepLink, /sourceSurface: 'notification_deep_link'/);
+  assert.match(nativeNotificationDeepLink, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
+  assert.match(nativeNotificationDeepLink, /sourceAction: ['"]notification_queued_session_rescue['"]/);
+  assert.match(nativeNotificationDeepLink, /sourceSurface: ['"]notification_deep_link['"]/);
   assert.match(nativeNotificationDeepLink, /drainMatchQueueV2: drainQueueV2\.enabled/);
 });
 
