@@ -920,9 +920,10 @@ export function ReadyGateOverlay({
               entryAttemptId: result.entryAttemptId ?? null,
             });
 
-            const latestTruth =
-              await fetchVideoSessionDateEntryTruthCoalesced(sessionId);
-            if (isRouteableVideoDateTruth(latestTruth)) {
+            const latestTruth = retryable
+              ? await fetchVideoSessionDateEntryTruthCoalesced(sessionId)
+              : null;
+            if (retryable && isRouteableVideoDateTruth(latestTruth)) {
               clearTimeout(slowWaitTimer);
               trackNativeReadyGateEvent(
                 NativeReadyGateEvents.PREPARE_ENTRY_FAILURE,
@@ -959,7 +960,7 @@ export function ReadyGateOverlay({
               navigateWithLatency(`${source}_routeable_truth_after_failure`);
               return;
             }
-            if (isTerminalReadyGateTruth(latestTruth)) {
+            if (retryable && isTerminalReadyGateTruth(latestTruth)) {
               clearTimeout(slowWaitTimer);
               trackNativeReadyGateEvent(
                 NativeReadyGateEvents.PREPARE_ENTRY_FAILURE,
