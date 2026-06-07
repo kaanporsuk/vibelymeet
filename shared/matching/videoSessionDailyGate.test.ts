@@ -68,7 +68,7 @@ test("ready_gate + ready_b does not allow Daily room attempts", () => {
   );
 });
 
-test("ready_gate + both_ready + future expiry allows prepare but not date entry", () => {
+test("ready_gate + both_ready + future expiry allows prepare but not Daily join", () => {
   const row = {
     ended_at: null,
     state: "ready_gate",
@@ -83,7 +83,7 @@ test("ready_gate + both_ready + future expiry allows prepare but not date entry"
   assert.equal(canPrepareDailyRoomFromReadyGateTruth(row, NOW_MS), true);
 });
 
-for (const status of ["ready", "ready_a", "ready_b", "snoozed", "both_ready"] as const) {
+for (const status of ["ready", "ready_a", "ready_b", "snoozed"] as const) {
   test(`ready gate status ${status} without expiry is not routeable`, () => {
     assert.equal(
       decideVideoSessionRouteFromTruth(
@@ -116,6 +116,35 @@ for (const status of ["ready", "ready_a", "ready_b", "snoozed", "both_ready"] as
     );
   });
 }
+
+test("both_ready without provider metadata is date-owned even without Ready Gate expiry", () => {
+  assert.equal(
+    decideVideoSessionRouteFromTruth(
+      {
+        ended_at: null,
+        state: "ready_gate",
+        handshake_started_at: null,
+        ready_gate_status: "both_ready",
+        ready_gate_expires_at: null,
+      },
+      NOW_MS,
+    ),
+    "navigate_date",
+  );
+  assert.equal(
+    canAttemptDailyRoomFromVideoSessionTruth(
+      {
+        ended_at: null,
+        state: "ready_gate",
+        handshake_started_at: null,
+        ready_gate_status: "both_ready",
+        ready_gate_expires_at: null,
+      },
+      NOW_MS,
+    ),
+    false,
+  );
+});
 
 test("handshake state without provider metadata does not allow Daily room attempts", () => {
   assert.equal(
@@ -282,7 +311,7 @@ test("date-entry owner holds ready_gate + ready_b on Ready Gate", () => {
   );
 });
 
-test("date-entry owner keeps both_ready on Ready Gate until provider metadata is confirmed", () => {
+test("date-entry owner keeps both_ready on date while provider metadata is prepared", () => {
   assert.deepEqual(
     dateEntryOwnerRoute({
       ended_at: null,
@@ -293,14 +322,14 @@ test("date-entry owner keeps both_ready on Ready Gate until provider metadata is
       ready_gate_expires_at: "2026-04-24T00:33:10.000Z",
     }),
     {
-      decision: "navigate_ready",
+      decision: "navigate_date",
       canAttemptDaily: false,
-      routedTo: "ready",
+      routedTo: "date",
     },
   );
 });
 
-test("date-entry owner does not send expired both_ready to date", () => {
+test("date-entry owner keeps expired both_ready on date recovery until server terminal truth arrives", () => {
   assert.deepEqual(
     dateEntryOwnerRoute({
       ended_at: null,
@@ -310,9 +339,9 @@ test("date-entry owner does not send expired both_ready to date", () => {
       ready_gate_expires_at: "2026-04-24T00:32:59.000Z",
     }),
     {
-      decision: "stay_lobby",
+      decision: "navigate_date",
       canAttemptDaily: false,
-      routedTo: "lobby",
+      routedTo: "date",
     },
   );
 });

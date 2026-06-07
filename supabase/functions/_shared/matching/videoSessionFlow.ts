@@ -16,6 +16,10 @@ export type SwipeSessionStageResult = {
   event_id?: string;
   immediate?: boolean;
   ready_gate_status?: string;
+  /** True only when this swipe recorded a new Super Vibe row. */
+  super_vibe_consumed?: boolean;
+  /** Distinguishes reciprocal swipe sessions from fallback-created sessions such as Mystery Match. */
+  session_source?: string;
   success?: boolean;
   error?: string;
   reason?: string;

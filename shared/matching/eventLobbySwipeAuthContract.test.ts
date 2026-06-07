@@ -14,6 +14,7 @@ const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
 const nativeAuthSession = read("apps/mobile/lib/nativeAuthSession.ts");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const supabaseConfig = read("supabase/config.toml");
+const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 
 const CLIENT_SCAN_IGNORED_DIRS = new Set([
   ".expo",
@@ -81,6 +82,18 @@ test("swipe-actions routes token-aware swipes through handle_swipe_v2", () => {
   assert.match(swipeActions, /const normalizedDeckToken = typeof deck_token === "string"/);
   assert.match(swipeActions, /userClient\.rpc\("handle_swipe_v2"/);
   assert.match(swipeActions, /p_deck_token:\s*normalizedDeckToken/);
+});
+
+test("legacy tokenless handle_swipe is service-only while handle_swipe_v2 remains client-callable", () => {
+  assert.match(mutualMatchHandoffClosure, /REVOKE ALL ON FUNCTION public\.handle_swipe\(uuid, uuid, uuid, text\)[\s\S]*FROM PUBLIC, anon, authenticated/);
+  assert.match(mutualMatchHandoffClosure, /GRANT EXECUTE ON FUNCTION public\.handle_swipe\(uuid, uuid, uuid, text\)[\s\S]*TO service_role/);
+  assert.match(mutualMatchHandoffClosure, /ALTER FUNCTION public\.handle_swipe_v2\(uuid, uuid, uuid, text, text\)[\s\S]*RENAME TO handle_swipe_v2_20260607103000_actor_bound_base/);
+  assert.match(mutualMatchHandoffClosure, /v_auth_uid IS NOT NULL AND v_auth_uid IS DISTINCT FROM p_actor_id/);
+  assert.match(mutualMatchHandoffClosure, /'result', 'unauthorized'/);
+  assert.match(mutualMatchHandoffClosure, /public\.handle_swipe_v2_20260607103000_actor_bound_base/);
+  assert.match(read("supabase/validation/event_lobby_active_event_contract.sql"), /has_function_privilege\('authenticated', 'public\.handle_swipe_v2\(uuid,uuid,uuid,text,text\)', 'EXECUTE'\)/);
+  assert.match(read("supabase/validation/event_lobby_active_event_contract.sql"), /not has_function_privilege\('authenticated', 'public\.handle_swipe\(uuid,uuid,uuid,text\)', 'EXECUTE'\)/);
+  assert.match(read("supabase/validation/event_lobby_active_event_contract.sql"), /handle_swipe_v2_20260607103000_actor_bound_base/);
 });
 
 test("native auth helper refreshes near-expiry swipe tokens without bypassing the cache", () => {

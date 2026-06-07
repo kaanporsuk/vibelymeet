@@ -93,10 +93,10 @@ test("Sprint 1 canonical contract routes direct date links only when provider ro
   });
 });
 
-test("Sprint 1 canonical contract sends reload during handoff back to Ready Gate until Daily is prepared", () => {
+test("Sprint 1 canonical contract keeps both_ready handoff on date while Daily prepares", () => {
   assertDecisionParity({
     label: "both_ready handoff without provider room",
-    expectedTarget: "ready_gate",
+    expectedTarget: "date",
     truth: session({
       state: "ready_gate",
       phase: "ready_gate",
@@ -107,8 +107,8 @@ test("Sprint 1 canonical contract sends reload during handoff back to Ready Gate
       current_room_id: SESSION_ID,
       queue_status: "in_handshake",
     },
-    webPath: `/ready/${SESSION_ID}`,
-    nativePath: `/ready/${SESSION_ID}`,
+    webPath: `/date/${SESSION_ID}`,
+    nativePath: `/date/${SESSION_ID}`,
   });
 });
 
@@ -309,6 +309,41 @@ test("Sprint 1 server next-surface video routes cannot override contradictory fe
     truth: null,
     serverNextSurface: {
       action: "video_date",
+      eventId: EVENT_ID,
+      nextSessionId: SESSION_ID,
+    },
+    webPath: `/date/${SESSION_ID}`,
+    nativePath: `/date/${SESSION_ID}`,
+  });
+
+  assertDecisionParity({
+    label: "server video_date with both_ready no-provider truth stays on date owner",
+    expectedTarget: "date",
+    truth: session({
+      state: "ready_gate",
+      phase: "ready_gate",
+      ready_gate_status: "both_ready",
+    }),
+    serverNextSurface: {
+      action: "video_date",
+      eventId: EVENT_ID,
+      nextSessionId: SESSION_ID,
+    },
+    webPath: `/date/${SESSION_ID}`,
+    nativePath: `/date/${SESSION_ID}`,
+  });
+
+  assertDecisionParity({
+    label: "server ready_gate with both_ready truth yields to date owner",
+    expectedTarget: "date",
+    truth: session({
+      state: "ready_gate",
+      phase: "ready_gate",
+      ready_gate_status: "both_ready",
+      ready_gate_expires_at: "2026-05-25T12:00:30.000Z",
+    }),
+    serverNextSurface: {
+      action: "ready_gate",
       eventId: EVENT_ID,
       nextSessionId: SESSION_ID,
     },

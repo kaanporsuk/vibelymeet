@@ -136,6 +136,7 @@ test("production validation remains read-only and covers the repaired root cause
   assert.match(validation, /stale_cleanup_base_name_is_not_truncated/);
   assert.match(validation, /event_ended_terminalization_allows_stale_room_metadata_cleanup/);
   assert.match(validation, /handle_swipe_global_preflight_returns_structured_conflict/);
+  assert.match(validation, /handle_swipe_20260607103000_mutual_match_source_base/);
   assert.match(validation, /substring\(\s*def from position\('pre_swipe_global_active_session_guard' in def\)\s*\)/);
   assert.match(validation, /RETURN public\.handle_swipe_20260506090000_stale_room_base/);
   assert.match(validation, /no_nonended_expired_pre_date_room_metadata_blockers/);

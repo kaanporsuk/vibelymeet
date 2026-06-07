@@ -212,6 +212,16 @@ export function canAttemptDailyRoomFromCanonicalVideoDateTruth(
   return videoDateRouteTruthIndicatesDate(row);
 }
 
+export function videoDateRouteTruthDateOwnedAfterBothReady(
+  row: Pick<VideoDateRouteSessionTruth, "ended_at" | "phase" | "ready_gate_status" | "state"> | null,
+): boolean {
+  return Boolean(
+    row &&
+      !videoDateRouteTruthIsEnded(row) &&
+      normalizeVideoDateReadyGateStatus(row.ready_gate_status) === "both_ready",
+  );
+}
+
 export function videoDateRouteTruthReadyGateEligible(
   row: Pick<VideoDateRouteSessionTruth, "ready_gate_status" | "ready_gate_expires_at"> | null,
   nowMs: number = Date.now(),
@@ -310,6 +320,7 @@ function routeFromServerNextSurface(input: {
   fallbackEventId: string | null;
   canAttemptDaily: boolean;
   hasProviderRoom: boolean;
+  dateOwnedAfterBothReady: boolean;
   readyGateEligible: boolean;
   surveyEligible: boolean;
   truthKnown: boolean;
@@ -321,6 +332,16 @@ function routeFromServerNextSurface(input: {
   const targetId = input.surface.targetId ?? input.surface.target_id ?? null;
   switch (action) {
     case "ready_gate":
+      if (input.truthKnown && input.dateOwnedAfterBothReady) {
+        return makeDecision({
+          target: "date",
+          reason: "server_next_ready_gate_both_ready_date_owner",
+          sessionId,
+          eventId,
+          canAttemptDaily: input.canAttemptDaily,
+          hasProviderRoom: input.hasProviderRoom,
+        });
+      }
       if (input.truthKnown && !input.readyGateEligible) return null;
       return makeDecision({
         target: "ready_gate",
@@ -331,7 +352,7 @@ function routeFromServerNextSurface(input: {
         hasProviderRoom: input.hasProviderRoom,
       });
     case "video_date":
-      if (input.truthKnown && !input.canAttemptDaily) return null;
+      if (input.truthKnown && !input.canAttemptDaily && !input.dateOwnedAfterBothReady) return null;
       return makeDecision({
         target: "date",
         reason: "server_next_video_date",
@@ -408,6 +429,7 @@ export function decideCanonicalVideoDateRoute(
   const readyGateStatus = normalizeVideoDateReadyGateStatus(truth?.ready_gate_status);
   const canAttemptDaily = canAttemptDailyRoomFromCanonicalVideoDateTruth(truth);
   const hasProviderRoom = videoDateRouteTruthHasProviderRoom(truth);
+  const dateOwnedAfterBothReady = videoDateRouteTruthDateOwnedAfterBothReady(truth);
 
   if (params.serverNextSurface) {
     const serverDecision = routeFromServerNextSurface({
@@ -416,6 +438,7 @@ export function decideCanonicalVideoDateRoute(
       fallbackEventId: eventId,
       canAttemptDaily,
       hasProviderRoom,
+      dateOwnedAfterBothReady,
       readyGateEligible: truth ? videoDateRouteTruthReadyGateEligible(truth, nowMs) : false,
       surveyEligible: truth ? videoDateRouteTruthHasPostDateSurvey(truth) : false,
       truthKnown: Boolean(truth),
@@ -467,6 +490,19 @@ export function decideCanonicalVideoDateRoute(
     return makeDecision({
       target: "date",
       reason: "provider_room_date_ready",
+      sessionId,
+      eventId,
+      queueStatus,
+      readyGateStatus,
+      canAttemptDaily,
+      hasProviderRoom,
+    });
+  }
+
+  if (dateOwnedAfterBothReady) {
+    return makeDecision({
+      target: "date",
+      reason: "both_ready_provider_prepare_pending",
       sessionId,
       eventId,
       queueStatus,

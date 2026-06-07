@@ -80,7 +80,7 @@ select
 from event_cleanup;
 
 with swipe as (
-  select pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure) as def
+  select pg_get_functiondef('public.handle_swipe_20260607103000_mutual_match_source_base(uuid,uuid,uuid,text)'::regprocedure) as def
 )
 select
   'handle_swipe_global_preflight_returns_structured_conflict' as check_name,

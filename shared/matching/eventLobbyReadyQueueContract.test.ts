@@ -290,6 +290,7 @@ test("contract docs cover Ready Gate, queued-match, and one-active-session expec
 
 test("production validation is read-only catalog verification", () => {
   assert.match(validation, /pg_get_functiondef/);
+  assert.match(validation, /handle_swipe_20260607103000_mutual_match_source_base/);
   assert.match(validation, /event_lobby_participant_session:/);
   assert.match(validation, /pre_swipe_active_session_guard/);
   assert.match(validation, /pre_promotion_active_session_guard/);

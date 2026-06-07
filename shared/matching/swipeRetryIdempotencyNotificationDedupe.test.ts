@@ -13,11 +13,15 @@ const stream7MigrationPath = "supabase/migrations/20260501210000_swipe_retry_ide
 const stream8MigrationPath = "supabase/migrations/20260501224000_event_lobby_swipe_already_swiped.sql";
 const stream7Migration = read(stream7MigrationPath);
 const stream8Migration = read(stream8MigrationPath);
+const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 const mutualSessionBase = read("supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql");
 const validation = read("supabase/validation/swipe_retry_idempotency_notification_dedupe.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
+const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
+const sendNotification = read("supabase/functions/send-notification/index.ts");
 const videoSessionFlow = read("supabase/functions/_shared/matching/videoSessionFlow.ts");
 const webSwipeHook = read("src/hooks/useSwipeAction.ts");
+const webLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeActiveSessionRoutes = read("apps/mobile/lib/activeSessionRoutes.ts");
 
@@ -159,6 +163,29 @@ test("new swipe notification paths remain present only for fresh side-effect-wor
   assert.doesNotMatch(nativeActiveSessionRoutes, /eventLobbyHrefPendingVideoSession/);
 });
 
+test("queued match notification payloads stay in lobby until queue promotion opens Ready Gate", () => {
+  assert.match(swipeActions, /function queuedMatchNotificationData/);
+  assert.match(swipeActions, /const path = `\/event\/\$\{encodeURIComponent\(eventId\)\}\/lobby`/);
+  assert.match(swipeActions, /session_state: "queued"/);
+  assert.match(swipeActions, /ready_gate_status: "queued"/);
+  assert.match(swipeActions, /const queuedAction = \{ kind: "open_event_lobby", eventId: eventIdStr \}/);
+  assert.match(swipeActions, /action: queuedAction/);
+  assert.match(outboxDrainer, /if \(isObjectPayload\(row\.payload\.action\)\) requestBody\.action = row\.payload\.action/);
+  assert.match(sendNotification, /const baseAction = requestedAction \?\? deriveNotificationAction\(category, data\)/);
+  assert.match(sendNotification, /const actionLink = pathFromAction\(baseAction\)/);
+  assert.doesNotMatch(swipeActions, /Your video date is ready/);
+});
+
+test("Super Vibe consumption and reciprocal swipe session source are returned by backend truth", () => {
+  assert.match(mutualMatchHandoffClosure, /ADD COLUMN IF NOT EXISTS session_source text/);
+  assert.match(mutualMatchHandoffClosure, /session_source = 'reciprocal_swipe'/);
+  assert.match(mutualMatchHandoffClosure, /'super_vibe_consumed', true/);
+  assert.match(videoSessionFlow, /super_vibe_consumed\?: boolean/);
+  assert.match(videoSessionFlow, /session_source\?: string/);
+  assert.match(webLobby, /result\.super_vibe_consumed === true/);
+  assert.match(nativeLobby, /normalizedEnvelope\.super_vibe_consumed === true/);
+});
+
 test("shared and client swipe contracts tolerate already_swiped without deck advancement or noisy toasts", () => {
   for (const field of [
     "outcome",
@@ -181,6 +208,9 @@ test("shared and client swipe contracts tolerate already_swiped without deck adv
 test("production validation is read-only catalog verification", () => {
   assert.match(validation, /pg_get_functiondef/);
   assert.match(validation, /has_function_privilege/);
+  assert.match(validation, /handle_swipe_20260607103000_mutual_match_source_base/);
+  assert.match(validation, /renamed_base_functions_are_not_client_executable/);
+  assert.doesNotMatch(validation, /pg_get_functiondef\('public\.handle_swipe\(uuid,uuid,uuid,text\)'::regprocedure\)/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(validation), /\b(insert|update|delete|truncate|alter|drop|create)\b/i);
 });
 

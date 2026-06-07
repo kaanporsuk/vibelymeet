@@ -245,7 +245,7 @@ test("shared canonical routing consumes final post-date next surfaces consistent
     },
     serverNextSurface: { action: "video_date", next_session_id: "next-date", event_id: "event" },
     nowMs: Date.parse("2026-05-25T12:00:00.000Z"),
-  }).target, "ready_gate");
+  }).target, "date");
 });
 
 test("Sprint 5 follow-up emits safety-report events for immutable verdict retries", () => {
