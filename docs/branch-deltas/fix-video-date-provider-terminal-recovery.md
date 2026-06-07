@@ -2,6 +2,7 @@
 
 Date: 2026-06-07
 Merged: PR #1218 at `a7b8cb7dc05a47262a4c7c7dcd31e5972ed4d0c4`
+Docs synced: PR #1219 at `849fc3ed5bbec87cf8575fd217a58e8ed3db9834`, PR #1220 at `6d55af0a9d55c87133a0a2207126c3dce51cb64c`
 
 ## Purpose
 
@@ -51,6 +52,13 @@ Before claiming the fix is live for all users:
 - A fresh disposable two-user production run must complete match -> Ready Gate -> same Daily room -> stable provider-backed bilateral media/date -> date end -> survey completion.
 
 Also verify short leave/rejoin and prolonged absence behavior.
+
+## Session Learnings
+
+- PR #1219 and PR #1220 were documentation/guidance syncs, not product-code fixes.
+- The implementation contract remained aligned across web, native/mobile, and Supabase cloud after the CTO audit; the concrete issue was stale operator guidance.
+- Parent repo `/Users/kaanporsuk/Documents/Vibely` has no remote and tracks `Git/vibelymeet` as a nested gitlink. Future handoffs must verify it with `git ls-tree HEAD Git/vibelymeet` instead of preserving a static local parent commit hash.
+- Ignored generated Expo state (`apps/mobile/.expo`) is local clutter, not release evidence.
 
 ## Verification
 
