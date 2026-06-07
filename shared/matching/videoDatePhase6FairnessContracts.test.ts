@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql"),
   "utf8",
 );
+const mutualMatchHandoffClosure = readFileSync(
+  join(root, "supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql"),
+  "utf8",
+);
 const permissionHardeningMigration = readFileSync(
   join(root, "supabase/migrations/20260602020000_permission_flow_definitive_hardening.sql"),
   "utf8",
@@ -145,6 +149,16 @@ test("queue fairness picker keeps heartbeat freshness authoritative at drain tim
     drain.indexOf("FOR UPDATE OF vs SKIP LOCKED") < drain.indexOf("v_self_runtime.last_heartbeat_at"),
     "heartbeat freshness must be rechecked after the queue row is locked",
   );
+});
+
+test("queue promotion notifications are auxiliary and cannot poison promotion commits", () => {
+  assert.match(mutualMatchHandoffClosure, /ALTER FUNCTION public\.video_date_outbox_enqueue_v2\(uuid, text, jsonb, text, timestamptz\)[\s\S]*RENAME TO video_date_outbox_enqueue_v2_20260607103000_failsoft_base/);
+  assert.match(mutualMatchHandoffClosure, /CREATE OR REPLACE FUNCTION public\.video_date_outbox_enqueue_v2/);
+  assert.match(mutualMatchHandoffClosure, /EXCEPTION\s+WHEN OTHERS THEN/);
+  assert.match(mutualMatchHandoffClosure, /'ok', false/);
+  assert.match(mutualMatchHandoffClosure, /'error', 'outbox_enqueue_failed'/);
+  assert.match(mutualMatchHandoffClosure, /'auxiliary', true/);
+  assert.match(mutualMatchHandoffClosure, /'retryable', SQLSTATE IS DISTINCT FROM '42501'/);
 });
 
 test("operator surfaces include the new queue fairness metric", () => {

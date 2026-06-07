@@ -2789,11 +2789,13 @@ const EventLobby = () => {
       }
 
       rollbackOptimisticSwipeOnException = false;
-      if (code === "super_vibe_sent") {
+      if (result.super_vibe_consumed === true || code === "super_vibe_sent") {
         setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
         trackEvent("super_vibe_used", {
           event_id: eventId,
           target_present: true,
+          consumed_source:
+            result.super_vibe_consumed === true ? "backend_flag" : "legacy_outcome",
         });
       }
 

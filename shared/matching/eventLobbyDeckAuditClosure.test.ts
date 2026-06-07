@@ -27,6 +27,7 @@ function sectionBetween(source: string, startNeedle: string, endNeedle: string):
 }
 
 const migration = read("supabase/migrations/20260601213000_event_lobby_deck_audit_closure.sql");
+const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const adapters = read("supabase/functions/_shared/eventProfileAdapters.ts");
@@ -74,6 +75,13 @@ test("Mystery Match delegates candidate choice to canonical deck eligibility", (
   assert.match(scheduledMysteryDelegateSection, /public\.get_event_lobby_active_state\(p_event_id, now\(\)\)/);
   assert.match(scheduledMysteryDelegateSection, /RETURN public\.find_mystery_match_20260501180000_active_base\(/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.find_mystery_match_20260502083000_active_base\(uuid, uuid\)[\s\S]+TO service_role/);
+});
+
+test("Mystery Match sessions are durably labelled separately from reciprocal swipes", () => {
+  assert.match(mutualMatchHandoffClosure, /ADD COLUMN IF NOT EXISTS session_source text/);
+  assert.match(mutualMatchHandoffClosure, /session_source = 'mystery_match'/);
+  assert.match(mutualMatchHandoffClosure, /'session_source', 'mystery_match'/);
+  assert.match(mutualMatchHandoffClosure, /find_mystery_match_20260607103000_session_source_base/);
 });
 
 test("deck v3 filters returned cards through swipe-authority eligibility and emits precise empty reasons", () => {

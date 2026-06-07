@@ -31,17 +31,17 @@ from deck;
 
 with swipe as (
   select
-    pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure) as def,
+    pg_get_functiondef('public.handle_swipe_20260607103000_mutual_match_source_base(uuid,uuid,uuid,text)'::regprocedure) as def,
     p.prosecdef,
     p.proconfig
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
-    and p.proname = 'handle_swipe'
+    and p.proname = 'handle_swipe_20260607103000_mutual_match_source_base'
     and pg_get_function_identity_arguments(p.oid) = 'p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text'
 )
 select
-  'handle_swipe_pre_mutation_active_session_conflict_guard' as check_name,
+  'handle_swipe_preserved_base_pre_mutation_active_session_conflict_guard' as check_name,
   count(*) = 1
   and bool_and(prosecdef)
   and bool_and(proconfig @> array['search_path=public'])
@@ -90,7 +90,8 @@ select
 select
   'public_contract_grants_preserved' as check_name,
   has_function_privilege('authenticated', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.handle_swipe_v2(uuid,uuid,uuid,text,text)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.promote_ready_gate_if_eligible(uuid,uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.drain_match_queue(uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')

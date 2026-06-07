@@ -30,6 +30,8 @@ type HandleSwipeSessionPayload = {
   existing_swipe_type?: string;
   requested_swipe_type?: string;
   message?: string;
+  super_vibe_consumed?: boolean;
+  session_source?: string;
 };
 
 /** Deep link + OneSignal `data` for session-stage notifications (ready gate / video date entry). */
@@ -46,6 +48,18 @@ function sessionStageNotificationData(eventId: string, videoSessionId: string): 
   };
 }
 
+function queuedMatchNotificationData(eventId: string, videoSessionId: string): Record<string, string> {
+  const path = `/event/${encodeURIComponent(eventId)}/lobby`;
+  return {
+    ...sessionStageNotificationData(eventId, videoSessionId),
+    url: path,
+    deep_link: path,
+    session_state: "queued",
+    ready_gate_status: "queued",
+    queued: "true",
+  };
+}
+
 async function enqueueNotificationOutbox(
   serviceClient: any,
   args: {
@@ -57,6 +71,7 @@ async function enqueueNotificationOutbox(
     dedupeKey: string;
     sessionId?: string | null;
     eventId: string;
+    action?: Record<string, unknown>;
     actorId: string;
     targetId: string;
     swipeType: string;
@@ -74,6 +89,7 @@ async function enqueueNotificationOutbox(
       category: args.category,
       title: args.title,
       body: args.body,
+      ...(args.action ? { action: args.action } : {}),
       data: {
         ...args.data,
         recipient_id: args.userId,
@@ -559,17 +575,19 @@ serve(async (req) => {
         }
         // No email: legacy `new_match` template implied persistent chat + /matches — incorrect for session stage.
       } else if (result.result === "match_queued" && sessionId) {
-        const queuedPayload = sessionStageNotificationData(eventIdStr, sessionId);
+        const queuedPayload = queuedMatchNotificationData(eventIdStr, sessionId);
+        const queuedAction = { kind: "open_event_lobby", eventId: eventIdStr };
         const queuedBody = {
           category: "ready_gate" as const,
           data: queuedPayload,
+          action: queuedAction,
         };
         try {
           await enqueueNotificationOutbox(serviceClient, {
             userId: String(target_id),
             ...queuedBody,
-            title: "Your video date is ready 📹",
-            body: "Someone mutual-vibed with you — open your Ready Gate to join.",
+            title: "Stay in the lobby",
+            body: "You matched. Ready Gate will open when you are both available.",
             dedupeKey: `swipe:${eventIdStr}:${sessionId}:match_queued:${target_id}`,
             sessionId,
             eventId: eventIdStr,
@@ -619,8 +637,8 @@ serve(async (req) => {
           await enqueueNotificationOutbox(serviceClient, {
             userId: actorId,
             ...queuedBody,
-            title: "Stay in the lobby 💚",
-            body: "You’re matched — we’ll open Ready Gate when you’re both free in this event.",
+            title: "Stay in the lobby",
+            body: "You matched. Ready Gate will open when you are both available.",
             dedupeKey: `swipe:${eventIdStr}:${sessionId}:match_queued:${actorId}`,
             sessionId,
             eventId: eventIdStr,

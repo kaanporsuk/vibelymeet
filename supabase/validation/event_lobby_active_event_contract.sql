@@ -155,8 +155,12 @@ select
   and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
     not like '%INSERT INTO public.video_sessions%'
   and pg_get_functiondef('public.handle_swipe_v2(uuid,uuid,uuid,text,text)'::regprocedure)
-    like '%public.event_deck_validate_presented_card%'
+    like '%v_auth_uid IS NOT NULL AND v_auth_uid IS DISTINCT FROM p_actor_id%'
   and pg_get_functiondef('public.handle_swipe_v2(uuid,uuid,uuid,text,text)'::regprocedure)
+    like '%public.handle_swipe_v2_20260607103000_actor_bound_base%'
+  and pg_get_functiondef('public.handle_swipe_v2_20260607103000_actor_bound_base(uuid,uuid,uuid,text,text)'::regprocedure)
+    like '%public.event_deck_validate_presented_card%'
+  and pg_get_functiondef('public.handle_swipe_v2_20260607103000_actor_bound_base(uuid,uuid,uuid,text,text)'::regprocedure)
     like '%public.handle_swipe_20260601183000_deck_authority_base%'
   and pg_get_functiondef('public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)'::regprocedure)
     like '%public.get_event_lobby_active_state(p_event_id, now())%'
@@ -245,7 +249,8 @@ select
 select
   'event_lobby_public_rpcs_client_executable' as check_name,
   has_function_privilege('authenticated', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
+  and has_function_privilege('authenticated', 'public.handle_swipe_v2(uuid,uuid,uuid,text,text)', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.find_mystery_match(uuid,uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.drain_match_queue(uuid)', 'EXECUTE')
   as ok;

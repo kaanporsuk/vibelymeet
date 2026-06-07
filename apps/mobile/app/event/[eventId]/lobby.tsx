@@ -3899,6 +3899,7 @@ export default function EventLobbyScreen() {
         showSwipeToast(outcome, { openingReadyGate });
       }
       if (
+        normalizedEnvelope.super_vibe_consumed === true ||
         outcome === "super_vibe_sent" ||
         outcome === "limit_reached" ||
         outcome === "match_queued"
