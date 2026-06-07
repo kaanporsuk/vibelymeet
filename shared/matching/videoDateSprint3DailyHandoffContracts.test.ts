@@ -24,18 +24,18 @@ const prepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
 const phase8Certification = read("shared/matching/videoDatePhase8Certification.ts");
 const phase8Script = read("scripts/phase8-certification.ts");
 
-test("Sprint 3 server entry path verifies provider room before token minting and confirms startability in prepare_date_entry", () => {
+test("Sprint 3 server entry path route-confirms before provider work and verifies provider room before token minting", () => {
   const prepareBlock = dailyRoom.match(/if \(action === "prepare_date_entry"\) \{[\s\S]+?\/\/ ── ACTION:/)?.[0] ?? "";
   assert.match(prepareBlock, /const roomProof = await ensureVideoDateProviderRoomForToken/);
   assert.match(prepareBlock, /const token = await createMeetingToken/);
   assert.match(prepareBlock, /confirmVideoDateEntryPrepared/);
   assert.ok(
-    prepareBlock.indexOf("ensureVideoDateProviderRoomForToken") < prepareBlock.indexOf("createMeetingToken"),
-    "provider room proof must precede token minting",
+    prepareBlock.indexOf("confirmVideoDateEntryPrepared") < prepareBlock.indexOf("ensureVideoDateProviderRoomForToken"),
+    "route confirmation must precede outbound Daily provider work",
   );
   assert.ok(
-    prepareBlock.indexOf("createMeetingToken") < prepareBlock.indexOf("confirmVideoDateEntryPrepared"),
-    "the client receives a token only after room proof and final route confirmation",
+    prepareBlock.indexOf("ensureVideoDateProviderRoomForToken") < prepareBlock.indexOf("createMeetingToken"),
+    "provider room proof must precede token minting",
   );
   assert.match(prepareBlock, /provider_verify_skipped/);
   assert.match(prepareBlock, /daily_room_verified_at/);

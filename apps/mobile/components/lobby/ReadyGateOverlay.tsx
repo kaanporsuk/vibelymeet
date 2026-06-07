@@ -153,6 +153,18 @@ function isTerminalReadyGateTruth(vs: VideoSessionDateEntryTruth): boolean {
   );
 }
 
+function isRouteableVideoDateTruth(vs: VideoSessionDateEntryTruth): boolean {
+  if (!vs || isTerminalReadyGateTruth(vs)) return false;
+  return (
+    vs.state === 'handshake' ||
+    vs.state === 'date' ||
+    vs.phase === 'handshake' ||
+    vs.phase === 'date' ||
+    vs.handshake_started_at !== null ||
+    vs.date_started_at !== null
+  );
+}
+
 function isReadyGateTransitionTimeoutSignal(input: {
   code?: string | null;
   errorCode?: string | null;
@@ -897,39 +909,45 @@ export function ReadyGateOverlay({
               entryAttemptId: result.entryAttemptId ?? null,
             });
 
-            if (exhausted) {
-              clearTimeout(slowWaitTimer);
-              void emitNativeVideoDateClientStuckState({
-                sessionId,
-                eventName: 'prepare_date_entry_failed',
-                payload: {
-                  source_surface: 'ready_gate_overlay',
-                  source_action: 'prepare_entry_failed_no_nav',
-                  reason_code: result.code,
-                  code: result.code,
-                  http_status: result.httpStatus ?? undefined,
-                  retry_after_ms: result.retryAfterMs ?? undefined,
-                  retryable,
-                  attempt: attempt + 1,
-                  attempt_count: attempt + 1,
-                  exhausted,
-                  entry_attempt_id: result.entryAttemptId ?? undefined,
-                  video_date_trace_id: result.entryAttemptId ?? undefined,
-                },
-              });
-              setIsTransitioning(false);
-              setPrepareEntryStatus('failed');
-              setPrepareEntryFailure({
-                code: result.code,
-                retryable,
-                httpStatus: result.httpStatus,
-              });
-              prepareEntryHandoffStartedRef.current = false;
-              return;
-            }
-
             const latestTruth =
               await fetchVideoSessionDateEntryTruthCoalesced(sessionId);
+            if (isRouteableVideoDateTruth(latestTruth)) {
+              clearTimeout(slowWaitTimer);
+              trackNativeReadyGateEvent(
+                NativeReadyGateEvents.PREPARE_ENTRY_FAILURE,
+                {
+                  source,
+                  source_action: 'prepare_entry_routeable_truth_after_failure',
+                  code: result.code,
+                  error_code: result.code,
+                  reason: 'canonical_truth_routeable',
+                  httpStatus: result.httpStatus ?? null,
+                  retryable: false,
+                  terminal: false,
+                  attempt: attempt + 1,
+                  attempt_count: attempt + 1,
+                  latency_ms: Math.max(0, Date.now() - observedAtMs),
+                  ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                  vs_state: latestTruth?.state ?? null,
+                  vs_phase: latestTruth?.phase ?? null,
+                  daily_room_name: latestTruth?.daily_room_name ?? null,
+                },
+              );
+              rcBreadcrumb(
+                RC_CATEGORY.readyGate,
+                'prepare_entry_routeable_truth_after_failure',
+                {
+                  event_id: eventId,
+                  session_id: sessionId,
+                  source,
+                  ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                  vs_state: latestTruth?.state ?? null,
+                  vs_phase: latestTruth?.phase ?? null,
+                },
+              );
+              navigateWithLatency(`${source}_routeable_truth_after_failure`);
+              return;
+            }
             if (isTerminalReadyGateTruth(latestTruth)) {
               clearTimeout(slowWaitTimer);
               trackNativeReadyGateEvent(
@@ -971,6 +989,37 @@ export function ReadyGateOverlay({
                 READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
                 'info',
               );
+              return;
+            }
+
+            if (exhausted) {
+              clearTimeout(slowWaitTimer);
+              void emitNativeVideoDateClientStuckState({
+                sessionId,
+                eventName: 'prepare_date_entry_failed',
+                payload: {
+                  source_surface: 'ready_gate_overlay',
+                  source_action: 'prepare_entry_failed_no_nav',
+                  reason_code: result.code,
+                  code: result.code,
+                  http_status: result.httpStatus ?? undefined,
+                  retry_after_ms: result.retryAfterMs ?? undefined,
+                  retryable,
+                  attempt: attempt + 1,
+                  attempt_count: attempt + 1,
+                  exhausted,
+                  entry_attempt_id: result.entryAttemptId ?? undefined,
+                  video_date_trace_id: result.entryAttemptId ?? undefined,
+                },
+              });
+              setIsTransitioning(false);
+              setPrepareEntryStatus('failed');
+              setPrepareEntryFailure({
+                code: result.code,
+                retryable,
+                httpStatus: result.httpStatus,
+              });
+              prepareEntryHandoffStartedRef.current = false;
               return;
             }
 

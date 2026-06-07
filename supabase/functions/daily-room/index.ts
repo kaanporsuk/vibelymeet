@@ -3345,88 +3345,13 @@ serve(async (req) => {
           });
         }
 
-        // Provider-idempotent prepare-entry contract: video_date_transition('prepare_entry')
-        // validates the row without making it routeable, then this function uses
-        // a deterministic room name, verifies/recreates provider-side room truth
-        // before token issuance, treats Daily "already exists" as success, and
-        // writes the same room_name/room_url values idempotently. Holding a DB
-        // advisory lock across outbound Daily HTTP would require a long-lived DB
-        // transaction from the Edge Function, so the bounded safe contract is
-        // deterministic provider idempotency plus same-value DB writes.
-        const roomStartedAt = Date.now();
-        const roomProof = await ensureVideoDateProviderRoomForToken({
-          serviceClient,
-          action: actionName,
-          sessionId,
-          userId: user.id,
-          session: sessionForLog,
-          corsHeaders,
-          requestContext,
-          entryAttemptId,
-          videoDateTraceId,
-        });
-        if (!roomProof.ok) {
-          return roomProof.response;
-        }
-        const {
-          roomName,
-          roomUrl,
-          reusedRoom,
-          providerRoomRecreated,
-          providerRoomRecovered,
-          providerVerifySkipped,
-          providerVerifyReason,
-          dailyRoomVerifiedAt,
-          dailyRoomExpiresAt,
-        } = roomProof;
-        timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
-
-        const tokenStartedAt = Date.now();
-        const phaseBoundedTokens = await isClientFeatureFlagEnabled(
-          serviceClient,
-          "video_date.daily_token_refresh_v2",
-          user.id,
-        );
-        const tokenWindow = resolveVideoDateMeetingTokenWindow({
-          session: sessionForLog as VideoDateRoomGateSession,
-          nowMs: tokenStartedAt,
-          dailyRoomExpiresAt,
-          phaseBoundedTokens,
-        });
-        const tokenExpiresAt = tokenWindow.expiresAtIso;
-        const token = await createMeetingToken(
-          roomName,
-          user.id,
-          tokenWindow.ttlSeconds,
-          undefined,
-          { ejectAtTokenExp: true },
-        );
-        timings.token_ms = Date.now() - tokenStartedAt;
-        await recordVideoDateProviderObservability({
-          serviceClient,
-          operation: "create_date_room_token_issued",
-          outcome: "success",
-          reasonCode: "token_issued",
-          latencyMs: timings.token_ms,
-          eventId: sessionForLog.event_id ?? null,
-          actorId: user.id,
-          sessionId,
-          action: actionName,
-          entryAttemptId,
-          videoDateTraceId,
-          roomName,
-          detail: {
-            provider_room_reused: reusedRoom,
-            provider_room_recreated: providerRoomRecreated,
-            provider_room_recovered: providerRoomRecovered,
-            provider_verify_skipped: providerVerifySkipped,
-            provider_verify_reason: providerVerifyReason,
-            daily_room_verified_at: dailyRoomVerifiedAt,
-            daily_room_expires_at: dailyRoomExpiresAt,
-            token_ttl_seconds: tokenWindow.ttlSeconds,
-            token_expiry_reason: tokenWindow.reason,
-          },
-        });
+        // Durable entry contract: once both participants are ready and the
+        // server owns deterministic room identity, persist routeable handshake
+        // state before outbound provider work. Slow Daily verification/token
+        // minting must not leave clients stranded in Ready Gate until cleanup
+        // terminalizes the session.
+        const roomName = preparePayload.daily_room_name ?? videoDateRoomNameForSession(sessionId);
+        const roomUrl = preparePayload.daily_room_url ?? videoDateRoomUrlForName(roomName);
         const confirmStartedAt = Date.now();
         const { data: confirmPayload, error: confirmError } = await confirmVideoDateEntryPrepared(serviceClient, {
           sessionId,
@@ -3435,8 +3360,6 @@ serve(async (req) => {
           entryAttemptId,
         });
         timings.confirm_prepare_ms = Date.now() - confirmStartedAt;
-        timings.total_ms = Date.now() - totalStartedAt;
-        timings.response_ready_ms = timings.total_ms;
         if (confirmError || confirmPayload?.success !== true) {
           const code = confirmPayload?.code ?? (confirmError ? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN");
           return createDateRoomRejectResponse({
@@ -3466,13 +3389,94 @@ serve(async (req) => {
           ready_gate_expires_at: confirmPayload.ready_gate_expires_at ?? null,
         };
 
+        // Provider-idempotent room/token contract: with route state now durable,
+        // verify/recreate provider-side room truth before token issuance, treat
+        // Daily "already exists" as success, and write the same room_name/room_url
+        // values idempotently through the already-confirmed session.
+        const roomStartedAt = Date.now();
+        const roomProof = await ensureVideoDateProviderRoomForToken({
+          serviceClient,
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          session: sessionForLog,
+          corsHeaders,
+          requestContext,
+          entryAttemptId,
+          videoDateTraceId,
+        });
+        if (!roomProof.ok) {
+          return roomProof.response;
+        }
+        const {
+          roomName: providerRoomName,
+          roomUrl: providerRoomUrl,
+          reusedRoom,
+          providerRoomRecreated,
+          providerRoomRecovered,
+          providerVerifySkipped,
+          providerVerifyReason,
+          dailyRoomVerifiedAt,
+          dailyRoomExpiresAt,
+        } = roomProof;
+        timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
+
+        const tokenStartedAt = Date.now();
+        const phaseBoundedTokens = await isClientFeatureFlagEnabled(
+          serviceClient,
+          "video_date.daily_token_refresh_v2",
+          user.id,
+        );
+        const tokenWindow = resolveVideoDateMeetingTokenWindow({
+          session: sessionForLog as VideoDateRoomGateSession,
+          nowMs: tokenStartedAt,
+          dailyRoomExpiresAt,
+          phaseBoundedTokens,
+        });
+        const tokenExpiresAt = tokenWindow.expiresAtIso;
+        const token = await createMeetingToken(
+          providerRoomName,
+          user.id,
+          tokenWindow.ttlSeconds,
+          undefined,
+          { ejectAtTokenExp: true },
+        );
+        timings.token_ms = Date.now() - tokenStartedAt;
+        await recordVideoDateProviderObservability({
+          serviceClient,
+          operation: "create_date_room_token_issued",
+          outcome: "success",
+          reasonCode: "token_issued",
+          latencyMs: timings.token_ms,
+          eventId: sessionForLog.event_id ?? null,
+          actorId: user.id,
+          sessionId,
+          action: actionName,
+          entryAttemptId,
+          videoDateTraceId,
+          roomName: providerRoomName,
+          detail: {
+            provider_room_reused: reusedRoom,
+            provider_room_recreated: providerRoomRecreated,
+            provider_room_recovered: providerRoomRecovered,
+            provider_verify_skipped: providerVerifySkipped,
+            provider_verify_reason: providerVerifyReason,
+            daily_room_verified_at: dailyRoomVerifiedAt,
+            daily_room_expires_at: dailyRoomExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
+          },
+        });
+        timings.total_ms = Date.now() - totalStartedAt;
+        timings.response_ready_ms = timings.total_ms;
+
         console.log(JSON.stringify({
           event: "prepare_date_entry_ok",
           session_id: sessionId,
           user_id: user.id,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
-          room_name: roomName,
+          room_name: providerRoomName,
           reused_room: reusedRoom,
           provider_room_recreated: providerRoomRecreated,
           provider_room_recovered: providerRoomRecovered,
@@ -3490,8 +3494,8 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: true,
-            room_name: roomName,
-            room_url: roomUrl,
+            room_name: providerRoomName,
+            room_url: providerRoomUrl,
             token,
             token_expires_at: tokenExpiresAt,
             token_ttl_seconds: tokenWindow.ttlSeconds,
