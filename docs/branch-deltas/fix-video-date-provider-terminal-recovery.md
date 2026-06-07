@@ -1,6 +1,7 @@
 # Branch Delta: Video Date Provider-Terminal Recovery
 
 Date: 2026-06-07
+Merged: PR #1218 at `a7b8cb7dc05a47262a4c7c7dcd31e5972ed4d0c4`
 
 ## Purpose
 
