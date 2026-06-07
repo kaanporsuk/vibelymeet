@@ -167,13 +167,21 @@ test("Sprint 4 Daily joined confirmation failures do not create or block survey 
   const webJoinedBlock = sourceBlock(webCall, "void markDailyJoinedWithBackoff({", 7_000);
   assert.match(webJoinedBlock, /daily_join_confirmation_failed/);
   assert.match(webJoinedBlock, /emitWebVideoDateClientStuckState/);
+  assert.match(
+    webJoinedBlock,
+    /if \(terminalSurvey\) \{[\s\S]{0,180}onTerminalSurveyTruth\?\.\(/,
+  );
   assert.doesNotMatch(webJoinedBlock, /openPostDateSurvey|setShowFeedback\(true\)|surveyOpenedRef/);
 
   const nativeJoinedBlock = sourceBlock(nativeDate, "void markDailyJoinedWithBackoff({", 7_000);
   assert.match(nativeJoinedBlock, /daily_join_confirmation_failed/);
   assert.match(nativeJoinedBlock, /emitNativeVideoDateClientStuckState/);
   assert.match(nativeJoinedBlock, /refetchVideoSession\(\)/);
-  assert.doesNotMatch(nativeJoinedBlock, /openNativePostDateSurveyFromTerminalTruth|setShowFeedback\(true\)|surveyOpenedRef/);
+  assert.match(
+    nativeJoinedBlock,
+    /if \(terminalSurvey\) \{[\s\S]{0,180}openNativePostDateSurveyFromTerminalTruth/,
+  );
+  assert.doesNotMatch(nativeJoinedBlock, /setShowFeedback\(true\)|surveyOpenedRef/);
 });
 
 test("Sprint 4 duplicate web start attempts wait for the real in-flight result", () => {

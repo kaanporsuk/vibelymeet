@@ -20,6 +20,12 @@ import {
 } from '@/lib/videoDatePushPreload';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
+import {
+  videoDateLifecycleRpcCode,
+  videoDateLifecycleRpcIndicatesTerminalStop,
+  videoDateLifecycleRpcIndicatesTerminalSurvey,
+  videoDateLifecycleRpcRetryable,
+} from '@clientShared/matching/videoDateLifecycleRpc';
 import { videoDateStartSnapshotToDateEntryTruth } from '@clientShared/matching/videoDateStartSnapshot';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
@@ -816,13 +822,21 @@ export async function enterHandshake(sessionId: string): Promise<EnterHandshakeR
     return { ok: false, code: error.code ?? 'RPC_ERROR', message: error.message, retryable: true };
   }
 
-  const payload = data as { success?: boolean; code?: string; error?: string; retryable?: boolean } | null;
+  const payload =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
   if (payload && payload.success === false) {
+    const code = videoDateLifecycleRpcCode(payload) ?? undefined;
     return {
       ok: false,
-      code: payload.code,
-      message: payload.error,
-      retryable: payload.retryable === true,
+      code,
+      message: typeof payload.error === 'string' ? payload.error : code,
+      retryable:
+        videoDateLifecycleRpcIndicatesTerminalSurvey(payload) ||
+        videoDateLifecycleRpcIndicatesTerminalStop(payload)
+          ? false
+          : videoDateLifecycleRpcRetryable(payload) === true,
     };
   }
 
@@ -930,38 +944,42 @@ export async function syncVideoDateReconnect(sessionId: string): Promise<SyncRec
     error: error ? { code: error.code, message: error.message } : null,
   });
   if (error) return null;
-  const p = data as {
-    success?: boolean;
-    code?: string | null;
-    error?: string | null;
-    retryable?: boolean;
-    reconnect_grace_ends_at?: string | null;
-    ended?: boolean;
-    ended_reason?: string | null;
-    partner_marked_away?: boolean;
-  } | null;
+  const p =
+    data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null;
   if (p?.success === false) {
+    const code = videoDateLifecycleRpcCode(p);
+    const terminalStop =
+      videoDateLifecycleRpcIndicatesTerminalSurvey(p) ||
+      videoDateLifecycleRpcIndicatesTerminalStop(p);
     vdbg('sync_reconnect_result', {
       sessionId,
       outcome: 'rpc_error',
-      code: p.code ?? null,
-      retryable: p.retryable === true,
-      error: p.error ?? null,
+      code,
+      retryable: videoDateLifecycleRpcRetryable(p) === true,
+      error: typeof p.error === 'string' ? p.error : null,
     });
-    if (p.code === 'SESSION_ENDED') {
+    if (terminalStop) {
       return {
         reconnect_grace_ends_at: null,
         ended: true,
-        ended_reason: p.ended_reason ?? 'session_ended',
+        ended_reason:
+          typeof p.ended_reason === 'string'
+            ? p.ended_reason
+            : 'session_ended',
         partner_marked_away: false,
       };
     }
     return null;
   }
   return {
-    reconnect_grace_ends_at: p?.reconnect_grace_ends_at ?? null,
+    reconnect_grace_ends_at:
+      typeof p?.reconnect_grace_ends_at === 'string'
+        ? p.reconnect_grace_ends_at
+        : null,
     ended: p?.ended === true,
-    ended_reason: p?.ended_reason ?? null,
+    ended_reason: typeof p?.ended_reason === 'string' ? p.ended_reason : null,
     partner_marked_away: p?.partner_marked_away === true,
   };
 }
@@ -1101,8 +1119,16 @@ export async function endVideoDate(
       return data;
     },
     isSuccess: (data) => {
-      const payload = data as { success?: boolean; state?: string; phase?: string; already_ended?: boolean } | null;
-      if (payload?.success === false) return false;
+      const payload =
+        data && typeof data === 'object' && !Array.isArray(data)
+          ? (data as Record<string, unknown>)
+          : null;
+      if (payload?.success === false) {
+        return (
+          videoDateLifecycleRpcIndicatesTerminalSurvey(payload) ||
+          videoDateLifecycleRpcIndicatesTerminalStop(payload)
+        );
+      }
       if (!useDateTimeoutV2) return true;
       return payload?.already_ended === true || payload?.state === 'ended' || payload?.phase === 'ended';
     },

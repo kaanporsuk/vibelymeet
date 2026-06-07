@@ -90,6 +90,12 @@ import {
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
 import {
+  videoDateLifecycleRpcCode,
+  videoDateLifecycleRpcIndicatesTerminalStop,
+  videoDateLifecycleRpcIndicatesTerminalSurvey,
+  videoDateLifecycleRpcRetryable,
+} from "@clientShared/matching/videoDateLifecycleRpc";
+import {
   adviseVideoDateTokenRecovery,
   adviseVideoSessionTruthRecovery,
 } from "@clientShared/matching/videoDateRecoveryAdvisor";
@@ -2315,20 +2321,21 @@ export default function VideoDateScreen() {
           data && typeof data === 'object' && !Array.isArray(data)
             ? (data as Record<string, unknown>)
             : null;
-        if (
-          payload?.terminal === true ||
-          payload?.error === 'session_ended' ||
-          payload?.provider_presence_terminal === true
-        ) {
+        const terminalSurvey =
+          videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+        const terminalStop =
+          terminalSurvey ||
+          videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
+          payload?.provider_presence_terminal === true;
+        if (terminalStop) {
           clearDailyAliveHeartbeatTimer(
-            payload.error === 'session_ended'
+            videoDateLifecycleRpcCode(payload) === 'session_ended'
               ? 'server_session_ended'
-              : 'provider_presence_terminal',
+              : payload?.provider_presence_terminal === true
+                ? 'provider_presence_terminal'
+                : 'server_terminal_truth',
           );
-          if (
-            payload.error === 'session_ended' ||
-            payload.queue_status === 'in_survey'
-          ) {
+          if (terminalSurvey) {
             void openNativePostDateSurveyFromTerminalTruth(
               'daily_alive_terminal_survey_truth',
             );
@@ -10251,13 +10258,18 @@ export default function VideoDateScreen() {
               "mark_video_date_daily_joined",
               joinedProof.args,
             );
-            const payload = joinedData as {
-              ok?: boolean;
-              error?: string | null;
-              retryable?: boolean;
-            } | null;
+            const payload =
+              joinedData && typeof joinedData === "object" && !Array.isArray(joinedData)
+                ? (joinedData as Record<string, unknown>)
+                : null;
             const ok = !joinedError && payload?.ok === true;
-            const code = joinedError?.code ?? payload?.error ?? null;
+            const code =
+              joinedError?.code ?? videoDateLifecycleRpcCode(payload) ?? null;
+            const terminalSurvey =
+              videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+            const terminalStop =
+              terminalSurvey ||
+              videoDateLifecycleRpcIndicatesTerminalStop(payload);
             if (__DEV__) {
               vdbg("mark_video_date_daily_joined_after", {
                 sessionId,
@@ -10275,14 +10287,20 @@ export default function VideoDateScreen() {
                   : null,
               });
             }
+            if (terminalStop) {
+              clearDailyAliveHeartbeatTimer("daily_joined_terminal_truth");
+            }
+            if (terminalSurvey) {
+              void openNativePostDateSurveyFromTerminalTruth(
+                "daily_joined_terminal_survey_truth",
+              );
+            }
             return {
               ok,
               code,
               retryable: joinedError
                 ? true
-                : payload?.retryable === true
-                  ? true
-                  : undefined,
+                : videoDateLifecycleRpcRetryable(payload),
               error: joinedError ?? undefined,
               payload: joinedData ?? null,
             };

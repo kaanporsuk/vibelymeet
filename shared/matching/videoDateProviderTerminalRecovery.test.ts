@@ -86,8 +86,13 @@ test("web and native clients skip Daily alive RPCs without current provider proo
     );
     assert.match(
       source,
-      /payload\?\.terminal === true[\s\S]{0,180}payload\?\.error === ['"]session_ended['"][\s\S]{0,180}payload\?\.provider_presence_terminal === true/s,
-      `${name} should stop the heartbeat on terminal server truth`,
+      /videoDateLifecycleRpcIndicatesTerminalSurvey/,
+      `${name} should recognize terminal survey truth through the shared lifecycle classifier`,
+    );
+    assert.match(
+      source,
+      /videoDateLifecycleRpcIndicatesTerminalStop[\s\S]{0,180}provider_presence_terminal === true/s,
+      `${name} should stop the heartbeat on terminal server or provider terminal truth`,
     );
   }
 
