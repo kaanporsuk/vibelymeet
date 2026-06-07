@@ -22,6 +22,16 @@ function functionBody(sql: string, functionName: string): string {
   return sql.slice(start, end);
 }
 
+function rpcTypeBlock(types: string, rpcName: string): string {
+  const header = `      ${rpcName}: {`;
+  const start = types.indexOf(header);
+  assert.notEqual(start, -1, `${rpcName} should exist in generated types`);
+  const rest = types.slice(start + header.length);
+  const next = rest.match(/\n {6}[A-Za-z0-9_]+: \{\n {8}Args:/);
+  assert.ok(next?.index != null, `${rpcName} generated type block should terminate`);
+  return types.slice(start, start + header.length + next.index);
+}
+
 test("joined confirmation is a provider-backed compatibility facade", () => {
   const markJoined = functionBody(migration, "mark_video_date_daily_joined");
 
@@ -107,10 +117,13 @@ test("web and native joined confirmation wait for provider proof before RPC", ()
 });
 
 test("typed Supabase RPC contract includes provider-backed joined args", () => {
-  assert.match(
-    supabaseTypes,
-    /mark_video_date_daily_joined: \{[\s\S]{0,220}p_provider_session_id\?: string \| null[\s\S]{0,120}p_session_id: string/s,
-  );
+  const markJoined = rpcTypeBlock(supabaseTypes, "mark_video_date_daily_joined");
+  assert.match(markJoined, /p_call_instance_id\?: string/);
+  assert.match(markJoined, /p_entry_attempt_id\?: string/);
+  assert.match(markJoined, /p_owner_id\?: string/);
+  assert.match(markJoined, /p_owner_state\?: string/);
+  assert.match(markJoined, /p_provider_session_id\?: string/);
+  assert.match(markJoined, /p_session_id: string/);
 });
 
 test("provider joined absence terminal contracts stay in the v4 suite", () => {

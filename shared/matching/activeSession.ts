@@ -238,6 +238,16 @@ export function canAttemptDailyRoomFromVideoSessionTruth(
   return canAttemptDailyRoomFromCanonicalVideoDateTruth(row);
 }
 
+function videoSessionRowIsBothReadyDateOwner(
+  row: VideoSessionDailyRoomTruth | null,
+): boolean {
+  return Boolean(
+    row &&
+      !videoSessionRowIsEnded(row) &&
+      normalizeVideoDateReadyGateStatus(row.ready_gate_status) === "both_ready",
+  );
+}
+
 /** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
 export function pickRegistrationForActiveSession<
   T extends { queue_status: string | null; current_room_id: string | null; event_id: string },
@@ -419,6 +429,7 @@ export function isActiveSessionDirectFallbackFresh(
 
   const decision = decideVideoSessionRouteFromTruth(row, nowMs);
   if (decision === "navigate_ready") return videoSessionRowReadyGateEligible(row, nowMs);
+  if (decision === "navigate_date" && videoSessionRowIsBothReadyDateOwner(row)) return true;
   if (!canAttemptDailyRoomFromVideoSessionTruth(row, nowMs) && decision !== "navigate_date") {
     return false;
   }

@@ -11,9 +11,18 @@ type UseMysteryMatchOptions = {
 
 type MysteryMatchResult = {
   success?: boolean;
+  video_session_id?: string;
   session_id?: string;
+  match_id?: string;
+  event_id?: string;
   partner_id?: string;
+  ready_gate_status?: string;
+  session_source?: string;
 } | null;
+
+function mysteryMatchSessionId(result: MysteryMatchResult): string | null {
+  return result?.video_session_id ?? result?.session_id ?? result?.match_id ?? null;
+}
 
 export function useMysteryMatch({
   eventId,
@@ -50,9 +59,10 @@ export function useMysteryMatch({
 
   const handleResult = useCallback(
     (result: MysteryMatchResult): boolean => {
-      if (!result?.success || !result.session_id) return false;
+      const sessionId = mysteryMatchSessionId(result);
+      if (!result?.success || !sessionId) return false;
       trackOutcome("matched");
-      onMatchFound?.(result.session_id, result.partner_id ?? "");
+      onMatchFound?.(sessionId, result.partner_id ?? "");
       resetSearchAndWaiting();
       return true;
     },
