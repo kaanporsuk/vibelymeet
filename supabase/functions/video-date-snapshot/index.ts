@@ -156,6 +156,22 @@ function withoutToken(snapshot: SnapshotPayload): SnapshotPayload {
   };
 }
 
+function retryableSnapshotWithoutToken(
+  snapshot: SnapshotPayload,
+  error: string,
+  retryAfterSeconds?: number | null,
+): SnapshotPayload & Record<string, unknown> {
+  return {
+    ...withoutToken(snapshot),
+    ok: snapshot.ok !== false,
+    retryable: true,
+    tokenRetryable: true,
+    token_error: error,
+    tokenError: error,
+    ...retryAfterJsonFields(retryAfterSeconds),
+  };
+}
+
 async function isClientFeatureFlagEnabled(supabase: any, flag: string, userId: string): Promise<boolean> {
   try {
     const { data, error } = await supabase.rpc("evaluate_client_feature_flag", {
@@ -589,7 +605,7 @@ serve(async (req) => {
       },
     });
   } catch (tokenError) {
-    const status = snapshotTokenFailureStatus(tokenError);
+    let status = snapshotTokenFailureStatus(tokenError);
     const retryAfterSeconds = snapshotTokenFailureRetryAfter(tokenError);
     const clientError = snapshotTokenFailureClientError(tokenError);
     console.error(JSON.stringify({
@@ -602,11 +618,12 @@ serve(async (req) => {
       retry_after_seconds: retryAfterSeconds,
       error: providerFailureMessage(tokenError),
     }));
-    return jsonResponse(corsHeaders, {
-      ok: false,
-      error: clientError,
-      retryable: true,
-      ...retryAfterJsonFields(retryAfterSeconds),
-    }, status, retryAfterSeconds);
+    const fallback = retryableSnapshotWithoutToken(
+      snapshot,
+      clientError,
+      retryAfterSeconds,
+    );
+    if (status !== 429) status = 200;
+    return jsonResponse(corsHeaders, fallback, status, retryAfterSeconds);
   }
 });
