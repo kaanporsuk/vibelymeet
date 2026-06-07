@@ -115,6 +115,12 @@ import {
   videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
+import {
+  videoDateLifecycleRpcCode,
+  videoDateLifecycleRpcIndicatesTerminalStop,
+  videoDateLifecycleRpcIndicatesTerminalSurvey,
+  videoDateLifecycleRpcRetryable,
+} from "@clientShared/matching/videoDateLifecycleRpc";
 import { adviseVideoSessionTruthRecovery } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
@@ -1034,6 +1040,20 @@ const VideoDate = () => {
       setStatus,
       user?.id,
     ],
+  );
+
+  const recoverLifecycleRpcTerminalSurvey = useCallback(
+    async (source: string, payload: unknown) => {
+      const rpcPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : null;
+      if (!videoDateLifecycleRpcIndicatesTerminalSurvey(rpcPayload)) {
+        return false;
+      }
+      return recoverTerminalPostDateSurvey(source);
+    },
+    [recoverTerminalPostDateSurvey],
   );
 
   const recoverFromNotStartableDateTruth = useCallback(
@@ -3039,11 +3059,12 @@ const VideoDate = () => {
               "video_date_transition",
               { p_session_id: id, p_action: "mark_reconnect_return" },
             );
-            const returnPayload = returnData as {
-              success?: boolean;
-              code?: string | null;
-              retryable?: boolean;
-            } | null;
+            const returnPayload =
+              returnData &&
+              typeof returnData === "object" &&
+              !Array.isArray(returnData)
+                ? (returnData as Record<string, unknown>)
+                : null;
             const returnRejected = returnPayload?.success === false;
             vdbg("video_date_foreground_return_result", {
               sessionId: id,
@@ -3054,6 +3075,15 @@ const VideoDate = () => {
                 ? { code: returnError.code, message: returnError.message }
                 : null,
             });
+            if (
+              !returnError &&
+              (await recoverLifecycleRpcTerminalSurvey(
+                `${source}_mark_reconnect_return_terminal_survey`,
+                returnPayload,
+              ))
+            ) {
+              return;
+            }
             if (!returnError && !returnRejected) {
               trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
                 platform: "web",
@@ -3070,10 +3100,10 @@ const VideoDate = () => {
                   event_id: eventId ?? null,
                   source,
                   step: "mark_reconnect_return",
-                  code: returnError?.code ?? returnPayload?.code ?? null,
+                  code: returnError?.code ?? videoDateLifecycleRpcCode(returnPayload),
                   retryable: returnError
                     ? true
-                    : returnPayload?.retryable === true,
+                    : videoDateLifecycleRpcRetryable(returnPayload) === true,
                 },
               );
             }
@@ -3082,14 +3112,10 @@ const VideoDate = () => {
             p_session_id: id,
             p_action: "sync_reconnect",
           });
-          const reconnectPayload = data as {
-            success?: boolean;
-            code?: string | null;
-            retryable?: boolean;
-            ended?: boolean;
-            state?: string | null;
-            phase?: string | null;
-          } | null;
+          const reconnectPayload =
+            data && typeof data === "object" && !Array.isArray(data)
+              ? (data as Record<string, unknown>)
+              : null;
           const reconnectRejected = reconnectPayload?.success === false;
           vdbg("video_date_foreground_reconcile_result", {
             sessionId: id,
@@ -3098,6 +3124,15 @@ const VideoDate = () => {
             payload: data ?? null,
             error: error ? { code: error.code, message: error.message } : null,
           });
+          if (
+            !error &&
+            (await recoverLifecycleRpcTerminalSurvey(
+              `${source}_sync_reconnect_terminal_survey`,
+              reconnectPayload,
+            ))
+          ) {
+            return;
+          }
           if (error || reconnectRejected) {
             trackEvent(
               LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED,
@@ -3107,16 +3142,18 @@ const VideoDate = () => {
                 event_id: eventId ?? null,
                 source,
                 step: "sync_reconnect",
-                code: error?.code ?? reconnectPayload?.code ?? null,
-                retryable: error ? true : reconnectPayload?.retryable === true,
+                code: error?.code ?? videoDateLifecycleRpcCode(reconnectPayload),
+                retryable: error
+                  ? true
+                  : videoDateLifecycleRpcRetryable(reconnectPayload) === true,
               },
             );
-            if (reconnectPayload?.retryable === true) return;
+            if (videoDateLifecycleRpcRetryable(reconnectPayload) === true) return;
           }
           if (
             !error &&
             (reconnectPayload?.ended === true ||
-              reconnectPayload?.code === "SESSION_ENDED" ||
+              videoDateLifecycleRpcCode(reconnectPayload) === "session_ended" ||
               reconnectPayload?.state === "ended" ||
               reconnectPayload?.phase === "ended")
           ) {
@@ -3156,6 +3193,7 @@ const VideoDate = () => {
   }, [
     eventId,
     id,
+    recoverLifecycleRpcTerminalSurvey,
     recoverTerminalPostDateSurvey,
     showFeedback,
     terminalSurveyRecoveryActive,
@@ -4359,6 +4397,11 @@ const VideoDate = () => {
         });
         if (sessionEnded) {
           clearHandshakeGraceState();
+          const recovered = await recoverLifecycleRpcTerminalSurvey(
+            "handshake_decision_terminal_survey",
+            result.rpcPayload,
+          );
+          if (recovered) return false;
           toast.error(result.userMessage);
           void (async () => {
             await endCall("handshake_decision_terminal_failure");
@@ -4379,6 +4422,7 @@ const VideoDate = () => {
       clearHandshakeGraceState,
       markDateFlowEntered,
       endCall,
+      recoverLifecycleRpcTerminalSurvey,
     ],
   );
 
@@ -4551,6 +4595,15 @@ const VideoDate = () => {
         }
 
         const payload = result as CompleteHandshakePayload | null;
+        const handledLifecycleTerminalSurvey =
+          await recoverLifecycleRpcTerminalSurvey(
+            "complete_handshake_lifecycle_terminal_survey",
+            payload,
+          );
+        if (handledLifecycleTerminalSurvey) {
+          void endCall("complete_handshake_lifecycle_terminal_survey");
+          return;
+        }
         if (payload?.success === false && payload.retryable === true) {
           scheduleRetry(
             payload.code ?? payload.reason ?? "retryable_transition_payload",
@@ -4672,6 +4725,7 @@ const VideoDate = () => {
       clearHandshakeGraceState,
       markDateFlowEntered,
       recoverTerminalPostDateSurvey,
+      recoverLifecycleRpcTerminalSurvey,
       handshakeAutoPromoteV2.enabled,
     ],
   );
@@ -5114,13 +5168,16 @@ const VideoDate = () => {
           return data;
         },
         isSuccess: (data) => {
-          const payload = data as {
-            success?: boolean;
-            state?: string;
-            phase?: string;
-            already_ended?: boolean;
-          } | null;
-          if (payload?.success === false) return false;
+          const payload =
+            data && typeof data === "object" && !Array.isArray(data)
+              ? (data as Record<string, unknown>)
+              : null;
+          if (payload?.success === false) {
+            return (
+              videoDateLifecycleRpcIndicatesTerminalSurvey(payload) ||
+              videoDateLifecycleRpcIndicatesTerminalStop(payload)
+            );
+          }
           if (!useDateTimeoutV2) return true;
           return (
             payload?.already_ended === true ||

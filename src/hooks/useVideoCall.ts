@@ -79,6 +79,12 @@ import {
   videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
 } from "@clientShared/matching/activeSession";
+import {
+  videoDateLifecycleRpcCode,
+  videoDateLifecycleRpcIndicatesTerminalStop,
+  videoDateLifecycleRpcIndicatesTerminalSurvey,
+  videoDateLifecycleRpcRetryable,
+} from "@clientShared/matching/videoDateLifecycleRpc";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -1336,20 +1342,21 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           data && typeof data === "object" && !Array.isArray(data)
             ? (data as Record<string, unknown>)
             : null;
-        if (
-          payload?.terminal === true ||
-          payload?.error === "session_ended" ||
-          payload?.provider_presence_terminal === true
-        ) {
+        const terminalSurvey =
+          videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+        const terminalStop =
+          terminalSurvey ||
+          videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
+          payload?.provider_presence_terminal === true;
+        if (terminalStop) {
           clearDailyAliveHeartbeatTimer(
-            payload.error === "session_ended"
+            videoDateLifecycleRpcCode(payload) === "session_ended"
               ? "server_session_ended"
-              : "provider_presence_terminal",
+              : payload?.provider_presence_terminal === true
+                ? "provider_presence_terminal"
+                : "server_terminal_truth",
           );
-          if (
-            payload.error === "session_ended" ||
-            payload.queue_status === "in_survey"
-          ) {
+          if (terminalSurvey) {
             optionsRef.current?.onTerminalSurveyTruth?.(
               "daily_alive_terminal_survey_truth",
             );
@@ -4628,8 +4635,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           const args = { p_session_id: sessionId, p_action: "sync_reconnect" };
           vdbg("video_date_transition_before", { action: "sync_reconnect", args, reason });
           const { data, error } = await supabase.rpc("video_date_transition", args);
-          const payload = data as { success?: boolean; code?: string | null; retryable?: boolean } | null;
+          const payload =
+            data && typeof data === "object" && !Array.isArray(data)
+              ? (data as Record<string, unknown>)
+              : null;
           const failsoftRejected = payload?.success === false;
+          const terminalSurvey =
+            videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+          const terminalStop =
+            terminalSurvey ||
+            videoDateLifecycleRpcIndicatesTerminalStop(payload);
           vdbg("video_date_transition_after", {
             action: "sync_reconnect",
             ok: !error && !failsoftRejected,
@@ -4637,14 +4652,25 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             error: error ? { code: error.code, message: error.message } : null,
             reason,
           });
+          if (terminalStop) {
+            clearDailyAliveHeartbeatTimer("sync_reconnect_terminal_truth");
+          }
+          if (terminalSurvey) {
+            optionsRef.current?.onTerminalSurveyTruth?.(
+              "sync_reconnect_terminal_survey_truth",
+            );
+            return;
+          }
           if (error || failsoftRejected) {
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_SYNC_RECONNECT_FAILED, {
               platform: "web",
               session_id: sessionId,
               event_id: truthRow.event_id ?? eventId,
               reason,
-              code: error?.code ?? payload?.code ?? null,
-              retryable: error ? true : payload?.retryable === true,
+              code: error?.code ?? videoDateLifecycleRpcCode(payload),
+              retryable: error
+                ? true
+                : videoDateLifecycleRpcRetryable(payload) === true,
             });
           }
         };
@@ -4768,13 +4794,31 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             const returnArgs = { p_session_id: sessionId, p_action: "mark_reconnect_return" };
             vdbg("video_date_transition_before", { action: "mark_reconnect_return", args: returnArgs, reason });
             void supabase.rpc("video_date_transition", returnArgs).then(({ data, error }) => {
+              const payload =
+                data && typeof data === "object" && !Array.isArray(data)
+                  ? (data as Record<string, unknown>)
+                  : null;
+              const failsoftRejected = payload?.success === false;
+              const terminalSurvey =
+                videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+              const terminalStop =
+                terminalSurvey ||
+                videoDateLifecycleRpcIndicatesTerminalStop(payload);
               vdbg("video_date_transition_after", {
                 action: "mark_reconnect_return",
-                ok: !error,
+                ok: !error && !failsoftRejected,
                 payload: data ?? null,
                 error: error ? { code: error.code, message: error.message } : null,
                 reason,
               });
+              if (terminalStop) {
+                clearDailyAliveHeartbeatTimer("mark_reconnect_return_terminal_truth");
+              }
+              if (terminalSurvey) {
+                optionsRef.current?.onTerminalSurveyTruth?.(
+                  "mark_reconnect_return_terminal_survey_truth",
+                );
+              }
             });
           }
           void syncReconnectOnce(`${reason}_recovered`);
@@ -5825,11 +5869,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               "mark_video_date_daily_joined",
               joinedProof.args
             );
-            const payload = joinedData as
-              | { ok?: boolean; error?: string | null; retryable?: boolean }
-              | null;
+            const payload =
+              joinedData && typeof joinedData === "object" && !Array.isArray(joinedData)
+                ? (joinedData as Record<string, unknown>)
+                : null;
             const ok = !joinedError && payload?.ok === true;
-            const code = joinedError?.code ?? payload?.error ?? null;
+            const code =
+              joinedError?.code ?? videoDateLifecycleRpcCode(payload) ?? null;
+            const terminalSurvey =
+              videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+            const terminalStop =
+              terminalSurvey ||
+              videoDateLifecycleRpcIndicatesTerminalStop(payload);
             vdbg("mark_video_date_daily_joined_after", {
               sessionId,
               eventId: truthRow.event_id ?? eventId,
@@ -5845,14 +5896,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               ownerId: joinedProof.ownerId,
               ownerState: joinedProof.ownerState,
             });
+            if (terminalStop) {
+              clearDailyAliveHeartbeatTimer("daily_joined_terminal_truth");
+            }
+            if (terminalSurvey) {
+              optionsRef.current?.onTerminalSurveyTruth?.(
+                "daily_joined_terminal_survey_truth",
+              );
+            }
             return {
               ok,
-              // The fail-soft RPC wrapper (20260604093000) now returns 200 +
-              // { ok:false, retryable:true } instead of a raw 500, so joinedError is
-              // null on transient backend failures. Read retryable from the payload so
-              // backoff still retries; legitimate non-retryable results (e.g.
-              // not_routeable) omit retryable and remain single-shot as before.
-              retryable: joinedError ? true : payload?.retryable === true ? true : undefined,
+              code,
+              retryable: joinedError
+                ? true
+                : videoDateLifecycleRpcRetryable(payload),
               error: joinedError ?? undefined,
               payload: joinedData ?? null,
             };
@@ -6213,6 +6270,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       attachTracks,
       clearSameSessionDailyContinuity,
       cleanupCallObject,
+      clearDailyAliveHeartbeatTimer,
       clearDailyEventListeners,
       clearDailyTokenRefreshTimer,
       clearFirstRemoteWatchdog,
