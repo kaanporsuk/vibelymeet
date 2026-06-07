@@ -10174,19 +10174,82 @@ export default function VideoDateScreen() {
           callInstanceId: dailyCallInstanceId,
           source: "daily_join_success",
         });
+        const buildProviderBackedDailyJoinedArgs = () => {
+          const providerSessionId = readNativeDailyProviderSessionId(call);
+          const meetingState = safeNativeDailyMeetingState(call);
+          const providerBackedJoined =
+            meetingState === "joined-meeting" && Boolean(providerSessionId);
+          const entryOwner = getVideoDateEntryOwner(sessionId, user.id);
+          const ownerState = providerBackedJoined
+            ? "joined"
+            : meetingState === "left-meeting" || meetingState === "error"
+              ? "lost"
+              : "joining";
+          return {
+            providerBackedJoined,
+            providerSessionId,
+            meetingState,
+            ownerId: entryOwner?.ownerId ?? null,
+            ownerState,
+            args: {
+              p_session_id: sessionId,
+              p_owner_id: entryOwner?.ownerId ?? null,
+              p_call_instance_id: dailyCallInstanceId,
+              p_provider_session_id: providerSessionId,
+              p_entry_attempt_id: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+              p_owner_state: ownerState,
+            },
+          };
+        };
+        const initialJoinedProof = buildProviderBackedDailyJoinedArgs();
         if (__DEV__) {
           vdbg("mark_video_date_daily_joined_before", {
             sessionId,
             userId: user.id,
+            providerBackedJoined: initialJoinedProof.providerBackedJoined,
+            providerSessionId: initialJoinedProof.providerSessionId,
+            meetingState: initialJoinedProof.meetingState,
+            ownerId: initialJoinedProof.ownerId,
+            ownerState: initialJoinedProof.ownerState,
           });
         }
         void markDailyJoinedWithBackoff({
           confirm: async (attempt) => {
+            const joinedProof = buildProviderBackedDailyJoinedArgs();
+            if (!joinedProof.providerBackedJoined) {
+              const retryable = joinedProof.ownerState !== "lost";
+              const payload = {
+                ok: false,
+                error: "provider_presence_missing",
+                retryable,
+                provider_presence_required: true,
+                provider_backed_current: false,
+                provider_session_id: joinedProof.providerSessionId,
+                owner_id: joinedProof.ownerId,
+                owner_state: joinedProof.ownerState,
+                meeting_state: joinedProof.meetingState,
+              };
+              if (__DEV__) {
+                vdbg("mark_video_date_daily_joined_after", {
+                  sessionId,
+                  userId: user.id,
+                  attempt,
+                  ok: false,
+                  code: "provider_presence_missing",
+                  payload,
+                  error: null,
+                });
+              }
+              return {
+                ok: false,
+                code: "provider_presence_missing",
+                retryable,
+                payload,
+              };
+            }
             const { data: joinedData, error: joinedError } = await supabase.rpc(
               "mark_video_date_daily_joined",
-              {
-                p_session_id: sessionId,
-              },
+              joinedProof.args,
             );
             const payload = joinedData as {
               ok?: boolean;
@@ -10202,6 +10265,11 @@ export default function VideoDateScreen() {
                 attempt,
                 ok,
                 code,
+                providerBackedJoined: joinedProof.providerBackedJoined,
+                providerSessionId: joinedProof.providerSessionId,
+                meetingState: joinedProof.meetingState,
+                ownerId: joinedProof.ownerId,
+                ownerState: joinedProof.ownerState,
                 error: joinedError
                   ? { code: joinedError.code, message: joinedError.message }
                   : null,
