@@ -1911,6 +1911,80 @@ export type Database = {
         }
         Relationships: []
       }
+      event_deck_card_reservations: {
+        Row: {
+          deck_rank: number
+          deck_token: string
+          event_id: string
+          expires_at: string
+          id: string
+          issued_at: string
+          metadata: Json
+          source: string
+          swiped_at: string | null
+          target_id: string
+          viewer_id: string
+          visible_at: string | null
+        }
+        Insert: {
+          deck_rank: number
+          deck_token: string
+          event_id: string
+          expires_at: string
+          id?: string
+          issued_at?: string
+          metadata?: Json
+          source?: string
+          swiped_at?: string | null
+          target_id: string
+          viewer_id: string
+          visible_at?: string | null
+        }
+        Update: {
+          deck_rank?: number
+          deck_token?: string
+          event_id?: string
+          expires_at?: string
+          id?: string
+          issued_at?: string
+          metadata?: Json
+          source?: string
+          swiped_at?: string | null
+          target_id?: string
+          viewer_id?: string
+          visible_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_deck_card_reservations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_deck_card_reservations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_deck_card_reservations_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_deck_card_reservations_viewer_id_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_loop_observability_events: {
         Row: {
           actor_id: string | null
@@ -2220,73 +2294,6 @@ export type Database = {
           },
         ]
       }
-      event_deck_card_reservations: {
-        Row: {
-          deck_rank: number
-          deck_token: string
-          event_id: string
-          expires_at: string
-          id: string
-          issued_at: string
-          metadata: Json
-          source: string
-          swiped_at: string | null
-          target_id: string
-          viewer_id: string
-          visible_at: string | null
-        }
-        Insert: {
-          deck_rank: number
-          deck_token: string
-          event_id: string
-          expires_at: string
-          id?: string
-          issued_at?: string
-          metadata?: Json
-          source?: string
-          swiped_at?: string | null
-          target_id: string
-          viewer_id: string
-          visible_at?: string | null
-        }
-        Update: {
-          deck_rank?: number
-          deck_token?: string
-          event_id?: string
-          expires_at?: string
-          id?: string
-          issued_at?: string
-          metadata?: Json
-          source?: string
-          swiped_at?: string | null
-          target_id?: string
-          viewer_id?: string
-          visible_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_deck_card_reservations_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_deck_card_reservations_target_id_fkey"
-            columns: ["target_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_deck_card_reservations_viewer_id_fkey"
-            columns: ["viewer_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       event_profile_impressions: {
         Row: {
           event_id: string
@@ -2502,6 +2509,7 @@ export type Database = {
           created_at: string
           delivered_at: string | null
           delivery_attempts: number
+          discarded_at: string | null
           event_id: string
           event_title: string
           id: string
@@ -2516,6 +2524,7 @@ export type Database = {
           created_at?: string
           delivered_at?: string | null
           delivery_attempts?: number
+          discarded_at?: string | null
           event_id: string
           event_title: string
           id?: string
@@ -2530,6 +2539,7 @@ export type Database = {
           created_at?: string
           delivered_at?: string | null
           delivery_attempts?: number
+          discarded_at?: string | null
           event_id?: string
           event_title?: string
           id?: string
@@ -7381,6 +7391,93 @@ export type Database = {
           },
         ]
       }
+      video_date_presence_events: {
+        Row: {
+          actor_id: string | null
+          call_instance_id: string | null
+          created_at: string
+          details: Json
+          entry_attempt_id: string | null
+          event_type: string
+          id: string
+          occurred_at: string
+          owner_id: string | null
+          owner_state: string | null
+          provider_session_id: string | null
+          session_id: string
+          source: string
+          surface_client_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          call_instance_id?: string | null
+          created_at?: string
+          details?: Json
+          entry_attempt_id?: string | null
+          event_type: string
+          id?: string
+          occurred_at?: string
+          owner_id?: string | null
+          owner_state?: string | null
+          provider_session_id?: string | null
+          session_id: string
+          source: string
+          surface_client_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          call_instance_id?: string | null
+          created_at?: string
+          details?: Json
+          entry_attempt_id?: string | null
+          event_type?: string
+          id?: string
+          occurred_at?: string
+          owner_id?: string | null
+          owner_state?: string | null
+          provider_session_id?: string | null
+          session_id?: string
+          source?: string
+          surface_client_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_presence_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_presence_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_presence_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_presence_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_presence_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
       video_date_provider_dead_letters: {
         Row: {
           created_at: string
@@ -7483,6 +7580,7 @@ export type Database = {
           last_error: string | null
           next_attempt_at: string
           payload: Json
+          provider_idempotency_key: string
           session_id: string | null
           state: string
           updated_at: string
@@ -7499,6 +7597,7 @@ export type Database = {
           last_error?: string | null
           next_attempt_at?: string
           payload?: Json
+          provider_idempotency_key?: string
           session_id?: string | null
           state?: string
           updated_at?: string
@@ -7515,6 +7614,7 @@ export type Database = {
           last_error?: string | null
           next_attempt_at?: string
           payload?: Json
+          provider_idempotency_key?: string
           session_id?: string | null
           state?: string
           updated_at?: string
@@ -7721,6 +7821,63 @@ export type Database = {
           severity?: string
           slack_claimed_at?: string | null
           slack_sent_at?: string | null
+        }
+        Relationships: []
+      }
+      video_date_surface_claim_events: {
+        Row: {
+          action: string
+          actor_id: string | null
+          blocked: boolean | null
+          client_instance_id: string | null
+          created_at: string
+          detail: Json
+          expires_at: string | null
+          id: number
+          ok: boolean | null
+          released_at: string | null
+          result_code: string | null
+          retryable: boolean | null
+          session_id: string
+          surface: string
+          takeover: boolean
+          ttl_seconds: number | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          blocked?: boolean | null
+          client_instance_id?: string | null
+          created_at?: string
+          detail?: Json
+          expires_at?: string | null
+          id?: number
+          ok?: boolean | null
+          released_at?: string | null
+          result_code?: string | null
+          retryable?: boolean | null
+          session_id: string
+          surface: string
+          takeover?: boolean
+          ttl_seconds?: number | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          blocked?: boolean | null
+          client_instance_id?: string | null
+          created_at?: string
+          detail?: Json
+          expires_at?: string | null
+          id?: number
+          ok?: boolean | null
+          released_at?: string | null
+          result_code?: string | null
+          retryable?: boolean | null
+          session_id?: string
+          surface?: string
+          takeover?: boolean
+          ttl_seconds?: number | null
         }
         Relationships: []
       }
@@ -8180,6 +8337,7 @@ export type Database = {
           refund_granted_at: string | null
           refund_status: string | null
           session_seq: number
+          session_source: string
           snooze_expires_at: string | null
           snoozed_by: string | null
           started_at: string
@@ -8233,6 +8391,7 @@ export type Database = {
           refund_granted_at?: string | null
           refund_status?: string | null
           session_seq?: number
+          session_source?: string
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
@@ -8286,6 +8445,7 @@ export type Database = {
           refund_granted_at?: string | null
           refund_status?: string | null
           session_seq?: number
+          session_source?: string
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
@@ -10150,6 +10310,14 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_unarchive_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
       admin_unpublish_event: {
         Args: {
           p_event_id: string
@@ -10162,14 +10330,6 @@ export type Database = {
         Args: {
           p_idempotency_key?: string
           p_parent_event_id: string
-          p_reason?: string
-        }
-        Returns: Json
-      }
-      admin_unarchive_event: {
-        Args: {
-          p_event_id: string
-          p_idempotency_key?: string
           p_reason?: string
         }
         Returns: Json
@@ -10381,10 +10541,6 @@ export type Database = {
         }
         Returns: boolean
       }
-      preference_allows_gender: {
-        Args: { p_gender: string; p_interested_in: string[] }
-        Returns: boolean
-      }
       check_mutual_vibe_and_match: {
         Args: { p_session_id: string }
         Returns: Json
@@ -10590,10 +10746,41 @@ export type Database = {
           id: number
           kind: string
           payload: Json
+          provider_idempotency_key: string
           session_id: string
         }[]
       }
       claim_video_date_surface: {
+        Args: {
+          p_client_instance_id: string
+          p_session_id: string
+          p_surface: string
+          p_takeover?: boolean
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
+      claim_video_date_surface_20260604093000_failsoft_base: {
+        Args: {
+          p_client_instance_id: string
+          p_session_id: string
+          p_surface: string
+          p_takeover?: boolean
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
+      claim_video_date_surface_20260605170249_outer_base: {
+        Args: {
+          p_client_instance_id: string
+          p_session_id: string
+          p_surface: string
+          p_takeover?: boolean
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
+      claim_video_date_surface_20260605232304_single_owner_base: {
         Args: {
           p_client_instance_id: string
           p_session_id: string
@@ -10871,6 +11058,19 @@ export type Database = {
         Args: { p_event_id: string; p_idempotency_key: string }
         Returns: Json
       }
+      drain_match_queue_v2_20260605232304_single_owner_base: {
+        Args: { p_event_id: string; p_idempotency_key: string }
+        Returns: Json
+      }
+      end_unconfirmed_video_date_start: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       enqueue_due_account_deletion_completion_jobs_v1: {
         Args: { p_limit?: number }
         Returns: number
@@ -10954,6 +11154,7 @@ export type Database = {
         }
         Returns: string
       }
+      ensure_profile_from_auth_user: { Args: never; Returns: boolean }
       ensure_profile_photo_asset: {
         Args: {
           p_legacy_id?: string
@@ -10964,7 +11165,6 @@ export type Database = {
         }
         Returns: string
       }
-      ensure_profile_from_auth_user: { Args: never; Returns: boolean }
       ensure_vibe_video_asset: {
         Args: {
           p_legacy_id?: string
@@ -11016,7 +11216,7 @@ export type Database = {
       }
       event_deck_validate_presented_card: {
         Args: {
-          p_deck_token?: string | null
+          p_deck_token?: string
           p_event_id: string
           p_target_id: string
           p_viewer_id: string
@@ -11033,15 +11233,6 @@ export type Database = {
           p_state: string
         }
         Returns: boolean
-      }
-      end_unconfirmed_video_date_start: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
       }
       expire_due_joined_video_date_handshakes_bounded: {
         Args: { p_limit?: number }
@@ -11087,6 +11278,10 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: Json
       }
+      expire_vd_reconnect_graces_202606071031_base: {
+        Args: never
+        Returns: number
+      }
       expire_video_date_reconnect_graces: { Args: never; Returns: number }
       extract_chat_image_path_from_content: {
         Args: { p_content: string }
@@ -11112,7 +11307,43 @@ export type Database = {
         Args: { p_final_data?: Json; p_user_id: string }
         Returns: Json
       }
+      finalize_vd_handshake_deadline_20260603090000_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      finalize_vd_handshake_deadline_20260605085010_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      finalize_vd_handshake_deadline_20260605115657_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       finalize_video_date_handshake_deadline: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      finalize_video_date_handshake_deadline_20260603215948_handoff_b: {
         Args: {
           p_actor?: string
           p_reason?: string
@@ -11134,6 +11365,10 @@ export type Database = {
         Returns: Json
       }
       find_mystery_match_20260502083000_active_base: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
+      find_mystery_match_20260607103000_session_source_base: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
@@ -11577,6 +11812,10 @@ export type Database = {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
+      get_video_date_queue_hint_v1_20260605232304_single_owner_base: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
       get_video_date_session_timeline: {
         Args: { p_session_id: string }
         Returns: {
@@ -11596,12 +11835,12 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
-      get_video_date_start_snapshot_v1: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
       get_video_date_sprint7_ops_health: {
         Args: { p_event_id?: string }
+        Returns: Json
+      }
+      get_video_date_start_snapshot_v1: {
+        Args: { p_session_id: string }
         Returns: Json
       }
       get_visible_events: {
@@ -11646,16 +11885,6 @@ export type Database = {
       handle_swipe: {
         Args: {
           p_actor_id: string
-          p_event_id: string
-          p_swipe_type: string
-          p_target_id: string
-        }
-        Returns: Json
-      }
-      handle_swipe_v2: {
-        Args: {
-          p_actor_id: string
-          p_deck_token?: string | null
           p_event_id: string
           p_swipe_type: string
           p_target_id: string
@@ -11728,6 +11957,44 @@ export type Database = {
       handle_swipe_20260508140000_block_race_base: {
         Args: {
           p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260601183000_deck_authority_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260607103000_mutual_match_source_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_v2: {
+        Args: {
+          p_actor_id: string
+          p_deck_token?: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_v2_20260607103000_actor_bound_base: {
+        Args: {
+          p_actor_id: string
+          p_deck_token?: string
           p_event_id: string
           p_swipe_type: string
           p_target_id: string
@@ -11874,18 +12141,49 @@ export type Database = {
         Args: { p_reply_id: string }
         Returns: undefined
       }
-      mark_video_date_daily_joined: {
+      mark_video_date_daily_alive: {
         Args: {
-          p_call_instance_id?: string | null
-          p_entry_attempt_id?: string | null
-          p_owner_id?: string | null
-          p_owner_state?: string | null
-          p_provider_session_id?: string | null
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
           p_session_id: string
         }
         Returns: Json
       }
+      mark_video_date_daily_joined: {
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      mark_video_date_daily_joined_20260604093000_failsoft_base: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      mark_video_date_daily_joined_20260605170249_outer_base: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       mark_video_date_remote_seen: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      mark_video_date_remote_seen_20260605115657_base: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      mark_video_date_remote_seen_20260605170249_outer_base: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      mark_video_date_remote_seen_20260605200729_grace_base: {
         Args: { p_session_id: string }
         Returns: Json
       }
@@ -11952,6 +12250,10 @@ export type Database = {
       persist_ready_gate_suppression_v2: {
         Args: { p_session_id: string; p_suppressed_until?: string }
         Returns: Json
+      }
+      preference_allows_gender: {
+        Args: { p_gender: string; p_interested_in: string[] }
+        Returns: boolean
       }
       preview_media_delete_worker_run: {
         Args: { p_family_filter?: string; p_limit?: number }
@@ -12085,15 +12387,24 @@ export type Database = {
         Args: { p_event_id: string; p_source?: string; p_target_id: string }
         Returns: Json
       }
-      record_event_deck_card_visible_v1: {
-        Args: {
-          p_deck_token?: string | null
-          p_event_id: string
-          p_target_id: string
-          p_viewer_id: string
-        }
-        Returns: Json
-      }
+      record_event_deck_card_visible_v1:
+        | {
+            Args: {
+              p_event_id: string
+              p_target_id: string
+              p_viewer_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_deck_token?: string
+              p_event_id: string
+              p_target_id: string
+              p_viewer_id: string
+            }
+            Returns: Json
+          }
       record_event_loop_observability: {
         Args: {
           p_actor_id: string
@@ -12162,6 +12473,19 @@ export type Database = {
         }
         Returns: Json
       }
+      record_vd_daily_webhook_v2_202606071031_base: {
+        Args: {
+          p_event_type: string
+          p_occurred_at?: string
+          p_payload?: Json
+          p_provider_event_id: string
+          p_provider_participant_id?: string
+          p_provider_user_id?: string
+          p_room_name?: string
+          p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
       record_vd_launch_latency_202605061020_base: {
         Args: {
           p_checkpoint: string
@@ -12181,6 +12505,15 @@ export type Database = {
         Returns: Json
       }
       record_vd_launch_latency_202605252340_base: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      record_vd_launch_latency_20260603150106_start_base: {
         Args: {
           p_checkpoint: string
           p_latency_ms?: number
@@ -12211,6 +12544,32 @@ export type Database = {
         }
         Returns: Json
       }
+      record_video_date_daily_webhook_event_v2_20260603215948_handoff: {
+        Args: {
+          p_event_type: string
+          p_occurred_at?: string
+          p_payload?: Json
+          p_provider_event_id: string
+          p_provider_participant_id?: string
+          p_provider_user_id?: string
+          p_room_name?: string
+          p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
+      record_video_date_daily_webhook_event_v2_20260604193140_latest_: {
+        Args: {
+          p_event_type: string
+          p_occurred_at?: string
+          p_payload?: Json
+          p_provider_event_id: string
+          p_provider_participant_id?: string
+          p_provider_user_id?: string
+          p_room_name?: string
+          p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
       record_video_date_launch_latency_checkpoint: {
         Args: {
           p_checkpoint: string
@@ -12221,15 +12580,6 @@ export type Database = {
         Returns: Json
       }
       record_video_date_launch_latency_checkpoint_20260505214500_rpc_: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_vd_launch_latency_20260603150106_start_base: {
         Args: {
           p_checkpoint: string
           p_latency_ms?: number
@@ -12340,6 +12690,10 @@ export type Database = {
         Returns: Json
       }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
+      register_for_event_20260601143000_terminal_base: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       register_onesignal_push_subscription: {
         Args: {
           p_expected_user_id?: string
@@ -12382,6 +12736,10 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: number
       }
+      repair_video_date_registration_session_drift_v1: {
+        Args: { p_dry_run?: boolean; p_event_id?: string; p_limit?: number }
+        Returns: Json
+      }
       replace_event_cover_media_reference: {
         Args: {
           p_asset_id: string
@@ -12412,6 +12770,10 @@ export type Database = {
       reset_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string }
         Returns: undefined
+      }
+      resolve_account_deletion_user_id_by_email: {
+        Args: { p_email: string }
+        Returns: string
       }
       resolve_entry_state: { Args: never; Returns: Json }
       resolve_experiment_assignment: {
@@ -12504,6 +12866,14 @@ export type Database = {
         }
         Returns: Json
       }
+      settle_event_ticket_checkout_20260601143000_terminal_base: {
+        Args: {
+          p_checkout_session_id: string
+          p_event_id: string
+          p_profile_id: string
+        }
+        Returns: Json
+      }
       soft_delete_orphan_event_cover_assets: {
         Args: { p_limit?: number }
         Returns: number
@@ -12536,6 +12906,10 @@ export type Database = {
         Returns: Json
       }
       submit_post_date_verdict: {
+        Args: { p_liked: boolean; p_session_id: string }
+        Returns: Json
+      }
+      submit_post_date_verdict_20260603090000_remote_seen_base: {
         Args: { p_liked: boolean; p_session_id: string }
         Returns: Json
       }
@@ -12608,6 +12982,10 @@ export type Database = {
           p_provider: string
           p_refill_per_second?: number
         }
+        Returns: Json
+      }
+      take_video_date_token_refresh_provider_rate_limit_v1: {
+        Args: { p_bucket: string; p_session_id: string }
         Returns: Json
       }
       take_video_date_token_refresh_rate_limit_v1: {
@@ -12723,6 +13101,24 @@ export type Database = {
         }
         Returns: Json
       }
+      validate_video_date_registration_session_drift_v1: {
+        Args: { p_event_id?: string; p_limit?: number }
+        Returns: Json
+      }
+      vd_promote_ce_auth_20260605221535_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_require_participant?: boolean
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      vd_vibe_q_outer_20260605170249_base: {
+        Args: { p_questions: Json; p_session_id: string }
+        Returns: Json
+      }
       verify_event_ticket_checkout_intent: {
         Args: {
           p_amount_total: number
@@ -12737,6 +13133,10 @@ export type Database = {
       vibe_video_upload_status_from_session: {
         Args: { p_status: string }
         Returns: string
+      }
+      video_date_actor_provider_presence_v1: {
+        Args: { p_actor_id: string; p_session_id: string }
+        Returns: Json
       }
       video_date_broadcast_batched_v2_enabled: { Args: never; Returns: boolean }
       video_date_can_access_session_topic: {
@@ -12763,12 +13163,20 @@ export type Database = {
         }
         Returns: string
       }
+      video_date_daily_provider_session_id_from_event_v1: {
+        Args: { p_payload: Json; p_provider_participant_id: string }
+        Returns: string
+      }
       video_date_impression_rank: {
         Args: { p_reason: string }
         Returns: number
       }
       video_date_jsonb_has_secret_key: {
         Args: { p_value: Json }
+        Returns: boolean
+      }
+      video_date_latest_presence_is_active: {
+        Args: { p_away_at: string; p_joined_at: string }
         Returns: boolean
       }
       video_date_launch_latency_safe_bool: {
@@ -12797,6 +13205,16 @@ export type Database = {
         }
         Returns: Json
       }
+      video_date_outbox_enqueue_v2_20260607103000_failsoft_base: {
+        Args: {
+          p_dedupe_key?: string
+          p_kind: string
+          p_next_attempt_at?: string
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
       video_date_pair_has_terminal_encounter: {
         Args: {
           p_event_id: string
@@ -12806,12 +13224,51 @@ export type Database = {
         }
         Returns: boolean
       }
+      video_date_promote_confirmed_encounter_v1: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_require_participant?: boolean
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      video_date_protect_both_ready_entry_v1: {
+        Args: {
+          p_actor_id?: string
+          p_entry_attempt_id?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       video_date_queue_participant_reliability_penalty: {
         Args: { p_event_id: string; p_now?: string; p_participant_id: string }
         Returns: number
       }
       video_date_realtime_topic_is_session: {
         Args: { p_topic: string }
+        Returns: boolean
+      }
+      video_date_reconcile_provider_absence_v1: {
+        Args: { p_session_id: string; p_source?: string }
+        Returns: Json
+      }
+      video_date_restore_canonical_room_metadata_v1: {
+        Args: { p_session_id: string; p_source?: string }
+        Returns: Json
+      }
+      video_date_session_has_confirmed_encounter: {
+        Args: {
+          p_date_started_at: string
+          p_participant_1_joined_at: string
+          p_participant_1_remote_seen_at: string
+          p_participant_2_joined_at: string
+          p_participant_2_remote_seen_at: string
+          p_phase: string
+          p_state: string
+        }
         Returns: boolean
       }
       video_date_session_has_encounter_exposure: {
@@ -12821,18 +13278,6 @@ export type Database = {
           p_participant_2_joined_at: string
           p_phase: string
           p_state: string
-        }
-        Returns: boolean
-      }
-      video_date_session_has_confirmed_encounter: {
-        Args: {
-          p_date_started_at: string
-          p_state: string
-          p_phase: string
-          p_participant_1_joined_at: string
-          p_participant_2_joined_at: string
-          p_participant_1_remote_seen_at: string
-          p_participant_2_remote_seen_at: string
         }
         Returns: boolean
       }
@@ -12854,17 +13299,21 @@ export type Database = {
       }
       video_date_session_is_post_date_survey_eligible_v2: {
         Args: {
+          p_date_started_at: string
           p_ended_at: string
           p_ended_reason: string
-          p_date_started_at: string
-          p_state: string
-          p_phase: string
           p_participant_1_joined_at: string
-          p_participant_2_joined_at: string
           p_participant_1_remote_seen_at: string
+          p_participant_2_joined_at: string
           p_participant_2_remote_seen_at: string
+          p_phase: string
+          p_state: string
         }
         Returns: boolean
+      }
+      video_date_stable_copresence_v1: {
+        Args: { p_session_id: string }
+        Returns: Json
       }
       video_date_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
@@ -12914,6 +13363,34 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      video_date_transition_20260604093000_failsoft_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260604170438_warmup_stability_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260604193140_latest_presence_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260605200729_lifecycle_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260605232304_single_owner_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260607123952_routeable_entry_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_uuid_from_daily_room_name_v1: {
+        Args: { p_room_name: string }
+        Returns: string
+      }
       video_session_blocks_global_active_conflict: {
         Args: {
           p_date_started_at: string
@@ -12960,7 +13437,7 @@ export type Database = {
         }
         Returns: Json
       }
-      video_session_continue_handshake_v2_20260603090000_remote_seen_base: {
+      video_session_continue_handshake_v2_20260603090000_remote_seen_: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string
@@ -13011,11 +13488,21 @@ export type Database = {
         }
         Returns: Json
       }
-      video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base: {
+      video_session_handshake_auto_promote_v2_20260603090000_remote_s: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string
           p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_grace_extend_v1: {
+        Args: {
+          p_actor: string
+          p_idempotency_key: string
+          p_retryable?: boolean
+          p_session_id: string
+          p_source?: string
         }
         Returns: Json
       }
@@ -13035,6 +13522,38 @@ export type Database = {
         }
         Returns: Json
       }
+      video_session_mark_ready_v2_20260604104154_grace_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_v2_20260604131708_event_active_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_v2_20260606212727_event_cleanup_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_v2_20260607123952_routeable_entry_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       video_session_request_extension_v2: {
         Args: {
           p_credit_type: string
@@ -13047,6 +13566,14 @@ export type Database = {
       viewer_shares_event_with_profile: {
         Args: { p_other_profile_id: string }
         Returns: boolean
+      }
+      vs_handshake_auto_promote_20260605115657_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

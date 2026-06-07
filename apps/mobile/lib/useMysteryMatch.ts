@@ -14,6 +14,21 @@ type UseMysteryMatchOptions = {
   enabled?: boolean;
 };
 
+type MysteryMatchResult = {
+  success?: boolean;
+  video_session_id?: string;
+  session_id?: string;
+  match_id?: string;
+  event_id?: string;
+  partner_id?: string;
+  ready_gate_status?: string;
+  session_source?: string;
+} | null;
+
+function mysteryMatchSessionId(result: MysteryMatchResult): string | null {
+  return result?.video_session_id ?? result?.session_id ?? result?.match_id ?? null;
+}
+
 export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMysteryMatchOptions) {
   const [isSearching, setIsSearching] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
@@ -51,8 +66,9 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
           resetSearchAndWaiting();
           return;
         }
-        const retryResult = retryData as { success?: boolean; session_id?: string; partner_id?: string } | null;
-        if (retryResult?.success && retryResult.session_id) {
+        const retryResult = retryData as MysteryMatchResult;
+        const retrySessionId = mysteryMatchSessionId(retryResult);
+        if (retryResult?.success && retrySessionId) {
           if (eventIdRef.current) {
             trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
               platform: 'native',
@@ -60,7 +76,7 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
               outcome: 'matched',
             });
           }
-          onMatchFound?.(retryResult.session_id, retryResult.partner_id ?? '');
+          onMatchFound?.(retrySessionId, retryResult.partner_id ?? '');
           resetSearchAndWaiting();
         }
       } catch (err) {
@@ -113,15 +129,16 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
         return;
       }
 
-      const result = data as { success?: boolean; session_id?: string; partner_id?: string } | null;
+      const result = data as MysteryMatchResult;
+      const sessionId = mysteryMatchSessionId(result);
 
-      if (result?.success && result.session_id) {
+      if (result?.success && sessionId) {
         trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
           platform: 'native',
           event_id: eventId,
           outcome: 'matched',
         });
-        onMatchFound?.(result.session_id, result.partner_id ?? '');
+        onMatchFound?.(sessionId, result.partner_id ?? '');
         setIsSearching(false);
       } else {
         trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
