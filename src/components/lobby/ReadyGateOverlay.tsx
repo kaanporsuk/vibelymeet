@@ -461,6 +461,19 @@ function isTerminalReadyGateTruth(truth: VideoSessionDateEntryTruth): boolean {
   );
 }
 
+function isRouteableVideoDateTruth(truth: VideoSessionDateEntryTruth): boolean {
+  if (truth === undefined || truth === null) return false;
+  if (isTerminalReadyGateTruth(truth)) return false;
+  return (
+    truth.state === "handshake" ||
+    truth.state === "date" ||
+    truth.phase === "handshake" ||
+    truth.phase === "date" ||
+    truth.handshake_started_at !== null ||
+    truth.date_started_at !== null
+  );
+}
+
 function isReadyGateTransitionTimeoutSignal(input: {
   code?: string | null;
   errorCode?: string | null;
@@ -1718,6 +1731,50 @@ const ReadyGateOverlay = ({
             const latestTruth = retryable
               ? await fetchVideoSessionDateEntryTruthCoalesced(sessionId)
               : null;
+            if (retryable && isRouteableVideoDateTruth(latestTruth)) {
+              window.clearTimeout(slowWaitTimer);
+              if (user?.id) {
+                updateVideoDateEntryOwnerState({
+                  sessionId,
+                  userId: user.id,
+                  state: "navigating",
+                  source: "ready_gate_prepare_routeable_truth_after_failure",
+                  roomName: latestTruth?.daily_room_name ?? null,
+                });
+              }
+              trackReadyGateClientEvent(
+                LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE,
+                {
+                  source_action: "prepare_entry_routeable_truth_after_failure",
+                  code: result.code,
+                  error_code: result.code,
+                  reason: "canonical_truth_routeable",
+                  httpStatus: result.httpStatus ?? null,
+                  retryable: false,
+                  terminal: false,
+                  attempt: attempt + 1,
+                  attempt_count: attempt + 1,
+                  latency_ms: Math.max(0, Date.now() - observedAtMs),
+                  ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                  vs_state: latestTruth?.state ?? null,
+                  vs_phase: latestTruth?.phase ?? null,
+                  daily_room_name: latestTruth?.daily_room_name ?? null,
+                },
+              );
+              addReadyGateBreadcrumb(
+                "prepare_entry_routeable_truth_after_failure",
+                {
+                  attempt: attempt + 1,
+                  ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                  vs_state: latestTruth?.state ?? null,
+                  vs_phase: latestTruth?.phase ?? null,
+                },
+              );
+              setPrepareEntryStatus("idle");
+              setPrepareEntryFailure(null);
+              navigateToDate("prepare_entry_routeable_truth_after_failure");
+              return;
+            }
             if (retryable && isTerminalReadyGateTruth(latestTruth)) {
               window.clearTimeout(slowWaitTimer);
               trackReadyGateClientEvent(

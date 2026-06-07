@@ -49,7 +49,7 @@ const dailyRoomFunction = readFileSync(
   "utf8",
 );
 const videoDateRoomNameTokenWithExpiryEject =
-  /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
+  /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*(?:roomName|providerRoomName),\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
 const videoDateRoomProofTokenWithExpiryEject =
   /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
 
@@ -76,6 +76,10 @@ const remainingHardeningMigration = readFileSync(
 );
 const providerAtomicEntryMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501110000_video_date_provider_atomic_entry.sql"),
+  "utf8",
+);
+const routeableEntryProtectionMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260607123952_video_date_routeable_both_ready_entry_protection.sql"),
   "utf8",
 );
 const backendIntegrityMigration = readFileSync(
@@ -897,6 +901,64 @@ test("daily-room prepare_date_entry creates deterministic rooms and scoped token
   assert.match(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject);
   assert.match(dailyRoomFunction, /provider_verify_skipped/);
   assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
+});
+
+test("routeable both_ready entry protection covers the decisive-room metadata gap", () => {
+  const helperBody = routeableEntryProtectionMigration.match(
+    /CREATE OR REPLACE FUNCTION public\.video_date_protect_both_ready_entry_v1\([\s\S]+?\nEND;\n\$function\$;/,
+  )?.[0] ?? "";
+  assert.match(helperBody, /v_now \+ interval '5 minutes'/);
+  assert.match(helperBody, /ready_gate_status IS DISTINCT FROM 'both_ready'/);
+  assert.match(helperBody, /daily_room_name = v_expected_room_name/);
+  assert.match(helperBody, /daily_room_url = CASE/);
+  assert.match(helperBody, /prepare_entry_route_protected/);
+  assert.doesNotMatch(helperBody, /daily_room_name IS NULL/);
+  assert.doesNotMatch(helperBody, /daily_room_url IS NULL/);
+  assert.match(
+    routeableEntryProtectionMigration,
+    /ALTER FUNCTION public\.video_session_mark_ready_v2\(uuid, text, text\)[\s\S]*RENAME TO video_session_mark_ready_v2_20260607123952_routeable_entry_base/,
+  );
+  assert.match(
+    routeableEntryProtectionMigration,
+    /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)[\s\S]*RENAME TO video_date_transition_20260607123952_routeable_entry_base/,
+  );
+  assert.match(
+    routeableEntryProtectionMigration,
+    /p_action = 'prepare_entry'[\s\S]*video_date_protect_both_ready_entry_v1/,
+  );
+  assert.match(routeableEntryProtectionMigration, /date_entry_prepare_timeout/);
+  assert.match(routeableEntryProtectionMigration, /preserved_terminal_room_metadata/);
+  assert.match(routeableEntryProtectionMigration, /idx_video_sessions_prepare_entry_routeable_handoff/);
+});
+
+test("Ready Gate overlays navigate on routeable truth after retryable prepare failure", () => {
+  assert.match(readyGateOverlay, /function isRouteableVideoDateTruth/);
+  assert.match(nativeReadyGateOverlay, /function isRouteableVideoDateTruth/);
+  assert.match(
+    readyGateOverlay,
+    /isRouteableVideoDateTruth\(latestTruth\)[\s\S]*prepare_entry_routeable_truth_after_failure[\s\S]*navigateToDate\("prepare_entry_routeable_truth_after_failure"\)/,
+  );
+  assert.match(
+    nativeReadyGateOverlay,
+    /isRouteableVideoDateTruth\(latestTruth\)[\s\S]*prepare_entry_routeable_truth_after_failure[\s\S]*navigateWithLatency\(`\$\{source\}_routeable_truth_after_failure`\)/,
+  );
+  const webRouteableIndex = readyGateOverlay.indexOf("prepare_entry_routeable_truth_after_failure");
+  const webTerminalIndex = readyGateOverlay.indexOf("prepare_entry_retry_cancelled_terminal");
+  const nativeTruthIndex = nativeReadyGateOverlay.indexOf(
+    "const latestTruth =",
+  );
+  const nativeRouteableIndex = nativeReadyGateOverlay.indexOf("prepare_entry_routeable_truth_after_failure");
+  const nativeTerminalIndex = nativeReadyGateOverlay.indexOf("prepare_entry_retry_cancelled_terminal");
+  const nativeExhaustedIndex = nativeReadyGateOverlay.indexOf(
+    "if (exhausted)",
+    nativeTruthIndex,
+  );
+  assert.ok(webRouteableIndex > 0);
+  assert.ok(nativeTruthIndex > 0);
+  assert.ok(nativeRouteableIndex > 0);
+  assert.ok(webRouteableIndex < webTerminalIndex);
+  assert.ok(nativeRouteableIndex < nativeTerminalIndex);
+  assert.ok(nativeRouteableIndex < nativeExhaustedIndex);
 });
 
 test("daily-room supports room-only warmup without token issuance or entry transition", () => {
@@ -1784,7 +1846,7 @@ test("camera switch render hints round-trip core commit metadata and tolerate le
   assert.equal(parseVideoDateCameraSwitchRenderHint({ ...hint, sentAtMs: 0 }), null);
 });
 
-test("queue_status reaches in_handshake only after provider confirm succeeds", () => {
+test("queue_status reaches in_handshake only after route confirmation succeeds", () => {
   assert.match(providerAtomicEntryMigration, /'registration_status', 'deferred_until_confirm_prepare_entry'/);
   assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_preflight_ok[\s\S]{0,1200}queue_status = 'in_handshake'/);
   assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_preflight_ok[\s\S]{0,1200}queue_status = v_queue_status/);
@@ -1792,16 +1854,20 @@ test("queue_status reaches in_handshake only after provider confirm succeeds", (
     providerAtomicEntryMigration,
     /v_queue_status := CASE[\s\S]*ELSE 'in_handshake'[\s\S]*UPDATE public\.event_registrations[\s\S]*queue_status = v_queue_status/s,
   );
-  assert.match(dailyRoomFunction, /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s);
   assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
-  const tokenCreate = indexOfMatch(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject);
-  const confirmCall = dailyRoomFunction.indexOf("confirmVideoDateEntryPrepared(serviceClient", tokenCreate);
+  const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
+  const confirmCall = dailyRoomFunction.indexOf("confirmVideoDateEntryPrepared(serviceClient", prepareIndex);
+  const providerVerify = dailyRoomFunction.indexOf("ensureVideoDateProviderRoomForToken", confirmCall);
+  const tokenCreate = indexOfMatch(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject, prepareIndex);
   const confirmFailure = dailyRoomFunction.indexOf("if (confirmError || confirmPayload?.success !== true)", confirmCall);
-  const successResponse = dailyRoomFunction.indexOf("token,", confirmFailure);
-  assert.ok(tokenCreate > 0);
-  assert.ok(confirmCall > tokenCreate);
+  const successResponse = dailyRoomFunction.indexOf("token,", tokenCreate);
+  assert.ok(prepareIndex > 0);
+  assert.ok(confirmCall > prepareIndex);
   assert.ok(confirmFailure > confirmCall);
-  assert.ok(successResponse > confirmFailure);
+  assert.ok(providerVerify > confirmFailure);
+  assert.ok(tokenCreate > 0);
+  assert.ok(tokenCreate > providerVerify);
+  assert.ok(successResponse > tokenCreate);
 });
 
 test("confirm_video_date_entry_prepared is service-role-only and atomically persists route truth", () => {
@@ -1889,13 +1955,13 @@ test("prepared-but-never-joined video dates are repaired without starting the ha
   assert.match(handshakeJoinStartMigration, /'handshake_timer', 'never_started'/);
 });
 
-test("daily-room hard-fails room and registration persistence before returning tokens", () => {
+test("daily-room hard-fails registration persistence before provider tokens and still verifies provider before token issuance", () => {
   assert.match(dailyRoomFunction, /persistVideoDateRoomMetadata\(params\.serviceClient/);
   assert.match(dailyRoomFunction, /code: "DB_ROOM_PERSIST_FAILED"/);
   assert.match(dailyRoomFunction, /video_date_room_metadata_persist_failed/);
   assert.match(
     dailyRoomFunction,
-    /ensureVideoDateProviderRoomForToken[\s\S]*const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s,
+    /confirmVideoDateEntryPrepared\(serviceClient[\s\S]*ensureVideoDateProviderRoomForToken[\s\S]*const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*providerRoomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);/s,
   );
   assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
   assert.doesNotMatch(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
@@ -2303,11 +2369,11 @@ test("native ready and date routes validate before requesting camera and microph
   assert.ok(datePrejoinPermissionIndex > dateRouteAllowsPromptIndex);
 });
 
-test("remaining prepare-entry hardening defers in_handshake registration until Daily token success", () => {
+test("remaining prepare-entry hardening preserves historical repair while runtime route-confirms before provider tokens", () => {
   assert.match(remainingHardeningMigration, /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260501103000_prepare_entry_queue_guard/s);
   assert.match(remainingHardeningMigration, /registration_status', 'deferred_until_daily_token'/);
   assert.doesNotMatch(remainingHardeningMigration, /queue_status = v_registration_status/);
-  assert.match(dailyRoomFunction, /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared/s);
+  assert.match(dailyRoomFunction, /confirmVideoDateEntryPrepared\(serviceClient[\s\S]*ensureVideoDateProviderRoomForToken[\s\S]*const tokenWindow = resolveVideoDateMeetingTokenWindow/s);
   assert.match(remainingHardeningMigration, /repair_stale_video_date_prepare_entries/);
   assert.match(remainingHardeningMigration, /prepare_entry_provider_failed_repair/);
   assert.match(remainingHardeningMigration, /AND current_room_id = r\.id/);
@@ -2632,11 +2698,12 @@ test("video-date Daily room and token TTL use explicit finite phase-bounded cons
   assert.match(dailyRoomFunction, /buildVideoDateRoomProperties\(\{[\s\S]*ttlSeconds: DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
 });
 
-test("prepare-entry documents its deterministic provider-idempotent concurrency contract", () => {
-  assert.match(dailyRoomFunction, /Provider-idempotent prepare-entry contract/);
-  assert.match(dailyRoomFunction, /deterministic room name/);
+test("prepare-entry documents durable route confirmation before provider-idempotent token work", () => {
+  assert.match(dailyRoomFunction, /Durable entry contract/);
+  assert.match(dailyRoomFunction, /persist routeable handshake/);
+  assert.match(dailyRoomFunction, /Provider-idempotent room\/token contract/);
   assert.match(dailyRoomFunction, /already exists/);
-  assert.match(dailyRoomFunction, /same-value DB writes/);
+  assert.match(dailyRoomFunction, /same room_name\/room_url/);
 });
 
 test("stale video-date cleanup is bounded and preserves joined or date evidence", () => {
