@@ -140,7 +140,7 @@ const REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 // a natural keyframe arrives causes the receiver to go black until the next
 // GOP, which is the original bug we are fixing.
 const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
-const WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000;
+const WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS: number | null = null;
 const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_MS = 8_000;
 const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_POLL_MS = 150;
 const VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS = 3_000;
@@ -505,11 +505,23 @@ type WebDailyCallSingletonEntry = {
   previousRoomName: string | null;
   parkingMode: "live_same_session_remount";
   parkedAtMs: number;
-  idleMs: number;
+  idleMs: number | null;
   destroyTimer: ReturnType<typeof setTimeout> | null;
 };
 
 let webDailyCallSingletonEntry: WebDailyCallSingletonEntry | null = null;
+
+function getWebDailyCallSingletonIdleAgeMs(entry: WebDailyCallSingletonEntry) {
+  return Math.max(0, Date.now() - entry.parkedAtMs);
+}
+
+function isWebDailyCallSingletonIdleExpired(entry: WebDailyCallSingletonEntry) {
+  return typeof entry.idleMs === "number" && getWebDailyCallSingletonIdleAgeMs(entry) > entry.idleMs;
+}
+
+function shouldPersistWebDailyCallSingletonDestroy(reason: string) {
+  return reason.includes("idle") || reason.includes("expired");
+}
 
 function destroyWebDailyCallSingleton(reason: string) {
   const entry = webDailyCallSingletonEntry;
@@ -535,12 +547,35 @@ function destroyWebDailyCallSingleton(reason: string) {
       onDiagnostic: (eventName, payload) => vdbg(eventName, payload),
     },
   ).catch(() => undefined);
+  if (shouldPersistWebDailyCallSingletonDestroy(reason)) {
+    void emitWebVideoDateClientStuckState({
+      sessionId: entry.previousSessionId,
+      eventName: "daily_call_singleton_idle_destroy",
+      dedupe: false,
+      payload: {
+        source_surface: "video_date_daily",
+        source_action: "daily_call_singleton_destroyed",
+        reason_code: reason,
+        previous_session_id: entry.previousSessionId ?? undefined,
+        previous_room_name: entry.previousRoomName ?? undefined,
+        singleton_parking_mode: entry.parkingMode,
+        idle_ms: entry.idleMs ?? undefined,
+        idle_age_ms: getWebDailyCallSingletonIdleAgeMs(entry),
+        idle_destroy_disabled: entry.idleMs == null,
+        leave_called: true,
+        destroy_called: true,
+      },
+    });
+  }
   vdbg("daily_call_singleton_destroyed", {
     platform: "web",
     reason,
     previousSessionId: entry.previousSessionId,
     previousRoomName: entry.previousRoomName,
     parkingMode: entry.parkingMode,
+    idleDestroyDisabled: entry.idleMs == null,
+    idleMs: entry.idleMs,
+    idleAgeMs: getWebDailyCallSingletonIdleAgeMs(entry),
     hadAppAcquiredMedia: Boolean(entry.appAcquiredMedia),
   });
 }
@@ -573,11 +608,13 @@ function parkWebDailyCallSingleton(params: {
     idleMs,
     destroyTimer: null,
   };
-  entry.destroyTimer = setTimeout(() => {
-    if (webDailyCallSingletonEntry?.call === params.call) {
-      destroyWebDailyCallSingleton("idle_timeout");
-    }
-  }, idleMs);
+  if (typeof idleMs === "number") {
+    entry.destroyTimer = setTimeout(() => {
+      if (webDailyCallSingletonEntry?.call === params.call) {
+        destroyWebDailyCallSingleton("idle_timeout");
+      }
+    }, idleMs);
+  }
   webDailyCallSingletonEntry = entry;
   vdbg("daily_call_singleton_parked", {
     platform: "web",
@@ -586,6 +623,7 @@ function parkWebDailyCallSingleton(params: {
     previousSessionId: params.previousSessionId,
     previousRoomName: params.previousRoomName,
     idleMs,
+    idleDestroyDisabled: idleMs == null,
   });
 }
 
@@ -596,7 +634,7 @@ function consumeWebDailyCallSingleton(params: {
 }): { ok: true; entry: WebDailyCallSingletonEntry; meetingState: string | null } | { ok: false; reason: string } {
   const entry = webDailyCallSingletonEntry;
   if (!entry) return { ok: false, reason: "missing_singleton" };
-  if (Date.now() - entry.parkedAtMs > entry.idleMs) {
+  if (isWebDailyCallSingletonIdleExpired(entry)) {
     destroyWebDailyCallSingleton("expired_before_consume");
     return { ok: false, reason: "expired_before_consume" };
   }
@@ -634,7 +672,8 @@ function consumeWebDailyCallSingleton(params: {
     nextRoomName: params.nextRoomName,
     meetingState,
     parkingMode: entry.parkingMode,
-    idleAgeMs: Math.max(0, Date.now() - entry.parkedAtMs),
+    idleAgeMs: getWebDailyCallSingletonIdleAgeMs(entry),
+    idleDestroyDisabled: entry.idleMs == null,
   });
   return { ok: true, entry, meetingState };
 }
@@ -642,7 +681,7 @@ function consumeWebDailyCallSingleton(params: {
 function hasReusableWebDailyCallSingleton(params: { userId: string; nextSessionId: string }): boolean {
   const entry = webDailyCallSingletonEntry;
   if (!entry) return false;
-  if (Date.now() - entry.parkedAtMs > entry.idleMs) {
+  if (isWebDailyCallSingletonIdleExpired(entry)) {
     destroyWebDailyCallSingleton("expired_before_preflight");
     return false;
   }
@@ -3257,6 +3296,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             destroy_called: Boolean(callObject) && !shouldParkLiveSingleton,
             parked_singleton: shouldParkLiveSingleton,
             singleton_parking_mode: shouldParkLiveSingleton ? "live_same_session_remount" : undefined,
+            idle_destroy_disabled: shouldParkLiveSingleton && WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null,
             call_object_present: Boolean(callObject),
           },
         });
@@ -3400,6 +3440,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             destroy_called: Boolean(callObject) && !parkedSingleton,
             parked_singleton: parkedSingleton,
             singleton_parking_mode: parkedSingleton && shouldParkLiveSingleton ? "live_same_session_remount" : undefined,
+            idle_destroy_disabled: parkedSingleton && WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null,
             call_object_present: Boolean(callObject),
           },
         });

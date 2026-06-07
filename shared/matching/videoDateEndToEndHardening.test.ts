@@ -3647,7 +3647,8 @@ test("native AppState background path remains statically covered for away, retur
   assert.match(nativeVideoDateRoute, /backgroundElapsedMs >= NATIVE_BACKGROUND_GRACE_MS/);
   assert.doesNotMatch(nativeVideoDateRoute, /signalVideoDateLeave\(\s*sessionId,\s*["']app_background["']/);
   assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(\s*sessionId,\s*["']app_background_timeout["']/);
-  assert.match(nativeVideoDateRoute, /cleanupDailyAndLocalState\(\)/);
+  assert.match(nativeVideoDateRoute, /cleanupDailyAndLocalState\(\{\s*mode: ["']destructive["'],\s*reason: ["']app_background["'],\s*\}\)/);
+  assert.match(nativeVideoDateRoute, /cleanupDailyAndLocalState\(\{\s*mode: ["']destructive["'],\s*reason: ["']app_background_timeout["'],\s*\}\)/);
   assert.match(nativeVideoDateRoute, /markReconnectReturn\(sessionId\)/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_RECOVERED/);

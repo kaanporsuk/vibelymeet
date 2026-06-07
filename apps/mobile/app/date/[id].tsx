@@ -303,7 +303,7 @@ const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_MAX_MS = 15_000;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS = 1_000;
 const NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX =
   "vibely_vd_native_surface_client";
-const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
+const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS: number | null = null;
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
 const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
@@ -410,8 +410,13 @@ type SharedDailyCallEntry = {
   lastError: string | null;
   idleDestroyTimer: ReturnType<typeof setTimeout> | null;
   parkedAtMs: number | null;
+  idleDestroyDisabled: boolean;
 };
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
+type NativeDailyCleanupOptions = {
+  mode?: "destructive" | "preserve_active_handoff";
+  reason?: string;
+};
 type NativePrejoinPipelineEntry = {
   key: string;
   sessionId: string;
@@ -2152,38 +2157,63 @@ export default function VideoDateScreen() {
       if (sharedDailyCallEntry.idleDestroyTimer) {
         clearTimeout(sharedDailyCallEntry.idleDestroyTimer);
       }
+      const idleMs = NATIVE_DAILY_CALL_SINGLETON_IDLE_MS;
       sharedDailyCallEntry.state = "idle";
       sharedDailyCallEntry.joinPromise = null;
       sharedDailyCallEntry.joinStartedAtMs = null;
       sharedDailyCallEntry.lastError = null;
       sharedDailyCallEntry.parkedAtMs = Date.now();
-      sharedDailyCallEntry.idleDestroyTimer = setTimeout(() => {
-        const entry = sharedDailyCallEntry;
-        if (!entry || entry.call !== call || entry.state !== "idle") return;
-        vdbg("daily_call_singleton_idle_destroy", {
-          reason: "idle_timeout",
-          sessionId: entry.sessionId,
-          userId: entry.userId,
-          roomName: entry.roomName,
-          idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
-        });
-        void destroyNativeVideoDateDailyCall(
-          entry.call,
-          "daily_call_singleton_idle_destroy",
-          {
+      sharedDailyCallEntry.idleDestroyTimer = null;
+      sharedDailyCallEntry.idleDestroyDisabled = idleMs == null;
+      if (typeof idleMs === "number") {
+        sharedDailyCallEntry.idleDestroyTimer = setTimeout(() => {
+          const entry = sharedDailyCallEntry;
+          if (!entry || entry.call !== call || entry.state !== "idle") return;
+          const idleAgeMs = entry.parkedAtMs
+            ? Math.max(0, Date.now() - entry.parkedAtMs)
+            : null;
+          vdbg("daily_call_singleton_idle_destroy", {
+            reason: "idle_timeout",
             sessionId: entry.sessionId,
             userId: entry.userId,
             roomName: entry.roomName,
-          },
-        ).catch(() => undefined);
-        sharedDailyCallEntry = null;
-      }, NATIVE_DAILY_CALL_SINGLETON_IDLE_MS);
+            idleMs,
+            idleAgeMs,
+          });
+          void emitNativeVideoDateClientStuckState({
+            sessionId: entry.sessionId,
+            eventName: "daily_call_singleton_idle_destroy",
+            payload: {
+              source_surface: "video_date_daily",
+              source_action: "daily_call_singleton_destroyed",
+              reason_code: "idle_timeout",
+              previous_session_id: entry.sessionId,
+              previous_room_name: entry.roomName ?? undefined,
+              idle_ms: idleMs,
+              idle_age_ms: idleAgeMs ?? undefined,
+              idle_destroy_disabled: false,
+              destroy_called: true,
+            },
+          });
+          void destroyNativeVideoDateDailyCall(
+            entry.call,
+            "daily_call_singleton_idle_destroy",
+            {
+              sessionId: entry.sessionId,
+              userId: entry.userId,
+              roomName: entry.roomName,
+            },
+          ).catch(() => undefined);
+          sharedDailyCallEntry = null;
+        }, idleMs);
+      }
       vdbg("daily_call_singleton_parked", {
         reason,
         sessionId: sharedDailyCallEntry.sessionId,
         userId: sharedDailyCallEntry.userId,
         roomName: sharedDailyCallEntry.roomName,
-        idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
+        idleMs,
+        idleDestroyDisabled: sharedDailyCallEntry.idleDestroyDisabled,
       });
       return true;
     },
@@ -5198,124 +5228,133 @@ export default function VideoDateScreen() {
     requestReconnectSyncRef.current("partner_marked_away");
   }, [sessionId, phase, partnerEverJoined]);
 
-  const cleanupDailyAndLocalState = useCallback(async () => {
-    clearHandshakeGraceState();
-    clearPartnerAwayAfterTransportGrace("leave_and_cleanup");
-    clearFirstConnectWatchdog();
-    clearDailyTokenRefreshTimer();
-    clearDailyAliveHeartbeatTimer("leave_and_cleanup");
-    dailyTokenRecoveryInFlightRef.current = false;
-    dailyTokenExpiresAtRef.current = null;
-    recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
-    const call = callRef.current;
-    if (call) {
-      detachCallListeners("leave_and_cleanup");
-      const shouldParkSingleton =
-        dailyCallSingletonV2.enabled &&
-        (dateEstablishedRef.current || showFeedback);
-      let parkedSingleton = false;
-      try {
-        await call.leave();
+  const cleanupDailyAndLocalState = useCallback(
+    async (options?: NativeDailyCleanupOptions) => {
+      const cleanupMode = options?.mode ?? "destructive";
+      const cleanupReason = options?.reason ?? "leave_and_cleanup";
+      clearHandshakeGraceState();
+      clearPartnerAwayAfterTransportGrace(cleanupReason);
+      clearFirstConnectWatchdog();
+      clearDailyTokenRefreshTimer();
+      clearDailyAliveHeartbeatTimer(cleanupReason);
+      dailyTokenRecoveryInFlightRef.current = false;
+      dailyTokenExpiresAtRef.current = null;
+      recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
+      const call = callRef.current;
+      if (call) {
+        detachCallListeners(cleanupReason);
+        const shouldParkSingleton =
+          cleanupMode === "preserve_active_handoff" &&
+          dailyCallSingletonV2.enabled &&
+          dateEstablishedRef.current &&
+          !showFeedback &&
+          !terminalSurveyHardStopRef.current &&
+          phaseRef.current !== "ended";
+        let parkedSingleton = false;
         if (shouldParkSingleton) {
-          parkedSingleton = parkSharedCallForWarmHandoff(
-            call,
-            "leave_and_cleanup",
-          );
+          parkedSingleton = parkSharedCallForWarmHandoff(call, cleanupReason);
         }
-      } catch (_error) {
-        void _error;
-      }
-      if (!parkedSingleton) {
-        try {
-          await destroyNativeVideoDateDailyCall(call, "leave_and_cleanup", {
-            sessionId,
-            userId: user?.id ?? null,
-            roomName: roomNameRef.current ?? null,
-          });
-        } catch (_error) {
-          void _error;
+        if (!parkedSingleton) {
+          try {
+            await call.leave();
+          } catch (_error) {
+            void _error;
+          }
+          try {
+            await destroyNativeVideoDateDailyCall(call, cleanupReason, {
+              sessionId,
+              userId: user?.id ?? null,
+              roomName: roomNameRef.current ?? null,
+            });
+          } catch (_error) {
+            void _error;
+          }
         }
+        if (!parkedSingleton) {
+          releaseSharedCallIfOwned(call, cleanupReason);
+        }
+        callRef.current = null;
       }
-      if (!parkedSingleton) {
-        releaseSharedCallIfOwned(call, "leave_and_cleanup");
+      const roomName = roomNameRef.current;
+      if (roomName) {
+        vdbg("daily_room_delete_skipped", {
+          action: "delete_room",
+          caller: "native.leaveAndCleanup",
+          reason: "backend_cleanup_owns_video_date_rooms",
+          sessionId: sessionId ?? null,
+          userId: user?.id ?? null,
+          eventId: eventId || null,
+          roomName,
+        });
+        roomNameRef.current = null;
       }
-      callRef.current = null;
-    }
-    const roomName = roomNameRef.current;
-    if (roomName) {
-      vdbg("daily_room_delete_skipped", {
-        action: "delete_room",
-        caller: "native.leaveAndCleanup",
-        reason: "backend_cleanup_owns_video_date_rooms",
+      localParticipantRef.current = null;
+      setLocalParticipant(null);
+      remoteParticipantRef.current = null;
+      nativeCameraSwitchInFlightRef.current = false;
+      lastNativeRemoteCameraSwitchHintIdRef.current = null;
+      resetNativeRemoteRenderRecovery(null, cleanupReason);
+      setRemoteParticipant(null);
+      vdbg("prejoin_state_localInDailyRoom", {
+        value: false,
         sessionId: sessionId ?? null,
         userId: user?.id ?? null,
-        eventId: eventId || null,
-        roomName,
+        step: cleanupReason,
       });
-      roomNameRef.current = null;
-    }
-    localParticipantRef.current = null;
-    setLocalParticipant(null);
-    remoteParticipantRef.current = null;
-    nativeCameraSwitchInFlightRef.current = false;
-    lastNativeRemoteCameraSwitchHintIdRef.current = null;
-    resetNativeRemoteRenderRecovery(null, "leave_and_cleanup");
-    setRemoteParticipant(null);
-    vdbg("prejoin_state_localInDailyRoom", {
-      value: false,
-      sessionId: sessionId ?? null,
-      userId: user?.id ?? null,
-      step: "leave_and_cleanup",
-    });
-    setLocalInDailyRoom(false);
-    setPartnerEverJoined(false);
-    setPeerMissingTerminal(false);
-    peerMissingTruthRefreshCountRef.current = 0;
-    vdbg("prejoin_state_isConnecting", {
-      value: false,
-      sessionId: sessionId ?? null,
-      userId: user?.id ?? null,
-      step: "leave_and_cleanup",
-    });
-    setIsConnecting(false);
-    setIsMuted(false);
-    setIsVideoOff(false);
-    vdbg("prejoin_state_awaitingFirstConnect", {
-      value: false,
-      sessionId: sessionId ?? null,
-      userId: user?.id ?? null,
-      step: "leave_and_cleanup",
-    });
-    setAwaitingFirstConnect(false);
-    vdbg("prejoin_state_preJoinFailed", {
-      value: false,
-      sessionId: sessionId ?? null,
-      userId: user?.id ?? null,
-      step: "leave_and_cleanup",
-    });
-    setPreJoinFailed(false);
-    setNetQualityTier("good");
-    captureProfileRef.current = "ideal";
-    setCaptureProfile("ideal");
-  }, [
-    sessionId,
-    eventId,
-    user?.id,
-    dailyCallSingletonV2.enabled,
-    showFeedback,
-    clearFirstConnectWatchdog,
-    clearDailyTokenRefreshTimer,
-    clearDailyAliveHeartbeatTimer,
-    clearPartnerAwayAfterTransportGrace,
-    parkSharedCallForWarmHandoff,
-    releaseSharedCallIfOwned,
-    detachCallListeners,
-    clearHandshakeGraceState,
-    resetNativeRemoteRenderRecovery,
-  ]);
+      setLocalInDailyRoom(false);
+      setPartnerEverJoined(false);
+      setPeerMissingTerminal(false);
+      peerMissingTruthRefreshCountRef.current = 0;
+      vdbg("prejoin_state_isConnecting", {
+        value: false,
+        sessionId: sessionId ?? null,
+        userId: user?.id ?? null,
+        step: cleanupReason,
+      });
+      setIsConnecting(false);
+      setIsMuted(false);
+      setIsVideoOff(false);
+      vdbg("prejoin_state_awaitingFirstConnect", {
+        value: false,
+        sessionId: sessionId ?? null,
+        userId: user?.id ?? null,
+        step: cleanupReason,
+      });
+      setAwaitingFirstConnect(false);
+      vdbg("prejoin_state_preJoinFailed", {
+        value: false,
+        sessionId: sessionId ?? null,
+        userId: user?.id ?? null,
+        step: cleanupReason,
+      });
+      setPreJoinFailed(false);
+      setNetQualityTier("good");
+      captureProfileRef.current = "ideal";
+      setCaptureProfile("ideal");
+    },
+    [
+      sessionId,
+      eventId,
+      user?.id,
+      dailyCallSingletonV2.enabled,
+      showFeedback,
+      clearFirstConnectWatchdog,
+      clearDailyTokenRefreshTimer,
+      clearDailyAliveHeartbeatTimer,
+      clearPartnerAwayAfterTransportGrace,
+      parkSharedCallForWarmHandoff,
+      releaseSharedCallIfOwned,
+      detachCallListeners,
+      clearHandshakeGraceState,
+      resetNativeRemoteRenderRecovery,
+    ],
+  );
 
   const cleanupForAbortWithoutServerEnd = useCallback(async () => {
-    await cleanupDailyAndLocalState();
+    await cleanupDailyAndLocalState({
+      mode: "destructive",
+      reason: "leave_and_cleanup",
+    });
     if (sessionId) {
       // Aborting the prejoin/Daily pipeline must release the date-entry latch; otherwise the
       // hydration / route-guard bounce stays suppressed for up to 180s and a re-entry into
@@ -5656,7 +5695,10 @@ export default function VideoDateScreen() {
               });
             }
             void (async () => {
-              await cleanupDailyAndLocalState();
+              await cleanupDailyAndLocalState({
+                mode: "destructive",
+                reason: "app_foreground_after_background_timeout",
+              });
               const ended = await endVideoDate(
                 sessionId,
                 "app_background_timeout",
@@ -5787,7 +5829,10 @@ export default function VideoDateScreen() {
             graceMs: NATIVE_BACKGROUND_GRACE_MS,
           });
           void (async () => {
-            await cleanupDailyAndLocalState();
+            await cleanupDailyAndLocalState({
+              mode: "destructive",
+              reason: "app_background",
+            });
             hasStartedJoinRef.current = false;
           })();
           clearBackgroundTimeout();
@@ -5866,7 +5911,10 @@ export default function VideoDateScreen() {
                   },
                 });
               }
-              await cleanupDailyAndLocalState();
+              await cleanupDailyAndLocalState({
+                mode: "destructive",
+                reason: "app_background_timeout",
+              });
               const ended = await endVideoDate(
                 sessionId,
                 "app_background_timeout",
@@ -9373,8 +9421,10 @@ export default function VideoDateScreen() {
         if (idleSingletonEntry.userId !== user.id) {
           rejectIdleReason = "idle_owner_mismatch";
         } else if (
-          !Number.isFinite(idleAgeMs) ||
-          idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS
+          !idleSingletonEntry.idleDestroyDisabled &&
+          (typeof NATIVE_DAILY_CALL_SINGLETON_IDLE_MS !== "number" ||
+            !Number.isFinite(idleAgeMs) ||
+            idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS)
         ) {
           rejectIdleReason = "idle_expired";
         } else {
@@ -9392,6 +9442,7 @@ export default function VideoDateScreen() {
             entryUserId: idleSingletonEntry.userId,
             currentUserId: user.id,
             idleAgeMs: Number.isFinite(idleAgeMs) ? idleAgeMs : null,
+            idleDestroyDisabled: idleSingletonEntry.idleDestroyDisabled,
           });
           await destroySharedCallForRetry(idleSingletonEntry, rejectIdleReason);
           idleSingletonEntry = null;
@@ -9447,6 +9498,7 @@ export default function VideoDateScreen() {
           idleAgeMs: idleSingletonEntry.parkedAtMs
             ? Math.max(0, Date.now() - idleSingletonEntry.parkedAtMs)
             : null,
+          idleDestroyDisabled: idleSingletonEntry.idleDestroyDisabled,
         });
       }
 
@@ -9547,6 +9599,7 @@ export default function VideoDateScreen() {
           lastError: null,
           idleDestroyTimer: null,
           parkedAtMs: null,
+          idleDestroyDisabled: false,
         };
         captureProfileRef.current = profile;
         setCaptureProfile(profile);

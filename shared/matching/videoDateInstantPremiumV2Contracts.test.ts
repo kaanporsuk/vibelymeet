@@ -188,10 +188,14 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(dailySingletonMatchEtaMigration, /'video_date\.daily_call_singleton_v2', false, 0/);
   assert.doesNotMatch(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
   assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
-  assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000/);
+  assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS: number \| null = null/);
   assert.match(webVideoCall, /parkWebDailyCallSingleton/);
   assert.match(webVideoCall, /consumeWebDailyCallSingleton/);
   assert.match(webVideoCall, /hasReusableWebDailyCallSingleton/);
+  assert.match(webVideoCall, /isWebDailyCallSingletonIdleExpired/);
+  assert.match(webVideoCall, /typeof entry\.idleMs === "number"/);
+  assert.match(webVideoCall, /idle_destroy_disabled: shouldParkLiveSingleton && WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null/);
+  assert.match(webVideoCall, /eventName: "daily_call_singleton_idle_destroy"/);
   assert.match(webVideoCall, /expired_before_preflight/);
   assert.match(webVideoCall, /destroyed_before_preflight/);
   assert.match(webVideoCall, /local_media_not_live_before_preflight/);
@@ -227,7 +231,7 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(webVideoCall, /clearDailyEventListeners\("before_bind_daily_listeners"\)/);
   assert.match(webVideoCall, /callObject\.off\(eventName, handler\)/);
   assert.doesNotMatch(webVideoCall, /const bindDailyEvent[\s\S]{0,260}bindDailyEvent\(eventName, handler\)/);
-  assert.match(nativeVideoDate, /NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000/);
+  assert.match(nativeVideoDate, /NATIVE_DAILY_CALL_SINGLETON_IDLE_MS: number \| null = null/);
   assert.match(nativeVideoDate, /parkSharedCallForWarmHandoff/);
   assert.match(nativeVideoDate, /daily_call_singleton_reuse_same_session_idle_deferred/);
   assert.match(nativeVideoDate, /daily_call_singleton_reuse_same_session_idle/);
@@ -236,11 +240,18 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(nativeVideoDate, /sharedCallCandidate\.userId !== user\.id/);
   assert.match(nativeVideoDate, /daily_call_singleton_owner_mismatch_destroy/);
   assert.match(nativeVideoDate, /idleSingletonEntry\.userId !== user\.id/);
-  assert.match(nativeVideoDate, /idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS/);
+  assert.match(nativeVideoDate, /!idleSingletonEntry\.idleDestroyDisabled[\s\S]{0,180}idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS/);
   assert.match(nativeVideoDate, /daily_call_singleton_idle_reuse_rejected/);
   assert.match(nativeVideoDate, /idleSingletonEntry\.call\.participants\(\)/);
-  assert.match(nativeVideoDate, /dailyCallSingletonV2\.enabled\s*&&\s*\(\s*dateEstablishedRef\.current\s*\|\|\s*showFeedback\s*\)/);
-  assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled &&[\s\S]{0,120}phaseRef\.current === ['"]ended['"]/);
+  assert.match(nativeVideoDate, /idleDestroyDisabled: boolean/);
+  assert.match(nativeVideoDate, /sharedDailyCallEntry\.idleDestroyDisabled = idleMs == null/);
+  assert.match(nativeVideoDate, /cleanupMode === "preserve_active_handoff"[\s\S]{0,220}dateEstablishedRef\.current\s*&&\s*!showFeedback\s*&&\s*!terminalSurveyHardStopRef\.current/);
+  assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "leave_and_cleanup"/);
+  assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background"/);
+  assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background_timeout"/);
+  assert.match(nativeVideoDate, /if \(shouldParkSingleton\) \{[\s\S]{0,180}parkSharedCallForWarmHandoff/);
+  assert.doesNotMatch(nativeVideoDate, /await call\.leave\(\);[\s\S]{0,180}parkSharedCallForWarmHandoff/);
+  assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled\s*&&\s*\(\s*dateEstablishedRef\.current\s*\|\|\s*showFeedback\s*\)/);
 });
 
 test("match ETA hint is sanitized, participant-visible, and gated by post-date instant-next full rollout", () => {
