@@ -6,14 +6,18 @@ import test from "node:test";
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-const migration = read(
+const providerOverlapMigration = read(
   "supabase/migrations/20260607194546_video_date_definitive_provider_overlap_promotion.sql",
 );
+const currentRemoteSeenMigration = read(
+  "supabase/migrations/20260607205617_video_date_provider_overlap_current_remote_seen.sql",
+);
+const migration = `${providerOverlapMigration}\n${currentRemoteSeenMigration}`;
 const snapshotFunction = read("supabase/functions/video-date-snapshot/index.ts");
 const packageJson = read("package.json");
 
 function functionBody(source: string, name: string): string {
-  const start = source.indexOf(`CREATE OR REPLACE FUNCTION public.${name}`);
+  const start = source.lastIndexOf(`CREATE OR REPLACE FUNCTION public.${name}`);
   assert.notEqual(start, -1, `${name} should exist`);
   const end = source.indexOf("$function$;", start);
   assert.notEqual(end, -1, `${name} should have a dollar-quoted body`);
@@ -30,6 +34,11 @@ test("stable copresence accepts provider-backed overlap despite small join/heart
   assert.match(stable, /one_remote_seen_provider_current/);
   assert.match(stable, /stable_provider_owner_heartbeat_overlap/);
   assert.match(stable, /heartbeat_floor_at/);
+
+  const oneRemoteSeenCurrent = stable.match(/v_one_remote_seen_provider_current :=[\s\S]*?;/);
+  assert.ok(oneRemoteSeenCurrent, "one-sided remote-seen guard should exist");
+  assert.match(oneRemoteSeenCurrent[0], /v_row\.participant_1_remote_seen_at >= v_participant_1_active_since_at - interval '5 seconds'/);
+  assert.match(oneRemoteSeenCurrent[0], /v_row\.participant_2_remote_seen_at >= v_participant_2_active_since_at - interval '5 seconds'/);
 });
 
 test("provider overlap promoter is the shared date-start authority for hot path RPCs", () => {
