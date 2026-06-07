@@ -29,6 +29,7 @@ import {
   ensureVideoDateRoomWarmup,
   videoDateRoomWarmupAfterReadyEnabled,
 } from "@/lib/videoDateRoomWarmup";
+import { recordReadyGateEntered } from "@/lib/readyGateEntryProof";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateSessionTruth";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
@@ -510,6 +511,15 @@ function isReadyGateReadyProgressStatus(status?: string | null): boolean {
   );
 }
 
+function isReadyGateEntryProofStatus(status?: string | null): boolean {
+  return (
+    status === "ready" ||
+    status === "ready_a" ||
+    status === "ready_b" ||
+    status === "snoozed"
+  );
+}
+
 const ReadyGateOverlay = ({
   sessionId,
   eventId,
@@ -547,6 +557,7 @@ const ReadyGateOverlay = ({
   const mountedRef = useRef(true);
   const invalidCloseToastRef = useRef(false);
   const readyGateImpressionRef = useRef(false);
+  const readyGateEntryProofKeyRef = useRef<string | null>(null);
   const openingWaitImpressionRef = useRef(false);
   const terminalOutcomeRef = useRef(false);
   const expirySyncInFlightRef = useRef(false);
@@ -2109,6 +2120,7 @@ const ReadyGateOverlay = ({
     partnerReady,
     partnerReadyKnown,
     isBothReady,
+    status: readyGateStatus,
     stateSessionId: readyGateStateSessionId,
     partnerName,
     snoozedByPartner,
@@ -2131,6 +2143,53 @@ const ReadyGateOverlay = ({
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    if (readyGateStateSessionId !== sessionId) return;
+    if (!isReadyGateEntryProofStatus(readyGateStatus)) return;
+
+    const proofKey = `${sessionId}:${userId}`;
+    if (readyGateEntryProofKeyRef.current === proofKey) return;
+    readyGateEntryProofKeyRef.current = proofKey;
+
+    void recordReadyGateEntered({
+      sessionId,
+      platform: "web",
+      surface: "ready_gate_overlay",
+      source: "mounted_active_ready_gate",
+      readyGateStatus,
+      routePath:
+        typeof window !== "undefined" ? window.location.pathname : null,
+    }).then((result) => {
+      if (result.ok || result.success) {
+        trackReadyGateClientEvent("ready_gate_entry_proof_recorded", {
+          participant_slot: result.participant_slot ?? null,
+          ready_gate_status: result.ready_gate_status ?? readyGateStatus,
+          ttl_extended: Boolean(result.ttl_extended),
+          first_entry_for_participant: Boolean(result.first_entry_for_participant),
+          both_participants_entered: Boolean(result.both_participants_entered),
+        });
+        if (result.ttl_extended) {
+          void syncSession();
+        }
+        return;
+      }
+
+      trackReadyGateClientEvent("ready_gate_entry_proof_failed", {
+        code: result.code ?? "unknown",
+        ready_gate_status: readyGateStatus,
+      });
+    });
+  }, [
+    readyGateStateSessionId,
+    readyGateStatus,
+    sessionId,
+    syncSession,
+    trackReadyGateClientEvent,
+    user?.id,
+  ]);
 
   useEffect(() => {
     orchestratorRealtimeDegradedRef.current = orchestratorRealtimeDegraded;
@@ -2702,6 +2761,7 @@ const ReadyGateOverlay = ({
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
     readyGateImpressionRef.current = false;
+    readyGateEntryProofKeyRef.current = null;
     openingWaitImpressionRef.current = false;
     terminalOutcomeRef.current = false;
     expirySyncInFlightRef.current = false;
