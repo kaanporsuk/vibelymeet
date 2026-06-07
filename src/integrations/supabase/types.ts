@@ -11875,7 +11875,14 @@ export type Database = {
         Returns: undefined
       }
       mark_video_date_daily_joined: {
-        Args: { p_session_id: string }
+        Args: {
+          p_call_instance_id?: string | null
+          p_entry_attempt_id?: string | null
+          p_owner_id?: string | null
+          p_owner_state?: string | null
+          p_provider_session_id?: string | null
+          p_session_id: string
+        }
         Returns: Json
       }
       mark_video_date_remote_seen: {

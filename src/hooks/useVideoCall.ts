@@ -5746,19 +5746,84 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           daily_prewarm_consumed: prewarmedCall.ok === true,
         });
 
-        const joinedArgs = { p_session_id: sessionId };
+        const buildProviderBackedDailyJoinedArgs = () => {
+          const providerSessionId = readDailyProviderSessionId(callObject);
+          const meetingState = safeMeetingState(callObject);
+          const providerBackedJoined =
+            meetingState === "joined-meeting" && Boolean(providerSessionId);
+          const entryOwner = userId
+            ? getVideoDateEntryOwner(sessionId, userId)
+            : null;
+          const ownerState = providerBackedJoined
+            ? "joined"
+            : meetingState === "left-meeting" || meetingState === "error"
+              ? "lost"
+              : "joining";
+          return {
+            providerBackedJoined,
+            providerSessionId,
+            meetingState,
+            ownerId: entryOwner?.ownerId ?? null,
+            ownerState,
+            args: {
+              p_session_id: sessionId,
+              p_owner_id: entryOwner?.ownerId ?? null,
+              p_call_instance_id: dailyCallInstanceId,
+              p_provider_session_id: providerSessionId,
+              p_entry_attempt_id: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+              p_owner_state: ownerState,
+            },
+          };
+        };
+        const initialJoinedProof = buildProviderBackedDailyJoinedArgs();
         vdbg("mark_video_date_daily_joined_before", {
-          args: joinedArgs,
+          args: initialJoinedProof.args,
           sessionId,
           eventId: truthRow.event_id ?? eventId,
           userId,
+          providerBackedJoined: initialJoinedProof.providerBackedJoined,
+          providerSessionId: initialJoinedProof.providerSessionId,
+          meetingState: initialJoinedProof.meetingState,
+          ownerId: initialJoinedProof.ownerId,
+          ownerState: initialJoinedProof.ownerState,
         });
         void markDailyJoinedWithBackoff({
           sleep,
           confirm: async (attempt) => {
+            const joinedProof = buildProviderBackedDailyJoinedArgs();
+            if (!joinedProof.providerBackedJoined) {
+              const retryable = joinedProof.ownerState !== "lost";
+              const payload = {
+                ok: false,
+                error: "provider_presence_missing",
+                retryable,
+                provider_presence_required: true,
+                provider_backed_current: false,
+                provider_session_id: joinedProof.providerSessionId,
+                owner_id: joinedProof.ownerId,
+                owner_state: joinedProof.ownerState,
+                meeting_state: joinedProof.meetingState,
+              };
+              vdbg("mark_video_date_daily_joined_after", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                roomName: roomData.room_name,
+                attempt,
+                ok: false,
+                payload,
+                error: null,
+              });
+              return {
+                ok: false,
+                code: "provider_presence_missing",
+                retryable,
+                payload,
+              };
+            }
             const { data: joinedData, error: joinedError } = await supabase.rpc(
               "mark_video_date_daily_joined",
-              joinedArgs
+              joinedProof.args
             );
             const payload = joinedData as
               | { ok?: boolean; error?: string | null; retryable?: boolean }
@@ -5774,6 +5839,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               ok,
               payload: joinedData ?? null,
               error: joinedError ? { code: joinedError.code, message: joinedError.message } : null,
+              providerBackedJoined: joinedProof.providerBackedJoined,
+              providerSessionId: joinedProof.providerSessionId,
+              meetingState: joinedProof.meetingState,
+              ownerId: joinedProof.ownerId,
+              ownerState: joinedProof.ownerState,
             });
             return {
               ok,
