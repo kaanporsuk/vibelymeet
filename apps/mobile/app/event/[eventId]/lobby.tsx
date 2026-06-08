@@ -488,7 +488,7 @@ export default function EventLobbyScreen() {
 
   const isLiveWindow = lobbyGate.kind === "live" || lobbyGate.kind === "paused";
 
-  const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
+  const lobbyGateSideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
   const drainQueueV2 = useFeatureFlag("video_date.outbox_v2.drain_match_queue");
   const deckPrefetchPolishV2 = useFeatureFlag(
@@ -503,10 +503,6 @@ export default function EventLobbyScreen() {
         deckOptimisticAliasV1,
       ),
     [deckOptimisticAliasV1, deckPrefetchPolishV2],
-  );
-  useNonBlockingVideoDateReadiness(
-    id,
-    readinessV2.enabled && lobbySideEffectsEnabled,
   );
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const {
@@ -534,6 +530,15 @@ export default function EventLobbyScreen() {
     Boolean(activeSessionId) ||
     sameEventActiveSession?.kind === "ready_gate" ||
     sameEventActiveSession?.kind === "video";
+  const activeDateRouteOwnsLobby = Boolean(
+    sameEventActiveSession?.kind === "video",
+  );
+  const lobbySideEffectsEnabled =
+    lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby;
+  useNonBlockingVideoDateReadiness(
+    id,
+    readinessV2.enabled && lobbySideEffectsEnabled,
+  );
 
   useEffect(() => {
     if (!eventDateValue) return;

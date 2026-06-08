@@ -9,6 +9,8 @@ This runbook covers client diagnostics for the journey:
 
 Scope is primarily **client-side** (web + native). For **server-side queue / promotion** correlation, operators may use read-only SQL on `event_loop_observability_events` (service role) as documented in `docs/observability/watchdog-no-remote-query-pack.md` — no application RPC contract is implied here.
 
+Current 2026-06-08 active-owner / terminal-truth overlay: start with `docs/video-date-success-command-center.md` and `docs/branch-deltas/fix-video-date-active-owner-terminal-truth.md`. Local source now adds migration `20260608171837_video_date_active_owner_terminal_truth.sql`, web/native lobby single-owner gates, terminal audit generation fields, delayed Daily webhook historical-truth preservation, and an authenticated PostgREST runtime probe for hot lifecycle RPCs. This overlay is local implementation evidence only until the branch is merged and Supabase cloud applies the migration. During investigation, treat `/date/:sessionId` as the owner after `both_ready`, during handshake/date, and during terminal survey recovery; lobby, queue, deck, and Ready Gate loops must not compete with it. If `queue_status = 'in_survey'`, `survey_required`, or terminal survey truth exists, stop Daily alive/join, surface claim, queue drain, and Ready Gate recovery loops until `date_feedback` persists.
+
 Current 2026-06-07 recovery overlay: start with `docs/video-date-success-command-center.md`. PR #1216 merged at `3ae7f196749f2229d66da6f0ef73ae2f76f30768` after failed production session `c9dc7af1-1f40-431f-93ed-4435019126aa`; Supabase project `schdyxcunwcvddlcshwd` is aligned through `20260606205211_video_date_provider_participant_id_presence_repair.sql`. The current diagnostic boundary is provider-authoritative Daily presence: use `video_date_daily_webhook_events.provider_participant_id` first, treat payload-only provider-session extraction as fallback, and treat client heartbeats without current provider proof as telemetry only. Ready Gate, same Daily room, visible brief media, or a date UI frame are not proof of a successful date if a matching provider participant has already left and no later provider join exists. A fresh disposable two-user production run through date end and survey completion is still required before calling Video Date fixed.
 
 Historical 2026-06-06 recovery overlay: start with `docs/video-date-success-command-center.md`. Functional Video Date code landed in PR #1200 at merge commit `fbca4996a096273914ee650b556ba7994477aa5e`; the current terminal-survey lifecycle hardening adds migrations `20260605135616_video_date_terminal_survey_lifecycle_hardening.sql`, `20260605143637_video_date_terminal_room_metadata_backfill.sql`, `20260605144003_video_date_terminal_room_metadata_corrective_backfill.sql`, `20260605145306_video_date_terminal_room_cleanup_preserve_metadata.sql`, `20260605145926_video_date_terminal_room_metadata_final_repair.sql`, `20260605150130_video_date_terminal_room_metadata_historical_delete_marker.sql`, and `20260605152058_video_date_pending_survey_registration_repair.sql`, plus redeployed `video-date-outbox-drainer`, `video-date-room-cleanup`, and `video-date-orphan-room-cleanup`. The lifecycle false-away and review-comment follow-ups add `20260605200729_video_date_beforeunload_active_presence_repair.sql`, `20260605203904_video_date_remote_seen_grace_payload_preserve.sql`, `20260605211924_video_date_surface_claim_expiry_current_guard.sql`, `20260605221535_review_comments_1199_1204_followups.sql`, and `20260605222458_review_comments_helper_name_repair.sql`. The single-owner runtime hardening adds `20260605232304_video_date_single_owner_runtime_hardening.sql`, which routes active date/survey ownership away from lobby/Ready Gate churn, adds append-only `video_date_surface_claim_events`, fail-softs transition/queue/surface RPCs, and preserves route ownership, same-session Daily continuity, singleton parking, and truth-refresh fields in client-stuck observability. The decisive Ready Gate mark-ready follow-up adds `20260606092944_video_date_decisive_mark_ready_commit.sql` and `20260606100511_video_date_mark_ready_lint_cleanup.sql`, which commit the actor ready timestamp and deterministic `both_ready` room metadata before observability/event/outbox work, preserve idempotent replay/retry recovery for all web/native/mobile callers, and keep the final live function clean in linked DB lint. Verify current Git state and Supabase migration state before assuming deployment. This changes triage order: first prove both `ready_participant_*_at` values committed and `video_session_mark_ready_v2` returned `decisive_mark_ready_commit=true`; only then triage Daily co-presence. Daily triage remains: `participant_*_joined_at` is latest-state evidence only when newer than away/left evidence; active co-presence requires both users joined without a later `participant.left` / `participant_*_away_at`, canonical `remote_seen` should advance on every remote-media observation, confirmed bilateral remote-media encounters should promote to `date` immediately, browser lifecycle reasons `web_visibilitychange`, `web_freeze`, `web_beforeunload`, `web_pagehide`, and native `app_background` must not terminalize a live date while fresh joined, remote-media, or current unexpired video-date surface evidence exists, historical encounter proof must not suppress current peer-missing, `in_survey` must survive client offline writes until feedback, pre-hardening downgraded registrations still pointing at pending surveys must be repaired to `in_survey`, terminal room metadata should remain canonical for ended survey-eligible sessions, provider deletion belongs in `daily_room_provider_deleted_at` / `daily_room_provider_delete_reason`, terminal survey truth must stop Daily/surface churn and open survey on `/date/:sessionId`, and native notification `/date/:sessionId` taps must route pending-survey terminal truth to the Date stack rather than falling back to lobby/tabs.
@@ -119,6 +121,10 @@ select
   state,
   participant_1_joined_at,
   participant_2_joined_at,
+  participant_1_provider_joined_at,
+  participant_2_provider_joined_at,
+  participant_1_provider_left_at,
+  participant_2_provider_left_at,
   participant_1_away_at,
   participant_2_away_at,
   participant_1_remote_seen_at,
@@ -127,6 +133,11 @@ select
   date_started_at,
   ended_at,
   ended_reason,
+  terminal_generation,
+  terminal_audit_at,
+  terminal_audit_reason,
+  terminal_audit_source,
+  terminal_audit_detail,
   session_seq
 from public.video_sessions
 where id = '<video_session_id>';
@@ -170,6 +181,43 @@ select
   details
 from public.video_date_presence_events
 where session_id = '<video_session_id>'
+order by occurred_at asc, created_at asc;
+```
+
+Read-only surface terminal tuple after `20260608171837`:
+
+```sql
+select
+  created_at,
+  session_id,
+  actor_id,
+  surface,
+  claim_status,
+  release_reason,
+  session_terminal_generation,
+  session_state_updated_at,
+  session_ended_at,
+  session_ended_reason
+from public.video_date_surface_claim_events
+where session_id = '<video_session_id>'
+order by created_at asc;
+```
+
+Historical Daily truth preservation after `20260608171837`:
+
+```sql
+select
+  occurred_at,
+  created_at,
+  session_id,
+  actor_id,
+  source,
+  event_type,
+  provider_session_id,
+  details
+from public.video_date_presence_events
+where session_id = '<video_session_id>'
+  and source = 'daily_webhook_historical_truth'
 order by occurred_at asc, created_at asc;
 ```
 

@@ -207,8 +207,13 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(webLobby, /const deckEnabled = lobbyGate\.canFetchDeck/);
   assert.match(useEventDetails, /archivedAt: data\.archived_at \? new Date\(data\.archived_at\) : null/);
   assert.match(useEventDetails, /endedAt: data\.ended_at \? new Date\(data\.ended_at\) : null/);
-  assert.match(webLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
-  assert.match(webLobby, /const lobbyActionsEnabled =\s*lobbyGate\.canUseLobbyActions && !showEventEndedModal/);
+  assert.match(webLobby, /const lobbyGateSideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
+  assert.match(webLobby, /const lobbyGateActionsEnabled =\s*lobbyGate\.canUseLobbyActions && !showEventEndedModal/);
+  assert.match(webLobby, /const activeDateRouteOwnsLobby = Boolean\(/);
+  assert.match(webLobby, /scopedSessionQueueStatus === "in_survey"/);
+  assert.match(webLobby, /sameEventScopedSession\?\.kind === "video"/);
+  assert.match(webLobby, /const lobbySideEffectsEnabled =\s*lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby/);
+  assert.match(webLobby, /const lobbyActionsEnabled =\s*lobbyGateActionsEnabled && !activeDateRouteOwnsLobby/);
   assert.match(
     webLobby,
     /const eventInactiveReasonForGate =[\s\S]*eventInactiveReasonOverrideSourceRef\.current === "deck"[\s\S]*\? null[\s\S]*: eventInactiveReasonOverride/,
@@ -264,7 +269,10 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /getEventLobbyGateState/);
   assert.match(nativeLobby, /getEventLobbyInactiveReasonForEvent/);
   assert.match(nativeLobby, /@clientShared\/eventLobbyGate/);
-  assert.match(nativeLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
+  assert.match(nativeLobby, /const lobbyGateSideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
+  assert.match(nativeLobby, /const activeDateRouteOwnsLobby = Boolean\(/);
+  assert.match(nativeLobby, /sameEventActiveSession\?\.kind === "video"/);
+  assert.match(nativeLobby, /const lobbySideEffectsEnabled =\s*lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby/);
   assert.match(
     nativeLobby,
     /const deckQueryEnabled = Boolean\([\s\S]+lobbyGate\.canFetchDeck[\s\S]+resolvedEventLifecycle\?\.isLive[\s\S]+!readyGatePressureActive/,

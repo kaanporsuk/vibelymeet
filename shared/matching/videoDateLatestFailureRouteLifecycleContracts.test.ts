@@ -12,7 +12,9 @@ const nativeHydration = read("apps/mobile/components/NativeSessionRouteHydration
 const webLatch = read("src/lib/dateEntryTransitionLatch.ts");
 const nativeLatch = read("apps/mobile/lib/dateEntryTransitionLatch.ts");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webLobby = read("src/pages/EventLobby.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const packageJson = read("package.json");
 
 test("registration in_survey dominates stale Ready Gate and missing session truth", () => {
@@ -117,6 +119,44 @@ test("same-session Daily remount cleanup is detach-only on web and native", () =
   assert.match(nativeDateRoute, /daily_call_live_remount_detach_only/);
   assert.match(nativeDateRoute, /heartbeatPreserved: true/);
   assert.match(nativeDateRoute, /callRefPreserved: true/);
+});
+
+test("active date route ownership disables competing lobby queue and status loops", () => {
+  assert.match(webLobby, /const activeDateRouteOwnsLobby = Boolean\(/);
+  assert.match(webLobby, /dateNavigationSessionId/);
+  assert.match(webLobby, /scopedSessionQueueStatus === "in_survey"/);
+  assert.match(webLobby, /sameEventScopedSession\?\.kind === "video"/);
+  assert.match(
+    webLobby,
+    /const lobbySideEffectsEnabled =\s*lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby/,
+  );
+  assert.match(
+    webLobby,
+    /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/,
+  );
+  assert.match(
+    webLobby,
+    /const queueHintEnabled =\s*lobbySideEffectsEnabled && Boolean\(eventId && user\?\.id\) && queuedCount > 0/,
+  );
+
+  assert.match(nativeLobby, /const activeDateRouteOwnsLobby = Boolean\(/);
+  assert.match(nativeLobby, /sameEventActiveSession\?\.kind === "video"/);
+  assert.match(
+    nativeLobby,
+    /const lobbySideEffectsEnabled =\s*lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby/,
+  );
+  assert.match(
+    nativeLobby,
+    /useNonBlockingVideoDateReadiness\(\s*id,\s*readinessV2\.enabled && lobbySideEffectsEnabled/,
+  );
+  assert.match(
+    nativeLobby,
+    /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/,
+  );
+  assert.match(
+    nativeLobby,
+    /const queueHintEnabled =\s*deckQueryEnabled[\s\S]*sameEventActiveSession\?\.kind === "syncing"/,
+  );
 });
 
 test("latest failure route lifecycle contract stays in the v4 verification script", () => {

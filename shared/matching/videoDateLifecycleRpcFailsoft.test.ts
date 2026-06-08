@@ -36,12 +36,18 @@ const remoteSeenIdentifierHygieneMigration = read(
 const remoteSeenLintCleanupMigration = read(
   "supabase/migrations/20260608122623_video_date_remote_seen_lint_cleanup.sql",
 );
+const activeOwnerTerminalTruthMigration = read(
+  "supabase/migrations/20260608171837_video_date_active_owner_terminal_truth.sql",
+);
 const webHook = read("src/hooks/useVideoCall.ts");
 const webDate = read("src/pages/VideoDate.tsx");
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
 const nativeApi = read("apps/mobile/lib/videoDateApi.ts");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
+const postgrestRuntimeProbe = read(
+  "shared/matching/videoDateLifecycleRpcPostgrestRuntime.test.ts",
+);
 
 function functionBody(sql: string, functionName: string): string {
   const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${functionName}`);
@@ -336,6 +342,62 @@ test("provider-bound remote-seen lint cleanup keeps guard semantics without unus
     /GRANT EXECUTE ON FUNCTION public\.mark_video_date_remote_seen\(\s*uuid, text, text, text, text, text\s*\) TO authenticated/,
   );
   assert.match(remoteSeenLintCleanupMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("active-owner terminal truth migration preserves one chronological terminal story", () => {
+  assert.match(activeOwnerTerminalTruthMigration, /terminal_generation integer NOT NULL DEFAULT 0/);
+  assert.match(activeOwnerTerminalTruthMigration, /terminal_audit_at timestamptz/);
+  assert.match(activeOwnerTerminalTruthMigration, /terminal_audit_reason text/);
+  assert.match(activeOwnerTerminalTruthMigration, /terminal_audit_detail jsonb NOT NULL DEFAULT '\{\}'::jsonb/);
+  assert.match(activeOwnerTerminalTruthMigration, /session_terminal_generation integer/);
+  assert.match(activeOwnerTerminalTruthMigration, /session_state_updated_at timestamptz/);
+  assert.match(activeOwnerTerminalTruthMigration, /session_ended_at timestamptz/);
+  assert.match(activeOwnerTerminalTruthMigration, /session_ended_reason text/);
+  assert.match(activeOwnerTerminalTruthMigration, /CREATE TRIGGER trg_video_sessions_terminal_audit_stamp/);
+  assert.match(activeOwnerTerminalTruthMigration, /state_updated_at := v_terminal_at/);
+  assert.match(activeOwnerTerminalTruthMigration, /claim_terminal_audit/);
+  assert.match(activeOwnerTerminalTruthMigration, /session_terminal_generation', v_session\.terminal_generation/);
+  assert.match(supabaseTypes, /terminal_generation: number/);
+  assert.match(supabaseTypes, /terminal_audit_detail: Json/);
+  assert.match(supabaseTypes, /session_terminal_generation: number \| null/);
+  assert.match(supabaseTypes, /session_ended_reason: string \| null/);
+});
+
+test("delayed Daily webhook provider truth survives terminal state by occurred_at", () => {
+  assert.match(activeOwnerTerminalTruthMigration, /participant_1_provider_joined_at timestamptz/);
+  assert.match(activeOwnerTerminalTruthMigration, /participant_2_provider_joined_at timestamptz/);
+  assert.match(activeOwnerTerminalTruthMigration, /video_date_preserve_provider_webhook_truth_v1/);
+  assert.match(activeOwnerTerminalTruthMigration, /p_occurred_at timestamptz DEFAULT now\(\)/);
+  assert.match(activeOwnerTerminalTruthMigration, /GREATEST\(\s*COALESCE\(participant_1_provider_joined_at, v_occurred_at\),\s*v_occurred_at\s*\)/);
+  assert.match(activeOwnerTerminalTruthMigration, /GREATEST\(\s*COALESCE\(participant_2_provider_joined_at, v_occurred_at\),\s*v_occurred_at\s*\)/);
+  assert.match(activeOwnerTerminalTruthMigration, /daily_webhook_historical_truth/);
+  assert.match(activeOwnerTerminalTruthMigration, /delayed_provider_truth_preserved_after_terminal/);
+  assert.match(activeOwnerTerminalTruthMigration, /historical_provider_truth/);
+  assert.match(activeOwnerTerminalTruthMigration, /state_mutation_allowed', v_session\.ended_at IS NULL/);
+  assert.match(supabaseTypes, /participant_1_provider_joined_at: string \| null/);
+  assert.match(supabaseTypes, /participant_2_provider_joined_at: string \| null/);
+});
+
+test("PostgREST lifecycle RPC probes cover duplicate, terminal, and invalid-state JSON contracts", () => {
+  for (const rpcName of [
+    "video_session_mark_ready_v2",
+    "mark_video_date_daily_alive",
+    "claim_video_date_surface",
+    "video_date_transition",
+  ] as const) {
+    assert.match(postgrestRuntimeProbe, new RegExp(rpcName));
+  }
+
+  assert.match(postgrestRuntimeProbe, /rest\/v1\/rpc/);
+  assert.match(postgrestRuntimeProbe, /result\.status < 500/);
+  assert.match(postgrestRuntimeProbe, /structuredKeys/);
+  assert.match(postgrestRuntimeProbe, /duplicate mark-ready/);
+  assert.match(postgrestRuntimeProbe, /terminal transition/);
+  assert.match(postgrestRuntimeProbe, /invalid transition session/);
+  assert.match(
+    packageJson,
+    /shared\/matching\/videoDateLifecycleRpcPostgrestRuntime\.test\.ts/,
+  );
 });
 
 test("web and native remote-seen clients bind stamps to current provider call identity", () => {
