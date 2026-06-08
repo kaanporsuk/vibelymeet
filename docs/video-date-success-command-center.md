@@ -64,6 +64,59 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-08 Implementation Update: Missing Feedback Certification Closure
+
+Local source now closes the zero-feedback post-date survey recovery gap that remained after the A-H / Daily/date ownership fixes.
+
+Problem addressed:
+
+- Existing `post_date_pending_verdicts` reminder logic handled one-sided verdicts after one participant submitted.
+- A survey-required Video Date with zero `date_feedback` rows could remain in `in_survey` as an operator warning without either participant entering the same backend reminder/diagnostic path.
+- That does not make A-H unhealthy, but it can still make the full Vibe Video Date unsuccessful because `date_feedback` is the real finish line.
+
+Implementation added:
+
+- Migration `20260608202749_video_date_missing_feedback_certification_closure.sql`.
+- Service-owned per-user table `post_date_zero_feedback_reminders`, keyed by `(session_id, missing_user_id)`, for ended survey-eligible sessions where neither user has submitted feedback.
+- Service-only RPCs `sync_post_date_zero_feedback_reminders_v1(...)`, `claim_post_date_zero_feedback_reminders_v1(...)`, `mark_post_date_zero_feedback_reminders_stale_v1(...)`, `record_post_date_zero_feedback_reminder_result_v1(...)`, and `video_date_missing_feedback_operator_diagnostics_v1(...)`.
+- `post-date-verdict-reminders` now also claims zero-feedback survey reminders and sends canonical `post_date_feedback_reminder` pushes/deep links to `/date/:sessionId`.
+- `docs/sql/video-date-invariants.sql` now includes `stale_survey_pending_feedback_blocks_certification`; normal invariant runs show this as a warning, and certification must run `npm run check:video-date:invariants -- --warn-as-error`.
+- The migration validates `video_sessions_ready_gate_timestamp_consistency` after checking for historical violations, turning the prior `NOT VALID` Ready Gate timestamp constraint into an enforced validated constraint when applied.
+- Contract coverage was added in `shared/matching/videoDateMissingFeedbackCertificationClosure.test.ts` and wired into both `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+- Branch delta: `docs/branch-deltas/fix-video-date-missing-feedback-certification-closure.md`.
+
+Verification completed locally/read-only:
+
+- `npx tsx shared/matching/videoDateMissingFeedbackCertificationClosure.test.ts`
+- `deno check --no-lock supabase/functions/post-date-verdict-reminders/index.ts`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4` with expected env-gated RLS probe skips
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error`
+- `npm run verify:video-date:functions -- --require-remote --json`
+- `npm run check:video-date:invariants`
+- `npm run check:video-date:invariants -- --warn-as-error`
+
+Linked Supabase state:
+
+- Remote migration history is aligned through `20260608193915`.
+- Dry-run plans exactly one pending migration: `20260608202749_video_date_missing_feedback_certification_closure.sql`.
+- Default invariant run has no critical failures and two warnings for session `3fabfd4e-523d-4593-bda5-ab6aa20f1005`.
+- `--warn-as-error` intentionally fails on that session via `stale_survey_pending_feedback_blocks_certification`, proving stale missing feedback now blocks certification.
+
+Not performed in this pass:
+
+- Supabase cloud migration apply.
+- `post-date-verdict-reminders` Edge Function deploy.
+- Fresh disposable two-user production acceptance through both users persisting `date_feedback`.
+
+This is source-level closure and certification hardening, not product-health proof. The flow remains uncertified until the pending migration and Edge Function are deployed and a fresh two-user web/native/mobile acceptance run completes through `date_feedback`.
+
 ## 2026-06-08 Implementation Update: Both Ready Definitive Date Owner And Eligibility
 
 Local source now closes the audited `both_ready + canonical Daily room` contract gap at the shared backend boundary used by web, native, and mobile clients.

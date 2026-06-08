@@ -26,6 +26,15 @@ Run the invariant pack before, during, and after the live attempt. In a linked S
 npm run check:video-date:invariants
 ```
 
+For certification and release decisions, make warnings fail. This is required
+because stale survey-required sessions with missing `date_feedback` are not
+database corruption, but they are proof that the Video Date run has not reached
+the finish line:
+
+```bash
+npm run check:video-date:invariants -- --warn-as-error
+```
+
 For a single bundled local gate:
 
 ```bash

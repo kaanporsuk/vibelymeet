@@ -12,6 +12,7 @@ Native source parity and static contracts are necessary, but they are not physic
 - Confirm camera, microphone, push notification, and network permissions are available.
 - Run `npm run test:video-date:red-flags` and `npm run test:video-date-v4` before device QA.
 - Run `npm run check:video-date:invariants` before and after the device run when database credentials are available.
+- For device certification or release sign-off, run `npm run check:video-date:invariants -- --warn-as-error` after both users submit feedback so stale missing `date_feedback` cannot pass as a successful native run.
 
 ## Required iOS And Android Scenarios
 
