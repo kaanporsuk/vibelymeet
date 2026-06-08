@@ -66,7 +66,7 @@ A successful Video Date run means:
 
 ## 2026-06-08 Implementation Update: Missing Feedback Certification Closure
 
-Local source now closes the zero-feedback post-date survey recovery gap that remained after the A-H / Daily/date ownership fixes.
+Source and linked Supabase cloud now close the zero-feedback post-date survey recovery gap that remained after the A-H / Daily/date ownership fixes.
 
 Problem addressed:
 
@@ -85,7 +85,7 @@ Implementation added:
 - Contract coverage was added in `shared/matching/videoDateMissingFeedbackCertificationClosure.test.ts` and wired into both `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
 - Branch delta: `docs/branch-deltas/fix-video-date-missing-feedback-certification-closure.md`.
 
-Verification completed locally/read-only:
+Verification completed before merge and after cloud deploy:
 
 - `npx tsx shared/matching/videoDateMissingFeedbackCertificationClosure.test.ts`
 - `deno check --no-lock supabase/functions/post-date-verdict-reminders/index.ts`
@@ -104,18 +104,19 @@ Verification completed locally/read-only:
 
 Linked Supabase state:
 
-- Remote migration history is aligned through `20260608193915`.
-- Dry-run plans exactly one pending migration: `20260608202749_video_date_missing_feedback_certification_closure.sql`.
+- PR #1252 merged as `44440923679140dc375fbe4e40ddf749658e920f`; nested `main` and `origin/main` are aligned at that SHA.
+- Remote migration history is aligned through `20260608202749`.
+- Post-apply dry-run returns `Remote database is up to date`.
+- `post-date-verdict-reminders` is deployed as active version `306`, updated `2026-06-08 21:01:07 UTC`.
+- Live catalog markers confirm `post_date_zero_feedback_reminders` exists with RLS enabled, the admin read policy exists, the new RPCs are service-role executable, authenticated/anon callers cannot execute the service RPCs, and `video_sessions_ready_gate_timestamp_consistency` is validated.
 - Default invariant run has no critical failures and two warnings for session `3fabfd4e-523d-4593-bda5-ab6aa20f1005`.
 - `--warn-as-error` intentionally fails on that session via `stale_survey_pending_feedback_blocks_certification`, proving stale missing feedback now blocks certification.
 
 Not performed in this pass:
 
-- Supabase cloud migration apply.
-- `post-date-verdict-reminders` Edge Function deploy.
 - Fresh disposable two-user production acceptance through both users persisting `date_feedback`.
 
-This is source-level closure and certification hardening, not product-health proof. The flow remains uncertified until the pending migration and Edge Function are deployed and a fresh two-user web/native/mobile acceptance run completes through `date_feedback`.
+This is source/cloud closure and certification hardening, not product-health proof. The flow remains uncertified until a fresh two-user web/native/mobile acceptance run completes through `date_feedback` for both users.
 
 ## 2026-06-08 Implementation Update: Both Ready Definitive Date Owner And Eligibility
 

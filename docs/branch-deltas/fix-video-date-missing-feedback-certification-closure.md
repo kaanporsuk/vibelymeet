@@ -2,7 +2,7 @@
 
 Date: 2026-06-08
 
-Status: local implementation evidence only until the migration is applied to Supabase cloud, the Edge Function is deployed, and a fresh two-user production run completes through `date_feedback` for both users.
+Status: merged and deployed source/cloud evidence. PR #1252 merged as `44440923679140dc375fbe4e40ddf749658e920f`; Supabase cloud is aligned through migration `20260608202749_video_date_missing_feedback_certification_closure.sql`; `post-date-verdict-reminders` is deployed as active version `306`. Fresh two-user production proof through `date_feedback` for both users is still required.
 
 ## Problem
 
@@ -34,14 +34,12 @@ The reminder/deep-link path is backend-owned and uses the existing notification 
 
 This does not certify Video Date by itself. Required proof remains:
 
-1. Apply the migration to Supabase cloud.
-2. Deploy `post-date-verdict-reminders`.
-3. Run linked dry-run, DB lint/advisors, function verification, and catalog marker checks.
-4. Run a fresh disposable two-user production flow through match, Ready Gate, Daily/date, PostDateSurvey, and persisted `date_feedback` for both users.
+1. Run a fresh disposable two-user production flow through match, Ready Gate, Daily/date, PostDateSurvey, and persisted `date_feedback` for both users.
+2. Keep `npm run check:video-date:invariants -- --warn-as-error` as the certification gate until stale survey-required missing feedback is resolved.
 
 ## Verification
 
-Completed locally/read-only:
+Completed before merge and after cloud deploy:
 
 - `npx tsx shared/matching/videoDateMissingFeedbackCertificationClosure.test.ts`
 - `deno check --no-lock supabase/functions/post-date-verdict-reminders/index.ts`
@@ -57,5 +55,11 @@ Completed locally/read-only:
 - `npm run verify:video-date:functions -- --require-remote --json`
 - `npm run check:video-date:invariants`
 - `npm run check:video-date:invariants -- --warn-as-error`
+- PR #1252 checks: Phase 7 no-go guardrails, Phase 8 privacy/media contracts, Phase 9 playback/captions/lifecycle contracts, Quick golden-path smoke, Video-date golden-path smoke, Vercel.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy post-date-verdict-reminders --use-api`
+- Post-apply migration list confirmed local/remote alignment through `20260608202749`.
+- Post-apply dry-run returned `Remote database is up to date`.
+- Live catalog markers confirmed the reminder table/RLS/admin policy, service-role RPC grants, authenticated/anon denial for service RPCs, and validated `video_sessions_ready_gate_timestamp_consistency`.
 
 `--warn-as-error` intentionally failed because linked Supabase still has stale session `3fabfd4e-523d-4593-bda5-ab6aa20f1005` missing both `date_feedback` rows. That is the desired certification blocker until both users complete feedback or the session is otherwise resolved.
