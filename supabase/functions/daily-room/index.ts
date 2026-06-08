@@ -86,7 +86,6 @@ const EDGE_PROCESS_STARTED_AT_MS = Date.now();
 const DAILY_CONFIG_REQUIRED_ACTIONS = new Set([
   "prepare_diagnostic_entry",
   "ensure_date_room",
-  "prepare_solo_entry",
   "prepare_date_entry",
   "create_date_room",
   "join_date_room",
@@ -356,6 +355,10 @@ function createDailyConfigBlockedResponse(action: unknown, userId: string | null
 
 function dailyConfigRequiredForAction(action: unknown): boolean {
   return typeof action === "string" && DAILY_CONFIG_REQUIRED_ACTIONS.has(action);
+}
+
+function videoDateSoloPrejoinServerEnabled(): boolean {
+  return false;
 }
 
 function readVideoDateTraceContext(body: Record<string, unknown>, action: unknown): {
@@ -1951,7 +1954,105 @@ type PrepareEntryTransitionPayload = {
   retry_after_ms?: number | null;
 };
 
+type ReadyGateActionabilityPayload = {
+  ok?: boolean | string | number | null;
+  success?: boolean | string | number | null;
+  code?: string | null;
+  error_code?: string | null;
+  error?: string | null;
+  reason?: string | null;
+  retryable?: boolean | string | number | null;
+  terminal?: boolean | string | number | null;
+  retry_after_seconds?: number | string | null;
+  retry_after_ms?: number | string | null;
+  session_id?: string | null;
+  event_id?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  ready_gate_status?: string | null;
+  status?: string | null;
+  ready_gate_expires_at?: string | null;
+  state?: string | null;
+  phase?: string | null;
+  ended_at?: string | null;
+  registration_desync?: boolean | string | number | null;
+  [key: string]: unknown;
+};
+
+function truthyPayloadField(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") return ["true", "t", "1", "yes"].includes(value.trim().toLowerCase());
+  return false;
+}
+
+function optionalPayloadBool(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "t", "1", "yes"].includes(normalized)) return true;
+    if (["false", "f", "0", "no"].includes(normalized)) return false;
+  }
+  return undefined;
+}
+
+function optionalPayloadNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function payloadText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function statusForReadyGateActionabilityCode(
+  code?: string | null,
+  payload?: ReadyGateActionabilityPayload | null,
+): number {
+  const normalized = (code ?? "").trim().toUpperCase();
+  if (normalized === "AUTH_REQUIRED" || normalized === "UNAUTHORIZED") return 401;
+  if (normalized === "SESSION_NOT_FOUND") return 404;
+  if (
+    normalized === "SESSION_ENDED" ||
+    normalized === "READY_GATE_EXPIRED" ||
+    normalized === "READY_GATE_STATUS_TIMESTAMP_DESYNC"
+  ) return 410;
+  if (
+    normalized === "READY_GATE_ACTIONABILITY_UNAVAILABLE" ||
+    normalized === "EVENT_ACTIVE_CHECK_UNAVAILABLE" ||
+    normalized === "SAFETY_CHECK_UNAVAILABLE"
+  ) return 503;
+  if (
+    normalized === "EVENT_NOT_ACTIVE" ||
+    normalized === "READY_GATE_REGISTRATION_DESYNC" ||
+    normalized === "TERMINALIZE_LOST_RACE"
+  ) return 409;
+  if (
+    normalized === "ACCESS_DENIED" ||
+    normalized === "BLOCKED_PAIR" ||
+    normalized === "REPORTED_PAIR" ||
+    normalized === "ACTOR_NOT_ELIGIBLE" ||
+    normalized === "PARTNER_NOT_ELIGIBLE" ||
+    normalized === "READY_GATE_NOT_OPEN" ||
+    normalized === "READY_GATE_NOT_READY" ||
+    normalized === "READY_GATE_SNOOZED" ||
+    normalized === "PARTNER_SNOOZED"
+  ) return 403;
+  if (optionalPayloadBool(payload?.terminal) === true) return 410;
+  if (optionalPayloadBool(payload?.retryable) === true) return 409;
+  return 500;
+}
+
 function statusForPrepareEntryCode(code?: string): number {
+  const actionabilityStatus = statusForReadyGateActionabilityCode(code);
+  if (actionabilityStatus !== 500) return actionabilityStatus;
   if (code === "UNAUTHORIZED") return 401;
   if (code === "SESSION_NOT_FOUND") return 404;
   if (code === "SESSION_ENDED") return 410;
@@ -1959,6 +2060,81 @@ function statusForPrepareEntryCode(code?: string): number {
   if (code === "BLOCKED_PAIR" || code === "ACCESS_DENIED" || code === "READY_GATE_NOT_READY") return 403;
   if (code === "DB_ROOM_PERSIST_FAILED" || code === "REGISTRATION_PERSIST_FAILED") return 503;
   return 500;
+}
+
+async function requireVideoDateReadyGateActionability(params: {
+  serviceClient: SupabaseEdgeClient;
+  action: DateRoomAction;
+  sessionId: string;
+  userId: string;
+  source: string;
+  corsHeaders: CorsHeaders;
+  requestContext: ClientRequestContext;
+  entryAttemptId?: string | null;
+  videoDateTraceId?: string | null;
+}): Promise<Response | null> {
+  const { data, error } = await params.serviceClient.rpc("video_date_ready_gate_actionability_v1", {
+    p_session_id: params.sessionId,
+    p_actor_id: params.userId,
+    p_source: params.source,
+    p_allow_actor_owned_snooze: false,
+    p_require_current_ready_gate_registration: true,
+    p_terminalize_invalid: true,
+    p_lock_rows: true,
+  });
+  const payload = (data ?? null) as ReadyGateActionabilityPayload | null;
+  if (!error && payload && truthyPayloadField(payload.ok ?? payload.success)) {
+    return null;
+  }
+
+  const code = payloadText(payload?.code) ??
+    payloadText(payload?.error_code) ??
+    (error ? "READY_GATE_ACTIONABILITY_UNAVAILABLE" : "READY_GATE_NOT_ACTIONABLE");
+  const reason = payloadText(payload?.reason) ?? payloadText(payload?.error) ?? "ready_gate_not_actionable";
+  const retryAfterSeconds = optionalPayloadNumber(payload?.retry_after_seconds);
+  const retryAfterMs = optionalPayloadNumber(payload?.retry_after_ms);
+  const session: VideoDateRoomGateSession | null = payload
+    ? {
+        id: payloadText(payload.session_id) ?? params.sessionId,
+        event_id: payloadText(payload.event_id),
+        participant_1_id: payloadText(payload.participant_1_id),
+        participant_2_id: payloadText(payload.participant_2_id),
+        daily_room_name: null,
+        ended_at: payloadText(payload.ended_at),
+        handshake_started_at: null,
+        ready_gate_status: payloadText(payload.ready_gate_status) ?? payloadText(payload.status),
+        ready_gate_expires_at: payloadText(payload.ready_gate_expires_at),
+        state: payloadText(payload.state),
+        phase: payloadText(payload.phase),
+      }
+    : null;
+
+  return createDateRoomRejectResponse({
+    action: params.action,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    status: statusForReadyGateActionabilityCode(code, payload),
+    code,
+    error: reason,
+    message: "This video date is no longer available.",
+    corsHeaders: params.corsHeaders,
+    requestContext: params.requestContext,
+    session,
+    detail: error ? error.message : null,
+    retryable: optionalPayloadBool(payload?.retryable),
+    retryAfterSeconds,
+    extra: {
+      actionability_source: params.source,
+      actionability_code: code,
+      actionability_reason: reason,
+      ready_gate_status: payload?.ready_gate_status ?? payload?.status ?? null,
+      terminal: optionalPayloadBool(payload?.terminal) ?? null,
+      registration_desync: optionalPayloadBool(payload?.registration_desync) ?? null,
+      retry_after_ms: retryAfterMs,
+      entry_attempt_id: params.entryAttemptId ?? null,
+      video_date_trace_id: params.videoDateTraceId ?? params.entryAttemptId ?? null,
+    },
+  });
 }
 
 type MatchCallProfileGate = {
@@ -2743,6 +2919,19 @@ serve(async (req) => {
           });
         }
 
+        const actionabilityReject = await requireVideoDateReadyGateActionability({
+          serviceClient,
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          source: "daily_room.ensure_date_room",
+          corsHeaders,
+          requestContext,
+          entryAttemptId,
+          videoDateTraceId,
+        });
+        if (actionabilityReject) return actionabilityReject;
+
         // Pre-create eligibility:
         //   * 'ready' is the freshly-minted mutual-swipe state (item #1 of the
         //     latency punch list). Pre-creating the room here shaves the
@@ -2856,10 +3045,8 @@ serve(async (req) => {
     }
 
     // ── ACTION: prepare_solo_entry ──
-    // Aggressive first-ready media prejoin. This returns a short-lived Daily
-    // token for the caller only, but never confirms routeability or mutates
-    // handshake/date state. The normal prepare_date_entry action remains the
-    // only routeable handoff after both participants are ready.
+    // Server-disabled for Video Date. Daily tokens are issued only through
+    // prepare_date_entry after both participants are ready and route state is durable.
     if (action === "prepare_solo_entry") {
       const actionName: DateRoomAction = "prepare_solo_entry";
       const timings: Record<string, number> = {};
@@ -2880,6 +3067,22 @@ serve(async (req) => {
           error: "Missing or invalid sessionId",
           corsHeaders,
           requestContext,
+        });
+      }
+
+      if (!videoDateSoloPrejoinServerEnabled()) {
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 403,
+          code: "SOLO_PREJOIN_DISABLED",
+          error: "solo_prejoin_disabled",
+          message: "Video date media starts after both participants are ready.",
+          corsHeaders,
+          requestContext,
+          retryable: false,
+          extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
         });
       }
 
@@ -3157,6 +3360,19 @@ serve(async (req) => {
       }
 
       try {
+        const actionabilityReject = await requireVideoDateReadyGateActionability({
+          serviceClient,
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          source: "daily_room.prepare_date_entry",
+          corsHeaders,
+          requestContext,
+          entryAttemptId,
+          videoDateTraceId,
+        });
+        if (actionabilityReject) return actionabilityReject;
+
         const prepareStartedAt = Date.now();
         const { data: prepareData, error: prepareError } = await supabase.rpc("video_date_transition", {
           p_session_id: sessionId,
