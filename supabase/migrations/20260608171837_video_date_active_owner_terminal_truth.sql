@@ -734,7 +734,16 @@ BEGIN
     p_signature_timestamp
   );
 
-  IF COALESCE(v_base->>'state', '') IN ('processed', 'duplicate') THEN
+  IF COALESCE(v_base->>'state', '') IN ('processed', 'duplicate')
+     OR 'ignored_terminal_session' IN (
+       COALESCE(v_base->>'result', ''),
+       COALESCE(v_base->>'processing_result', ''),
+       COALESCE(v_base->>'reason', '')
+     )
+     OR 'IGNORED_TERMINAL_SESSION' IN (
+       COALESCE(v_base->>'code', ''),
+       COALESCE(v_base->>'error_code', '')
+     ) THEN
     v_truth := public.video_date_preserve_provider_webhook_truth_v1(
       p_room_name,
       p_event_type,

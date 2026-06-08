@@ -373,6 +373,12 @@ test("delayed Daily webhook provider truth survives terminal state by occurred_a
   assert.match(activeOwnerTerminalTruthMigration, /daily_webhook_historical_truth/);
   assert.match(activeOwnerTerminalTruthMigration, /delayed_provider_truth_preserved_after_terminal/);
   assert.match(activeOwnerTerminalTruthMigration, /historical_provider_truth/);
+  assert.match(activeOwnerTerminalTruthMigration, /ignored_terminal_session/);
+  assert.match(
+    activeOwnerTerminalTruthMigration,
+    /ignored_terminal_session[\s\S]*v_base->>'result'/,
+    "terminal-ignored Daily webhook returns must still preserve historical provider truth",
+  );
   assert.match(activeOwnerTerminalTruthMigration, /state_mutation_allowed', v_session\.ended_at IS NULL/);
   assert.match(supabaseTypes, /participant_1_provider_joined_at: string \| null/);
   assert.match(supabaseTypes, /participant_2_provider_joined_at: string \| null/);
