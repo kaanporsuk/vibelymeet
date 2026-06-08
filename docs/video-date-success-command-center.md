@@ -64,6 +64,58 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-08 Implementation Update: Partial-Ready Definitive Closure
+
+Local code now closes the `ready_a` / `ready_b` boundary for web, native, and mobile users before provider room/token work can run.
+
+Migration added:
+
+- `supabase/migrations/20260608160809_video_date_ready_gate_partial_ready_definitive_closure.sql`
+
+Code/test files changed:
+
+- `supabase/functions/daily-room/index.ts`
+- `shared/matching/readyGatePartialReadyDefinitiveClosure.test.ts`
+- `shared/matching/videoDateEndToEndHardening.test.ts`
+- `shared/matching/readyGatePreReadyRoomWarmup.test.ts`
+- `package.json`
+
+What this closes:
+
+- `video_date_ready_gate_actionability_v1(...)` is now the canonical server gate for Ready Gate mark-ready and `prepare_entry`: participant authority, strict snooze rejection, active event truth, blocked/reported/hidden safety, registration/session pointer drift, expiry, and ready timestamp consistency are checked in one place.
+- Invalid pre-date Ready Gates can be terminalized through `video_date_terminalize_ready_gate_session_v1(...)`; route-owned handshake/date sessions are explicitly not terminalizable by this cleanup path.
+- `video_session_mark_ready_v2(...)` and `video_date_transition('prepare_entry')` are wrapped through the canonical actionability gate before the decisive base RPC can commit readiness or routeable date state.
+- First-ready partner notification is fail-soft outbox work after the ready commit, so notification/provider failure cannot poison readiness.
+- `get_video_date_start_snapshot_v1(...)` now removes `mark_ready` / date-entry affordances from invalid partial-ready truth instead of letting clients advertise stale actions.
+- `ensure_date_room` and `prepare_date_entry` call the actionability RPC before provider room/token work.
+- `prepare_solo_entry` is server-disabled with `SOLO_PREJOIN_DISABLED`, and it is no longer in the Daily config-required action list, so disabled solo prejoin cannot mint a token or mask behind provider configuration errors.
+- `terminalize_event_ready_gates(...)` now delegates through the new terminalizer and no longer exempts pre-date Ready Gate rows solely because room metadata was warmed; only route-owned handshake/date or concrete Daily join evidence is excluded.
+- `video_sessions_ready_gate_timestamp_consistency` is added `NOT VALID` for new writes, and `video_date_partial_ready_diagnostics_v1(...)` gives service-only diagnostics for active partial-ready drift.
+
+Verification completed locally:
+
+- `npx tsx shared/matching/readyGatePartialReadyDefinitiveClosure.test.ts`
+- `npx tsx shared/matching/readyGateMarkReadyActionabilitySafety.test.ts`
+- `npx tsx shared/matching/readyGatePreReadyRoomWarmup.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npx tsx shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
+- `npm run test:video-date:red-flags`
+- `deno check --no-lock supabase/functions/daily-room/index.ts`
+- `npm run typecheck`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+
+Supabase verification notes:
+
+- Linked dry-run exits 0 and reports only `20260608160809_video_date_ready_gate_partial_ready_definitive_closure.sql` as pending.
+- No cloud migration or function deployment was performed in this local implementation pass.
+
+Still not acceptance proof:
+
+- This closes the partial-ready root causes in source, but Video Date remains uncertified until the pending migration and Daily function are deployed and a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion.
+
+---
+
 ## 2026-06-08 Implementation Update: Ready Gate Actionability Safety
 
 Local code now includes the Ready Gate actionability/safety closure for web, native, and mobile/Expo standalone users.
@@ -332,6 +384,14 @@ Supabase verification notes:
 - Post-apply migration list is aligned through `20260608122623`; post-apply dry-run returns `Remote database is up to date.`
 - `supabase db lint --linked --schema public --fail-on error` exits 0. The new `mark_video_date_remote_seen` unused-local warning was removed by `20260608122623`; remaining output is the pre-existing legacy warning/notice backlog.
 - Live catalog checks confirm `mark_video_date_daily_alive(...)` and `mark_video_date_remote_seen(...)` are authenticated public `SECURITY DEFINER` wrappers, `vd_daily_alive_remote_seen_base(...)` and `mark_video_date_remote_seen_20260608120000_provider_base(uuid)` are service-role only, the Daily alive wrapper calls `vd_daily_alive_remote_seen_base`, remote-seen contains `remote_seen_rejected_stale_provider_session`, and the live remote-seen wrapper no longer contains `v_now`.
+
+Publish and sync evidence:
+
+- PR #1245 merged on 2026-06-08 as squash commit `a178e1265001f01d5beca0375c38a9cb8c0d4e59`; branch `codex/provider-bound-remote-seen` was deleted locally and remotely.
+- Nested repo `main` and `origin/main` were verified aligned at `a178e1265001f01d5beca0375c38a9cb8c0d4e59` with a clean worktree.
+- Parent repo `/Users/kaanporsuk/Documents/Vibely` has no remote; local parent commit `7d1443e5a2d6dd93c3bc6df6a0a1810b102c1bc8` records the nested gitlink update to `a178e1265001f01d5beca0375c38a9cb8c0d4e59`.
+- PR checks passed: Host-safe smoke, Quick golden-path smoke, Video-date golden-path smoke, Static matrix and contracts, Phase 7/8/9 policy checks, Vercel, and Vercel Preview Comments. Staging matrix jobs were skipped by workflow rules.
+- Final linked Supabase checks after merge: migration list aligned through `20260608122623`, `supabase db push --linked --dry-run` returned `Remote database is up to date.`, DB lint exited 0 with the legacy warning backlog only, and live catalog markers confirmed wrapper/base grants and stale-provider guard state.
 
 Still not acceptance proof:
 

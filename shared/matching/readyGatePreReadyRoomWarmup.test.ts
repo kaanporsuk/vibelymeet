@@ -30,8 +30,8 @@ const validation = read("supabase/validation/ready_gate_pre_ready_room_metadata_
 
 test("web Ready Gate overlay warms the Daily room at fresh ready and after successful ready", () => {
   assert.match(webOverlay, /startRoomWarmupAfterReady\("mutual_swipe_pre_create", readyGateStatus\)/);
-  assert.match(webOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success", result\.status \?\? null\)/);
-  assert.match(webOverlay, /const result = await markReady\(\)[\s\S]*if \(!result\.ok\)[\s\S]*startRoomWarmupAfterReady/);
+  assert.match(webOverlay, /startRoomWarmupAfterReady\(\s*"ready_tap_mark_ready_success",\s*result\.status \?\? null,\s*\)/);
+  assert.match(webOverlay, /const result = await markReady\(\)[\s\S]*if \(result\.ok === false\)[\s\S]*startRoomWarmupAfterReady/);
   assert.match(webOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
   assert.match(webOverlay, /roomWarmupStartedRef/);
   assert.match(webOverlay, /\["ready", "ready_a", "ready_b", "both_ready"\]/);
@@ -49,8 +49,8 @@ test("web Ready Gate overlay warms the Daily room at fresh ready and after succe
 
 test("native Ready Gate overlay warms the Daily room at fresh ready and after successful ready", () => {
   assert.match(nativeOverlay, /startRoomWarmupAfterReady\('mutual_swipe_pre_create', readyGateStatus\)/);
-  assert.match(nativeOverlay, /startRoomWarmupAfterReady\('ready_tap_mark_ready_success', result\.status \?\? null\)/);
-  assert.match(nativeOverlay, /const result = await markReady\(\)[\s\S]*if \(!result\.ok\)[\s\S]*startRoomWarmupAfterReady/);
+  assert.match(nativeOverlay, /startRoomWarmupAfterReady\(\s*'ready_tap_mark_ready_success',\s*result\.status \?\? null,\s*\)/);
+  assert.match(nativeOverlay, /const result = await markReady\(\)[\s\S]*if \(result\.ok === false\)[\s\S]*startRoomWarmupAfterReady/);
   assert.match(nativeOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
   assert.match(nativeOverlay, /roomWarmupStartedRef/);
   assert.match(nativeOverlay, /\['ready', 'ready_a', 'ready_b', 'both_ready'\]/);

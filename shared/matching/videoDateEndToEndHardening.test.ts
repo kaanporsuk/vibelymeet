@@ -982,8 +982,12 @@ test("daily-room supports room-only warmup without token issuance or entry trans
   assert.doesNotMatch(warmupBlock, /"queued"/);
 });
 
-test("daily-room solo prejoin is token-only and never route-confirms the session", () => {
+test("daily-room solo prejoin is server-disabled before any provider token path", () => {
   assert.match(dailyRoomContracts, /"prepare_solo_entry"/);
+  const requiredActionsBlock = dailyRoomFunction.match(/const DAILY_CONFIG_REQUIRED_ACTIONS = new Set\(\[[\s\S]*?\]\);/)?.[0] ?? "";
+  assert.ok(requiredActionsBlock.length > 0);
+  assert.doesNotMatch(requiredActionsBlock, /"prepare_solo_entry"/);
+  assert.match(dailyRoomFunction, /function videoDateSoloPrejoinServerEnabled\(\): boolean \{\s*return false;\s*\}/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 180/);
   assert.match(dailyRoomFunction, /function canIssueSoloPrejoinVideoDateToken/);
   assert.match(dailyRoomFunction, /session\.ready_gate_expires_at \? Date\.parse\(session\.ready_gate_expires_at\) : NaN/);
@@ -993,12 +997,18 @@ test("daily-room solo prejoin is token-only and never route-confirms the session
   assert.ok(soloIndex > 0);
   assert.ok(prepareIndex > soloIndex);
   const soloBlock = dailyRoomFunction.slice(soloIndex, prepareIndex);
+  assert.match(soloBlock, /if \(!videoDateSoloPrejoinServerEnabled\(\)\)/);
+  assert.match(soloBlock, /code: "SOLO_PREJOIN_DISABLED"/);
   assert.match(soloBlock, /get_event_lobby_inactive_reason/);
   assert.match(soloBlock, /isPairBlocked/);
   assert.match(soloBlock, /canIssueSoloPrejoinVideoDateToken\(session, user\.id\)/);
   assert.match(soloBlock, /READY_GATE_ALREADY_BOTH_READY/);
   assert.match(soloBlock, /createMeetingToken\([\s\S]*DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS/s);
   assert.match(soloBlock, /solo_prejoin: true/);
+  const disabledIndex = soloBlock.indexOf("SOLO_PREJOIN_DISABLED");
+  const tokenIndex = soloBlock.indexOf("createMeetingToken(");
+  assert.ok(disabledIndex > 0);
+  assert.ok(tokenIndex > disabledIndex);
   assert.doesNotMatch(soloBlock, /confirmVideoDateEntryPrepared/);
   assert.doesNotMatch(soloBlock, /p_action: "prepare_entry"/);
   assert.doesNotMatch(soloBlock, /confirm_video_date_entry_prepared/);
