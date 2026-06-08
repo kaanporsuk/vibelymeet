@@ -614,6 +614,27 @@ export function PostDateSurvey({
             });
             onVideoDateReady(pendingSessionId);
           } else {
+            if (
+              submitting ||
+              verdictUiState === 'submitting' ||
+              verdictUiState === 'confirmed' ||
+              verdictUiState === 'awaiting_partner' ||
+              finishing ||
+              finishSurveyInFlightRef.current
+            ) {
+              trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+                platform: 'native',
+                session_id: sessionId,
+                event_id: eventId,
+                source_surface: 'post_date_survey',
+                source_action: 'survey_queue_drain',
+                outcome: 'no_op',
+                reason_code: 'stale_pending_post_date_feedback',
+                next_session_id: pendingSessionId,
+                verdict_ui_state: verdictUiState,
+              });
+              return;
+            }
             queuedNavigationStartedRef.current = false;
             setStep('verdict');
           }
@@ -682,7 +703,17 @@ export function PostDateSurvey({
     return () => {
       cancelled = true;
     };
-  }, [drainQueueV2.enabled, eventId, onQueuedVideoSessionReady, onVideoDateReady, sessionId, userId]);
+  }, [
+    drainQueueV2.enabled,
+    eventId,
+    finishing,
+    onQueuedVideoSessionReady,
+    onVideoDateReady,
+    sessionId,
+    submitting,
+    userId,
+    verdictUiState,
+  ]);
 
   useEffect(() => {
     if (step !== 'celebration' || !userId || !partnerId) return;

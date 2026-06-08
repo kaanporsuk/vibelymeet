@@ -584,6 +584,12 @@ export default function ReadyGateScreen() {
           setPrepareEntryFailureCode(prepared.code);
           setPrepareEntryFailureRetryable(prepared.retryable);
           setTerminalActionError(null);
+          const prepareRecoveryInput = {
+            code: prepared.code,
+            errorCode: prepared.code,
+            reason: prepared.message ?? null,
+            source: 'prepare_entry',
+          };
           rcBreadcrumb(
             RC_CATEGORY.readyGate,
             'standalone_prepare_entry_failed_date_owned',
@@ -596,6 +602,18 @@ export default function ReadyGateScreen() {
               retryable: prepared.retryable,
             },
           );
+          if (isReadyGatePrepareEntryNonRetryable(prepareRecoveryInput)) {
+            const recovery = resolveReadyGateTerminalRecovery(prepareRecoveryInput);
+            dateNavigationStartedRef.current = false;
+            nonRetryablePrepareBlockerRef.current = `${sid}:${prepared.code}:prepare_entry`;
+            clearDateEntryTransition(sid);
+            cancelTerminalReadyGateWork(
+              `ready_standalone_prepare_entry_nonretryable_${recovery.category}`,
+            );
+            setTransitioning(false);
+            setTerminalActionError(recovery.body);
+            return true;
+          }
           setTransitioning(true);
           updateVideoDateEntryOwnerState({
             sessionId: sid,

@@ -64,6 +64,41 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: PR #1242-#1256 Review Comments Follow-Up
+
+This branch uses the GitHub review-comments workflow for the last 15 PRs, `#1242` through `#1256`. No actionable Copilot-authored review comments were found. Current Codex review comments were mapped to source, migrations, and docs, then handled with targeted code fixes plus one forward Supabase corrective migration.
+
+Implemented follow-ups:
+
+- `docs/sql/video-date-invariants.sql` now applies active `video_date_certification_feedback_exceptions` to both missing-feedback warning rows, including `survey_pending_feedback_held_in_survey`.
+- Web and native `PostDateSurvey` queue-drain handlers ignore stale same-session `pending_post_date_feedback` callbacks after verdict submission, confirmation, partner-wait, or finish-in-flight state instead of reopening the verdict step.
+- Native Ready Gate overlay, standalone Ready route, and native Event Lobby no longer mark `/date` owned or route to date on nonretryable `prepare_date_entry` failures such as inactive/ended event truth.
+- Web parked Daily singleton reuse now transfers/stops the old alive-heartbeat timer when the parked call is consumed, so a remounted date owner cannot leave the previous heartbeat interval running.
+- Migration `20260608224048_review_comments_1242_1256_followups.sql` keeps zero-feedback reminders scoped to the current survey room, prevents retryable eligibility failures from terminalizing Ready Gate, makes `mark_video_date_remote_seen(...)` require server-recorded owner/call heartbeat proof in addition to provider proof, and strips nested `auxiliary_errors` plus raw diagnostics from mark-ready safety-check failures.
+- Source migration `20260608171837_video_date_active_owner_terminal_truth.sql` received a syntax-only `END;` repair for replayability after review caught an unterminated `DO` block in the repository copy. Behavioral database changes stay in the new forward migration.
+- Branch delta: `docs/branch-deltas/fix-video-date-review-comments-1242-1256-followups.md`.
+- Contract coverage: `shared/matching/reviewComments1242_1256Followups.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+
+Verification completed in this local pass:
+
+- `jq empty package.json`
+- `npx tsx shared/matching/reviewComments1242_1256Followups.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` planned only `20260608224048_review_comments_1242_1256_followups.sql`.
+
+Remaining publish verification for this branch:
+
+- Merge the GitHub PR with branch deletion.
+- Apply the pending Supabase migration to linked project `schdyxcunwcvddlcshwd` after merge, then confirm post-apply dry-run, migration list alignment, DB lint, DB advisors, and live catalog markers.
+- Fresh disposable two-user production acceptance through both users persisting `date_feedback` remains required before calling Video Date healthy.
+
+---
+
 ## 2026-06-09 Implementation Update: Certification Exception Closure
 
 Source and linked Supabase cloud now add an operator-only closure path for known historical failed Video Date rows that are missing `date_feedback` and should not keep blocking release certification after review.

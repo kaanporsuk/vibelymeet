@@ -108,6 +108,7 @@ import {
   decideCanonicalVideoDateRoute,
   isVideoDateReadyGateActiveStatus,
 } from "@clientShared/matching/videoDateRouteDecision";
+import { isReadyGatePrepareEntryNonRetryable } from "@clientShared/matching/readyGateTerminalRecovery";
 import { getMatchQueueDrainReasonCopy } from "@clientShared/matching/matchQueueDrainReasonCopy";
 import {
   getPostDateLobbyContinuityDecision,
@@ -1100,6 +1101,18 @@ export default function EventLobbyScreen() {
                 retryable: prepared.retryable,
               },
             );
+            if (
+              isReadyGatePrepareEntryNonRetryable({
+                code: prepared.code,
+                errorCode: prepared.code,
+                reason: prepared.message ?? null,
+                source: "prepare_entry",
+              })
+            ) {
+              clearDateEntryTransition(sessionIdToOpen);
+              void refetchActiveSession();
+              return;
+            }
             markVideoDateRouteOwned(sessionIdToOpen, user.id);
           }
         }

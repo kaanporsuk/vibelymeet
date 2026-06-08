@@ -202,7 +202,7 @@ BEGIN
       text, text, text, text, text, timestamptz, jsonb, timestamptz
     ) RENAME TO vd_daily_webhook_terminal_truth_base;
   END IF;
-END
+END;
 $$;
 
 REVOKE ALL ON FUNCTION public.vd_mark_ready_terminal_truth_base(uuid, text, text)
