@@ -55,6 +55,7 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "daily_media_permission_preflight_failed",
   "daily_call_leave_before",
   "daily_call_leave_after",
+  "daily_call_live_remount_detach_only",
   "daily_call_left_meeting",
   "daily_call_destroy",
   "daily_room_delete_skipped",

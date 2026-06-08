@@ -10,9 +10,9 @@ const DEFAULT_TTL_MS = 25_000;
 
 /** Covers full native prejoin: enter_handshake → token → Daily join (lobby closure pack used 25s; too short). */
 export const VIDEO_DATE_ENTRY_PIPELINE_TTL_MS = 180_000;
-export const VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 90_000;
+export const VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 10 * 60_000;
 export const VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS = 30_000;
-export const VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS = 30_000;
+export const VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS = 2 * 60_000;
 
 const latch = new Map<string, number>(); // sessionId -> expiresAtMs
 const routeOwnership = new Map<string, number>(); // profileId:sessionId -> expiresAtMs

@@ -162,6 +162,68 @@ Still not acceptance proof:
 
 ---
 
+## 2026-06-08 Implementation Update: Route Lifecycle And Last-Resort RPC Fail-Soft Recovery
+
+Latest failed production run analyzed:
+
+- Event: `1722f3e0-33d1-4fd5-9ec3-0b88e92b9cfb`
+- Video session: `176d9ed3-f1c6-48e4-901a-c2098ed61b34`
+- The backend reached the important middle milestones: both users entered Ready Gate, both marked ready, both were sent to the same Daily room, provider-backed joins existed, date UI opened, remote-seen evidence existed, and the session ended survey-eligible with registrations in `in_survey`.
+- The product still failed because the client lifecycle was unstable: `/date/:sessionId` and `/ready/:sessionId` competed during stale hydration, terminal survey state did not dominate route decisions early enough, route ownership was too short-lived and memory-only on web, same-session Daily cleanup could stop the alive heartbeat and null the parked call ref during remount, and exposed lifecycle RPCs could still leak raw 500s from `claim_video_date_surface(...)` or nested helper/enrichment/sanitizer failures.
+
+Migration added:
+
+- `supabase/migrations/20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql`
+
+Client/test files changed:
+
+- `shared/matching/videoDateRouteDecision.ts`
+- `src/components/session/SessionRouteHydration.tsx`
+- `apps/mobile/components/NativeSessionRouteHydration.tsx`
+- `src/lib/dateEntryTransitionLatch.ts`
+- `apps/mobile/lib/dateEntryTransitionLatch.ts`
+- `src/hooks/useVideoCall.ts`
+- `apps/mobile/app/date/[id].tsx`
+- `src/lib/vdbg.ts`
+- `shared/matching/videoDateLatestFailureRouteLifecycleContracts.test.ts`
+- `shared/matching/videoDateLifecycleRpcFailsoft.test.ts`
+- `shared/matching/videoDateSprint1RouteDecisionContracts.test.ts`
+- `shared/matching/videoDateSurfaceContinuityHardening.test.ts`
+- `package.json`
+
+What this closes:
+
+- `event_registrations.queue_status = 'in_survey'` is now terminal route truth for canonical routing, even when session truth is stale, missing, or still looks Ready Gate/date-capable. Feedback-submitted users can still progress out.
+- Web and native hydration now pass registration state into `decideCanonicalVideoDateRoute(...)`, mark route ownership before suppressing stale bounces, and no longer redirect an already-owned `/date/:sessionId` back to Ready Gate from stale active-session hydration.
+- Web route ownership now survives realistic route churn with a 10-minute signed-in TTL, a 2-minute anonymous TTL, and sessionStorage persistence. Native/mobile route ownership uses the same longer TTL in its JS runtime.
+- Web same-session Daily remount parking is now detach-only for the call object: it skips leave/destroy and preserves the parked call ref, while the old hook heartbeat is stopped so heartbeat ownership transfers to the remounted date owner.
+- Native/mobile preserve-active-handoff cleanup now decides whether to park before clearing heartbeat, token, participant, and room state; destructive leave/background/timeout cleanup remains destructive.
+- `claim_video_date_surface(...)`, `mark_video_date_daily_alive(...)`, `mark_video_date_daily_joined(...)`, and `video_date_transition(...)` now have a final public last-resort fail-soft shell. The shell delegates to the existing wrapper stack, but independently catches base, enrichment, sanitizer, and observability failures and returns sanitized JSON to authenticated clients.
+- Static regression coverage now pins the latest failure shape through `shared/matching/videoDateLatestFailureRouteLifecycleContracts.test.ts`, included in `npm run test:video-date-v4`.
+
+Verification completed locally so far:
+
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `git diff --check`
+- `npx tsx shared/matching/videoDateLatestFailureRouteLifecycleContracts.test.ts`
+- `npx tsx shared/matching/videoDateLifecycleRpcFailsoft.test.ts`
+- `npx tsx shared/matching/videoDateSurfaceContinuityHardening.test.ts`
+- `npx tsx shared/matching/videoDateSprint1RouteDecisionContracts.test.ts`
+- `npx tsx shared/matching/videoDateHandoffOwnershipContract.test.ts`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+
+Supabase verification notes:
+
+- Linked dry-run exited 0 and reported only `20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql` would be pushed.
+- At the time of this implementation note, the migration is not yet a product acceptance proof. Apply/publish verification must still confirm linked cloud alignment after merge/deploy.
+
+Still not acceptance proof:
+
+- This closes the latest observed client lifecycle and RPC fail-soft gaps, but Video Date remains uncertified until a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion, including short leave/rejoin and prolonged absence checks.
+
+---
+
 ## Known Recent Failure Pattern
 
 ### User-visible symptoms
