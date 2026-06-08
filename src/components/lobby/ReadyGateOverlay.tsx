@@ -103,6 +103,7 @@ const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 const READY_GATE_DEGRADED_SYNC_POLL_MS = 2_500;
 const READY_GATE_RECONCILE_TIMEOUT_COOLDOWN_MS = 3_000;
+const READY_GATE_PERMISSION_PREWARM_TIMEOUT_MS = 15_000;
 
 type PrepareEntryStatus = VideoDateEntryHandoffStatus;
 type ReadyGateTerminalAction =
@@ -123,6 +124,38 @@ type ReadyGatePermissionPrewarmMedia = {
   acquiredAtMs: number;
   source: string;
 };
+
+class ReadyGatePermissionPrewarmTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`ready_gate_permission_prewarm_timeout_${timeoutMs}ms`);
+    this.name = "ReadyGatePermissionPrewarmTimeoutError";
+  }
+}
+
+function isReadyGatePermissionPrewarmTimeoutError(
+  error: unknown,
+): error is ReadyGatePermissionPrewarmTimeoutError {
+  return error instanceof ReadyGatePermissionPrewarmTimeoutError;
+}
+
+async function withReadyGatePermissionPrewarmTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new ReadyGatePermissionPrewarmTimeoutError(timeoutMs));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 type ReadyGateMediaDiagnosticState = {
   cameraPermissionStatus: ReadyGateDiagnosticStatus;
@@ -570,6 +603,8 @@ const ReadyGateOverlay = ({
   const permissionPrewarmStartedRef = useRef(false);
   const permissionPrewarmMediaRef =
     useRef<ReadyGatePermissionPrewarmMedia | null>(null);
+  const permissionPrewarmCapturePendingRef =
+    useRef<Promise<ReadyGatePermissionPrewarmMedia> | null>(null);
   const permissionPrewarmMediaHandoffStoredRef = useRef(false);
   const permissionPrewarmMediaReleaseTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -996,7 +1031,21 @@ const ReadyGateOverlay = ({
   // aspect negotiation.
   const runPermissionPrewarm = useCallback(
     async (source: "ready_gate_open" | "ready_tap"): Promise<boolean> => {
+      const userId = user?.id;
       if (permissionPrewarmStartedRef.current) {
+        if (
+          source === "ready_tap" &&
+          !permissionPrewarmMediaRef.current &&
+          permissionPrewarmCapturePendingRef.current
+        ) {
+          lastPermissionPrewarmOutcomeRef.current = "transient";
+          vdbg("ready_gate_permission_prewarm_pending", {
+            sessionId,
+            eventId,
+            userId,
+            source,
+          });
+        }
         if (source !== "ready_tap" || permissionPrewarmMediaRef.current) {
           if (permissionPrewarmMediaRef.current) {
             lastPermissionPrewarmOutcomeRef.current = "granted";
@@ -1006,7 +1055,6 @@ const ReadyGateOverlay = ({
         permissionPrewarmStartedRef.current = false;
       }
       if (closedRef.current || dateNavigationStartedRef.current) return false;
-      const userId = user?.id;
       if (!userId) return false;
       if (
         typeof navigator === "undefined" ||
@@ -1127,13 +1175,37 @@ const ReadyGateOverlay = ({
       });
 
       let media: ReadyGatePermissionPrewarmMedia | null = null;
+      let capturePromise: Promise<ReadyGatePermissionPrewarmMedia> | null =
+        null;
       try {
-        // Always await the full capture. (We previously raced this against a
-        // short timer for the silent WebKit fallback, but the discarded
-        // getUserMedia kept the camera open in the background, so the next
-        // in-gesture "Allow"/"I'm Ready" tap failed with a busy/AbortError and
-        // the permission prompt never appeared.)
-        media = await getVideoDatePermissionPrewarmStream();
+        // Always await the full silent capture. The user-gesture Ready tap uses
+        // a bounded wait below; if the browser resolves late, those tracks are
+        // stopped before another tap can start a second capture.
+        capturePromise =
+          permissionPrewarmCapturePendingRef.current ??
+          getVideoDatePermissionPrewarmStream();
+        if (!permissionPrewarmCapturePendingRef.current) {
+          permissionPrewarmCapturePendingRef.current = capturePromise;
+          void capturePromise
+            .finally(() => {
+              if (
+                permissionPrewarmCapturePendingRef.current === capturePromise
+              ) {
+                permissionPrewarmCapturePendingRef.current = null;
+              }
+            })
+            .catch(() => undefined);
+        }
+        media =
+          source === "ready_tap"
+            ? await withReadyGatePermissionPrewarmTimeout(
+                capturePromise,
+                READY_GATE_PERMISSION_PREWARM_TIMEOUT_MS,
+              )
+            : await capturePromise;
+        if (permissionPrewarmCapturePendingRef.current === capturePromise) {
+          permissionPrewarmCapturePendingRef.current = null;
+        }
 
         releasePermissionPrewarmMedia("permission_prewarm_replaced");
         if (activeReadyGateKeyRef.current !== readyGateKey) {
@@ -1231,6 +1303,61 @@ const ReadyGateOverlay = ({
         return true;
       } catch (error) {
         stopMediaStreamTracks(media?.stream ?? null);
+        if (isReadyGatePermissionPrewarmTimeoutError(error)) {
+          lastPermissionPrewarmOutcomeRef.current = "transient";
+          if (capturePromise) {
+            void capturePromise
+              .then((lateMedia) => {
+                stopMediaStreamTracks(lateMedia.stream);
+                if (
+                  permissionPrewarmCapturePendingRef.current === capturePromise
+                ) {
+                  permissionPrewarmCapturePendingRef.current = null;
+                }
+                if (
+                  activeReadyGateKeyRef.current === readyGateKey &&
+                  !permissionPrewarmMediaRef.current
+                ) {
+                  permissionPrewarmStartedRef.current = false;
+                }
+              })
+              .catch(() => {
+                if (
+                  permissionPrewarmCapturePendingRef.current === capturePromise
+                ) {
+                  permissionPrewarmCapturePendingRef.current = null;
+                }
+                if (
+                  activeReadyGateKeyRef.current === readyGateKey &&
+                  !permissionPrewarmMediaRef.current
+                ) {
+                  permissionPrewarmStartedRef.current = false;
+                }
+              });
+          }
+          const isActiveReadyGate =
+            activeReadyGateKeyRef.current === readyGateKey;
+          if (!isActiveReadyGate) return false;
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            reason: "ready_gate_permission_prewarm_timeout",
+            permission_status: "unknown",
+            recovery_action: "request_permission",
+            settings_deep_link: "browser_site_settings",
+            source_surface: "ready_gate_overlay",
+            source_action: sourceAction,
+          });
+          vdbg("ready_gate_permission_prewarm_timeout", {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            timeoutMs: READY_GATE_PERMISSION_PREWARM_TIMEOUT_MS,
+          });
+          return false;
+        }
         const permissionResult =
           await classifyMediaPermissionErrorWithBrowserState(
             error,
@@ -2782,6 +2909,7 @@ const ReadyGateOverlay = ({
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
     permissionPrewarmStartedRef.current = false;
+    permissionPrewarmCapturePendingRef.current = null;
     permissionPrewarmMediaHandoffStoredRef.current = false;
     permissionPrewarmSkipLoggedRef.current = false;
     roomWarmupStartedRef.current = false;

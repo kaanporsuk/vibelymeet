@@ -3248,7 +3248,9 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(readyGateOverlay, /enumerateDevices/);
   assert.match(readyGateOverlay, /permission_prewarm_silent_no_permissions_api/);
   assert.match(readyGateOverlay, /ready_gate_permission_prewarm_silent_fallback_failed/);
-  assert.match(readyGateOverlay, /media = await getVideoDatePermissionPrewarmStream\(\)/);
+  assert.match(readyGateOverlay, /capturePromise[\s\S]{0,120}getVideoDatePermissionPrewarmStream\(\)/);
+  assert.match(readyGateOverlay, /withReadyGatePermissionPrewarmTimeout/);
+  assert.match(readyGateOverlay, /READY_GATE_PERMISSION_PREWARM_TIMEOUT_MS = 15_000/);
   assert.doesNotMatch(readyGateOverlay, /waitForMediaStreamWithTimeout/);
   assert.doesNotMatch(readyGateOverlay, /WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS/);
   assert.match(readyGateOverlay, /stopMediaStreamTracks\(stream(?:\.stream)?\)/);
