@@ -1802,6 +1802,7 @@ const ReadyGateOverlay = ({
             const recoveryInput: ReadyGateTerminalRecoveryInput = {
               code: result.code,
               errorCode: result.code,
+              httpStatus: result.httpStatus ?? null,
               reason: result.message ?? null,
               source: "prepare_entry",
             };
@@ -3365,7 +3366,7 @@ const ReadyGateOverlay = ({
       aria-modal="true"
       aria-labelledby="ready-gate-title"
       aria-describedby="ready-gate-description"
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto px-4 py-4 sm:items-center"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto px-4 py-4"
       style={{
         boxSizing: "border-box",
         height: "100dvh",

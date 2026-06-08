@@ -127,6 +127,57 @@ test("EVENT_NOT_ACTIVE prepare-entry blocker is non-retryable stale handoff trut
   assert.equal(recovery.terminal, true);
 });
 
+test("prepare-entry terminal blocker covers access, safety, session, and provider-auth failures", () => {
+  const terminalInputs = [
+    { code: "ACCESS_DENIED" },
+    { code: "BLOCKED_PAIR" },
+    { code: "SESSION_ENDED" },
+    { code: "SESSION_NOT_FOUND" },
+    { code: "ROOM_NOT_FOUND" },
+    { code: "DAILY_AUTH_FAILED" },
+    { code: "DAILY_CREDENTIALS_INVALID" },
+    { code: "DAILY_REQUEST_REJECTED" },
+    { httpStatus: 401 },
+    { httpStatus: 403 },
+    { httpStatus: 404 },
+    { httpStatus: 410 },
+  ];
+
+  for (const input of terminalInputs) {
+    const recoveryInput = { ...input, source: "prepare_entry" };
+    const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
+
+    assert.equal(
+      isReadyGatePrepareEntryNonRetryable(recoveryInput),
+      true,
+      JSON.stringify(input),
+    );
+    assert.equal(recovery.retryable, false, JSON.stringify(input));
+    assert.equal(recovery.terminal, true, JSON.stringify(input));
+  }
+
+  for (const code of [
+    "READY_GATE_NOT_READY",
+    "DAILY_PROVIDER_ERROR",
+    "DAILY_PROVIDER_UNAVAILABLE",
+    "DAILY_RATE_LIMIT",
+    "DB_ROOM_PERSIST_FAILED",
+    "REGISTRATION_PERSIST_FAILED",
+    "network",
+  ]) {
+    assert.equal(
+      isReadyGatePrepareEntryNonRetryable({
+        code,
+        errorCode: code,
+        httpStatus: code === "READY_GATE_NOT_READY" ? 403 : undefined,
+        source: "prepare_entry",
+      }),
+      false,
+      code,
+    );
+  }
+});
+
 test("web Ready Gate still gates date navigation through prepareVideoDateEntry", () => {
   assert.match(webReadyGate, /prepareVideoDateEntry\(sessionId/);
   assert.match(webReadyGate, /navigateToDate\("both_ready_prepare_success"\)/);
@@ -181,8 +232,8 @@ test("web ReadyGateOverlay stays centered on mobile instead of becoming a bottom
   assertHasClassNameTokens(webReadyGate, ["fixed", "inset-0", "items-center", "justify-center", "overflow-y-auto"]);
   assertStyleStringValue(webReadyGate, "height", "100dvh");
   assertNoStyleStringValue(webReadyGate, "minHeight", "100vh");
-  assertStyleStringValue(webReadyGate, "paddingTop", "max(1rem, env(safe-area-inset-top))");
-  assertStyleStringValue(webReadyGate, "paddingBottom", "max(1rem, env(safe-area-inset-bottom))");
+  assertStyleStringValue(webReadyGate, "paddingTop", "max(1.5rem, calc(env(safe-area-inset-top) + 1rem))");
+  assertStyleStringValue(webReadyGate, "paddingBottom", "max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))");
   assertHasClassNameTokens(webReadyGate, ["max-h-full", "overflow-y-auto"]);
   assertNoClassNameToken(webReadyGate, "items-end");
   assertNoClassNameToken(webReadyGate, "mb-4");

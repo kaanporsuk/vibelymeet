@@ -137,7 +137,7 @@ test("Ready Gate overlay avoids startup raw session reads and respects mobile sa
   assert.match(webOverlay, /result\.isTerminal === true[\s\S]*return/);
   assert.match(nativeOverlay, /result\.isTerminal === true[\s\S]*return/);
   assert.match(nativeReadyRoute, /result\.isTerminal === true[\s\S]*return/);
-  assert.match(webOverlay, /items-start justify-center[\s\S]*sm:items-center/);
+  assert.match(webOverlay, /items-center justify-center/);
   assert.match(webOverlay, /minHeight: "100svh"/);
   assert.match(webOverlay, /safe-area-inset-top/);
 });

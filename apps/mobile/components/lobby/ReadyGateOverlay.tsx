@@ -817,6 +817,7 @@ export function ReadyGateOverlay({
             const recoveryInput: ReadyGateTerminalRecoveryInput = {
               code: result.code,
               errorCode: result.code,
+              httpStatus: result.httpStatus ?? null,
               reason: result.message ?? null,
               source: 'prepare_entry',
             };

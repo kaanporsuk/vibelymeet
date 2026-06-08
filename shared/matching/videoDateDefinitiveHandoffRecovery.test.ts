@@ -165,8 +165,8 @@ test("web and native stop state cycling on terminal refresh, rate limits, and mi
   assert.match(webVideoCallHook, /cleanupCallObject\("daily_error", "daily_meeting_ended_event"\)/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_RETRY_TAP/);
   assert.doesNotMatch(webVideoDatePage, /VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT/);
-  assert.match(nativeVideoDateRoute, /cleanupTerminalDailyCall\(call, 'daily_token_refresh_terminal'\)/);
-  assert.match(nativeVideoDateRoute, /cleanupTerminalDailyCall\(call, 'daily_meeting_ended_event'\)/);
+  assert.match(nativeVideoDateRoute, /cleanupTerminalDailyCall\(\s*call,\s*["']daily_token_refresh_terminal["']/);
+  assert.match(nativeVideoDateRoute, /cleanupTerminalDailyCall\(call, ["']daily_meeting_ended_event["']\)/);
   assert.match(nativeVideoDateRoute, /refetchVideoSession\(\)[\s\S]*daily_no_remote_watchdog_truth_refetched/);
   assert.doesNotMatch(
     webVideoCallHook,

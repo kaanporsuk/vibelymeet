@@ -15,6 +15,7 @@ export type ReadyGateTerminalRecoveryInput = {
   reason?: string | null;
   errorCode?: string | null;
   code?: string | null;
+  httpStatus?: number | null;
   inactiveReason?: string | null;
   terminal?: boolean | null;
   source?: string | null;
@@ -73,11 +74,33 @@ const READY_GATE_STALE_CODES = new Set([
 ]);
 
 const READY_GATE_UNAUTHORIZED_CODES = new Set([
+  "auth",
   "UNAUTHORIZED",
   "ACCESS_DENIED",
   "not_session_participant",
   "unauthorized",
   "access_denied",
+]);
+
+const READY_GATE_BLOCKED_PAIR_CODES = new Set([
+  "BLOCKED_PAIR",
+  "blocked_pair",
+]);
+
+const READY_GATE_PREPARE_ENTRY_TERMINAL_CODES = new Set([
+  ...READY_GATE_EVENT_INACTIVE_CODES,
+  ...READY_GATE_UNAUTHORIZED_CODES,
+  ...READY_GATE_BLOCKED_PAIR_CODES,
+  "SESSION_ENDED",
+  "session_ended",
+  "SESSION_NOT_FOUND",
+  "session_not_found",
+  "session_missing",
+  "ROOM_NOT_FOUND",
+  "room_not_found",
+  "DAILY_AUTH_FAILED",
+  "DAILY_CREDENTIALS_INVALID",
+  "DAILY_REQUEST_REJECTED",
 ]);
 
 function normalizeReadyGateReason(value: string | null | undefined): string | null {
@@ -100,10 +123,18 @@ export function isReadyGateEventInactiveReason(input: ReadyGateTerminalRecoveryI
   return collectReadyGateReasons(input).some((reason) => READY_GATE_EVENT_INACTIVE_CODES.has(reason));
 }
 
-export function isReadyGatePrepareEntryNonRetryable(input: ReadyGateTerminalRecoveryInput): boolean {
+export function isReadyGatePrepareEntryTerminalBlocker(input: ReadyGateTerminalRecoveryInput): boolean {
   if (isReadyGateEventInactiveReason(input)) return true;
   const reasons = collectReadyGateReasons(input);
-  return reasons.includes("READY_GATE_NOT_READY") && reasons.some((reason) => reason.startsWith("event_"));
+  if (reasons.some((reason) => READY_GATE_PREPARE_ENTRY_TERMINAL_CODES.has(reason))) return true;
+  if (reasons.includes("READY_GATE_NOT_READY")) {
+    return reasons.some((reason) => reason.startsWith("event_"));
+  }
+  return [401, 403, 404, 410].includes(input.httpStatus ?? 0);
+}
+
+export function isReadyGatePrepareEntryNonRetryable(input: ReadyGateTerminalRecoveryInput): boolean {
+  return isReadyGatePrepareEntryTerminalBlocker(input);
 }
 
 export function resolveReadyGateTerminalRecovery(
@@ -111,13 +142,28 @@ export function resolveReadyGateTerminalRecovery(
 ): ReadyGateTerminalRecovery {
   const reasons = collectReadyGateReasons(input);
   const hasReason = (set: Set<string>) => reasons.some((reason) => set.has(reason));
+  const hasReadyGateNotReady = reasons.includes("READY_GATE_NOT_READY");
 
-  if (hasReason(READY_GATE_UNAUTHORIZED_CODES)) {
+  if (
+    hasReason(READY_GATE_UNAUTHORIZED_CODES) ||
+    ([401, 403].includes(input.httpStatus ?? 0) && !hasReadyGateNotReady)
+  ) {
     return {
       category: "unauthorized",
       title: "This Ready Gate is not available",
       body: "We could not verify access to this match. Return to the lobby to continue.",
       toast: "This Ready Gate is not available.",
+      retryable: false,
+      terminal: true,
+    };
+  }
+
+  if (hasReason(READY_GATE_BLOCKED_PAIR_CODES)) {
+    return {
+      category: "unauthorized",
+      title: "This match is not available",
+      body: "This match can no longer continue. Return to the lobby to keep browsing.",
+      toast: "This match is no longer available.",
       retryable: false,
       terminal: true,
     };
@@ -193,14 +239,18 @@ export function resolveReadyGateTerminalRecovery(
     };
   }
 
-  if (hasReason(READY_GATE_STALE_CODES)) {
+  if (
+    hasReason(READY_GATE_STALE_CODES) ||
+    [404, 410].includes(input.httpStatus ?? 0) ||
+    hasReason(READY_GATE_PREPARE_ENTRY_TERMINAL_CODES)
+  ) {
     return {
       category: "stale_handoff",
       title: "This handoff is stale",
       body: "The Ready Gate changed before video could start. Return to the lobby to continue.",
       toast: "This Ready Gate changed. Back to browsing.",
       retryable: input.code === "READY_GATE_NOT_READY" && !isReadyGatePrepareEntryNonRetryable(input),
-      terminal: input.terminal === true,
+      terminal: input.terminal === true || isReadyGatePrepareEntryTerminalBlocker(input),
     };
   }
 

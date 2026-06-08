@@ -6137,14 +6137,10 @@ const VideoDate = () => {
             type="button"
             variant="outline"
             onClick={() => {
-              const target = eventId
-                ? `/event/${encodeURIComponent(eventId)}/lobby`
-                : "/events";
-              vdbgRedirect(target, "camera_permission_denied_exit", {
-                sessionId: id ?? null,
-                eventId: eventId ?? null,
+              void handlePreDateExit({
+                reason: "ended_from_client",
+                source: "camera_permission_denied_exit",
               });
-              navigate(target);
             }}
           >
             Back to lobby
@@ -6167,15 +6163,10 @@ const VideoDate = () => {
         <Button
           type="button"
           onClick={() => {
-            const target = eventId
-              ? `/event/${encodeURIComponent(eventId)}/lobby`
-              : "/events";
-            vdbgRedirect(target, "handshake_start_failed_back", {
-              sessionId: id ?? null,
-              eventId: eventId ?? null,
-              code: handshakeFailureCode ?? null,
+            void handlePreDateExit({
+              reason: "ended_from_client",
+              source: "handshake_start_failed_back",
             });
-            navigate(target);
           }}
         >
           {eventId ? "Back to event lobby" : "Back to events"}
@@ -6210,16 +6201,10 @@ const VideoDate = () => {
             variant="secondary"
             className="w-full"
             onClick={() => {
-              const target = eventId
-                ? `/event/${encodeURIComponent(eventId)}/lobby`
-                : "/events";
-              clearDateEntryTransition(id);
-              vdbgRedirect(target, "retryable_call_start_back", {
-                sessionId: id ?? null,
-                eventId: eventId ?? null,
-                code: callStartFailure.kind,
+              void handlePreDateExit({
+                reason: "ended_from_client",
+                source: "retryable_call_start_back",
               });
-              navigate(target, { replace: true });
             }}
           >
             Back
