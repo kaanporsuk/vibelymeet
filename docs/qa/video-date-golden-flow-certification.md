@@ -18,10 +18,9 @@ npm run test:video-date-v4
 npm run verify:video-date:functions -- --skip-remote
 ```
 
-When database credentials are available, run the invariant pack before, during, and after the live attempt:
+Run the invariant pack before, during, and after the live attempt. In a linked Supabase checkout, the command can use `supabase db query --linked`; with an explicit Postgres URL it uses `psql`:
 
 ```bash
-SUPABASE_DB_URL=<read-write-or-readonly-postgres-url> \
 npm run check:video-date:invariants
 ```
 
@@ -34,7 +33,6 @@ npm run certify:video-date:golden-flow -- --skip-live
 For release verification with remote checks and invariant enforcement:
 
 ```bash
-SUPABASE_DB_URL=<postgres-url> \
 npm run certify:video-date:golden-flow -- --require-live
 ```
 

@@ -145,7 +145,7 @@ What this closes:
 - The full `test:video-date-v4` suite now includes the previously separate fail-soft Daily room RPC and native Ready Gate parity contracts.
 - The stale fail-soft RPC contract assertions now target the current shared lifecycle retryability helper instead of older direct `payload.retryable` string shapes.
 - Standalone native `/ready/[id]` now has explicit contract coverage for Ready Gate entry proof and non-authoritative post-ready room warmup.
-- Operator invariants are packaged as a repeatable read-only SQL/psql gate with redacted PASS/FAIL rows.
+- Operator invariants are packaged as a repeatable read-only gate with redacted PASS/FAIL rows. The runner uses `psql` when a DB URL is present and falls back to linked `supabase db query` otherwise.
 - Edge Function release verification is packaged as a non-deploying local/remote catalog check.
 - A compact certification diagnostic shape now captures route owner, Ready Gate status, Daily room presence, token state, joined/provider/remote-seen roles, survey state, and next surface without tokens, raw Daily URLs, or participant IDs.
 - Golden Flow and native physical-device certification now have current June 2026 checklists.
@@ -154,6 +154,11 @@ Still not acceptance proof:
 
 - No live Supabase deployment or fresh two-user runtime certification was performed by this tooling change.
 - Video Date remains uncertified until a fresh disposable two-user run completes through both users saving `date_feedback` and returning to the expected next state.
+
+2026-06-08 follow-up during publish verification:
+
+- The first live invariant run showed two current `in_survey` participants missing `date_feedback`. That is valid pending-survey hold state, not a critical release failure.
+- `docs/sql/video-date-invariants.sql` now treats missing feedback as critical only when the participant is no longer held by `in_survey`; active pending survey holds remain visible as warnings for operator evidence.
 
 ---
 

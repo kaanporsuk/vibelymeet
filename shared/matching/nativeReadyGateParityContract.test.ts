@@ -325,7 +325,7 @@ test("standalone native ready route records entry proof and keeps post-ready war
   assert.match(nativeReadyRoute, /isReadyGateEntryProofStatus\(status\)/);
 
   const warmupBlock =
-    /const startRoomWarmupAfterReady = useCallback\([\s\S]*?\n\s*\);\n\n  useSettingsReturnRefresh/.exec(
+    /const startRoomWarmupAfterReady = useCallback\([\s\S]*?\n\s*\);\n\n {2}useSettingsReturnRefresh/.exec(
       nativeReadyRoute,
     )?.[0] ?? "";
   assert.ok(warmupBlock, "standalone ready route should own a post-ready warmup block");

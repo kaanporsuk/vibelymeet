@@ -37,7 +37,8 @@ test("invariant pack is read-only and covers the Golden Flow failure boundaries"
     "active_date_requires_confirmed_encounter_evidence",
     "date_route_must_own_after_handshake_or_date",
     "active_video_registration_points_to_live_session",
-    "survey_held_registration_requires_feedback_before_release",
+    "survey_required_unfinished_feedback_must_remain_in_survey",
+    "survey_pending_feedback_held_in_survey",
     "provider_join_webhook_evidence_present_for_recent_joined_sessions",
     "video_date_surface_claims_are_bounded_per_session",
   ]) {
