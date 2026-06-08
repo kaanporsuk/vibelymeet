@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 
 const steps = [
   ["typecheck", "npm run typecheck"],
+  ["video-date-red-flags", "npm run test:video-date:red-flags"],
   ["video-date-v4", "npm run test:video-date-v4"],
   ["event-lobby-regression", "npm run test:event-lobby-regression"],
   ["daily-room-contract", "npm run test:daily-room-contract"],

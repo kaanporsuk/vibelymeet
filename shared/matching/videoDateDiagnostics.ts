@@ -41,3 +41,151 @@ export const VIDEO_DATE_RECONNECT_SYNC_OUTCOMES = {
 export type VideoDateReconnectSyncOutcome =
   (typeof VIDEO_DATE_RECONNECT_SYNC_OUTCOMES)[keyof typeof VIDEO_DATE_RECONNECT_SYNC_OUTCOMES];
 
+export type VideoDateCertificationSurfaceOwner =
+  | "lobby"
+  | "ready_gate"
+  | "date"
+  | "survey"
+  | "unknown";
+
+export type VideoDateCertificationTokenState =
+  | "not_requested"
+  | "requested"
+  | "ready"
+  | "retryable_failure"
+  | "terminal_failure"
+  | "unknown";
+
+export type VideoDateCertificationSurveyState =
+  | "not_started"
+  | "required"
+  | "opened"
+  | "persisted"
+  | "completed"
+  | "unknown";
+
+export type VideoDateCertificationParticipantRole =
+  | "participant_1"
+  | "participant_2";
+
+export type VideoDateCertificationDiagnostic = VideoDateJourneyBasePayload & {
+  surface_owner: VideoDateCertificationSurfaceOwner;
+  ready_gate_status: string | null;
+  daily_room_name: string | null;
+  daily_room_url_present: boolean | null;
+  token_fetch_state: VideoDateCertificationTokenState;
+  joined_roles: VideoDateCertificationParticipantRole[];
+  provider_joined_roles: VideoDateCertificationParticipantRole[];
+  remote_seen_roles: VideoDateCertificationParticipantRole[];
+  survey_state: VideoDateCertificationSurveyState;
+  next_surface: string | null;
+  terminal: boolean | null;
+  code: string | null;
+  retryable: boolean | null;
+  timestamp_ms: number;
+};
+
+export type VideoDateCertificationDiagnosticInput = Partial<
+  Omit<VideoDateCertificationDiagnostic, "timestamp_ms">
+> & {
+  timestamp_ms?: number | null;
+};
+
+const CERTIFICATION_ROLES = new Set<VideoDateCertificationParticipantRole>([
+  "participant_1",
+  "participant_2",
+]);
+
+const CERTIFICATION_SURFACE_OWNERS = new Set<VideoDateCertificationSurfaceOwner>([
+  "lobby",
+  "ready_gate",
+  "date",
+  "survey",
+  "unknown",
+]);
+
+const CERTIFICATION_TOKEN_STATES = new Set<VideoDateCertificationTokenState>([
+  "not_requested",
+  "requested",
+  "ready",
+  "retryable_failure",
+  "terminal_failure",
+  "unknown",
+]);
+
+const CERTIFICATION_SURVEY_STATES = new Set<VideoDateCertificationSurveyState>([
+  "not_started",
+  "required",
+  "opened",
+  "persisted",
+  "completed",
+  "unknown",
+]);
+
+function safeCertificationText(value: unknown, maxLength = 140): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLength);
+}
+
+function safeCertificationBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function safeCertificationRoles(
+  value: unknown,
+): VideoDateCertificationParticipantRole[] {
+  if (!Array.isArray(value)) return [];
+  const roles = value.filter((role): role is VideoDateCertificationParticipantRole =>
+    CERTIFICATION_ROLES.has(role as VideoDateCertificationParticipantRole),
+  );
+  return Array.from(new Set(roles)).sort();
+}
+
+function safeCertificationEnum<T extends string>(
+  value: unknown,
+  allowed: Set<T>,
+  fallback: T,
+): T {
+  return allowed.has(value as T) ? (value as T) : fallback;
+}
+
+export function buildVideoDateCertificationDiagnostic(
+  input: VideoDateCertificationDiagnosticInput,
+): VideoDateCertificationDiagnostic {
+  return {
+    platform: input.platform === "web" || input.platform === "native" ? input.platform : "web",
+    session_id: safeCertificationText(input.session_id),
+    event_id: safeCertificationText(input.event_id),
+    surface_owner: safeCertificationEnum(
+      input.surface_owner,
+      CERTIFICATION_SURFACE_OWNERS,
+      "unknown",
+    ),
+    ready_gate_status: safeCertificationText(input.ready_gate_status, 40),
+    daily_room_name: safeCertificationText(input.daily_room_name, 160),
+    daily_room_url_present: safeCertificationBoolean(input.daily_room_url_present),
+    token_fetch_state: safeCertificationEnum(
+      input.token_fetch_state,
+      CERTIFICATION_TOKEN_STATES,
+      "unknown",
+    ),
+    joined_roles: safeCertificationRoles(input.joined_roles),
+    provider_joined_roles: safeCertificationRoles(input.provider_joined_roles),
+    remote_seen_roles: safeCertificationRoles(input.remote_seen_roles),
+    survey_state: safeCertificationEnum(
+      input.survey_state,
+      CERTIFICATION_SURVEY_STATES,
+      "unknown",
+    ),
+    next_surface: safeCertificationText(input.next_surface, 80),
+    terminal: safeCertificationBoolean(input.terminal),
+    code: safeCertificationText(input.code, 80),
+    retryable: safeCertificationBoolean(input.retryable),
+    timestamp_ms:
+      typeof input.timestamp_ms === "number" && Number.isFinite(input.timestamp_ms)
+        ? Math.max(0, Math.floor(input.timestamp_ms))
+        : Date.now(),
+  };
+}

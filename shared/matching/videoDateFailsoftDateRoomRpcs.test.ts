@@ -86,15 +86,27 @@ test("web and native reconnect consumers treat fail-soft transition payloads as 
   );
   assert.match(
     webVideoCall,
-    /const failsoftRejected = payload\?\.success === false[\s\S]{0,650}retryable: error \? true : payload\?\.retryable === true/,
+    /const failsoftRejected = payload\?\.success === false/,
+  );
+  assert.match(
+    webVideoCall,
+    /retryable: error\s*\? true\s*:\s*videoDateLifecycleRpcRetryable\(payload\) === true/,
   );
   assert.match(
     webVideoDate,
-    /const reconnectRejected = reconnectPayload\?\.success === false[\s\S]{0,900}if \(reconnectPayload\?\.retryable === true\) return/,
+    /const reconnectRejected = reconnectPayload\?\.success === false/,
+  );
+  assert.match(
+    webVideoDate,
+    /if \(videoDateLifecycleRpcRetryable\(reconnectPayload\) === true\) return/,
   );
   assert.match(
     nativeVideoDateApi,
-    /p\?\.success === false[\s\S]{0,500}p\.code === ['"]SESSION_ENDED['"][\s\S]{0,220}return null/,
+    /p\?\.success === false[\s\S]{0,500}const terminalStop =[\s\S]{0,220}videoDateLifecycleRpcIndicatesTerminalStop\(p\)/,
+  );
+  assert.match(
+    nativeVideoDateApi,
+    /if \(terminalStop\) \{[\s\S]{0,260}ended: true/,
   );
 });
 
@@ -105,18 +117,18 @@ test("web duplicate-tab surface claims ignore retryable fail-soft rejections", (
 test("web and native Daily-joined confirmation both retry 200 retryable payloads", () => {
   assert.match(
     webVideoCall,
-    /retryable: joinedError \? true : payload\?\.retryable === true \? true : undefined/,
+    /retryable: joinedError\s*\? true\s*:\s*videoDateLifecycleRpcRetryable\(payload\)/,
   );
   assert.match(
     nativeDateRoute,
-    /retryable: joinedError \? true : payload\?\.retryable === true \? true : undefined/,
+    /retryable: joinedError\s*\? true\s*:\s*videoDateLifecycleRpcRetryable\(payload\)/,
   );
 });
 
 test("native surface claim does not block takeover on transient fail-soft errors", () => {
   assert.match(
     nativeDateRoute,
-    /const blocked = payload\?\.code === ['"]SURFACE_CLAIM_CONFLICT['"] && payload\.retryable !== true/,
+    /const blocked =\s*payload\?\.code === ['"]SURFACE_CLAIM_CONFLICT['"]\s*&&\s*payload\.retryable !== true/,
   );
   assert.match(nativeDateRoute, /setSurfaceClaimBlockedState\(blocked\)/);
   assert.doesNotMatch(nativeDateRoute, /setSurfaceClaimBlocked\(blocked \|\| takeover\)/);
@@ -129,7 +141,7 @@ test("native enter-handshake carries backend retryable through the bounded retry
     nativeVideoDateApi,
     /return \{ ok: false, code: error\.code \?\? 'RPC_ERROR', message: error\.message, retryable: true \}/,
   );
-  assert.match(nativeVideoDateApi, /retryable: payload\.retryable === true/);
+  assert.match(nativeVideoDateApi, /retryable:\s*[\s\S]{0,160}videoDateLifecycleRpcRetryable\(payload\) === true/);
   assert.match(nativeDateRoute, /isReadyGateRace\(hs\.code\) \|\| hs\.retryable === true/);
   assert.match(nativeDateRoute, /previousRetryable: hs\.retryable === true/);
 });
@@ -139,8 +151,8 @@ test("native date prejoin retries retryable prepare-entry failures like web", ()
   assert.match(nativeVideoDateApi, /retryable: result\.retryable/);
   assert.match(nativeVideoDateApi, /retryAfterMs: result\.retryAfterMs/);
   assert.match(nativeDateRoute, /NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS/);
-  assert.match(nativeDateRoute, /dailyRoomTokenRetryDelayMs\(tokenRes/);
-  assert.match(nativeDateRoute, /tokenRes\.retryable && tokenRes\.code !== ['"]READY_GATE_NOT_READY['"]/);
+  assert.match(nativeDateRoute, /dailyRoomTokenRetryDelayMs\(\s*tokenRes/);
+  assert.match(nativeDateRoute, /tokenRes\.retryable[\s\S]{0,160}tokenRes\.code !== ['"]READY_GATE_NOT_READY['"]/);
   assert.match(nativeDateRoute, /retryable: tokenRes\.retryable/);
 });
 
