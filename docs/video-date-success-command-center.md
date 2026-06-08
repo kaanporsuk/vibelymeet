@@ -64,6 +64,64 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Certification Exception Closure
+
+Source and linked Supabase cloud now add an operator-only closure path for known historical failed Video Date rows that are missing `date_feedback` and should not keep blocking release certification after review.
+
+Problem addressed:
+
+- The 2026-06-08 missing-feedback diagnostic correctly flagged stale survey-required participants without `date_feedback`.
+- Earlier linked diagnostics in this pass showed session `3fabfd4e-523d-4593-bda5-ab6aa20f1005`, event `1eddfdbf-ee93-47ea-a266-4f2ca4a5468e`, with both participants in `in_survey`, no `date_feedback`, and `release_blocker=true`. After the migration apply, current linked diagnostics returned zero missing-feedback rows, so no exception row was inserted.
+- The safe fix cannot fabricate `date_feedback`, because `date_feedback` is the only product finish line and must represent the user's submitted verdict.
+
+Implementation added:
+
+- Migration `20260608215911_video_date_certification_exception_closure.sql`.
+- Service-owned table `video_date_certification_feedback_exceptions`.
+- Service-only operator RPCs `upsert_video_date_certification_feedback_exception_v1(...)`, `revoke_video_date_certification_feedback_exception_v1(...)`, and `video_date_certification_feedback_exception_active_v1(...)`.
+- `video_date_missing_feedback_operator_diagnostics_v1(...)` keeps the same return columns, keeps stale missing-feedback rows visible, and changes only `release_blocker`: an active service-owned exception makes that row nonblocking for certification.
+- `docs/sql/video-date-invariants.sql` now applies the same rule to `stale_survey_pending_feedback_blocks_certification` when running `npm run check:video-date:invariants -- --warn-as-error`.
+- Contract coverage added in `shared/matching/videoDateCertificationExceptionClosure.test.ts` and wired into `npm run test:video-date:red-flags` plus `npm run test:video-date-v4`.
+- Branch delta: `docs/branch-deltas/fix-video-date-certification-exception-closure.md`.
+
+Ownership boundary:
+
+- Exceptions do **not** persist `date_feedback`.
+- Exceptions do **not** move `event_registrations` out of `in_survey`.
+- Exceptions do **not** participate in queue drain, Ready Gate routing, PostDateSurvey routing, web EventLobby, native EventLobby, or native notification rescue.
+- Web/native/mobile users with pending feedback remain owned by `/date/:sessionId` or the native date route until their real `date_feedback` row exists.
+
+Verification completed in this local pass:
+
+- `npx tsx shared/matching/videoDateCertificationExceptionClosure.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
+- post-apply `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error`
+- Live catalog marker query for migration row, exception table, service-only RPC grants, authenticated non-write table privileges, diagnostic body markers, and no `date_feedback` insert in the operator upsert RPC.
+- `npm run check:video-date:invariants -- --warn-as-error`
+
+Linked Supabase state:
+
+- Remote migration history is aligned through `20260608215911_video_date_certification_exception_closure.sql`.
+- Post-apply linked dry-run returns `Remote database is up to date.`
+- Current linked `video_date_missing_feedback_operator_diagnostics_v1(...)` returns zero rows, so no `video_date_certification_feedback_exceptions` rows were inserted.
+- Linked invariant check with `--warn-as-error` exits 0 with no failures and no warnings.
+- Linked DB lint exited 0 with only existing warning/notice-level legacy output, and linked error-level advisors returned `No issues found`.
+
+Not yet performed in this pass:
+
+- Fresh disposable two-user production acceptance through both users persisting `date_feedback`.
+
+---
+
 ## 2026-06-09 Implementation Update: Survey Feedback Drain Guard
 
 Local source now closes the synchronous ownership gap between queue drain and the mandatory post-date verdict finish line.
