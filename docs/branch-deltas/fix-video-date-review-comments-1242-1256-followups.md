@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Status: implementation branch with local validation complete and linked Supabase dry-run clean. Fresh two-user production proof through both users persisting `date_feedback` is still required.
+Status: merged and cloud-applied implementation evidence. PR #1257 merged as `4e9f87d7107b92a3e197dc0ded41412a9de951aa`; Supabase cloud is aligned through migration `20260608224048_review_comments_1242_1256_followups.sql`. Fresh two-user production proof through both users persisting `date_feedback` is still required.
 
 ## Scope
 
@@ -35,10 +35,14 @@ Verification completed during implementation:
 - `git diff --check`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
 
-Publish verification still required before closing the branch:
+Publish verification completed after merge:
 
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
-- Post-apply linked dry-run, migration list alignment, DB lint, DB advisors, and live catalog markers for the new/replaced RPC bodies.
+- Post-apply linked dry-run returned `Remote database is up to date`.
+- Post-apply migration list showed local and remote aligned through `20260608224048`.
+- Linked DB lint exited 0 with only existing warning/notice-level legacy output.
+- Linked error-level DB advisors returned `No issues found`.
+- Live catalog markers returned true for the migration row, zero-feedback current-room scoping, retryable eligibility non-terminalization, remote-seen owner/call proof requirement, mark-ready auxiliary-error stripping, and authenticated execute grants for the public remote-seen and mark-ready RPCs.
 
 ## Proof Boundary
 
