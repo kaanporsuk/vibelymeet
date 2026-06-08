@@ -68,6 +68,35 @@ A successful Video Date run means:
 
 Local code now closes the `ready_a` / `ready_b` boundary for web, native, and mobile users before provider room/token work can run.
 
+Follow-up implementation at 2026-06-08 17:14 +03:
+
+- `video_date_ready_gate_actionability_v1(...)` now checks terminal/ended truth before returning the active `non_ready_gate_owned` success branch, so `state = ended`, `phase = ended`, `ended_at`, or terminal `ready_gate_status` cannot be misclassified as date-owned actionability.
+- Web lobby, web Ready Gate overlay, native event lobby, native Ready Gate overlay, and native standalone `/ready/[id]` now keep `/date/:sessionId` or native `/date/[id]` as the owner after `both_ready` when `prepare_date_entry` fails or throws after canonical startability/ownership has already been observed. These failures are now recorded as date-owned recovery instead of reopening Ready Gate or surfacing Ready Gate prepare-failure UI.
+- Focused tests now pin both invariants: terminal-before-active SQL ordering and date-owned prepare-failure recovery across all web/native/mobile handoff surfaces.
+
+Follow-up verification completed locally:
+
+- `npx tsx shared/matching/readyGatePartialReadyDefinitiveClosure.test.ts`
+- `npx tsx shared/matching/readyGateMarkReadyActionabilitySafety.test.ts`
+- `npx tsx shared/matching/nativeReadyGateParityContract.test.ts`
+- `npx tsx shared/matching/videoSessionDailyGate.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run typecheck`
+
+Follow-up Supabase cloud verification:
+
+- Linked migration history contains `20260608160809`.
+- `supabase db push --linked --dry-run` reports `Remote database is up to date.`
+- `supabase db lint --linked --schema public --fail-on error` exits 0 with the known warning backlog only.
+- `supabase db advisors --linked --level error --fail-on error` reports `No issues found`.
+- Live marker queries confirm `video_date_ready_gate_actionability_v1`, `video_date_terminalize_ready_gate_session_v1`, `video_date_partial_ready_diagnostics_v1`, wrapped public RPC names, and the `video_sessions_ready_gate_timestamp_consistency` constraint are present.
+- No Edge Function deploy was required for this follow-up because this branch did not change Supabase function source.
+
+Follow-up still not acceptance proof:
+
+- This is source, typecheck, and linked-cloud verified. It still does not certify Video Date until a fresh disposable two-user production run completes through `date_feedback` persistence.
+
 Migration added:
 
 - `supabase/migrations/20260608160809_video_date_ready_gate_partial_ready_definitive_closure.sql`
@@ -107,8 +136,12 @@ Verification completed locally:
 
 Supabase verification notes:
 
-- Linked dry-run exits 0 and reports only `20260608160809_video_date_ready_gate_partial_ready_definitive_closure.sql` as pending.
-- No cloud migration or function deployment was performed in this local implementation pass.
+- Linked cloud migration history contains `20260608160809`.
+- Linked dry-run exits 0 and reports `Remote database is up to date.`
+- Linked public-schema lint exits 0 with the existing warning backlog only.
+- Linked error-level advisors exit 0 with `No issues found`.
+- Live marker queries confirm the new actionability, terminalizer, diagnostics, wrapped public RPC names, and timestamp consistency constraint are present in Supabase cloud.
+- No Edge Function deploy was required in this follow-up because no Supabase function source changed.
 
 Still not acceptance proof:
 

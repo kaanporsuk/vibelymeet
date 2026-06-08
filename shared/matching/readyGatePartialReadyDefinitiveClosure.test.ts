@@ -11,6 +11,13 @@ const migration = read(
 );
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const packageJson = read("package.json");
+const webEventLobby = read("src/pages/EventLobby.tsx");
+const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
+const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
+const nativeReadyGateOverlay = read(
+  "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
+);
+const nativeStandaloneReady = read("apps/mobile/app/ready/[id].tsx");
 
 function blockBetween(source: string, start: string, end: string): string {
   const startIndex = source.indexOf(start);
@@ -52,6 +59,88 @@ test("partial-ready migration terminalizes invalid pre-date Ready Gates and pres
   assert.match(migration, /daily_room_name = CASE WHEN v_session\.ready_gate_status = 'both_ready' THEN daily_room_name ELSE NULL END/);
   assert.match(migration, /public\.video_date_outbox_enqueue_v2\([\s\S]*'daily\.delete_video_date_room'/);
   assert.match(migration, /ready_gate_status IN \('queued', 'ready', 'ready_a', 'ready_b', 'snoozed', 'both_ready'\)/);
+
+  const actionabilityBlock = blockBetween(
+    migration,
+    "CREATE OR REPLACE FUNCTION public.video_date_ready_gate_actionability_v1",
+    "ALTER FUNCTION public.video_session_mark_ready_v2",
+  );
+  const terminalIndex = actionabilityBlock.indexOf("v_session.ended_at IS NOT NULL");
+  const nonReadyGateOwnedIndex = actionabilityBlock.indexOf("'non_ready_gate_owned', true");
+  assert.ok(terminalIndex >= 0, "missing terminal actionability guard");
+  assert.ok(nonReadyGateOwnedIndex >= 0, "missing non-ready-gate ownership success");
+  assert.ok(
+    terminalIndex < nonReadyGateOwnedIndex,
+    "terminal sessions must not pass the non-ready-gate-owned actionability branch",
+  );
+});
+
+test("both-ready prepare failures remain date-owned across web and native clients", () => {
+  assert.match(webEventLobby, /source_action: "prepare_entry_failed_date_owned"/);
+  assert.match(webEventLobby, /navigateAfterPrepare\(`?\$\{source\}_prepare_failed_date_owned`?\)/);
+  assert.match(webEventLobby, /navigateAfterPrepare\(`?\$\{source\}_prepare_exception_date_owned`?\)/);
+  assert.doesNotMatch(
+    webEventLobby,
+    /\$\{source\}_prepare_failed_ready_gate_recovery/,
+  );
+  assert.doesNotMatch(
+    webEventLobby,
+    /\$\{source\}_prepare_exception_ready_gate_recovery/,
+  );
+
+  assert.match(
+    webReadyGateOverlay,
+    /source_action: "prepare_entry_failed_date_owned"/,
+  );
+  assert.match(
+    webReadyGateOverlay,
+    /source: "ready_gate_prepare_failed_date_owned"/,
+  );
+  assert.match(
+    webReadyGateOverlay,
+    /navigateToDate\("both_ready_prepare_failed_date_owned"\)/,
+  );
+  assert.match(
+    webReadyGateOverlay,
+    /navigateToDate\("both_ready_prepare_exception_date_owned"\)/,
+  );
+
+  assert.match(
+    nativeEventLobby,
+    /"date_navigation_prepare_entry_failed_date_owned"/,
+  );
+  assert.match(
+    nativeEventLobby,
+    /markVideoDateRouteOwned\(sessionIdToOpen, user\.id\);/,
+  );
+
+  assert.match(
+    nativeReadyGateOverlay,
+    /source_action: 'prepare_entry_failed_date_owned'/,
+  );
+  assert.match(
+    nativeReadyGateOverlay,
+    /navigateWithLatency\(`\$\{source\}_prepare_failed_date_owned`\)/,
+  );
+  assert.match(
+    nativeReadyGateOverlay,
+    /navigateWithLatency\(`\$\{source\}_prepare_exception_date_owned`\)/,
+  );
+
+  assert.match(
+    nativeStandaloneReady,
+    /'standalone_prepare_entry_failed_date_owned'/,
+  );
+  assert.match(
+    nativeStandaloneReady,
+    /source: 'ready_standalone_prepare_failed_date_owned'/,
+  );
+  assert.match(nativeStandaloneReady, /markVideoDateRouteOwned\(sid, user\.id\);/);
+  assert.match(nativeStandaloneReady, /navigateToDateSessionGuarded\(\{/);
+  assert.doesNotMatch(
+    nativeStandaloneReady,
+    /standalone_prepare_entry_failed_before_date_nav/,
+  );
 });
 
 test("event-ended cleanup no longer exempts pre-date rows just because room metadata exists", () => {

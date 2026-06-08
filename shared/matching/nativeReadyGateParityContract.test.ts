@@ -339,12 +339,14 @@ test("standalone native ready route records entry proof and keeps post-ready war
   assert.doesNotMatch(warmupBlock, /joinNativeVideoDateDailyPrewarm/);
 
   const canonicalDateEntryBlock =
-    /const reconcileFromCanonicalTruth = useCallback\([\s\S]*?markVideoDateRouteOwned\(sid, user\.id\);/.exec(
+    /const reconcileFromCanonicalTruth = useCallback\([\s\S]*?\n {6}\/\/ Not startable/.exec(
       nativeReadyRoute,
     )?.[0] ?? "";
   assert.ok(canonicalDateEntryBlock, "standalone ready route should keep authoritative date entry in canonical reconciliation");
   assert.match(canonicalDateEntryBlock, /prepareVideoDateEntry\(sid/);
   assert.match(canonicalDateEntryBlock, /preAuthNativeVideoDateDailyPrewarm/);
+  assert.match(canonicalDateEntryBlock, /standalone_prepare_entry_failed_date_owned/);
+  assert.match(canonicalDateEntryBlock, /ready_standalone_prepare_failed_date_owned/);
   assert.match(canonicalDateEntryBlock, /markVideoDateRouteOwned\(sid, user\.id\)/);
 });
 
