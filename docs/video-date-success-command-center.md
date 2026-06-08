@@ -247,6 +247,34 @@ Still not acceptance proof:
 
 - This audit improves correctness and guidance hygiene only. Video Date remains uncertified until the fresh disposable two-user production run completes through survey completion, plus short leave/rejoin and prolonged absence checks.
 
+## 2026-06-08 Review Comments Follow-Up: PR #1232 Through PR #1242
+
+Thread-aware GitHub review sweep:
+
+- Reviewed the last 11 PRs, PR #1242 down through PR #1232, with the GitHub review-comments workflow.
+- No Copilot-authored review threads were present in that range.
+- Codex review had 10 unresolved actionable threads. The PR #1241 mandatory-doc baseline thread was already corrected on current `main`; the remaining source, script, native, and Supabase findings are addressed in this follow-up.
+
+Migration added:
+
+- `supabase/migrations/20260608114500_review_comments_1232_1242_followups.sql`
+
+What this closes:
+
+- `/date/:sessionId` hydration no longer claims route ownership when canonical truth is still Ready Gate and not date-capable; web/native clear stale date ownership and redirect to `/ready/:sessionId`.
+- Web Ready Gate permission-prewarm timeout cleanup no longer stops a late capture stream if a newer retry is awaiting the same pending browser prompt/capture promise.
+- Native/mobile idle Daily singleton reuse is scoped to the same session and Daily room before reusing a parked call; cross-session parked calls are destroyed for retry.
+- `check:video-date:invariants` accepts the normal linked Supabase CLI bare JSON-array output instead of treating it as zero rows.
+- `verify:video-date:functions -- --require-remote` parses listed function slugs and compares exact names, so `post-date-verdict-reminders` cannot satisfy `post-date-verdict`.
+- `certify:video-date:golden-flow` loads repo-local `.env.cursor.local` before deciding whether live invariants are available.
+- The survey-required invariant now uses confirmed-encounter evidence, excluding pre-date ended sessions with no survey obligation.
+- The mark-ready RPC now sanitizes `SAFETY_CHECK_UNAVAILABLE` client payloads and logs SQL diagnostics through service-side lifecycle observability.
+- Provider-absence no-survey terminalization now preserves idle resume status for inactive events instead of leaving participants as browsing.
+
+Still not acceptance proof:
+
+- These review-comment fixes are source/schema/tooling correctness improvements. They do not prove Video Date healthy until a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion, including short leave/rejoin and prolonged absence checks.
+
 ---
 
 ## Known Recent Failure Pattern

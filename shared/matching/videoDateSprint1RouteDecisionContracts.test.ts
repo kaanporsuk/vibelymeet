@@ -359,7 +359,8 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("src/pages/EventLobby.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("src/components/session/SessionRouteHydration.tsx"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/components/session/SessionRouteHydration.tsx"), /canonicalVideoDateRouteLogDetail/);
-  assert.match(read("src/components/session/SessionRouteHydration.tsx"), /ready_gate_bounce_suppressed_date_owner/);
+  assert.match(read("src/components/session/SessionRouteHydration.tsx"), /session_route_hydration_ready_gate_canonical/);
+  assert.doesNotMatch(read("src/components/session/SessionRouteHydration.tsx"), /ready_gate_bounce_suppressed_date_owner/);
   assert.doesNotMatch(read("src/components/session/SessionRouteHydration.tsx"), /webPathForCanonicalVideoDateRoute/);
   assert.match(read("src/pages/Schedule.tsx"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/pages/ReadyRedirect.tsx"), /decideCanonicalVideoDateRoute/);

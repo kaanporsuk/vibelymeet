@@ -50,13 +50,20 @@ test("registration in_survey dominates stale Ready Gate and missing session trut
   assert.equal(missingTruthDecision.reason, "registration_pending_survey");
 });
 
-test("date route hydration does not bounce an owned date back to Ready Gate", () => {
-  assert.match(webHydration, /ready_gate_bounce_suppressed_date_owner/);
-  assert.match(nativeHydration, /ready_gate_bounce_suppressed_date_owner/);
+test("date route hydration only owns date-capable or latched routes", () => {
+  assert.doesNotMatch(webHydration, /ready_gate_bounce_suppressed_date_owner/);
+  assert.doesNotMatch(nativeHydration, /ready_gate_bounce_suppressed_date_owner/);
+  assert.match(
+    webHydration,
+    /canonicalRoute\.target === "ready_gate"[\s\S]*clearVideoDateRouteOwnership\(sessionIdFromUrl, user\.id\)[\s\S]*navigate\(target, \{[\s\S]{0,220}source: "session_route_hydration_ready_gate_canonical"/,
+  );
+  assert.match(
+    nativeHydration,
+    /canonicalRoute\.target === "ready_gate"[\s\S]*clearVideoDateRouteOwnership\(sid, user\.id\)[\s\S]*router\.replace\(target\)/,
+  );
   assert.doesNotMatch(webHydration, /webPathForCanonicalVideoDateRoute/);
   assert.doesNotMatch(nativeHydration, /hrefForCanonicalVideoDateRoute/);
   assert.doesNotMatch(webHydration, /canonicalRoute\.target === "ready_gate"\s*\?/);
-  assert.doesNotMatch(nativeHydration, /route_bounced_to_ready/);
 
   for (const source of [webHydration, nativeHydration] as const) {
     assert.match(
@@ -67,7 +74,7 @@ test("date route hydration does not bounce an owned date back to Ready Gate", ()
     assert.match(
       source,
       /markVideoDateRouteOwned\([^)]*user\.id/,
-      "hydration should mark route ownership before suppressing stale bounces",
+      "hydration should still mark route ownership for date-capable/survey/latch branches",
     );
   }
 });

@@ -72,6 +72,55 @@ function run(command, commandArgs, label) {
   return stdout || stderr;
 }
 
+function splitRemoteFunctionRow(line) {
+  if (line.includes("|")) {
+    return line
+      .split("|")
+      .map((cell) => cell.trim())
+      .filter(Boolean);
+  }
+  if (line.includes("│")) {
+    return line
+      .split("│")
+      .map((cell) => cell.trim())
+      .filter(Boolean);
+  }
+  return line.trim().split(/\s{2,}/).map((cell) => cell.trim()).filter(Boolean);
+}
+
+function parseRemoteFunctionSlugs(output) {
+  const slugs = new Set();
+  let slugColumnIndex = -1;
+
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || /^[-+─│|\s]+$/.test(trimmed)) continue;
+
+    const cells = splitRemoteFunctionRow(trimmed);
+    if (cells.length === 0) continue;
+
+    const lowerCells = cells.map((cell) => cell.toLowerCase());
+    const headerSlugIndex = lowerCells.findIndex((cell) =>
+      cell === "slug" || cell === "name" || cell === "function",
+    );
+    if (headerSlugIndex >= 0) {
+      slugColumnIndex = headerSlugIndex;
+      continue;
+    }
+
+    if (slugColumnIndex >= 0 && cells[slugColumnIndex]) {
+      slugs.add(cells[slugColumnIndex]);
+      continue;
+    }
+
+    for (const cell of cells) {
+      if (requiredFunctions.includes(cell)) slugs.add(cell);
+    }
+  }
+
+  return slugs;
+}
+
 function localChecks() {
   const configPath = "supabase/config.toml";
   const config = existsSync(join(root, configPath)) ? read(configPath) : "";
@@ -114,9 +163,10 @@ function remoteChecks() {
     `Remote functions list ${projectRef}`,
   );
   if (!remote) return;
+  const remoteSlugs = parseRemoteFunctionSlugs(remote);
 
   for (const name of requiredFunctions) {
-    const found = remote.includes(name);
+    const found = remoteSlugs.has(name);
     add(
       found ? "pass" : requireRemote ? "fail" : "warn",
       `Remote function ${name}`,

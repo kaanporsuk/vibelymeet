@@ -196,14 +196,15 @@ WITH invariant_results AS (
       LEFT JOIN public.event_registrations er
         ON er.event_id = vs.event_id
        AND er.profile_id = vs.participant_1_id
-      WHERE (
-          vs.ended_at IS NOT NULL
-          OR vs.date_started_at IS NOT NULL
-          OR (
-            vs.participant_1_remote_seen_at IS NOT NULL
-            AND vs.participant_2_remote_seen_at IS NOT NULL
-          )
-        )
+      WHERE public.video_date_session_has_confirmed_encounter(
+        vs.date_started_at,
+        vs.state::text,
+        vs.phase,
+        vs.participant_1_joined_at,
+        vs.participant_2_joined_at,
+        vs.participant_1_remote_seen_at,
+        vs.participant_2_remote_seen_at
+      )
 
       UNION ALL
 
@@ -219,14 +220,15 @@ WITH invariant_results AS (
       LEFT JOIN public.event_registrations er
         ON er.event_id = vs.event_id
        AND er.profile_id = vs.participant_2_id
-      WHERE (
-          vs.ended_at IS NOT NULL
-          OR vs.date_started_at IS NOT NULL
-          OR (
-            vs.participant_1_remote_seen_at IS NOT NULL
-            AND vs.participant_2_remote_seen_at IS NOT NULL
-          )
-        )
+      WHERE public.video_date_session_has_confirmed_encounter(
+        vs.date_started_at,
+        vs.state::text,
+        vs.phase,
+        vs.participant_1_joined_at,
+        vs.participant_2_joined_at,
+        vs.participant_1_remote_seen_at,
+        vs.participant_2_remote_seen_at
+      )
     )
     SELECT
       row_number() OVER (ORDER BY sr.started_at DESC, sr.session_id, sr.role) AS rn,
