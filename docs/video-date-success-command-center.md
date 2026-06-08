@@ -119,6 +119,44 @@ Still not acceptance proof:
 
 ---
 
+## 2026-06-08 Implementation Update: Red-Flag Closure Gates And Certification Tooling
+
+Local code now includes a focused red-flag gate and operator certification tooling for the current Golden Flow proof boundary.
+
+Tooling/docs added or updated:
+
+- `npm run test:video-date:red-flags`
+- `npm run check:video-date:invariants`
+- `npm run verify:video-date:functions`
+- `npm run certify:video-date:golden-flow`
+- `docs/sql/video-date-invariants.sql`
+- `scripts/check-video-date-invariants.mjs`
+- `scripts/verify-video-date-functions.mjs`
+- `scripts/certify-video-date-golden-flow.mjs`
+- `shared/matching/videoDateGoldenFlowCertificationContracts.test.ts`
+- shared certification diagnostic builder in `shared/matching/videoDateDiagnostics.ts`
+- `docs/qa/video-date-golden-flow-certification.md`
+- `docs/qa/video-date-native-device-certification.md`
+- `docs/runbooks/video-date-edge-function-release-verification.md`
+
+What this closes:
+
+- The red-flag gate now explicitly covers mark-ready actionability/safety, native Ready Gate parity, provider-overlap promotion, post-date survey persistence, safety/privacy, and fail-soft Daily room RPC behavior.
+- The full `test:video-date-v4` suite now includes the previously separate fail-soft Daily room RPC and native Ready Gate parity contracts.
+- The stale fail-soft RPC contract assertions now target the current shared lifecycle retryability helper instead of older direct `payload.retryable` string shapes.
+- Standalone native `/ready/[id]` now has explicit contract coverage for Ready Gate entry proof and non-authoritative post-ready room warmup.
+- Operator invariants are packaged as a repeatable read-only SQL/psql gate with redacted PASS/FAIL rows.
+- Edge Function release verification is packaged as a non-deploying local/remote catalog check.
+- A compact certification diagnostic shape now captures route owner, Ready Gate status, Daily room presence, token state, joined/provider/remote-seen roles, survey state, and next surface without tokens, raw Daily URLs, or participant IDs.
+- Golden Flow and native physical-device certification now have current June 2026 checklists.
+
+Still not acceptance proof:
+
+- No live Supabase deployment or fresh two-user runtime certification was performed by this tooling change.
+- Video Date remains uncertified until a fresh disposable two-user run completes through both users saving `date_feedback` and returning to the expected next state.
+
+---
+
 ## Known Recent Failure Pattern
 
 ### User-visible symptoms

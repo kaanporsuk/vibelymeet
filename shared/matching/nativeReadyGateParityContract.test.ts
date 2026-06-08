@@ -318,6 +318,36 @@ test("standalone native ready route syncs backend truth and has session-scoped r
   assert.match(nativeReadyRoute, /AppState\.addEventListener/);
 });
 
+test("standalone native ready route records entry proof and keeps post-ready warmup non-authoritative", () => {
+  assert.match(nativeReadyRoute, /recordReadyGateEntered/);
+  assert.match(nativeReadyRoute, /readyGateEntryProofKeyRef/);
+  assert.match(nativeReadyRoute, /standalone_ready_gate_entry_proof_recorded/);
+  assert.match(nativeReadyRoute, /isReadyGateEntryProofStatus\(status\)/);
+
+  const warmupBlock =
+    /const startRoomWarmupAfterReady = useCallback\([\s\S]*?\n\s*\);\n\n  useSettingsReturnRefresh/.exec(
+      nativeReadyRoute,
+    )?.[0] ?? "";
+  assert.ok(warmupBlock, "standalone ready route should own a post-ready warmup block");
+  assert.match(warmupBlock, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
+  assert.match(warmupBlock, /ensureVideoDateRoomWarmup\(sid/);
+  assert.match(warmupBlock, /readyGateStatus === ['"]both_ready['"][\s\S]{0,40}return/);
+  assert.match(warmupBlock, /permissionProven === true \|\| hasMediaPermission === true/);
+  assert.match(warmupBlock, /startDailyPrewarmFromWarmRoom\(source, warmedRoom\)/);
+  assert.doesNotMatch(warmupBlock, /prepareVideoDateEntry\(/);
+  assert.doesNotMatch(warmupBlock, /preAuthNativeVideoDateDailyPrewarm\(/);
+  assert.doesNotMatch(warmupBlock, /joinNativeVideoDateDailyPrewarm/);
+
+  const canonicalDateEntryBlock =
+    /const reconcileFromCanonicalTruth = useCallback\([\s\S]*?markVideoDateRouteOwned\(sid, user\.id\);/.exec(
+      nativeReadyRoute,
+    )?.[0] ?? "";
+  assert.ok(canonicalDateEntryBlock, "standalone ready route should keep authoritative date entry in canonical reconciliation");
+  assert.match(canonicalDateEntryBlock, /prepareVideoDateEntry\(sid/);
+  assert.match(canonicalDateEntryBlock, /preAuthNativeVideoDateDailyPrewarm/);
+  assert.match(canonicalDateEntryBlock, /markVideoDateRouteOwned\(sid, user\.id\)/);
+});
+
 test("native Ready Gate overlay reconciles mark-ready timeouts before surfacing failure", () => {
   assert.match(nativeReadyGateOverlay, /isReadyGateTransitionTimeoutSignal/);
   assert.match(nativeReadyGateOverlay, /guardedSyncSession/);
