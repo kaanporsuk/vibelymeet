@@ -539,6 +539,26 @@ export const PostDateSurvey = ({
       });
 
       if (!pendingSessionId || pendingSessionId === sessionId) {
+        if (
+          verdictUiState === "submitting" ||
+          verdictUiState === "confirmed" ||
+          verdictUiState === "awaiting_partner" ||
+          isFinishingSurvey ||
+          finishSurveyInFlightRef.current
+        ) {
+          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: "post_date_survey",
+            source_action: "survey_queue_drain",
+            outcome: "no_op",
+            reason_code: "stale_pending_post_date_feedback",
+            next_session_id: pendingSessionId,
+            verdict_ui_state: verdictUiState,
+          });
+          return;
+        }
         queuedNavigationStartedRef.current = false;
         setStep("verdict");
         return;
@@ -562,7 +582,7 @@ export const PostDateSurvey = ({
       });
       navigate(target, { replace: true });
     },
-    [navigate, eventId, sessionId],
+    [navigate, eventId, sessionId, verdictUiState, isFinishingSurvey],
   );
 
   const { queuedCount, isDraining } = useMatchQueue({

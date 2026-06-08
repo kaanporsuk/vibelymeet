@@ -876,6 +876,20 @@ export function ReadyGateOverlay({
                   },
                 );
               }
+              clearTimeout(slowWaitTimer);
+              setIsTransitioning(false);
+              setPrepareEntryStatus('failed');
+              setPrepareEntryFailure({
+                code: result.code,
+                retryable: false,
+                httpStatus: result.httpStatus,
+              });
+              prepareEntryHandoffStartedRef.current = false;
+              onLobbyUserMessage?.(
+                READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
+                'info',
+              );
+              return;
             }
             trackEvent(
               LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,

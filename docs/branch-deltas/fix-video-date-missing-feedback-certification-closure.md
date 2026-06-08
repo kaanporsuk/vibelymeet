@@ -54,7 +54,6 @@ Completed before merge and after cloud deploy:
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error`
 - `npm run verify:video-date:functions -- --require-remote --json`
 - `npm run check:video-date:invariants`
-- `npm run check:video-date:invariants -- --warn-as-error`
 - PR #1252 checks: Phase 7 no-go guardrails, Phase 8 privacy/media contracts, Phase 9 playback/captions/lifecycle contracts, Quick golden-path smoke, Video-date golden-path smoke, Vercel.
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy post-date-verdict-reminders --use-api`
@@ -62,4 +61,6 @@ Completed before merge and after cloud deploy:
 - Post-apply dry-run returned `Remote database is up to date`.
 - Live catalog markers confirmed the reminder table/RLS/admin policy, service-role RPC grants, authenticated/anon denial for service RPCs, and validated `video_sessions_ready_gate_timestamp_consistency`.
 
-`--warn-as-error` intentionally failed because linked Supabase still has stale session `3fabfd4e-523d-4593-bda5-ab6aa20f1005` missing both `date_feedback` rows. That is the desired certification blocker until both users complete feedback or the session is otherwise resolved.
+Observed certification blocker:
+
+- `npm run check:video-date:invariants -- --warn-as-error` intentionally failed because linked Supabase still had stale session `3fabfd4e-523d-4593-bda5-ab6aa20f1005` missing both `date_feedback` rows. That was the desired certification blocker until both users completed feedback or the session was otherwise resolved by later certification-exception handling.

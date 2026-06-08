@@ -516,6 +516,7 @@ type WebDailyCallSingletonEntry = {
   parkedAtMs: number;
   idleMs: number | null;
   destroyTimer: ReturnType<typeof setTimeout> | null;
+  stopHeartbeat?: (reason: string) => void;
 };
 
 let webDailyCallSingletonEntry: WebDailyCallSingletonEntry | null = null;
@@ -537,6 +538,7 @@ function destroyWebDailyCallSingleton(reason: string) {
   if (!entry) return;
   webDailyCallSingletonEntry = null;
   if (entry.destroyTimer) clearTimeout(entry.destroyTimer);
+  entry.stopHeartbeat?.(`daily_call_singleton_destroy:${reason}`);
   void registerWebVideoDateDailyCleanup(
     Promise.resolve()
       .then(async () => {
@@ -597,6 +599,7 @@ function parkWebDailyCallSingleton(params: {
   previousSessionId: string | null;
   previousRoomName: string | null;
   reason: string;
+  stopHeartbeat?: (reason: string) => void;
 }) {
   if (webDailyCallSingletonEntry && webDailyCallSingletonEntry.call !== params.call) {
     destroyWebDailyCallSingleton("replaced_by_new_singleton");
@@ -616,6 +619,7 @@ function parkWebDailyCallSingleton(params: {
     parkedAtMs: Date.now(),
     idleMs,
     destroyTimer: null,
+    stopHeartbeat: params.stopHeartbeat,
   };
   if (typeof idleMs === "number") {
     entry.destroyTimer = setTimeout(() => {
@@ -673,6 +677,7 @@ function consumeWebDailyCallSingleton(params: {
     entry.destroyTimer = null;
   }
   webDailyCallSingletonEntry = null;
+  entry.stopHeartbeat?.("daily_call_singleton_consumed");
   vdbg("daily_call_singleton_reused", {
     platform: "web",
     previousSessionId: entry.previousSessionId,
@@ -683,6 +688,7 @@ function consumeWebDailyCallSingleton(params: {
     parkingMode: entry.parkingMode,
     idleAgeMs: getWebDailyCallSingletonIdleAgeMs(entry),
     idleDestroyDisabled: entry.idleMs == null,
+    heartbeatTransferred: Boolean(entry.stopHeartbeat),
   });
   return { ok: true, entry, meetingState };
 }
@@ -3465,6 +3471,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               previousSessionId: sessionId,
               previousRoomName: roomName,
               reason,
+              stopHeartbeat: clearDailyAliveHeartbeatTimer,
             });
             parkedSingleton = true;
             vdbg("daily_call_live_remount_leave_destroy_skipped_for_singleton", {
