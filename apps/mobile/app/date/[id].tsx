@@ -1652,7 +1652,7 @@ export default function VideoDateScreen() {
   const resilienceModeTrackedKeyRef = useRef<string | null>(null);
   const resilienceDailyAdaptationKeyRef = useRef<string | null>(null);
   const abortConnectionInFlightRef = useRef(false);
-  const postEncounterPeerMissingEndRequestedRef = useRef<string | null>(null);
+  const postEncounterPeerMissingSuppressedRef = useRef<string | null>(null);
   const warmupChoiceNoticeTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
@@ -4671,14 +4671,32 @@ export default function VideoDateScreen() {
             return;
           }
           if (hasHistoricalRemoteSeenTruth) {
+            setPeerMissingTerminal(false);
+            setCallError(null);
+            setAwaitingFirstConnect(false);
+            setIsConnecting(false);
             videoDateDailyDiagnostic(
-              "daily_no_remote_watchdog_historical_truth_requires_current_peer",
+              "daily_no_remote_watchdog_historical_truth_suppressed",
               {
                 session_id: sessionId,
                 room_name: roomNameRef.current ?? null,
                 truth_refresh_attempt: truthRefreshAttempt,
               },
             );
+            void emitNativeVideoDateClientStuckState({
+              sessionId,
+              eventName: "peer_missing_suppressed_remote_seen",
+              latencyMs: FIRST_CONNECT_TIMEOUT_MS,
+              payload: {
+                source_surface: "video_date_daily",
+                source_action: "first_remote_watchdog",
+                reason_code: "historical_remote_seen_truth",
+                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
+                truth_refresh_attempt: truthRefreshAttempt,
+                historical_remote_seen_truth: true,
+              },
+            });
+            return;
           }
           markPeerMissingTerminal();
         })
@@ -5645,11 +5663,11 @@ export default function VideoDateScreen() {
       videoSessionHasEncounterExposureTruth(session);
     if (!confirmedEncounter) return;
 
-    const key = `${sessionId}:partner_absent_after_confirmed_encounter`;
-    if (postEncounterPeerMissingEndRequestedRef.current === key) return;
-    postEncounterPeerMissingEndRequestedRef.current = key;
+    const key = `${sessionId}:post_encounter_peer_missing_terminal_suppressed`;
+    if (postEncounterPeerMissingSuppressedRef.current === key) return;
+    postEncounterPeerMissingSuppressedRef.current = key;
 
-    vdbg("post_encounter_peer_missing_terminal_end_requested", {
+    vdbg("post_encounter_peer_missing_terminal_end_suppressed", {
       sessionId,
       userId: user?.id ?? null,
       eventId,
@@ -5661,13 +5679,11 @@ export default function VideoDateScreen() {
       session_id: sessionId,
       event_id: eventId,
       source_surface: "video_date_route",
-      source_action: "post_encounter_peer_missing_terminal_end",
-      reason_code: "partner_absent_after_confirmed_encounter",
+      source_action: "post_encounter_peer_missing_terminal_end_suppressed",
+      reason_code: "provider_absence_server_owned_after_encounter",
     });
-    void handleCallEnd("local_end", "partner_absent_after_confirmed_encounter");
   }, [
     eventId,
-    handleCallEnd,
     peerMissingTerminal,
     session,
     sessionId,

@@ -1844,9 +1844,26 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         remoteSeenRetryTimerRef.current = null;
       }
       remoteSeenInFlightSessionRef.current = null;
+      const sessionId = optionsRef.current?.roomId ?? null;
+      const call = callObjectRef.current;
+      const shouldPreserveActiveIdentity =
+        Boolean(sessionId) &&
+        Boolean(call) &&
+        hasSameSessionDailyContinuity(sessionId) &&
+        optionsRef.current?.videoSessionState !== "ended" &&
+        !isTerminalDailyMeetingState(safeMeetingState(call));
+      if (shouldPreserveActiveIdentity) {
+        vdbg("daily_call_live_remount_identity_preserved", {
+          sessionId,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          meetingState: safeMeetingState(call),
+        });
+        return;
+      }
       activeDailyCallIdentityRef.current = null;
     };
-  }, []);
+  }, [hasSameSessionDailyContinuity]);
 
   const markRemoteFirstFrameRendered = useCallback((source: string) => {
     setRemotePlayback((prev) => {
@@ -3502,8 +3519,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
           }
         }
-        activeDailyCallIdentityRef.current = null;
-        clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
+        if (!parkedSingleton) {
+          activeDailyCallIdentityRef.current = null;
+          clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
+        } else {
+          vdbg("daily_call_live_remount_heartbeat_preserved", {
+            caller,
+            reason,
+            sessionId,
+            eventId,
+            roomName,
+            meetingState: meetingStateBeforeCleanup,
+            activeIdentityPreserved: Boolean(activeDailyCallIdentityRef.current),
+          });
+        }
         if (!parkedSingleton) {
           activeCallSessionIdRef.current = null;
           clearSameSessionDailyContinuity(sessionId, `daily_call_cleanup:${reason}`);
@@ -6347,18 +6376,35 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 optionsRef.current?.onTerminalSurveyTruth?.("peer_missing_watchdog_survey_truth");
                 return;
               }
-              setIsConnecting(false);
-              setIsConnected(false);
-              setPeerMissing({ terminal: true });
               if (hasHistoricalRemoteSeenTruth) {
-                vdbg("daily_no_remote_watchdog_historical_truth_requires_current_peer", {
+                setPeerMissing({ terminal: false });
+                setIsConnecting(false);
+                vdbg("daily_no_remote_watchdog_historical_truth_suppressed", {
                   sessionId,
                   eventId: truthRow.event_id ?? eventId,
                   userId,
                   roomName: roomData.room_name,
                   truthRefreshAttempt,
                 });
+                void emitWebVideoDateClientStuckState({
+                  sessionId,
+                  eventName: "peer_missing_suppressed_remote_seen",
+                  latencyMs: FIRST_REMOTE_TIMEOUT_MS,
+                  payload: {
+                    source_surface: "video_date_daily",
+                    source_action: "first_remote_watchdog",
+                    reason_code: "historical_remote_seen_truth",
+                    watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
+                    truth_refresh_attempt: truthRefreshAttempt,
+                    historical_remote_seen_truth: true,
+                  },
+                });
+                toast.info("Keeping your date in sync...");
+                return;
               }
+              setIsConnecting(false);
+              setIsConnected(false);
+              setPeerMissing({ terminal: true });
               trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
                 platform: "web",
                 session_id: sessionId,

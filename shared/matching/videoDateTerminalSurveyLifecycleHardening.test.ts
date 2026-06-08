@@ -126,36 +126,43 @@ test("existing downgraded pending-survey registrations are repaired", () => {
   assert.match(pendingSurveyRegistrationRepairMigration, /df\.user_id = er\.profile_id/);
 });
 
-test("post-encounter peer absence ends as survey-eligible across web and native", () => {
+test("post-encounter automatic peer-missing is server-owned across web and native", () => {
   for (const [name, source] of [
     ["web", webDateRoute],
     ["native", nativeDateRoute],
   ] as Array<[string, string]>) {
-    assert.match(source, /partner_absent_after_confirmed_encounter/, `${name} should use the new end reason`);
-    assert.match(source, /postEncounterPeerMissingEndRequestedRef/, `${name} should dedupe peer-missing terminal end`);
-    assert.match(source, /post_encounter_peer_missing_terminal_end_requested/, `${name} should emit diagnostics`);
+    assert.match(source, /postEncounterPeerMissingSuppressedRef/, `${name} should dedupe peer-missing suppression`);
+    assert.match(source, /post_encounter_peer_missing_terminal_end_suppressed/, `${name} should emit diagnostics`);
+    assert.match(source, /provider_absence_server_owned_after_encounter/, `${name} should defer absence terminalization to server truth`);
     assert.match(source, /videoSessionHasEncounterExposureTruth/, `${name} should use server encounter truth`);
+    assert.doesNotMatch(
+      source,
+      /post_encounter_peer_missing_terminal_end_suppressed[\s\S]{0,600}handleCallEnd\([^)]*partner_absent_after_confirmed_encounter/,
+      `${name} should not auto-end a confirmed encounter from peer-missing watchdog state`,
+    );
   }
 
   assert.doesNotMatch(
     activeSession,
     /POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS[\s\S]{0,500}partner_absent_after_confirmed_encounter/,
   );
+  assert.match(webDateRoute, /handleLeave\(\{ reason: "partner_absent_after_confirmed_encounter" \}\)/);
   assert.match(
     nativeDateRoute,
     /const dateWasEstablished =[\s\S]{0,220}reason === ['"]partner_absent_after_confirmed_encounter['"]/,
   );
 });
 
-test("historical remote-seen truth cannot suppress a current missing peer", () => {
+test("historical encounter truth suppresses client peer-missing terminalization", () => {
   for (const [name, source] of [
     ["web", webVideoCall],
     ["native", nativeDateRoute],
   ] as Array<[string, string]>) {
     assert.match(source, /hasTerminalSurveyTruth/, `${name} should still detect terminal survey truth`);
     assert.match(source, /hasHistoricalRemoteSeenTruth/, `${name} should still log historical encounter truth`);
-    assert.match(source, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
-    assert.doesNotMatch(source, /hasTerminalSurveyTruth \|\| hasHistoricalRemoteSeenTruth/);
+    assert.match(source, /daily_no_remote_watchdog_historical_truth_suppressed/);
+    assert.match(source, /peer_missing_suppressed_remote_seen/);
+    assert.doesNotMatch(source, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
   }
 
   assert.match(observability, /"historical_remote_seen_truth"/);
