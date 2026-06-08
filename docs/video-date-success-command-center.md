@@ -201,7 +201,7 @@ What this closes:
 - `claim_video_date_surface(...)`, `mark_video_date_daily_alive(...)`, `mark_video_date_daily_joined(...)`, and `video_date_transition(...)` now have a final public last-resort fail-soft shell. The shell delegates to the existing wrapper stack, but independently catches base, enrichment, sanitizer, and observability failures and returns sanitized JSON to authenticated clients.
 - Static regression coverage now pins the latest failure shape through `shared/matching/videoDateLatestFailureRouteLifecycleContracts.test.ts`, included in `npm run test:video-date-v4`.
 
-Verification completed locally so far:
+Verification and publish evidence:
 
 - `npm run test:video-date-v4`
 - `npm run typecheck`
@@ -212,11 +212,15 @@ Verification completed locally so far:
 - `npx tsx shared/matching/videoDateSprint1RouteDecisionContracts.test.ts`
 - `npx tsx shared/matching/videoDateHandoffOwnershipContract.test.ts`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- PR #1240 merged on 2026-06-08 as squash commit `0b4d0db5ae37bea3e322b4de5935fce48362ff87`; branch `codex/video-date-route-lifecycle-rpc-recovery` was deleted after merge.
 
 Supabase verification notes:
 
-- Linked dry-run exited 0 and reported only `20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql` would be pushed.
-- At the time of this implementation note, the migration is not yet a product acceptance proof. Apply/publish verification must still confirm linked cloud alignment after merge/deploy.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes` applied `20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql` to project `schdyxcunwcvddlcshwd`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` shows local/remote aligned through `20260608080938`.
+- Post-apply `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date.`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0; output is warning-only legacy backlog.
+- Live catalog checks confirmed final public `SECURITY DEFINER` shells for `claim_video_date_surface(...)`, `mark_video_date_daily_alive(...)`, `mark_video_date_daily_joined(...)`, and `video_date_transition(...)`; renamed bases and helper functions are service-role only.
 
 Still not acceptance proof:
 
