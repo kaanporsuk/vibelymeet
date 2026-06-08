@@ -11,6 +11,7 @@ const migration = read(
 );
 const webOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
+const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const webHelper = read("src/lib/readyGateEntryProof.ts");
 const nativeHelper = read("apps/mobile/lib/readyGateEntryProof.ts");
 
@@ -74,6 +75,17 @@ test("web and native overlays record entry proof only after hydrated actionable 
 
   assert.match(webOverlay, /platform:\s*"web"/);
   assert.match(nativeOverlay, /platform:\s*'native'/);
+});
+
+test("native standalone Ready route records entry proof after hydrated actionable Ready Gate state", () => {
+  assert.match(nativeReadyRoute, /recordReadyGateEntered/);
+  assert.match(nativeReadyRoute, /isReadyGateEntryProofStatus\(status\)/);
+  assert.match(nativeReadyRoute, /source:\s*'mounted_active_ready_gate'/);
+  assert.match(nativeReadyRoute, /platform:\s*'native'/);
+  assert.match(nativeReadyRoute, /surface:\s*'ready_gate_standalone'/);
+  assert.match(nativeReadyRoute, /routePath:\s*pathname \?\? null/);
+  assert.match(nativeReadyRoute, /if \(result\.ttl_extended\)[\s\S]*syncSession\(\)/);
+  assert.match(nativeReadyRoute, /readyGateEntryProofKeyRef\.current = null/);
 });
 
 test("web and native helpers use the authenticated RPC with platform-specific client instance ids", () => {

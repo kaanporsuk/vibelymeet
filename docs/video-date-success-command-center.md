@@ -64,6 +64,61 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-08 Implementation Update: Ready Gate Actionability Safety
+
+Local code now includes the Ready Gate actionability/safety closure for web, native, and mobile/Expo standalone users.
+
+Migration added:
+
+- `supabase/migrations/20260608063016_video_date_mark_ready_actionability_safety.sql`
+
+Client/test files changed:
+
+- `src/components/lobby/ReadyGateOverlay.tsx`
+- `apps/mobile/app/ready/[id].tsx`
+- `shared/matching/readyGateMarkReadyActionabilitySafety.test.ts`
+- `shared/matching/readyGateEntryProofContracts.test.ts`
+- `shared/matching/readyGate57014ReliabilityContracts.test.ts`
+- `package.json`
+
+What this closes:
+
+- `video_session_mark_ready_v2` now locks the `video_sessions` row before delegating to the decisive fail-soft base.
+- Direct Ready taps are rejected before the ready commit when the session is still `queued`; queued remains retryable/syncable but is no longer advertised or accepted as mark-ready actionable truth.
+- Direct Ready taps now repeat blocked-pair, report-pair, hidden-actor, hidden-partner, and partner-snoozed checks inside the RPC, so client route differences cannot bypass match/safety actionability.
+- `get_video_date_start_snapshot_v1` no longer returns `can_mark_ready` for `queued`, partner-snoozed, or safety-invalid states.
+- Native standalone `/ready/[id]` now records durable Ready Gate entry proof with `surface: ready_gate_standalone`.
+- Native standalone `/ready/[id]` now pre-creates the Daily room after partial-ready success and starts the same non-joining native Daily prewarm path when media permission is proven.
+- Web Ready tap permission prewarm now has a bounded gesture-path timeout and will not call `markReady()` until camera/microphone proof exists.
+
+Verification completed locally:
+
+- `npx tsx shared/matching/readyGateMarkReadyActionabilitySafety.test.ts`
+- `npx tsx shared/matching/readyGateEntryProofContracts.test.ts`
+- `npx tsx shared/matching/readyGate57014ReliabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDateStartSnapshotContracts.test.ts`
+- `npx tsx shared/matching/videoDateProviderOverlapPromotion.test.ts`
+- `npx tsx shared/matching/readyGateDecisiveMarkReadyCommit.test.ts`
+- `npx tsx shared/matching/videoDateHandoffOwnershipContract.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
+
+Supabase verification notes:
+
+- Local Supabase was not running on `127.0.0.1:54322`, so `supabase migration list --local` could not run.
+- Linked dry-run exited 0 and reported only `20260608063016_video_date_mark_ready_actionability_safety.sql` would be pushed.
+- Linked public-schema lint exited 0 with the existing warning backlog only.
+- No migration was applied to Supabase cloud during this implementation pass.
+
+Still not acceptance proof:
+
+- This implementation is statically and type-check verified, but Video Date is not proven healthy until a fresh disposable two-user production run completes match -> Ready Gate -> both ready -> same Daily room -> remote media -> date promotion -> survey open -> `date_feedback` persistence -> expected return route.
+
+---
+
 ## Known Recent Failure Pattern
 
 ### User-visible symptoms

@@ -92,6 +92,24 @@ test("Ready Gate 57014 copy is a transient status-sync delay, not a permission d
   assert.doesNotMatch(webReadyGateOverlay, /if \(!permissionReady && mediaDiagnosticsAreGreen\)/);
 });
 
+test("web Ready tap permission prewarm is bounded and does not commit mark-ready without media proof", () => {
+  assert.match(webReadyGateOverlay, /READY_GATE_PERMISSION_PREWARM_TIMEOUT_MS = 15_000/);
+  assert.match(webReadyGateOverlay, /class ReadyGatePermissionPrewarmTimeoutError extends Error/);
+  assert.match(webReadyGateOverlay, /withReadyGatePermissionPrewarmTimeout/);
+  assert.match(webReadyGateOverlay, /Promise\.race/);
+  assert.match(webReadyGateOverlay, /permissionPrewarmCapturePendingRef/);
+  assert.match(webReadyGateOverlay, /ready_gate_permission_prewarm_timeout/);
+  assert.match(webReadyGateOverlay, /ready_gate_permission_prewarm_pending/);
+  assert.doesNotMatch(
+    webReadyGateOverlay,
+    /ready_gate_permission_prewarm_pending[\s\S]{0,240}return false/,
+  );
+  assert.match(
+    webReadyGateOverlay,
+    /if \(!permissionReady\) \{[\s\S]*return;\s*\}\s*const result = await markReady\(\);/,
+  );
+});
+
 test("retryable mark-ready failures stay in syncing copy instead of stale Ready Gate copy", () => {
   assert.deepEqual(
     resolveReadyGateTransitionFailureCopy({
@@ -213,6 +231,24 @@ test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into s
     assert.match(source, /retryable\?: boolean \| null/, `${name} timeout predicate should accept retryable`);
     assert.match(source, /if \(input\.retryable === true\) return true/, `${name} should sync-recover retryable failures`);
   }
+});
+
+test("native standalone Ready route records proof and warms the room after partial-ready truth", () => {
+  assert.match(nativeReadyRoute, /recordReadyGateEntered/);
+  assert.match(nativeReadyRoute, /surface:\s*'ready_gate_standalone'/);
+  assert.match(nativeReadyRoute, /ensureVideoDateRoomWarmup/);
+  assert.match(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
+  assert.match(nativeReadyRoute, /const startRoomWarmupAfterReady = useCallback/);
+  assert.match(
+    nativeReadyRoute,
+    /startRoomWarmupAfterReady\(\s*'ready_tap_mark_ready_timeout_sync_success'[\s\S]*syncResult\.status[\s\S]*true/,
+  );
+  assert.match(
+    nativeReadyRoute,
+    /startRoomWarmupAfterReady\(\s*'ready_tap_mark_ready_success'[\s\S]*result\.status \?\? null[\s\S]*true/,
+  );
+  assert.match(nativeReadyRoute, /standalone_initial_ready_pre_create/);
+  assert.match(nativeReadyRoute, /startNativeVideoDateDailyPrewarm/);
 });
 
 test("terminal Ready Gate outcomes cancel prewarm and retry churn on web and native", () => {
