@@ -27,10 +27,20 @@ const correctiveSanitizationMigration = read(
 const lastResortFailsoftMigration = read(
   "supabase/migrations/20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql",
 );
+const providerBoundRemoteSeenMigration = read(
+  "supabase/migrations/20260608120000_video_date_provider_bound_remote_seen.sql",
+);
+const remoteSeenIdentifierHygieneMigration = read(
+  "supabase/migrations/20260608121834_video_date_remote_seen_identifier_hygiene.sql",
+);
+const remoteSeenLintCleanupMigration = read(
+  "supabase/migrations/20260608122623_video_date_remote_seen_lint_cleanup.sql",
+);
 const webHook = read("src/hooks/useVideoCall.ts");
 const webDate = read("src/pages/VideoDate.tsx");
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
 const nativeApi = read("apps/mobile/lib/videoDateApi.ts");
+const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
 
 function functionBody(sql: string, functionName: string): string {
@@ -217,6 +227,143 @@ test("last-resort lifecycle shell covers all browser/native callable date-room R
   );
   assert.match(enrichBody, /video_date_lifecycle_client_safe_payload_v2/);
   assert.match(lastResortFailsoftMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("provider-bound remote-seen rejects stale provider sessions before canonical evidence changes", () => {
+  const remoteSeenBody = functionBody(
+    providerBoundRemoteSeenMigration,
+    "mark_video_date_remote_seen",
+  );
+
+  const providerGuardIndex = remoteSeenBody.indexOf("IF NOT v_provider_backed_current THEN");
+  const baseCallIndex = remoteSeenBody.indexOf(
+    "mark_video_date_remote_seen_20260608120000_provider_base",
+  );
+  assert.ok(providerGuardIndex > -1, "remote_seen should have a provider-current guard");
+  assert.ok(
+    baseCallIndex > providerGuardIndex,
+    "remote_seen must reject stale provider evidence before calling the old canonical mutator",
+  );
+
+  assert.match(
+    providerBoundRemoteSeenMigration,
+    /ALTER FUNCTION public\.mark_video_date_remote_seen\(uuid\)\s+RENAME TO mark_video_date_remote_seen_20260608120000_provider_base/,
+  );
+  assert.match(remoteSeenBody, /p_provider_session_id text DEFAULT NULL/);
+  assert.match(remoteSeenBody, /p_call_instance_id text DEFAULT NULL/);
+  assert.match(remoteSeenBody, /p_owner_state text DEFAULT NULL/);
+  assert.match(remoteSeenBody, /v_latest_provider_event_type = 'participant.joined'/);
+  assert.match(remoteSeenBody, /v_latest_provider_session_id = v_provider_session_id/);
+  assert.match(remoteSeenBody, /REMOTE_SEEN_PROVIDER_SESSION_MISSING/);
+  assert.match(remoteSeenBody, /REMOTE_SEEN_OWNER_NOT_JOINED/);
+  assert.match(remoteSeenBody, /REMOTE_SEEN_PROVIDER_SESSION_LEFT/);
+  assert.match(remoteSeenBody, /REMOTE_SEEN_PROVIDER_NOT_CURRENT/);
+  assert.match(remoteSeenBody, /remote_seen_rejected_stale_provider_session/);
+  assert.match(remoteSeenBody, /remote_seen_stamp_accepted', false/);
+  assert.match(remoteSeenBody, /provider_presence_terminal/);
+  assert.match(remoteSeenBody, /EXCEPTION\s+WHEN OTHERS THEN\s+NULL/);
+  assert.match(
+    providerBoundRemoteSeenMigration,
+    /GRANT EXECUTE ON FUNCTION public\.mark_video_date_remote_seen\(\s*uuid, text, text, text, text, text\s*\) TO authenticated/,
+  );
+});
+
+test("daily alive and remote-seen RPCs keep direct JSON fail-soft fallbacks", () => {
+  const dailyAliveBody = functionBody(
+    providerBoundRemoteSeenMigration,
+    "mark_video_date_daily_alive",
+  );
+  const remoteSeenBody = functionBody(
+    providerBoundRemoteSeenMigration,
+    "mark_video_date_remote_seen",
+  );
+
+  assert.match(
+    providerBoundRemoteSeenMigration,
+    /ALTER FUNCTION public\.mark_video_date_daily_alive\(uuid, text, text, text, text, text\)\s+RENAME TO mark_video_date_daily_alive_20260608120000_provider_remote_seen_base/,
+  );
+  assert.match(dailyAliveBody, /video_date_lifecycle_exception_payload_v2/);
+  assert.match(dailyAliveBody, /direct_json_fallback/);
+  assert.match(dailyAliveBody, /DAILY_ALIVE_STAMP_FAILED/);
+  assert.match(remoteSeenBody, /video_date_lifecycle_exception_payload_v2/);
+  assert.match(remoteSeenBody, /direct_json_fallback/);
+  assert.match(remoteSeenBody, /REMOTE_SEEN_STAMP_FAILED/);
+  assert.match(providerBoundRemoteSeenMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("provider-bound Daily alive uses an explicit short base after identifier hygiene", () => {
+  const dailyAliveBody = functionBody(
+    remoteSeenIdentifierHygieneMigration,
+    "mark_video_date_daily_alive",
+  );
+
+  assert.match(
+    remoteSeenIdentifierHygieneMigration,
+    /ALTER FUNCTION public\.mark_video_date_daily_alive_20260608120000_provider_remote_seen\(\s*uuid, text, text, text, text, text\s*\) RENAME TO vd_daily_alive_remote_seen_base/,
+  );
+  assert.match(dailyAliveBody, /RETURN public\.vd_daily_alive_remote_seen_base\(/);
+  assert.doesNotMatch(
+    dailyAliveBody,
+    /mark_video_date_daily_alive_20260608120000_provider_remote_seen/,
+  );
+  assert.match(
+    remoteSeenIdentifierHygieneMigration,
+    /GRANT EXECUTE ON FUNCTION public\.vd_daily_alive_remote_seen_base\(\s*uuid, text, text, text, text, text\s*\) TO service_role/,
+  );
+  assert.match(
+    remoteSeenIdentifierHygieneMigration,
+    /GRANT EXECUTE ON FUNCTION public\.mark_video_date_daily_alive\(\s*uuid, text, text, text, text, text\s*\) TO authenticated/,
+  );
+  assert.match(remoteSeenIdentifierHygieneMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("provider-bound remote-seen lint cleanup keeps guard semantics without unused locals", () => {
+  const remoteSeenBody = functionBody(
+    remoteSeenLintCleanupMigration,
+    "mark_video_date_remote_seen",
+  );
+
+  assert.doesNotMatch(remoteSeenBody, /\bv_now\b/);
+  assert.match(remoteSeenBody, /IF NOT v_provider_backed_current THEN/);
+  assert.match(remoteSeenBody, /REMOTE_SEEN_PROVIDER_SESSION_LEFT/);
+  assert.match(remoteSeenBody, /remote_seen_rejected_stale_provider_session/);
+  assert.match(
+    remoteSeenBody,
+    /mark_video_date_remote_seen_20260608120000_provider_base\(p_session_id\)/,
+  );
+  assert.match(
+    remoteSeenLintCleanupMigration,
+    /GRANT EXECUTE ON FUNCTION public\.mark_video_date_remote_seen\(\s*uuid, text, text, text, text, text\s*\) TO authenticated/,
+  );
+  assert.match(remoteSeenLintCleanupMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("web and native remote-seen clients bind stamps to current provider call identity", () => {
+  for (const [name, source, identityRef] of [
+    ["web hook", webHook, "activeDailyCallIdentityRef"],
+    ["native route", nativeDate, "activeNativeDailyCallIdentityRef"],
+  ] as const) {
+    assert.match(source, new RegExp(identityRef), `${name} should keep active provider call identity`);
+    assert.match(source, /supabase\.rpc\(["']mark_video_date_remote_seen["'], proof\.args\)/);
+    assert.match(source, /p_provider_session_id: providerSessionId/);
+    assert.match(source, /p_call_instance_id: callInstanceId/);
+    assert.match(source, /p_owner_state: ["']joined["']/);
+    assert.match(source, /mark_video_date_remote_seen_skipped_provider_missing/);
+    assert.match(source, /provider_presence_terminal/);
+    assert.match(source, /videoDateLifecycleRpcRetryable\(payload\)/);
+    assert.match(source, /callInstanceId: proof\.callInstanceId/);
+    assert.match(source, /providerSessionId: proof\.providerSessionId/);
+    assert.doesNotMatch(
+      source,
+      /\.rpc\(["']mark_video_date_remote_seen["'],\s*\{\s*p_session_id:\s*sessionId\s*\}\)/,
+      `${name} must not use session-only remote_seen anymore`,
+    );
+  }
+
+  assert.match(
+    supabaseTypes,
+    /mark_video_date_remote_seen:[\s\S]*p_call_instance_id\?: string[\s\S]*p_provider_session_id\?: string[\s\S]*p_session_id: string/,
+  );
 });
 
 test("shared lifecycle RPC classifier recognizes all terminal survey shapes", () => {

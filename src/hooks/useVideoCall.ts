@@ -152,6 +152,15 @@ type VideoCallStartOptions = {
   mediaPromptIntent?: VideoDateMediaPromptIntent;
 };
 
+type ActiveDailyCallIdentity = {
+  sessionId: string;
+  userId: string;
+  ownerId: string | null;
+  callInstanceId: string;
+  entryAttemptId: string | null;
+  videoDateTraceId: string | null;
+};
+
 type WebVideoDateMediaCaptureReadiness = {
   canAcquire: boolean;
   permissionState: MediaPermissionQueryState;
@@ -1130,6 +1139,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const remoteSeenInFlightSessionRef = useRef<string | null>(null);
   const remoteSeenLastStampRef = useRef<{ sessionId: string; stampedAtMs: number } | null>(null);
   const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeDailyCallIdentityRef = useRef<ActiveDailyCallIdentity | null>(null);
   const lastLocalTrackIdsRef = useRef<string>("");
   const lastLocalStreamRef = useRef<MediaStream | null>(null);
   const lastRemoteTrackIdsRef = useRef<string>("");
@@ -1565,7 +1575,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     if (!sessionId) return;
     const activeSessionId = sessionId;
     const eventId = currentOptions?.eventId ?? null;
-    const userId = currentOptions?.userId ?? null;
+    const currentUserId = currentOptions?.userId;
+    if (!currentUserId) return;
+    const userId = currentUserId;
     if (remoteSeenInFlightSessionRef.current === sessionId) return;
     const nowMs = Date.now();
     const lastStamp = remoteSeenLastStampRef.current;
@@ -1577,6 +1589,85 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     ) {
       return;
     }
+
+    const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
+      const call = callObjectRef.current;
+      const providerSessionId = readDailyProviderSessionId(call);
+      const meetingState = safeMeetingState(call);
+      const providerBackedJoined =
+        meetingState === "joined-meeting" && Boolean(providerSessionId);
+      const identity = activeDailyCallIdentityRef.current;
+      const identityCurrent =
+        identity?.sessionId === sessionId && identity.userId === userId
+          ? identity
+          : null;
+      const entryOwner = getVideoDateEntryOwner(sessionId, userId);
+      const ownerId = identityCurrent?.ownerId ?? entryOwner?.ownerId ?? null;
+      const callInstanceId = identityCurrent?.callInstanceId ?? null;
+      const entryAttemptId =
+        identityCurrent?.entryAttemptId ?? entryOwner?.entryAttemptId ?? null;
+      const videoDateTraceId =
+        identityCurrent?.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null;
+
+      if (!providerBackedJoined || !providerSessionId || !callInstanceId) {
+        const terminal = meetingState === "left-meeting" || meetingState === "error";
+        if (terminal) {
+          clearDailyAliveHeartbeatTimer("remote_seen_provider_missing_terminal_state");
+        }
+        const code = !providerSessionId
+          ? "REMOTE_SEEN_PROVIDER_SESSION_MISSING"
+          : !callInstanceId
+            ? "REMOTE_SEEN_CALL_INSTANCE_MISSING"
+            : "REMOTE_SEEN_OWNER_NOT_JOINED";
+        vdbg("mark_video_date_remote_seen_skipped_provider_missing", {
+          sessionId,
+          eventId,
+          userId,
+          source: attemptSource,
+          providerSessionId,
+          meetingState,
+          providerBackedJoined,
+          callInstanceId,
+          ownerId,
+          terminal,
+        });
+        return {
+          ok: false as const,
+          code,
+          payload: {
+            ok: false,
+            error: code.toLowerCase(),
+            code,
+            retryable: false,
+            provider_presence_required: true,
+            provider_presence_missing: true,
+            provider_presence_terminal: terminal,
+          },
+        };
+      }
+
+      return {
+        ok: true as const,
+        providerSessionId,
+        meetingState,
+        ownerId,
+        callInstanceId,
+        entryAttemptId,
+        videoDateTraceId,
+        args: {
+          p_session_id: sessionId,
+          p_owner_id: ownerId,
+          p_call_instance_id: callInstanceId,
+          p_provider_session_id: providerSessionId,
+          p_entry_attempt_id: entryAttemptId,
+          p_owner_state: "joined",
+        },
+      };
+    };
+
+    const initialProof = buildProviderBoundRemoteSeenArgs(source);
+    if (!initialProof.ok) return;
+
     if (remoteSeenRetryTimerRef.current) {
       clearTimeout(remoteSeenRetryTimerRef.current);
       remoteSeenRetryTimerRef.current = null;
@@ -1598,9 +1689,28 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       attempt: number,
       code: string,
       errorDetail: unknown,
+      payload?: Record<string, unknown> | null,
     ) => {
       if (remoteSeenInFlightSessionRef.current === sessionId) {
         remoteSeenInFlightSessionRef.current = null;
+      }
+      const terminalSurvey = videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+      const terminalStop =
+        terminalSurvey ||
+        videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
+        payload?.provider_presence_terminal === true;
+      const retryable = videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
+      if (terminalStop) {
+        if (remoteSeenRetryTimerRef.current) {
+          clearTimeout(remoteSeenRetryTimerRef.current);
+          remoteSeenRetryTimerRef.current = null;
+        }
+        clearDailyAliveHeartbeatTimer(
+          terminalSurvey ? "remote_seen_terminal_survey_truth" : "remote_seen_terminal_truth",
+        );
+        if (terminalSurvey) {
+          optionsRef.current?.onTerminalSurveyTruth?.("remote_seen_terminal_survey_truth");
+        }
       }
       vdbg("mark_video_date_remote_seen_failed", {
         sessionId,
@@ -1610,7 +1720,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         code,
         error: errorDetail,
         attempt,
+        retryable,
+        terminalStop,
+        payload: payload ?? null,
       });
+      if (!retryable || terminalStop) {
+        return;
+      }
       if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
         scheduleRetry(attemptSource, attempt + 1);
         return;
@@ -1625,24 +1741,39 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           code,
           source: attemptSource,
           attempt_count: attempt,
-          retryable: true,
+          retryable,
           exhausted: true,
         },
       });
     };
 
     function stamp(attemptSource: string, attempt: number) {
+      const proof = buildProviderBoundRemoteSeenArgs(attemptSource);
+      if (!proof.ok) {
+        handleFailure(
+          attemptSource,
+          attempt,
+          proof.code,
+          null,
+          proof.payload,
+        );
+        return;
+      }
       void Promise.resolve(
-        supabase.rpc("mark_video_date_remote_seen", { p_session_id: sessionId }),
+        supabase.rpc("mark_video_date_remote_seen", proof.args),
       )
         .then(({ data, error }) => {
-          const payload = data as { ok?: boolean; error?: string | null } | null;
+          const payload =
+            data && typeof data === "object" && !Array.isArray(data)
+              ? (data as Record<string, unknown>)
+              : null;
           if (error || payload?.ok !== true) {
             handleFailure(
               attemptSource,
               attempt,
-              error?.code ?? payload?.error ?? "unknown",
+              error?.code ?? videoDateLifecycleRpcCode(payload) ?? String(payload?.error ?? "unknown"),
               error ? { code: error.code, message: error.message } : null,
+              payload,
             );
             return;
           }
@@ -1654,40 +1785,41 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             remoteSeenInFlightSessionRef.current = null;
           }
           remoteSeenLastStampRef.current = { sessionId: activeSessionId, stampedAtMs: Date.now() };
-          if (userId) {
-            const entryOwner = getVideoDateEntryOwner(activeSessionId, userId);
-            updateVideoDateEntryOwnerState({
-              sessionId: activeSessionId,
-              userId,
-              ownerId: entryOwner?.ownerId ?? null,
-              state: "remote_seen",
-              source: `remote_seen_${attemptSource}`,
-              roomName: roomNameRef.current,
-              entryAttemptId: entryOwner?.entryAttemptId ?? null,
-              videoDateTraceId: entryOwner?.videoDateTraceId ?? null,
-              providerSessionId: readDailyProviderSessionId(callObjectRef.current),
-            });
-            updateVideoDateDailyOwnerState({
-              sessionId: activeSessionId,
-              userId,
-              ownerId: entryOwner?.ownerId ?? null,
-              roomName: roomNameRef.current,
-              state: "remote_seen",
-              source: `remote_seen_${attemptSource}`,
-              entryAttemptId: entryOwner?.entryAttemptId ?? null,
-              videoDateTraceId: entryOwner?.videoDateTraceId ?? null,
-              providerSessionId: readDailyProviderSessionId(callObjectRef.current),
-            });
-          }
+          updateVideoDateEntryOwnerState({
+            sessionId: activeSessionId,
+            userId,
+            ownerId: proof.ownerId,
+            state: "remote_seen",
+            source: `remote_seen_${attemptSource}`,
+            roomName: roomNameRef.current,
+            entryAttemptId: proof.entryAttemptId,
+            videoDateTraceId: proof.videoDateTraceId,
+            callInstanceId: proof.callInstanceId,
+            providerSessionId: proof.providerSessionId,
+          });
+          updateVideoDateDailyOwnerState({
+            sessionId: activeSessionId,
+            userId,
+            ownerId: proof.ownerId,
+            roomName: roomNameRef.current,
+            state: "remote_seen",
+            source: `remote_seen_${attemptSource}`,
+            entryAttemptId: proof.entryAttemptId,
+            videoDateTraceId: proof.videoDateTraceId,
+            callInstanceId: proof.callInstanceId,
+            providerSessionId: proof.providerSessionId,
+          });
           vdbg("mark_video_date_remote_seen_after", {
             sessionId,
             eventId,
             userId,
             source: attemptSource,
+            providerSessionId: proof.providerSessionId,
+            callInstanceId: proof.callInstanceId,
             participant1RemoteSeenAt:
-              typeof payload === "object" && payload ? (payload as { participant_1_remote_seen_at?: unknown }).participant_1_remote_seen_at ?? null : null,
+              payload?.participant_1_remote_seen_at ?? null,
             participant2RemoteSeenAt:
-              typeof payload === "object" && payload ? (payload as { participant_2_remote_seen_at?: unknown }).participant_2_remote_seen_at ?? null : null,
+              payload?.participant_2_remote_seen_at ?? null,
           });
         })
         .catch((error: unknown) => {
@@ -1703,7 +1835,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     }
 
     stamp(source, 1);
-  }, []);
+  }, [clearDailyAliveHeartbeatTimer]);
 
   useEffect(() => {
     return () => {
@@ -1712,6 +1844,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         remoteSeenRetryTimerRef.current = null;
       }
       remoteSeenInFlightSessionRef.current = null;
+      activeDailyCallIdentityRef.current = null;
     };
   }, []);
 
@@ -3369,6 +3502,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
           }
         }
+        activeDailyCallIdentityRef.current = null;
         clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
         if (!parkedSingleton) {
           activeCallSessionIdRef.current = null;
@@ -5758,6 +5892,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         setHasPermission(true);
         activeCallSessionIdRef.current = sessionId;
+        activeDailyCallIdentityRef.current = userId
+          ? {
+              sessionId,
+              userId,
+              ownerId: entryOwner?.ownerId ?? null,
+              callInstanceId: dailyCallInstanceId,
+              entryAttemptId: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+              videoDateTraceId:
+                videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
+            }
+          : null;
         latchSameSessionDailyContinuity(sessionId, "daily_join_success");
         setDailyMeetingState(safeMeetingState(callObject) ?? "joined-meeting");
         setLocalInDailyRoom(true);
@@ -5782,6 +5927,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           joinDurationMs,
           entryAttemptId,
           videoDateTraceId,
+          callInstanceId: dailyCallInstanceId,
         });
         const joinSuccessLatencyContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -6436,6 +6582,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
         roomNameRef.current = null;
       }
+      activeDailyCallIdentityRef.current = null;
 
       optionsRef.current?.onCallEnded?.();
     },

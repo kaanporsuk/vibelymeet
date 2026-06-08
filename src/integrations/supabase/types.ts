@@ -12172,7 +12172,14 @@ export type Database = {
         Returns: Json
       }
       mark_video_date_remote_seen: {
-        Args: { p_session_id: string }
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
         Returns: Json
       }
       mark_video_date_remote_seen_20260605115657_base: {
