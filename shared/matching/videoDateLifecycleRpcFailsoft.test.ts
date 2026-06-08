@@ -233,11 +233,23 @@ test("shared lifecycle RPC classifier recognizes all terminal survey shapes", ()
     true,
   );
   assert.equal(
-    videoDateLifecycleRpcIndicatesTerminalSurvey({ error: "session_ended" }),
+    videoDateLifecycleRpcIndicatesTerminalSurvey({ surveyRequired: true }),
     true,
   );
   assert.equal(
+    videoDateLifecycleRpcIndicatesTerminalSurvey({ error: "session_ended" }),
+    false,
+  );
+  assert.equal(
+    videoDateLifecycleRpcIndicatesTerminalSurvey({ session_ended: true }),
+    false,
+  );
+  assert.equal(
     videoDateLifecycleRpcIndicatesTerminalStop({ phase: "ended" }),
+    true,
+  );
+  assert.equal(
+    videoDateLifecycleRpcIndicatesTerminalStop({ error: "session_ended" }),
     true,
   );
   assert.equal(
