@@ -9427,6 +9427,10 @@ export default function VideoDateScreen() {
         let rejectIdleReason: string | null = null;
         if (idleSingletonEntry.userId !== user.id) {
           rejectIdleReason = "idle_owner_mismatch";
+        } else if (idleSingletonEntry.sessionId !== sessionId) {
+          rejectIdleReason = "daily_call_singleton_reuse_cross_session_rejected";
+        } else if (idleSingletonEntry.roomName !== tokenResult.room_name) {
+          rejectIdleReason = "idle_room_mismatch";
         } else if (
           !idleSingletonEntry.idleDestroyDisabled &&
           (typeof NATIVE_DAILY_CALL_SINGLETON_IDLE_MS !== "number" ||
@@ -9446,6 +9450,8 @@ export default function VideoDateScreen() {
             reason: rejectIdleReason,
             previousSessionId: idleSingletonEntry.sessionId,
             nextSessionId: sessionId,
+            previousRoomName: idleSingletonEntry.roomName,
+            nextRoomName: tokenResult.room_name,
             entryUserId: idleSingletonEntry.userId,
             currentUserId: user.id,
             idleAgeMs: Number.isFinite(idleAgeMs) ? idleAgeMs : null,

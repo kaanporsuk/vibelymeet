@@ -57,8 +57,13 @@ test("operator scripts are non-deploying by default", () => {
   assert.match(functionVerifier, /functions",\s*"list"/);
   assert.match(functionVerifier, /--skip-remote/);
   assert.match(functionVerifier, /--require-remote/);
+  assert.match(functionVerifier, /remoteSlugs\.has\(name\)/);
+  assert.doesNotMatch(functionVerifier, /remote\.includes\(name\)/);
   assert.doesNotMatch(functionVerifier, /functions",\s*"deploy"|db",\s*"push"/);
 
+  assert.match(invariantRunner, /Array\.isArray\(parsed\)/);
+  assert.match(invariantRunner, /Array\.isArray\(parsed\.rows\)/);
+  assert.match(goldenFlowCertifier, /loadLocalEnv\(\);\s*function hasDbUrl/);
   assert.match(goldenFlowCertifier, /certified: false/);
   assert.match(
     goldenFlowCertifier,

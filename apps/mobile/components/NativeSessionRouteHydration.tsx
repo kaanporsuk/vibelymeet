@@ -2,8 +2,10 @@ import { useEffect, useRef } from "react";
 import { router, usePathname } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { useSessionHydration } from "@/context/SessionHydrationContext";
-import { videoDateHref } from "@/lib/activeSessionRoutes";
+import { readyGateHref, videoDateHref } from "@/lib/activeSessionRoutes";
 import {
+  clearDateEntryTransition,
+  clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
   markVideoDateRouteOwned,
 } from "@/lib/dateEntryTransitionLatch";
@@ -148,10 +150,12 @@ export function NativeSessionRouteHydration() {
         return;
       }
       if (canonicalRoute.target === "ready_gate") {
-        markVideoDateRouteOwned(sid, user.id);
-        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
+        clearDateEntryTransition(sid);
+        clearVideoDateRouteOwnership(sid, user.id);
+        const target = readyGateHref(sid);
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "route_bounced_to_ready", {
           session_id: sid,
-          reason: "ready_gate_bounce_suppressed_date_owner",
+          reason: "canonical_ready_gate_not_date_capable",
           source: "native_session_route_hydration",
           can_attempt_daily: canAttemptDaily,
           ...canonicalLog,
@@ -162,8 +166,10 @@ export function NativeSessionRouteHydration() {
             vs?.ready_gate_expires_at == null
               ? null
               : String(vs.ready_gate_expires_at),
-          routed_to: "date",
+          routed_to: "ready",
+          target: String(target),
         });
+        router.replace(target);
         return;
       }
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {

@@ -6,6 +6,7 @@ import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   clearDateEntryTransition,
+  clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
   markVideoDateRouteOwned,
 } from "@/lib/dateEntryTransitionLatch";
@@ -296,29 +297,42 @@ export function SessionRouteHydration() {
       }
 
       if (canonicalRoute.target === "ready_gate") {
-        markVideoDateRouteOwned(sessionIdFromUrl, user.id);
+        clearDateEntryTransition(sessionIdFromUrl);
+        clearVideoDateRouteOwnership(sessionIdFromUrl, user.id);
+        const key = `${sessionIdFromUrl}:ready_gate`;
+        if (lastReadyGateRedirectKey.current === key) return;
+        lastReadyGateRedirectKey.current = key;
+        const target = `/ready/${encodeURIComponent(sessionIdFromUrl)}`;
         routeHydrationDebug(
-          "blocked ready_gate bounce; date route owns current session attempt",
+          "redirecting date route back to canonical Ready Gate",
           {
             sessionId: sessionIdFromUrl,
             eventId: activeSession.eventId,
             canonicalReason: canonicalRoute.reason,
+            target,
           },
         );
-        vdbg("route_hydration_ready_gate_bounce_blocked", {
+        vdbg("route_hydration_ready_gate_canonical_redirect", {
           sessionId: sessionIdFromUrl,
           userId: user.id,
           eventId: activeSession.eventId,
-          reason: "ready_gate_bounce_suppressed_date_owner",
+          reason: "canonical_ready_gate_not_date_capable",
           ...canonicalLog,
           canonicalTarget: canonicalRoute.target,
           canonicalReason: canonicalRoute.reason,
+          target,
           latchActive: latchActiveAtStart,
           state: vs.state,
           phase: vs.phase,
           handshakeStarted: Boolean(vs.handshake_started_at),
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
+        });
+        navigate(target, {
+          replace: true,
+          state: {
+            source: "session_route_hydration_ready_gate_canonical",
+          },
         });
         return;
       }

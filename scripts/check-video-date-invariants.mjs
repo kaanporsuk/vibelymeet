@@ -120,19 +120,28 @@ function runWithPsql(url) {
 }
 
 function extractJson(text) {
-  const start = text.indexOf("{");
-  if (start === -1) throw new Error("Supabase CLI did not return JSON");
-  let end = text.length;
-  while (end > start) {
-    const candidateEnd = text.lastIndexOf("}", end - 1);
-    if (candidateEnd === -1 || candidateEnd < start) break;
-    try {
-      return JSON.parse(text.slice(start, candidateEnd + 1));
-    } catch {
-      end = candidateEnd;
+  const starts = [];
+  for (const char of ["{", "["]) {
+    const index = text.indexOf(char);
+    if (index >= 0) starts.push({ index, char });
+  }
+  starts.sort((a, b) => a.index - b.index);
+
+  for (const { index: start, char } of starts) {
+    const endChar = char === "{" ? "}" : "]";
+    let end = text.length;
+    while (end > start) {
+      const candidateEnd = text.lastIndexOf(endChar, end - 1);
+      if (candidateEnd === -1 || candidateEnd < start) break;
+      try {
+        return JSON.parse(text.slice(start, candidateEnd + 1));
+      } catch {
+        end = candidateEnd;
+      }
     }
   }
-  throw new Error("Supabase CLI returned malformed JSON");
+
+  throw new Error("Supabase CLI did not return valid JSON");
 }
 
 function runWithSupabaseLinkedQuery() {
@@ -173,7 +182,13 @@ function runWithSupabaseLinkedQuery() {
     process.exit(2);
   }
 
-  return (parsed.rows ?? []).map((row) => ({
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed.rows)
+      ? parsed.rows
+      : [];
+
+  return rows.map((row) => ({
     invariantId: String(row.invariant_id ?? ""),
     severity: String(row.severity ?? ""),
     status: String(row.status ?? ""),

@@ -605,6 +605,7 @@ const ReadyGateOverlay = ({
     useRef<ReadyGatePermissionPrewarmMedia | null>(null);
   const permissionPrewarmCapturePendingRef =
     useRef<Promise<ReadyGatePermissionPrewarmMedia> | null>(null);
+  const permissionPrewarmCaptureConsumerTokenRef = useRef(0);
   const permissionPrewarmMediaHandoffStoredRef = useRef(false);
   const permissionPrewarmMediaReleaseTimerRef = useRef<ReturnType<
     typeof setTimeout
@@ -1177,6 +1178,13 @@ const ReadyGateOverlay = ({
       let media: ReadyGatePermissionPrewarmMedia | null = null;
       let capturePromise: Promise<ReadyGatePermissionPrewarmMedia> | null =
         null;
+      const captureConsumerToken =
+        source === "ready_tap"
+          ? permissionPrewarmCaptureConsumerTokenRef.current + 1
+          : permissionPrewarmCaptureConsumerTokenRef.current;
+      if (source === "ready_tap") {
+        permissionPrewarmCaptureConsumerTokenRef.current = captureConsumerToken;
+      }
       try {
         // Always await the full silent capture. The user-gesture Ready tap uses
         // a bounded wait below; if the browser resolves late, those tracks are
@@ -1308,13 +1316,20 @@ const ReadyGateOverlay = ({
           if (capturePromise) {
             void capturePromise
               .then((lateMedia) => {
-                stopMediaStreamTracks(lateMedia.stream);
+                const shouldReleaseLateMedia =
+                  permissionPrewarmCaptureConsumerTokenRef.current ===
+                  captureConsumerToken;
+                if (shouldReleaseLateMedia) {
+                  stopMediaStreamTracks(lateMedia.stream);
+                }
                 if (
+                  shouldReleaseLateMedia &&
                   permissionPrewarmCapturePendingRef.current === capturePromise
                 ) {
                   permissionPrewarmCapturePendingRef.current = null;
                 }
                 if (
+                  shouldReleaseLateMedia &&
                   activeReadyGateKeyRef.current === readyGateKey &&
                   !permissionPrewarmMediaRef.current
                 ) {
@@ -2910,6 +2925,7 @@ const ReadyGateOverlay = ({
     prepareEntryHandoffStartedRef.current = false;
     permissionPrewarmStartedRef.current = false;
     permissionPrewarmCapturePendingRef.current = null;
+    permissionPrewarmCaptureConsumerTokenRef.current = 0;
     permissionPrewarmMediaHandoffStoredRef.current = false;
     permissionPrewarmSkipLoggedRef.current = false;
     roomWarmupStartedRef.current = false;
