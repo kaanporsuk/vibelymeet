@@ -64,6 +64,35 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Definitive Ownership Contract Guard
+
+Current source adds `shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+
+This is a source/test hardening pass. No runtime code or Supabase migration was needed because the current web/native/mobile implementation already keeps the checked owners separated:
+
+- `video_session_mark_ready_v2` is Ready Gate owned.
+- `both_ready` routes ownership to `/date/:sessionId`, but it is not Daily-start proof.
+- Daily room metadata alone is not completion proof.
+- `/date/:sessionId` and native `/date/[id]` are the only client owners that can stamp `mark_video_date_daily_alive`, `mark_video_date_daily_joined`, and `mark_video_date_remote_seen`.
+- Terminal survey truth stays date-route owned because `PostDateSurvey` is hosted on `/date/:sessionId`.
+- Client source contains no direct `date_feedback` writes; completion remains only persisted feedback through the backend-owned verdict path.
+
+Branch delta: `docs/branch-deltas/fix-video-date-definitive-ownership-contracts.md`.
+
+Verification passed:
+
+- `npx tsx shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` (`Remote database is up to date.`)
+
+This remains source/test evidence only. It does not replace the fresh two-user production run through both users persisting `date_feedback`.
+
+---
+
 ## 2026-06-09 Implementation Update: PR #1242-#1256 Review Comments Follow-Up
 
 PR #1257 used the GitHub review-comments workflow for the last 15 PRs, `#1242` through `#1256`. No actionable Copilot-authored review comments were found. Current Codex review comments were mapped to source, migrations, and docs, then handled with targeted code fixes plus one forward Supabase corrective migration.
