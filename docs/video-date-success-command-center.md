@@ -279,6 +279,66 @@ Still not acceptance proof:
 
 ---
 
+## 2026-06-08 Implementation Update: Provider-Bound Remote-Seen Recovery
+
+Latest failed production run analyzed:
+
+- Event: `86dc1e15-d2cc-45f6-be81-628bd685a759`
+- Video session: `34ed864c-e6eb-4804-bc71-8aeba6bce9b1`
+- The flow reached the core middle milestones: match, Ready Gate, both ready, same Daily/date route, and visible date UI. It still failed because a stale `mark_video_date_remote_seen` call was accepted after that actor's Daily provider session had already emitted `participant.left`, so historical remote-media proof was able to mutate canonical encounter truth after current provider proof was gone.
+
+Migrations added:
+
+- `supabase/migrations/20260608120000_video_date_provider_bound_remote_seen.sql`
+- `supabase/migrations/20260608121834_video_date_remote_seen_identifier_hygiene.sql`
+- `supabase/migrations/20260608122623_video_date_remote_seen_lint_cleanup.sql`
+
+Client/test/type files changed:
+
+- `src/hooks/useVideoCall.ts`
+- `apps/mobile/app/date/[id].tsx`
+- `src/integrations/supabase/types.ts`
+- `shared/matching/videoDateLifecycleRpcFailsoft.test.ts`
+- `shared/matching/videoDateEndToEndHardening.test.ts`
+
+What this closes:
+
+- `mark_video_date_remote_seen(...)` now has the same provider-proof envelope as Daily alive: the caller must be the authenticated participant, must pass the current owner/call identity, must be in `owner_state = 'joined'`, and the supplied `provider_session_id` must match that participant's latest Daily provider `participant.joined` event.
+- Old session-only or stale-provider remote-seen calls no longer reach the old canonical mutator. They return structured JSON with `remote_seen_rejected_stale_provider_session`, `provider_presence_required`, `provider_presence_missing`, `provider_backed_current = false`, `remote_seen_stamp_accepted = false`, and a specific code such as `REMOTE_SEEN_PROVIDER_SESSION_MISSING`, `REMOTE_SEEN_OWNER_NOT_JOINED`, `REMOTE_SEEN_PROVIDER_SESSION_LEFT`, or `REMOTE_SEEN_PROVIDER_NOT_CURRENT`.
+- Web and native/mobile clients no longer call remote-seen from session id alone. They bind the stamp to the current Daily call identity (`call_instance_id`, `entry_attempt_id`, `owner_id`, and local provider session id) and skip or stop retrying when provider proof is missing or terminal.
+- The Daily alive public wrapper now keeps a direct JSON last-resort fallback around the provider-bound base so stale/terminal provider paths do not leak raw HTTP 500s to authenticated clients.
+- Rejection telemetry records `remote_seen_rejected_stale_provider_session` when possible, but observability failures are swallowed so telemetry cannot turn a defensive no-op into a hot-path failure.
+- The first provider-bound migration produced a Postgres identifier-truncation notice for the Daily alive base helper after cloud apply. Applied history was left immutable; corrective migration `20260608121834_video_date_remote_seen_identifier_hygiene.sql` renames the truncated helper to short service-only `vd_daily_alive_remote_seen_base` and recreates the public Daily alive wrapper against it.
+- DB lint then surfaced a warning-only unused `v_now` local in the new remote-seen wrapper. Corrective migration `20260608122623_video_date_remote_seen_lint_cleanup.sql` recreates that wrapper without the unused variable while preserving the provider-current guard and stale-provider rejection contract.
+
+Verification completed locally:
+
+- `npx tsx shared/matching/videoDateLifecycleRpcFailsoft.test.ts`
+- `npx tsx shared/matching/videoDateIdentifierHygieneContracts.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
+
+Supabase verification notes:
+
+- Before cloud apply, linked migration list was aligned through `20260608114600_review_comments_identifier_hygiene.sql`.
+- Linked dry-run showed only `20260608120000_video_date_provider_bound_remote_seen.sql` pending.
+- Cloud was applied through `20260608120000_video_date_provider_bound_remote_seen.sql`, then corrective migrations `20260608121834_video_date_remote_seen_identifier_hygiene.sql` and `20260608122623_video_date_remote_seen_lint_cleanup.sql`.
+- Post-apply migration list is aligned through `20260608122623`; post-apply dry-run returns `Remote database is up to date.`
+- `supabase db lint --linked --schema public --fail-on error` exits 0. The new `mark_video_date_remote_seen` unused-local warning was removed by `20260608122623`; remaining output is the pre-existing legacy warning/notice backlog.
+- Live catalog checks confirm `mark_video_date_daily_alive(...)` and `mark_video_date_remote_seen(...)` are authenticated public `SECURITY DEFINER` wrappers, `vd_daily_alive_remote_seen_base(...)` and `mark_video_date_remote_seen_20260608120000_provider_base(uuid)` are service-role only, the Daily alive wrapper calls `vd_daily_alive_remote_seen_base`, remote-seen contains `remote_seen_rejected_stale_provider_session`, and the live remote-seen wrapper no longer contains `v_now`.
+
+Still not acceptance proof:
+
+- This closes the stale provider remote-seen authority gap observed in `34ed864c-e6eb-4804-bc71-8aeba6bce9b1`, but Video Date remains uncertified until a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion, including short leave/rejoin and prolonged absence checks.
+
+---
+
 ## Known Recent Failure Pattern
 
 ### User-visible symptoms
@@ -291,6 +351,7 @@ Recent screenshots and reports showed:
 - In the latest report, the user sees "This Ready Gate changed. Back to browsing." and never reaches a stable Video Date.
 - In the subsequent latest report, the user did reach warm-up briefly, then bounced between `/date/:sessionId` and `/ready/:sessionId` while the backend had already moved the encounter to survey-required terminal truth.
 - In the latest post-PR #1200 test, the session reached `date` and showed a live date UI, but the peer disappeared after Daily leave events. The session ended survey-eligible, one participant stayed `in_survey`, the other was later overwritten to `offline`, and no `date_feedback` rows were created.
+- In the latest provider-bound remote-seen investigation, the session reached the date UI, but stale client remote-seen evidence was accepted after a matching Daily provider leave. Remote-seen must now be treated as current provider-backed proof, not session-only proof.
 - Older reports showed "Still connecting your date" and repeated Daily sessions for a single attempted date.
 
 ### Console/network signals

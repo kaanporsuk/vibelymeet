@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260602103339_video_date_identifier_hygiene_v2.sql"),
   "utf8",
 );
+const remoteSeenIdentifierHygieneMigration = readFileSync(
+  join(root, "supabase/migrations/20260608121834_video_date_remote_seen_identifier_hygiene.sql"),
+  "utf8",
+);
 const supabaseTypes = readFileSync(join(root, "src/integrations/supabase/types.ts"), "utf8");
 
 const historicalOverlongIdentifiers = [
@@ -85,4 +89,30 @@ test("identifier hygiene preserves confirm and stale repair delegation", () => {
   );
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.confirm_vde_event_inactive_base_v1\(uuid, text, text, text\)[\s\S]*TO service_role/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.repair_stale_vd_prepare_both_join_v1\(integer\)[\s\S]*TO service_role/);
+});
+
+test("provider-bound remote-seen follow-up uses explicit short Daily alive base", () => {
+  assert.match(
+    remoteSeenIdentifierHygieneMigration,
+    /RENAME TO vd_daily_alive_remote_seen_base/,
+  );
+  assert.match(
+    remoteSeenIdentifierHygieneMigration,
+    /public\.vd_daily_alive_remote_seen_base/,
+  );
+  assert.doesNotMatch(
+    remoteSeenIdentifierHygieneMigration,
+    /provider_remote_seen_base/,
+  );
+
+  const functionRefs = Array.from(
+    remoteSeenIdentifierHygieneMigration.matchAll(
+      /\b(?:FUNCTION|PROCEDURE)\s+public\.([A-Za-z0-9_]+)/g,
+    ),
+  ).map(([, identifier]) => identifier);
+  assert.ok(functionRefs.length > 0);
+  assert.deepEqual(
+    functionRefs.filter((identifier) => identifier.length > 63),
+    [],
+  );
 });

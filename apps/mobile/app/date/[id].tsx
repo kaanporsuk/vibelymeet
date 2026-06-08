@@ -537,6 +537,15 @@ type PrejoinAttemptState = {
   completed: boolean;
 };
 
+type ActiveNativeDailyCallIdentity = {
+  sessionId: string;
+  userId: string;
+  ownerId: string | null;
+  callInstanceId: string;
+  entryAttemptId: string | null;
+  videoDateTraceId: string | null;
+};
+
 type DateTheme = (typeof Colors)[keyof typeof Colors];
 
 type HandshakeCtaTelemetrySnapshot = {
@@ -1397,6 +1406,8 @@ export default function VideoDateScreen() {
   const callRef = useRef<DailyCallObject | null>(null);
   const captureProfileRef = useRef<NativeVideoDateCaptureProfile>("ideal");
   const roomNameRef = useRef<string | null>(null);
+  const activeNativeDailyCallIdentityRef =
+    useRef<ActiveNativeDailyCallIdentity | null>(null);
   const hasStartedJoinRef = useRef(false);
   const prejoinAttemptSeqRef = useRef(0);
   const prejoinAttemptRef = useRef<PrejoinAttemptState | null>(null);
@@ -3060,6 +3071,7 @@ export default function VideoDateScreen() {
       clearPartnerAwayAfterTransportGrace(reason);
       clearDailyTokenRefreshTimer();
       clearDailyAliveHeartbeatTimer(`terminal_cleanup:${reason}`);
+      activeNativeDailyCallIdentityRef.current = null;
       dailyTokenRecoveryInFlightRef.current = false;
       dailyTokenExpiresAtRef.current = null;
       recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
@@ -4799,6 +4811,90 @@ export default function VideoDateScreen() {
       ) {
         return;
       }
+
+      const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
+        const call = callRef.current;
+        const providerSessionId = readNativeDailyProviderSessionId(call);
+        const meetingState = safeNativeDailyMeetingState(call);
+        const providerBackedJoined =
+          meetingState === "joined-meeting" && Boolean(providerSessionId);
+        const identity = activeNativeDailyCallIdentityRef.current;
+        const identityCurrent =
+          identity?.sessionId === sessionId && identity.userId === userId
+            ? identity
+            : null;
+        const entryOwner = getVideoDateEntryOwner(sessionId, userId);
+        const ownerId = identityCurrent?.ownerId ?? entryOwner?.ownerId ?? null;
+        const callInstanceId = identityCurrent?.callInstanceId ?? null;
+        const entryAttemptId =
+          identityCurrent?.entryAttemptId ?? entryOwner?.entryAttemptId ?? null;
+        const videoDateTraceId =
+          identityCurrent?.videoDateTraceId ??
+          entryOwner?.videoDateTraceId ??
+          null;
+
+        if (!providerBackedJoined || !providerSessionId || !callInstanceId) {
+          const terminal =
+            meetingState === "left-meeting" || meetingState === "error";
+          if (terminal) {
+            clearDailyAliveHeartbeatTimer(
+              "remote_seen_provider_missing_terminal_state",
+            );
+          }
+          const code = !providerSessionId
+            ? "REMOTE_SEEN_PROVIDER_SESSION_MISSING"
+            : !callInstanceId
+              ? "REMOTE_SEEN_CALL_INSTANCE_MISSING"
+              : "REMOTE_SEEN_OWNER_NOT_JOINED";
+          vdbg("mark_video_date_remote_seen_skipped_provider_missing", {
+            sessionId,
+            eventId,
+            userId,
+            source: attemptSource,
+            providerSessionId,
+            meetingState,
+            providerBackedJoined,
+            callInstanceId,
+            ownerId,
+            terminal,
+          });
+          return {
+            ok: false as const,
+            code,
+            payload: {
+              ok: false,
+              error: code.toLowerCase(),
+              code,
+              retryable: false,
+              provider_presence_required: true,
+              provider_presence_missing: true,
+              provider_presence_terminal: terminal,
+            },
+          };
+        }
+
+        return {
+          ok: true as const,
+          providerSessionId,
+          meetingState,
+          ownerId,
+          callInstanceId,
+          entryAttemptId,
+          videoDateTraceId,
+          args: {
+            p_session_id: sessionId,
+            p_owner_id: ownerId,
+            p_call_instance_id: callInstanceId,
+            p_provider_session_id: providerSessionId,
+            p_entry_attempt_id: entryAttemptId,
+            p_owner_state: "joined",
+          },
+        };
+      };
+
+      const initialProof = buildProviderBoundRemoteSeenArgs(source);
+      if (!initialProof.ok) return;
+
       if (remoteSeenRetryTimerRef.current) {
         clearTimeout(remoteSeenRetryTimerRef.current);
         remoteSeenRetryTimerRef.current = null;
@@ -4828,9 +4924,32 @@ export default function VideoDateScreen() {
         attempt: number,
         code: string,
         errorDetail: unknown,
+        payload?: Record<string, unknown> | null,
       ) => {
         if (remoteSeenInFlightSessionRef.current === sessionId) {
           remoteSeenInFlightSessionRef.current = null;
+        }
+        const terminalSurvey = videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+        const terminalStop =
+          terminalSurvey ||
+          videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
+          payload?.provider_presence_terminal === true;
+        const retryable = videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
+        if (terminalStop) {
+          if (remoteSeenRetryTimerRef.current) {
+            clearTimeout(remoteSeenRetryTimerRef.current);
+            remoteSeenRetryTimerRef.current = null;
+          }
+          clearDailyAliveHeartbeatTimer(
+            terminalSurvey
+              ? "remote_seen_terminal_survey_truth"
+              : "remote_seen_terminal_truth",
+          );
+          if (terminalSurvey) {
+            void openNativePostDateSurveyFromTerminalTruth(
+              "remote_seen_terminal_survey_truth",
+            );
+          }
         }
         vdbg("mark_video_date_remote_seen_failed", {
           sessionId,
@@ -4840,7 +4959,13 @@ export default function VideoDateScreen() {
           code,
           error: errorDetail,
           attempt,
+          retryable,
+          terminalStop,
+          payload: payload ?? null,
         });
+        if (!retryable || terminalStop) {
+          return;
+        }
         if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
           scheduleRetry(attemptSource, attempt + 1);
           return;
@@ -4855,31 +4980,41 @@ export default function VideoDateScreen() {
             code,
             source: attemptSource,
             attempt_count: attempt,
-            retryable: true,
+            retryable,
             exhausted: true,
           },
         });
       };
 
       function stamp(attemptSource: string, attempt: number) {
+        const proof = buildProviderBoundRemoteSeenArgs(attemptSource);
+        if (!proof.ok) {
+          handleFailure(
+            attemptSource,
+            attempt,
+            proof.code,
+            null,
+            proof.payload,
+          );
+          return;
+        }
         void Promise.resolve(
-          supabase.rpc("mark_video_date_remote_seen", {
-            p_session_id: sessionId,
-          }),
+          supabase.rpc("mark_video_date_remote_seen", proof.args),
         )
           .then(({ data, error }) => {
-            const payload = data as {
-              ok?: boolean;
-              error?: string | null;
-              participant_1_remote_seen_at?: string | null;
-              participant_2_remote_seen_at?: string | null;
-            } | null;
+            const payload =
+              data && typeof data === "object" && !Array.isArray(data)
+                ? (data as Record<string, unknown>)
+                : null;
             if (error || payload?.ok !== true) {
               handleFailure(
                 attemptSource,
                 attempt,
-                error?.code ?? payload?.error ?? "unknown",
+                error?.code ??
+                  videoDateLifecycleRpcCode(payload) ??
+                  String(payload?.error ?? "unknown"),
                 error ? { code: error.code, message: error.message } : null,
+                payload,
               );
               return;
             }
@@ -4894,38 +5029,41 @@ export default function VideoDateScreen() {
               sessionId,
               stampedAtMs: Date.now(),
             };
-            const entryOwner = getVideoDateEntryOwner(sessionId, userId);
             updateVideoDateEntryOwnerState({
               sessionId,
               userId,
-              ownerId: entryOwner?.ownerId ?? null,
+              ownerId: proof.ownerId,
               state: "remote_seen",
               source: `remote_seen_${attemptSource}`,
               roomName: roomNameRef.current,
-              entryAttemptId: entryOwner?.entryAttemptId ?? null,
-              videoDateTraceId: entryOwner?.videoDateTraceId ?? null,
-              providerSessionId: readNativeDailyProviderSessionId(callRef.current),
+              entryAttemptId: proof.entryAttemptId,
+              videoDateTraceId: proof.videoDateTraceId,
+              callInstanceId: proof.callInstanceId,
+              providerSessionId: proof.providerSessionId,
             });
             updateVideoDateDailyOwnerState({
               sessionId,
               userId,
-              ownerId: entryOwner?.ownerId ?? null,
+              ownerId: proof.ownerId,
               roomName: roomNameRef.current,
               state: "remote_seen",
               source: `remote_seen_${attemptSource}`,
-              entryAttemptId: entryOwner?.entryAttemptId ?? null,
-              videoDateTraceId: entryOwner?.videoDateTraceId ?? null,
-              providerSessionId: readNativeDailyProviderSessionId(callRef.current),
+              entryAttemptId: proof.entryAttemptId,
+              videoDateTraceId: proof.videoDateTraceId,
+              callInstanceId: proof.callInstanceId,
+              providerSessionId: proof.providerSessionId,
             });
             vdbg("mark_video_date_remote_seen_after", {
               sessionId,
               eventId,
               userId,
               source: attemptSource,
+              providerSessionId: proof.providerSessionId,
+              callInstanceId: proof.callInstanceId,
               participant1RemoteSeenAt:
-                payload.participant_1_remote_seen_at ?? null,
+                payload?.participant_1_remote_seen_at ?? null,
               participant2RemoteSeenAt:
-                payload.participant_2_remote_seen_at ?? null,
+                payload?.participant_2_remote_seen_at ?? null,
             });
             void refetchVideoSession();
           })
@@ -4943,7 +5081,14 @@ export default function VideoDateScreen() {
 
       stamp(source, 1);
     },
-    [eventId, refetchVideoSession, sessionId, user?.id],
+    [
+      clearDailyAliveHeartbeatTimer,
+      eventId,
+      openNativePostDateSurveyFromTerminalTruth,
+      refetchVideoSession,
+      sessionId,
+      user?.id,
+    ],
   );
 
   useEffect(() => {
@@ -4964,6 +5109,7 @@ export default function VideoDateScreen() {
       }
       remoteSeenInFlightSessionRef.current = null;
       remoteSeenLastStampRef.current = null;
+      activeNativeDailyCallIdentityRef.current = null;
     };
   }, [sessionId]);
 
@@ -5261,6 +5407,7 @@ export default function VideoDateScreen() {
       clearFirstConnectWatchdog();
       clearDailyTokenRefreshTimer();
       clearDailyAliveHeartbeatTimer(cleanupReason);
+      activeNativeDailyCallIdentityRef.current = null;
       dailyTokenRecoveryInFlightRef.current = false;
       dailyTokenExpiresAtRef.current = null;
       recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
@@ -10238,6 +10385,15 @@ export default function VideoDateScreen() {
         });
         setLocalInDailyRoom(true);
         scheduleDailyTokenRefresh("daily_join_success");
+        activeNativeDailyCallIdentityRef.current = {
+          sessionId,
+          userId: user.id,
+          ownerId: entryOwner?.ownerId ?? null,
+          callInstanceId: dailyCallInstanceId,
+          entryAttemptId: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+          videoDateTraceId:
+            videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
+        };
         startDailyAliveHeartbeat({
           sessionId,
           userId: user.id,
