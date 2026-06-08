@@ -258,6 +258,7 @@ Thread-aware GitHub review sweep:
 Migration added:
 
 - `supabase/migrations/20260608114500_review_comments_1232_1242_followups.sql`
+- `supabase/migrations/20260608114600_review_comments_identifier_hygiene.sql`
 
 What this closes:
 
@@ -270,6 +271,7 @@ What this closes:
 - The survey-required invariant now uses confirmed-encounter evidence, excluding pre-date ended sessions with no survey obligation.
 - The mark-ready RPC now sanitizes `SAFETY_CHECK_UNAVAILABLE` client payloads and logs SQL diagnostics through service-side lifecycle observability.
 - Provider-absence no-survey terminalization now preserves idle resume status for inactive events instead of leaving participants as browsing.
+- The corrective identifier-hygiene migration keeps applied history immutable after the `20260608114500` cloud apply and renames the provider-absence base helper to short catalog name `vd_absence_review_1232_1242_base`.
 
 Still not acceptance proof:
 

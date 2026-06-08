@@ -10,6 +10,9 @@ const packageJson = read("package.json");
 const reviewMigration = read(
   "supabase/migrations/20260608114500_review_comments_1232_1242_followups.sql",
 );
+const identifierHygieneMigration = read(
+  "supabase/migrations/20260608114600_review_comments_identifier_hygiene.sql",
+);
 const webHydration = read("src/components/session/SessionRouteHydration.tsx");
 const nativeHydration = read("apps/mobile/components/NativeSessionRouteHydration.tsx");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -25,6 +28,12 @@ function functionBody(sql: string, functionName: string): string {
   const end = sql.indexOf("$function$;", start);
   assert.notEqual(end, -1, `${functionName} should have a dollar-quoted body`);
   return sql.slice(start, end);
+}
+
+function publicFunctionRefs(sql: string): string[] {
+  return Array.from(sql.matchAll(/\b(?:FUNCTION|PROCEDURE)\s+public\.([A-Za-z0-9_]+)/g)).map(
+    ([, identifier]) => identifier,
+  );
 }
 
 test("Ready Gate canonical truth does not claim date route ownership", () => {
@@ -99,6 +108,23 @@ test("follow-up migration preserves idle resume status for inactive provider abs
   assert.match(body, /v_terminal AND NOT v_survey_required AND v_resume_status = 'idle'/);
   assert.match(body, /queue_status = 'idle'/);
   assert.doesNotMatch(body, /queue_status = CASE WHEN v_should_open_survey THEN 'in_survey' ELSE 'browsing' END/);
+});
+
+test("provider absence corrective migration removes the truncated base helper", () => {
+  const body = functionBody(identifierHygieneMigration, "video_date_reconcile_provider_absence_v1");
+  const functionRefs = publicFunctionRefs(identifierHygieneMigration);
+
+  assert.match(
+    identifierHygieneMigration,
+    /RENAME TO vd_absence_review_1232_1242_base/,
+  );
+  assert.match(body, /v_result := public\.vd_absence_review_1232_1242_base/);
+  assert.doesNotMatch(body, /video_date_reconcile_provider_absence_v1_20260608114500_review_/);
+  assert.deepEqual(
+    functionRefs.filter((identifier) => identifier.length > 63),
+    [],
+    "review-comments corrective migration must not rely on PostgreSQL identifier truncation",
+  );
 });
 
 test("review comments 1232-1242 follow-up stays in the v4 suite", () => {
