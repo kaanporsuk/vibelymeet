@@ -13,7 +13,6 @@ import { videoSessionHasPostDateSurveyTruth } from "@clientShared/matching/activ
 import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
-  webPathForCanonicalVideoDateRoute,
 } from "@clientShared/matching/videoDateRouteDecision";
 
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
@@ -44,6 +43,10 @@ export function SessionRouteHydration() {
 
     const m = location.pathname.match(/^\/date\/([^/]+)\/?$/);
     const sessionIdFromUrl = m?.[1] ?? null;
+    const routeState =
+      location.state && typeof location.state === "object"
+        ? (location.state as { forceSurvey?: unknown })
+        : null;
     if (!m) {
       lastReadyGateRedirectKey.current = null;
     }
@@ -51,10 +54,6 @@ export function SessionRouteHydration() {
     if (activeSession?.kind === "video" && activeSession.sessionId) {
       markVideoDateRouteOwned(activeSession.sessionId, user.id);
       const forceSurvey = activeSession.queueStatus === "in_survey";
-      const routeState =
-        location.state && typeof location.state === "object"
-          ? (location.state as { forceSurvey?: unknown })
-          : null;
       if (sessionIdFromUrl !== activeSession.sessionId) {
         const key = [
           activeSession.sessionId,
@@ -184,6 +183,11 @@ export function SessionRouteHydration() {
         sessionId: sessionIdFromUrl,
         eventId: activeSession.eventId,
         truth: vs,
+        registration: {
+          queue_status: activeSession.queueStatus,
+          current_room_id: sessionIdFromUrl,
+          event_id: activeSession.eventId,
+        },
       });
       const canonicalLog = canonicalVideoDateRouteLogDetail(canonicalRoute, {
         sourceSurface: "session_route_hydration",
@@ -196,8 +200,26 @@ export function SessionRouteHydration() {
         canonicalRoute.target === "survey"
       ) {
         const pendingSurveyTerminalEncounter =
-          videoSessionHasPostDateSurveyTruth(vs);
-        clearDateEntryTransition(sessionIdFromUrl);
+          canonicalRoute.target === "survey" || videoSessionHasPostDateSurveyTruth(vs);
+        if (pendingSurveyTerminalEncounter) {
+          markVideoDateRouteOwned(sessionIdFromUrl, user.id);
+          if (routeState?.forceSurvey !== true) {
+            const target = `/date/${encodeURIComponent(sessionIdFromUrl)}`;
+            routeHydrationDebug("pinning ended date route to survey owner", {
+              sessionId: sessionIdFromUrl,
+              target,
+            });
+            navigate(target, {
+              replace: true,
+              state: {
+                source: "session_route_hydration_terminal_survey",
+                forceSurvey: true,
+              },
+            });
+          }
+        } else {
+          clearDateEntryTransition(sessionIdFromUrl);
+        }
         routeHydrationDebug("blocked ready_gate bounce; video session ended", {
           sessionId: sessionIdFromUrl,
           pendingSurveyTerminalEncounter,
@@ -219,6 +241,7 @@ export function SessionRouteHydration() {
       }
 
       if (canonicalRoute.target === "date") {
+        markVideoDateRouteOwned(sessionIdFromUrl, user.id);
         routeHydrationDebug(
           "blocked ready_gate bounce; video session is date-capable",
           {
@@ -252,6 +275,7 @@ export function SessionRouteHydration() {
       }
 
       if (latchActiveAtStart || isDateEntryTransitionActive(sessionIdFromUrl)) {
+        markVideoDateRouteOwned(sessionIdFromUrl, user.id);
         routeHydrationDebug(
           "blocked ready_gate bounce during date-entry latch",
           {
@@ -271,13 +295,38 @@ export function SessionRouteHydration() {
         return;
       }
 
-      const key = `${sessionIdFromUrl}:ready_gate`;
+      if (canonicalRoute.target === "ready_gate") {
+        markVideoDateRouteOwned(sessionIdFromUrl, user.id);
+        routeHydrationDebug(
+          "blocked ready_gate bounce; date route owns current session attempt",
+          {
+            sessionId: sessionIdFromUrl,
+            eventId: activeSession.eventId,
+            canonicalReason: canonicalRoute.reason,
+          },
+        );
+        vdbg("route_hydration_ready_gate_bounce_blocked", {
+          sessionId: sessionIdFromUrl,
+          userId: user.id,
+          eventId: activeSession.eventId,
+          reason: "ready_gate_bounce_suppressed_date_owner",
+          ...canonicalLog,
+          canonicalTarget: canonicalRoute.target,
+          canonicalReason: canonicalRoute.reason,
+          latchActive: latchActiveAtStart,
+          state: vs.state,
+          phase: vs.phase,
+          handshakeStarted: Boolean(vs.handshake_started_at),
+          readyGateStatus: vs.ready_gate_status ?? null,
+          readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
+        });
+        return;
+      }
+
+      const key = `${sessionIdFromUrl}:lobby`;
       if (lastReadyGateRedirectKey.current === key) return;
       lastReadyGateRedirectKey.current = key;
-      const target =
-        canonicalRoute.target === "ready_gate"
-          ? webPathForCanonicalVideoDateRoute(canonicalRoute)
-          : `/event/${encodeURIComponent(activeSession.eventId)}/lobby`;
+      const target = `/event/${encodeURIComponent(activeSession.eventId)}/lobby`;
       routeHydrationDebug("redirecting date route back to canonical surface", {
         sessionId: sessionIdFromUrl,
         eventId: activeSession.eventId,

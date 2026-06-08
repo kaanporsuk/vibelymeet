@@ -3325,6 +3325,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               roomName,
               meetingState: meetingStateBeforeCleanup,
             });
+            vdbg("daily_call_live_remount_detach_only", {
+              caller,
+              reason,
+              sessionId,
+              eventId,
+              roomName,
+              meetingState: meetingStateBeforeCleanup,
+              heartbeat_transferred: true,
+              call_ref_preserved: true,
+            });
           } else {
             try {
               vdbg("daily_call_leave_before", { caller, reason, sessionId, eventId, roomName });
@@ -3358,12 +3368,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
             }
           }
-          callObjectRef.current = null;
         }
         clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`);
         if (!parkedSingleton) {
           activeCallSessionIdRef.current = null;
           clearSameSessionDailyContinuity(sessionId, `daily_call_cleanup:${reason}`);
+        }
+        if (!parkedSingleton) {
+          callObjectRef.current = null;
         }
         clearDailyTokenRefreshTimer();
         dailyTokenRecoveryInFlightRef.current = false;

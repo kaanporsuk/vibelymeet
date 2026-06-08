@@ -186,9 +186,9 @@ test("web duplicate-tab conflicts do not auto-end an active Daily call", () => {
 
 test("date-route ownership suppresses stale Ready Gate and lobby bounces on web and native", () => {
   for (const latch of [webDateEntryLatch, nativeDateEntryLatch]) {
-    assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 90_000/);
+    assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 10 \* 60_000/);
     assert.match(latch, /VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS = 30_000/);
-    assert.match(latch, /VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS = 30_000/);
+    assert.match(latch, /VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS = 2 \* 60_000/);
     assert.match(
       latch,
       /Math\.min\(ttl, VIDEO_DATE_ANONYMOUS_ROUTE_OWNERSHIP_TTL_MS\)/,
@@ -196,11 +196,14 @@ test("date-route ownership suppresses stale Ready Gate and lobby bounces on web 
     assert.match(latch, /export function markVideoDateRouteOwned/);
     assert.match(latch, /export function isVideoDateRouteOwned/);
     assert.match(latch, /export function clearVideoDateRouteOwnership/);
-    assert.match(
-      latch,
-      /routeOwnership\.delete\(routeOwnershipKey\(sessionId, null\)\)/,
-    );
+    assert.match(latch, /routeOwnership\.delete/);
   }
+
+  assert.match(webDateEntryLatch, /clearStoredRouteOwnershipForSession/);
+  assert.match(
+    nativeDateEntryLatch,
+    /routeOwnership\.delete\(routeOwnershipKey\(sessionId, null\)\)/,
+  );
 
   assert.match(
     webVideoDate,

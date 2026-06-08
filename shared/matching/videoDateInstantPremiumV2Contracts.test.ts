@@ -249,7 +249,9 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "leave_and_cleanup"/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background"/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background_timeout"/);
-  assert.match(nativeVideoDate, /if \(shouldParkSingleton\) \{[\s\S]{0,180}parkSharedCallForWarmHandoff/);
+  assert.match(nativeVideoDate, /if \(shouldParkSingleton && parkSharedCallForWarmHandoff\(call, cleanupReason\)\) \{/);
+  assert.match(nativeVideoDate, /daily_call_live_remount_detach_only/);
+  assert.match(nativeVideoDate, /heartbeatPreserved: true/);
   assert.doesNotMatch(nativeVideoDate, /await call\.leave\(\);[\s\S]{0,180}parkSharedCallForWarmHandoff/);
   assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled\s*&&\s*\(\s*dateEstablishedRef\.current\s*\|\|\s*showFeedback\s*\)/);
 });

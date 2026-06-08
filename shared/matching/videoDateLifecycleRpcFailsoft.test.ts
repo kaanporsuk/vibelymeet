@@ -24,6 +24,9 @@ const definitiveRecoveryMigration = read(
 const correctiveSanitizationMigration = read(
   "supabase/migrations/20260608001000_video_date_base_failsoft_payload_sanitization.sql",
 );
+const lastResortFailsoftMigration = read(
+  "supabase/migrations/20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql",
+);
 const webHook = read("src/hooks/useVideoCall.ts");
 const webDate = read("src/pages/VideoDate.tsx");
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
@@ -144,6 +147,76 @@ test("corrective recovery sanitizes base-returned fail-soft payloads", () => {
   }
 
   assert.match(correctiveSanitizationMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("last-resort lifecycle shell covers all browser/native callable date-room RPCs", () => {
+  for (const [functionName, baseName, failureCode] of [
+    [
+      "claim_video_date_surface",
+      "claim_video_date_surface_20260608080938_last_resort_base",
+      "SURFACE_CLAIM_FAILED",
+    ],
+    [
+      "mark_video_date_daily_alive",
+      "mark_video_date_daily_alive_20260608080938_last_resort_base",
+      "DAILY_ALIVE_STAMP_FAILED",
+    ],
+    [
+      "mark_video_date_daily_joined",
+      "mark_video_date_daily_joined_20260608080938_last_resort_base",
+      "DAILY_JOIN_STAMP_FAILED",
+    ],
+    [
+      "video_date_transition",
+      "video_date_transition_20260608080938_last_resort_base",
+      "VIDEO_DATE_TRANSITION_FAILED",
+    ],
+  ] as const) {
+    assert.match(
+      lastResortFailsoftMigration,
+      new RegExp(`RENAME TO ${baseName}`),
+      `${functionName} should preserve the previous public wrapper stack as its base`,
+    );
+    const body = functionBody(lastResortFailsoftMigration, functionName);
+    assert.match(body, new RegExp(baseName));
+    assert.match(body, /video_date_lifecycle_exception_payload_v2/);
+    assert.match(body, /video_date_lifecycle_enrich_and_sanitize_payload_v2/);
+    assert.match(body, new RegExp(failureCode));
+  }
+
+  const safeClientBody = functionBody(
+    lastResortFailsoftMigration,
+    "video_date_lifecycle_client_safe_payload_v2",
+  );
+  const exceptionBody = functionBody(
+    lastResortFailsoftMigration,
+    "video_date_lifecycle_exception_payload_v2",
+  );
+  const enrichBody = functionBody(
+    lastResortFailsoftMigration,
+    "video_date_lifecycle_enrich_and_sanitize_payload_v2",
+  );
+
+  assert.match(safeClientBody, /video_date_lifecycle_sanitize_client_failsoft_payload_v1/);
+  assert.match(safeClientBody, /client_payload_sanitizer_failed/);
+  assert.match(safeClientBody, /- 'message'/);
+  assert.match(safeClientBody, /- 'detail'/);
+  assert.match(safeClientBody, /- 'hint'/);
+
+  assert.match(exceptionBody, /video_date_lifecycle_observe_exception_v2/);
+  assert.match(exceptionBody, /video_date_lifecycle_safe_failsoft_payload_v1/);
+  assert.match(exceptionBody, /video_date_lifecycle_last_resort_payload_v2/);
+  assert.match(exceptionBody, /RETURN public\.video_date_lifecycle_client_safe_payload_v2\(v_payload\)/);
+
+  assert.match(enrichBody, /video_date_enrich_lifecycle_payload_v1/);
+  assert.match(enrichBody, /lifecycle_enrich_failed/);
+  assert.match(
+    enrichBody,
+    /video_date_lifecycle_last_resort_payload_v2\([\s\S]*?\)\s*\|\|\s*v_payload\s*\|\|\s*jsonb_build_object\('enrichment_failed', true\)/,
+    "enrichment fallback must not overwrite base terminal/survey truth",
+  );
+  assert.match(enrichBody, /video_date_lifecycle_client_safe_payload_v2/);
+  assert.match(lastResortFailsoftMigration, /NOTIFY pgrst, 'reload schema'/);
 });
 
 test("shared lifecycle RPC classifier recognizes all terminal survey shapes", () => {

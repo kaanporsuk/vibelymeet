@@ -260,6 +260,16 @@ function videoDateRouteTruthHasPostDateSurvey(
   return videoDateRouteTruthHasEncounterExposure(row);
 }
 
+export function videoDateRegistrationIndicatesPendingSurvey(
+  registration: VideoDateRouteRegistrationTruth | null,
+  sessionId?: string | null,
+): boolean {
+  if (registration?.queue_status !== "in_survey") return false;
+  if (!sessionId) return true;
+  const currentRoomId = normalizeString(registration.current_room_id);
+  return !currentRoomId || currentRoomId === sessionId;
+}
+
 function sessionIdFromServerNextSurface(
   surface: VideoDateServerNextSurfaceLike,
 ): string | null {
@@ -430,6 +440,24 @@ export function decideCanonicalVideoDateRoute(
   const canAttemptDaily = canAttemptDailyRoomFromCanonicalVideoDateTruth(truth);
   const hasProviderRoom = videoDateRouteTruthHasProviderRoom(truth);
   const dateOwnedAfterBothReady = videoDateRouteTruthDateOwnedAfterBothReady(truth);
+  const registrationPendingSurvey = videoDateRegistrationIndicatesPendingSurvey(
+    registration,
+    sessionId,
+  );
+
+  if (!params.userFeedbackSubmitted && registrationPendingSurvey) {
+    return makeDecision({
+      target: "survey",
+      reason: "registration_pending_survey",
+      sessionId,
+      eventId,
+      queueStatus,
+      readyGateStatus,
+      canAttemptDaily,
+      hasProviderRoom,
+      legacyDecision: truth && videoDateRouteTruthIsEnded(truth) ? "ended" : "stay_lobby",
+    });
+  }
 
   if (params.serverNextSurface) {
     const serverDecision = routeFromServerNextSurface({
@@ -522,20 +550,6 @@ export function decideCanonicalVideoDateRoute(
       readyGateStatus,
       canAttemptDaily,
       hasProviderRoom,
-    });
-  }
-
-  if (queueStatus === "in_survey" && videoDateRouteTruthHasPostDateSurvey(truth)) {
-    return makeDecision({
-      target: "survey",
-      reason: "registration_pending_survey",
-      sessionId,
-      eventId,
-      queueStatus,
-      readyGateStatus,
-      canAttemptDaily,
-      hasProviderRoom,
-      legacyDecision: "stay_lobby",
     });
   }
 

@@ -2,10 +2,7 @@ import { useEffect, useRef } from "react";
 import { router, usePathname } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { useSessionHydration } from "@/context/SessionHydrationContext";
-import {
-  hrefForCanonicalVideoDateRoute,
-  videoDateHref,
-} from "@/lib/activeSessionRoutes";
+import { videoDateHref } from "@/lib/activeSessionRoutes";
 import {
   isDateEntryTransitionActive,
   markVideoDateRouteOwned,
@@ -29,16 +26,12 @@ export function NativeSessionRouteHydration() {
   const pathname = usePathname();
   const { user } = useAuth();
   const { activeSession, hydrated } = useSessionHydration();
-  const lastReadyKey = useRef<string | null>(null);
   const lastActiveVideoKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user?.id || !hydrated || !pathname) return;
     const m = pathname.match(/\/date\/([^/]+)/);
     const sid = m?.[1] ?? null;
-    if (!m) {
-      lastReadyKey.current = null;
-    }
 
     if (activeSession?.kind === "video" && activeSession.sessionId) {
       markVideoDateRouteOwned(activeSession.sessionId, user.id);
@@ -73,6 +66,7 @@ export function NativeSessionRouteHydration() {
       return;
 
     if (isDateEntryTransitionActive(sid)) {
+      markVideoDateRouteOwned(sid, user.id);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
         session_id: sid,
         reason: "date_entry_latch",
@@ -96,6 +90,11 @@ export function NativeSessionRouteHydration() {
         sessionId: sid,
         eventId: activeSession.eventId,
         truth: vs,
+        registration: {
+          queue_status: activeSession.queueStatus,
+          current_room_id: sid,
+          event_id: activeSession.eventId,
+        },
       });
       const canonicalLog = canonicalVideoDateRouteLogDetail(canonicalRoute, {
         sourceSurface: "native_session_route_hydration",
@@ -107,7 +106,10 @@ export function NativeSessionRouteHydration() {
         canonicalRoute.target === "survey"
       ) {
         const pendingSurveyTerminalEncounter =
-          videoSessionHasPostDateSurveyTruth(vs);
+          canonicalRoute.target === "survey" || videoSessionHasPostDateSurveyTruth(vs);
+        if (pendingSurveyTerminalEncounter) {
+          markVideoDateRouteOwned(sid, user.id);
+        }
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
           session_id: sid,
           reason: pendingSurveyTerminalEncounter
@@ -123,6 +125,7 @@ export function NativeSessionRouteHydration() {
         return;
       }
       if (canonicalRoute.target === "date") {
+        markVideoDateRouteOwned(sid, user.id);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
           session_id: sid,
           reason: canAttemptDaily
@@ -144,36 +147,36 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      if (canonicalRoute.target !== "ready_gate") {
+      if (canonicalRoute.target === "ready_gate") {
+        markVideoDateRouteOwned(sid, user.id);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
           session_id: sid,
-          reason: "video_sessions_not_ready_gate_eligible",
+          reason: "ready_gate_bounce_suppressed_date_owner",
+          source: "native_session_route_hydration",
+          can_attempt_daily: canAttemptDaily,
           ...canonicalLog,
           canonical_target: canonicalRoute.target,
           canonical_reason: canonicalRoute.reason,
-          vs_state: vs?.state ?? null,
-          vs_phase: vs?.phase ?? null,
           ready_gate_status: vs?.ready_gate_status ?? null,
+          ready_gate_expires_at:
+            vs?.ready_gate_expires_at == null
+              ? null
+              : String(vs.ready_gate_expires_at),
+          routed_to: "date",
         });
         return;
       }
-      const key = `${sid}:ready_gate`;
-      if (lastReadyKey.current === key) return;
-      lastReadyKey.current = key;
-      rcBreadcrumb(RC_CATEGORY.videoDateEntry, "route_bounced_to_ready", {
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
         session_id: sid,
-        source: "native_session_route_hydration",
-        can_attempt_daily: canAttemptDaily,
+        reason: "video_sessions_not_ready_gate_eligible",
         ...canonicalLog,
+        canonical_target: canonicalRoute.target,
         canonical_reason: canonicalRoute.reason,
+        vs_state: vs?.state ?? null,
+        vs_phase: vs?.phase ?? null,
         ready_gate_status: vs?.ready_gate_status ?? null,
-        ready_gate_expires_at:
-          vs?.ready_gate_expires_at == null
-            ? null
-            : String(vs.ready_gate_expires_at),
-        routed_to: "ready",
       });
-      router.replace(hrefForCanonicalVideoDateRoute(canonicalRoute));
+      return;
     })();
 
     return () => {

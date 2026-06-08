@@ -5232,14 +5232,6 @@ export default function VideoDateScreen() {
     async (options?: NativeDailyCleanupOptions) => {
       const cleanupMode = options?.mode ?? "destructive";
       const cleanupReason = options?.reason ?? "leave_and_cleanup";
-      clearHandshakeGraceState();
-      clearPartnerAwayAfterTransportGrace(cleanupReason);
-      clearFirstConnectWatchdog();
-      clearDailyTokenRefreshTimer();
-      clearDailyAliveHeartbeatTimer(cleanupReason);
-      dailyTokenRecoveryInFlightRef.current = false;
-      dailyTokenExpiresAtRef.current = null;
-      recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
       const call = callRef.current;
       if (call) {
         detachCallListeners(cleanupReason);
@@ -5250,29 +5242,44 @@ export default function VideoDateScreen() {
           !showFeedback &&
           !terminalSurveyHardStopRef.current &&
           phaseRef.current !== "ended";
-        let parkedSingleton = false;
-        if (shouldParkSingleton) {
-          parkedSingleton = parkSharedCallForWarmHandoff(call, cleanupReason);
+        if (shouldParkSingleton && parkSharedCallForWarmHandoff(call, cleanupReason)) {
+          vdbg("daily_call_live_remount_detach_only", {
+            sessionId: sessionId ?? null,
+            userId: user?.id ?? null,
+            eventId: eventId || null,
+            roomName: roomNameRef.current ?? null,
+            reason: cleanupReason,
+            cleanupMode,
+            heartbeatPreserved: true,
+            callRefPreserved: true,
+          });
+          return;
         }
-        if (!parkedSingleton) {
-          try {
-            await call.leave();
-          } catch (_error) {
-            void _error;
-          }
-          try {
-            await destroyNativeVideoDateDailyCall(call, cleanupReason, {
-              sessionId,
-              userId: user?.id ?? null,
-              roomName: roomNameRef.current ?? null,
-            });
-          } catch (_error) {
-            void _error;
-          }
+      }
+      clearHandshakeGraceState();
+      clearPartnerAwayAfterTransportGrace(cleanupReason);
+      clearFirstConnectWatchdog();
+      clearDailyTokenRefreshTimer();
+      clearDailyAliveHeartbeatTimer(cleanupReason);
+      dailyTokenRecoveryInFlightRef.current = false;
+      dailyTokenExpiresAtRef.current = null;
+      recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
+      if (call) {
+        try {
+          await call.leave();
+        } catch (_error) {
+          void _error;
         }
-        if (!parkedSingleton) {
-          releaseSharedCallIfOwned(call, cleanupReason);
+        try {
+          await destroyNativeVideoDateDailyCall(call, cleanupReason, {
+            sessionId,
+            userId: user?.id ?? null,
+            roomName: roomNameRef.current ?? null,
+          });
+        } catch (_error) {
+          void _error;
         }
+        releaseSharedCallIfOwned(call, cleanupReason);
         callRef.current = null;
       }
       const roomName = roomNameRef.current;
