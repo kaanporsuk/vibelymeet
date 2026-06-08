@@ -7937,7 +7937,11 @@ export type Database = {
           released_at: string | null
           result_code: string | null
           retryable: boolean | null
+          session_ended_at: string | null
+          session_ended_reason: string | null
           session_id: string
+          session_state_updated_at: string | null
+          session_terminal_generation: number | null
           surface: string
           takeover: boolean
           ttl_seconds: number | null
@@ -7955,7 +7959,11 @@ export type Database = {
           released_at?: string | null
           result_code?: string | null
           retryable?: boolean | null
+          session_ended_at?: string | null
+          session_ended_reason?: string | null
           session_id: string
+          session_state_updated_at?: string | null
+          session_terminal_generation?: number | null
           surface: string
           takeover?: boolean
           ttl_seconds?: number | null
@@ -7973,7 +7981,11 @@ export type Database = {
           released_at?: string | null
           result_code?: string | null
           retryable?: boolean | null
+          session_ended_at?: string | null
+          session_ended_reason?: string | null
           session_id?: string
+          session_state_updated_at?: string | null
+          session_terminal_generation?: number | null
           surface?: string
           takeover?: boolean
           ttl_seconds?: number | null
@@ -8414,12 +8426,16 @@ export type Database = {
           participant_1_id: string
           participant_1_joined_at: string | null
           participant_1_liked: boolean | null
+          participant_1_provider_joined_at: string | null
+          participant_1_provider_left_at: string | null
           participant_1_remote_seen_at: string | null
           participant_2_away_at: string | null
           participant_2_decided_at: string | null
           participant_2_id: string
           participant_2_joined_at: string | null
           participant_2_liked: boolean | null
+          participant_2_provider_joined_at: string | null
+          participant_2_provider_left_at: string | null
           participant_2_remote_seen_at: string | null
           phase: string
           prepare_entry_actor_id: string | null
@@ -8444,6 +8460,11 @@ export type Database = {
           started_at: string
           state: Database["public"]["Enums"]["video_date_state"]
           state_updated_at: string
+          terminal_audit_at: string | null
+          terminal_audit_detail: Json
+          terminal_audit_reason: string | null
+          terminal_audit_source: string | null
+          terminal_generation: number
           vibe_question_anchor_at: string | null
           vibe_question_index: number
           vibe_questions: Json | null
@@ -8470,12 +8491,16 @@ export type Database = {
           participant_1_id: string
           participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
+          participant_1_provider_joined_at?: string | null
+          participant_1_provider_left_at?: string | null
           participant_1_remote_seen_at?: string | null
           participant_2_away_at?: string | null
           participant_2_decided_at?: string | null
           participant_2_id: string
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
+          participant_2_provider_joined_at?: string | null
+          participant_2_provider_left_at?: string | null
           participant_2_remote_seen_at?: string | null
           phase?: string
           prepare_entry_actor_id?: string | null
@@ -8500,6 +8525,11 @@ export type Database = {
           started_at?: string
           state?: Database["public"]["Enums"]["video_date_state"]
           state_updated_at?: string
+          terminal_audit_at?: string | null
+          terminal_audit_detail?: Json
+          terminal_audit_reason?: string | null
+          terminal_audit_source?: string | null
+          terminal_generation?: number
           vibe_question_anchor_at?: string | null
           vibe_question_index?: number
           vibe_questions?: Json | null
@@ -8526,12 +8556,16 @@ export type Database = {
           participant_1_id?: string
           participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
+          participant_1_provider_joined_at?: string | null
+          participant_1_provider_left_at?: string | null
           participant_1_remote_seen_at?: string | null
           participant_2_away_at?: string | null
           participant_2_decided_at?: string | null
           participant_2_id?: string
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
+          participant_2_provider_joined_at?: string | null
+          participant_2_provider_left_at?: string | null
           participant_2_remote_seen_at?: string | null
           phase?: string
           prepare_entry_actor_id?: string | null
@@ -8556,6 +8590,11 @@ export type Database = {
           started_at?: string
           state?: Database["public"]["Enums"]["video_date_state"]
           state_updated_at?: string
+          terminal_audit_at?: string | null
+          terminal_audit_detail?: Json
+          terminal_audit_reason?: string | null
+          terminal_audit_source?: string | null
+          terminal_generation?: number
           vibe_question_anchor_at?: string | null
           vibe_question_index?: number
           vibe_questions?: Json | null

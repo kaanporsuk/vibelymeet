@@ -388,8 +388,8 @@ const EventLobby = () => {
     ],
   );
   const deckEnabled = lobbyGate.canFetchDeck;
-  const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
-  const lobbyActionsEnabled =
+  const lobbyGateSideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
+  const lobbyGateActionsEnabled =
     lobbyGate.canUseLobbyActions && !showEventEndedModal;
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -438,6 +438,16 @@ const EventLobby = () => {
     (sameEventScopedSession?.kind === "video" &&
       sameEventScopedSession.sessionId),
   );
+  const activeDateRouteOwnsLobby = Boolean(
+    dateNavigationSessionId ||
+      scopedSessionQueueStatus === "in_survey" ||
+      (sameEventScopedSession?.kind === "video" &&
+        sameEventScopedSession.sessionId),
+  );
+  const lobbySideEffectsEnabled =
+    lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby;
+  const lobbyActionsEnabled =
+    lobbyGateActionsEnabled && !activeDateRouteOwnsLobby;
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({
     queuedCount: 0,
     visibleCount: 0,
@@ -1120,7 +1130,7 @@ const EventLobby = () => {
           prepareNavigationInFlightRef.current.delete(sessionId);
         });
     },
-    [eventId, navigateToDateSession, openReadyGateSession, user?.id],
+    [eventId, navigateToDateSession, user?.id],
   );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)

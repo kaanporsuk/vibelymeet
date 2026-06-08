@@ -27,9 +27,10 @@ Run each scenario on both platforms unless a scenario explicitly covers a cross-
 - Background/foreground during warm-up does not mark the partner away while Daily is active.
 - Delayed push or deep link into an active session lands on `/date/[id]`, not stale Ready Gate.
 - Same-session route remount parks or reuses the active Daily call; it does not destroy and rebuild a joined call.
+- Native event lobby stops readiness/status/queue/drain side effects while same-event `/date/[id]` or terminal survey recovery owns the session.
 - Local Daily `participant-left` waits through the local grace window before partner-away signaling.
 - Confirmed encounter promotes to `date` after both joined and both remote-seen evidence exists.
-- Date end opens `PostDateSurvey` on `/date/[id]` and stops Daily/surface/reconnect churn.
+- Date end opens `PostDateSurvey` on `/date/[id]` and stops Daily/surface/reconnect/queue churn.
 - Survey retry or app foreground recovery persists `date_feedback`.
 - After feedback, the user returns to the expected lobby/deck/next Ready Gate state.
 

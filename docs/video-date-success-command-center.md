@@ -64,6 +64,58 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-08 Implementation Update: Active Date Owner, Terminal Truth, And PostgREST Probes
+
+Local source now closes the latest audited gaps around active `/date` ownership, terminal observability, delayed Daily webhook proof, and HTTP-level lifecycle RPC contracts.
+
+Validated current state before changing code:
+
+- Web `useVideoCall` already preserves live same-session Daily singleton remount identity and heartbeat ownership transfer for active joining/joined calls; it does not clear `activeDailyCallIdentityRef` or the alive heartbeat unless the remount owner can take over.
+- Native/mobile `/date/[id]` already has the matching explicit `preserve_active_handoff` cleanup path and avoids `leave()` / destroy for that named warm handoff.
+- The remaining live-code gap was route ownership outside `/date`: web and native event lobby side effects could still run while a same-event active video/date or terminal survey route owned the session.
+
+Implementation added:
+
+- Web `src/pages/EventLobby.tsx` now derives `activeDateRouteOwnsLobby` from date navigation, `in_survey` registration truth, and same-event active `video` session truth. While true, lobby status/readiness/queue/drain/foreground/action side effects are disabled.
+- Native/mobile `apps/mobile/app/event/[eventId]/lobby.tsx` now applies the same single-owner rule for same-event active `video` sessions before readiness/status/queue side effects run.
+- Migration `20260608171837_video_date_active_owner_terminal_truth.sql` adds terminal generation/audit columns to `video_sessions`, terminal tuple columns to `video_date_surface_claim_events`, a terminal audit trigger, and PostgREST-safe final wrappers for `video_session_mark_ready_v2(...)` and `claim_video_date_surface(...)`.
+- The same migration preserves delayed Daily provider join/left truth by webhook `occurred_at` into participant provider-proof columns and an append-only `daily_webhook_historical_truth` presence event, even when the session is already terminal and state mutation is no longer allowed. The preservation path must run for the base Daily recorder's terminal no-mutation response (`state = ignored`, `result = ignored_terminal_session`) as well as normal processed/duplicate responses.
+- Runtime probe `shared/matching/videoDateLifecycleRpcPostgrestRuntime.test.ts` now exercises authenticated HTTP/PostgREST calls for `video_session_mark_ready_v2`, `mark_video_date_daily_alive`, `claim_video_date_surface`, and `video_date_transition` across duplicate, invalid, and optional terminal seeded cases, asserting structured JSON and no raw 5xx.
+- Generated Supabase types now include the new terminal/audit and delayed provider-proof columns.
+- Branch delta: `docs/branch-deltas/fix-video-date-active-owner-terminal-truth.md`.
+
+Session lessons and guidance:
+
+- Heartbeat continuity and route ownership are separate contracts. Current web/native date routes already preserve live same-session Daily identity for explicit active handoff, but lobby/queue/deck logic also has to stand down while `/date/:sessionId` owns the session.
+- A visible `/date` shell, warm-up UI, timer, or even brief media is not enough. The next accepted proof must show the active owner kept control until stable bilateral provider-backed media/date, then survey completion.
+- After `queue_status = 'in_survey'`, `survey_required`, or terminal survey truth appears, the system should stop Daily alive/join loops, surface claim loops, queue drain loops, and Ready Gate recovery loops for that session until `date_feedback` persists.
+- Delayed Daily webhook facts are historical evidence. They must be preserved by provider `occurred_at` even if terminal state correctly blocks further lifecycle mutation; `ignored_terminal_session` means "do not mutate active state," not "discard provider truth."
+- Future failure queries must include `terminal_generation`, `terminal_audit_at`, `terminal_audit_reason`, `terminal_audit_source`, `terminal_audit_detail`, `participant_1_provider_joined_at`, `participant_2_provider_joined_at`, `participant_1_provider_left_at`, `participant_2_provider_left_at`, and the surface-claim terminal tuple fields.
+
+Verification completed locally in this implementation pass:
+
+- `npx tsx shared/matching/webEventLobbyGating.test.ts`
+- `npx tsx shared/matching/videoDateLatestFailureRouteLifecycleContracts.test.ts`
+- `npx tsx shared/matching/videoDateLifecycleRpcFailsoft.test.ts`
+- `npx tsx shared/matching/videoDateLifecycleRpcPostgrestRuntime.test.ts` with the expected local skip when seeded `VIDEO_DATE_PUBLIC_API_RLS_*` credentials are absent.
+- `npm run test:video-date:red-flags`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` shows `20260608171837` as the only local migration not yet on remote.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` shows it would push only `20260608171837_video_date_active_owner_terminal_truth.sql`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exits 0 with the known legacy warning backlog only.
+
+Verification limitation:
+
+- Local Supabase apply/reset could not run because Docker was not available on this workstation (`Cannot connect to the Docker daemon`). Cloud apply was not performed in this implementation pass.
+
+Still not acceptance proof:
+
+- These changes close source/schema/probe gaps only. Video Date remains uncertified until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion, including short leave/rejoin and prolonged absence checks.
+
+---
+
 ## 2026-06-08 Implementation Update: Partial-Ready Definitive Closure
 
 Local code now closes the `ready_a` / `ready_b` boundary for web, native, and mobile users before provider room/token work can run.

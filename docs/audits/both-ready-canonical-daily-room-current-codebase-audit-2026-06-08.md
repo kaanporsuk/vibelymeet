@@ -6,6 +6,8 @@ Scope: answers the attached `both_ready + canonical Daily room` interrogation pa
 
 Read-only note: no app code was changed for this audit. The only intended output is this Markdown file. The repo already had local modifications in web/native Video Date files, tests, and `docs/video-date-success-command-center.md`; those dirty files were treated as current live source and were not reverted.
 
+Post-audit implementation note: later on 2026-06-08, local source added the active-owner / terminal-truth patch recorded in `docs/branch-deltas/fix-video-date-active-owner-terminal-truth.md` and migration `20260608171837_video_date_active_owner_terminal_truth.sql`. That follow-up does not change this audit's evidence class: `both_ready` and canonical Daily room remain source/test/cloud mechanics, not product success proof. It does add a stricter operational rule for this audit's failure successors: once `/date/:sessionId` owns the session, web/native lobby queue, readiness, status, and drain side effects must stop; once survey truth exists, Daily/date/queue loops must hard-stop until `date_feedback` persists.
+
 ## 0. Evidence and proof classes
 
 Primary evidence inspected:
