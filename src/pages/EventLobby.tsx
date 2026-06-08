@@ -1062,14 +1062,14 @@ const EventLobby = () => {
               session_id: sessionId,
               event_id: eventId,
               source_surface: "event_lobby",
-              source_action: "prepare_entry_failed_no_nav",
+              source_action: "prepare_entry_failed_date_owned",
               code: result.code,
               reason_code: result.code,
               httpStatus: result.httpStatus ?? null,
               retryable: result.retryable,
             },
           );
-          vdbg("event_lobby_prepare_entry_failed_no_nav", {
+          vdbg("event_lobby_prepare_entry_failed_date_owned", {
             sessionId,
             eventId,
             source,
@@ -1082,17 +1082,14 @@ const EventLobby = () => {
             session_id: sessionId,
             event_id: eventId,
             source_surface: "event_lobby",
-            source_action: `${source}_prepare_failed_ready_gate_recovery`,
-            outcome: "recovered",
+            source_action: `${source}_prepare_failed_date_owned`,
+            outcome: "date_owned",
             code: result.code,
             reason_code: result.code,
             httpStatus: result.httpStatus ?? null,
             retryable: result.retryable,
           });
-          openReadyGateSession(
-            sessionId,
-            `${source}_prepare_failed_ready_gate_recovery`,
-          );
+          navigateAfterPrepare(`${source}_prepare_failed_date_owned`);
         })
         .catch((error) => {
           const message =
@@ -1104,23 +1101,20 @@ const EventLobby = () => {
               session_id: sessionId,
               event_id: eventId,
               source_surface: "event_lobby",
-              source_action: "prepare_entry_exception_no_nav",
+              source_action: "prepare_entry_exception_date_owned",
               code: "PREPARE_ENTRY_EXCEPTION",
               reason_code: "PREPARE_ENTRY_EXCEPTION",
               httpStatus: null,
               retryable: true,
             },
           );
-          vdbg("event_lobby_prepare_entry_exception_no_nav", {
+          vdbg("event_lobby_prepare_entry_exception_date_owned", {
             sessionId,
             eventId,
             source,
             message,
           });
-          openReadyGateSession(
-            sessionId,
-            `${source}_prepare_exception_ready_gate_recovery`,
-          );
+          navigateAfterPrepare(`${source}_prepare_exception_date_owned`);
         })
         .finally(() => {
           prepareNavigationInFlightRef.current.delete(sessionId);

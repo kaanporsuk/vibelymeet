@@ -1999,7 +1999,7 @@ const ReadyGateOverlay = ({
                 eventName: "prepare_date_entry_failed",
                 payload: {
                   source_surface: "ready_gate_overlay",
-                  source_action: "prepare_entry_failed_no_nav",
+                  source_action: "prepare_entry_failed_date_owned",
                   reason_code: result.code,
                   code: result.code,
                   http_status: result.httpStatus ?? undefined,
@@ -2012,14 +2012,22 @@ const ReadyGateOverlay = ({
                   video_date_trace_id: result.entryAttemptId ?? undefined,
                 },
               });
-              setIsTransitioning(false);
-              setPrepareEntryStatus("failed");
-              setPrepareEntryFailure({
-                code: result.code,
-                message: prepareEntryFailureMessage(result.code),
-                retryable,
-                httpStatus: result.httpStatus,
-              });
+              if (user?.id) {
+                updateVideoDateEntryOwnerState({
+                  sessionId,
+                  userId: user.id,
+                  state: "navigating",
+                  source: "ready_gate_prepare_failed_date_owned",
+                  entryAttemptId: result.entryAttemptId ?? null,
+                  videoDateTraceId: result.entryAttemptId ?? null,
+                  failureCode: result.code,
+                  failureMessage: result.message ?? null,
+                });
+              }
+              setPrepareEntryStatus("idle");
+              setPrepareEntryFailure(null);
+              prepareEntryHandoffStartedRef.current = true;
+              navigateToDate("both_ready_prepare_failed_date_owned");
               return;
             }
 
@@ -2047,7 +2055,7 @@ const ReadyGateOverlay = ({
               sourceAction,
             },
           });
-          vdbg("ready_gate_prepare_entry_exception_no_nav", {
+          vdbg("ready_gate_prepare_entry_exception_date_owned", {
             sessionId,
             eventId,
             sourceAction,
@@ -2061,15 +2069,22 @@ const ReadyGateOverlay = ({
             !closedRef.current &&
             !dateNavigationStartedRef.current
           ) {
-            setIsTransitioning(false);
-            setPrepareEntryStatus("failed");
-            setPrepareEntryFailure({
-              code: "PREPARE_ENTRY_CLIENT_EXCEPTION",
-              message: prepareEntryFailureMessage(
-                "PREPARE_ENTRY_CLIENT_EXCEPTION",
-              ),
-              retryable: true,
-            });
+            if (user?.id) {
+              const failureMessage =
+                error instanceof Error ? error.message : String(error);
+              updateVideoDateEntryOwnerState({
+                sessionId,
+                userId: user.id,
+                state: "navigating",
+                source: "ready_gate_prepare_exception_date_owned",
+                failureCode: "PREPARE_ENTRY_CLIENT_EXCEPTION",
+                failureMessage,
+              });
+            }
+            setPrepareEntryStatus("idle");
+            setPrepareEntryFailure(null);
+            prepareEntryHandoffStartedRef.current = true;
+            navigateToDate("both_ready_prepare_exception_date_owned");
           }
         } finally {
           window.clearTimeout(slowWaitTimer);

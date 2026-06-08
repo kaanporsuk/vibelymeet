@@ -581,20 +581,12 @@ export default function ReadyGateScreen() {
           source: `ready_standalone_${source}`,
         });
         if (prepared.ok !== true) {
-          dateNavigationStartedRef.current = false;
-          setTransitioning(false);
-          clearDateEntryTransition(sid);
           setPrepareEntryFailureCode(prepared.code);
           setPrepareEntryFailureRetryable(prepared.retryable);
-          setTerminalActionError(
-            resolveReadyGatePrepareEntryFailureCopy({
-              code: prepared.code,
-              platform: 'native',
-            }).message,
-          );
+          setTerminalActionError(null);
           rcBreadcrumb(
             RC_CATEGORY.readyGate,
-            'standalone_prepare_entry_failed_before_date_nav',
+            'standalone_prepare_entry_failed_date_owned',
             {
               session_id: sid,
               user_id: user.id,
@@ -604,16 +596,50 @@ export default function ReadyGateScreen() {
               retryable: prepared.retryable,
             },
           );
-          if (
-            isReadyGatePrepareEntryNonRetryable({
-              code: prepared.code,
-              errorCode: prepared.code,
-              source: 'prepare_entry',
-            })
-          ) {
-            nonRetryablePrepareBlockerRef.current = `${sid}:${prepared.code}`;
+          setTransitioning(true);
+          updateVideoDateEntryOwnerState({
+            sessionId: sid,
+            userId: user.id,
+            state: 'navigating',
+            source: 'ready_standalone_prepare_failed_date_owned',
+            entryAttemptId: prepared.entryAttemptId ?? null,
+            videoDateTraceId: prepared.entryAttemptId ?? null,
+            failureCode: prepared.code,
+            failureMessage: prepared.message ?? null,
+          });
+          markVideoDateRouteOwned(sid, user.id);
+          const navigated = navigateToDateSessionGuarded({
+            sessionId: sid,
+            pathname,
+            mode: 'replace',
+            onSuppressed: ({ reason: suppressReason, target }) => {
+              rcBreadcrumb(
+                RC_CATEGORY.readyGate,
+                'standalone_prepare_failed_date_nav_suppressed',
+                {
+                  session_id: sid,
+                  reason: suppressReason,
+                  target: String(target),
+                  source,
+                },
+              );
+            },
+          });
+          if (!navigated) {
+            setTransitioning(false);
           }
-          return false;
+          if (source === 'both_ready' && navigated) {
+            videoDateLaunchBreadcrumb(
+              'ready_standalone_prepare_failed_date_owned',
+              {
+                session_id: sid,
+              },
+            );
+            markNativeVideoDateLaunchIntent(
+              'ready_standalone_prepare_failed_date_owned',
+            );
+          }
+          return true;
         }
         void startNativeVideoDateDailyPrewarm({
           sessionId: sid,

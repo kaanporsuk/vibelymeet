@@ -1097,20 +1097,26 @@ test("legacy join_date_room verifies or recovers provider room before token issu
   assert.ok(joinTokenIndex > joinVerifyIndex);
 });
 
-test("web ready-gate paths do not navigate to date before prepare-entry succeeds", () => {
+test("web ready-gate paths keep date ownership after both-ready prepare failures", () => {
   assert.doesNotMatch(readyGateOverlay, /PREPARE_ENTRY_NAV_GRACE_MS/);
   assert.doesNotMatch(readyGateOverlay, /both_ready_prepare_grace/);
   assert.match(readyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
   assert.match(readyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(readyGateOverlay, /navigateToDate\(["']both_ready_prepare_success["']\)/);
+  assert.match(readyGateOverlay, /source_action: "prepare_entry_failed_date_owned"/);
+  assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_failed_date_owned"\)/);
+  assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_exception_date_owned"\)/);
 
   assert.doesNotMatch(eventLobby, /PREPARE_ENTRY_NAV_GRACE_MS/);
   assert.doesNotMatch(eventLobby, /prepare_grace/);
   assert.match(eventLobby, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_done`\)/);
-  assert.match(
+  assert.match(eventLobby, /source_action: "prepare_entry_failed_date_owned"/);
+  assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_failed_date_owned`\)/);
+  assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_exception_date_owned`\)/);
+  assert.doesNotMatch(
     eventLobby,
-    /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV[\s\S]*openReadyGateSession\(\s*sessionId,\s*`\$\{source\}_prepare_failed_ready_gate_recovery`/,
+    /\$\{source\}_prepare_failed_ready_gate_recovery/,
   );
 });
 
@@ -1122,15 +1128,16 @@ test("web lobby opens returned swipe session id immediately", () => {
   );
 });
 
-test("native ready-gate paths are success-gated with no timer fallback route", () => {
+test("native ready-gate paths keep date ownership after both-ready prepare failures", () => {
   assert.doesNotMatch(nativeReadyGateOverlay, /PREPARE_ENTRY_NAV_GRACE_MS/);
   assert.doesNotMatch(nativeReadyGateOverlay, /both_ready_prepare_grace|prepare_grace/);
   assert.doesNotMatch(nativeReadyGateOverlay, /setTimeout\(\s*\(\)\s*=>[\s\S]{0,200}onNavigateToDate/s);
   assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
   assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\) \{[\s\S]*preAuthNativeVideoDateDailyPrewarm[\s\S]*navigateWithLatency\(`\$\{source\}_prepare_success`\)/s);
-  assert.match(nativeReadyGateOverlay, /setPrepareEntryStatus\(["']failed["']\)/);
-  assert.match(nativeReadyGateOverlay, /retryPrepareEntry/);
+  assert.match(nativeReadyGateOverlay, /source_action: 'prepare_entry_failed_date_owned'/);
+  assert.match(nativeReadyGateOverlay, /navigateWithLatency\(`\$\{source\}_prepare_failed_date_owned`\)/);
+  assert.match(nativeReadyGateOverlay, /navigateWithLatency\(`\$\{source\}_prepare_exception_date_owned`\)/);
 });
 
 test("web and native ready-gate handoff use shared retry policy", () => {
@@ -3619,8 +3626,8 @@ test("Sprint 1H journey trace map covers critical Video Date release signals", (
 test("Sprint 1H added recovery trace points are wired with safe correlation metadata", () => {
   assert.match(eventLobby, /READY_GATE_HANDOFF_RECOVERY/);
   assert.match(eventLobby, /source_surface: "event_lobby"/);
-  assert.match(eventLobby, /source_action: `\$\{source\}_prepare_failed_ready_gate_recovery`/);
-  assert.match(eventLobby, /outcome: "recovered"/);
+  assert.match(eventLobby, /source_action: `\$\{source\}_prepare_failed_date_owned`/);
+  assert.match(eventLobby, /outcome: "date_owned"/);
   assert.match(eventLobby, /reason_code: result\.code/);
   assert.match(eventLobby, /retryable: result\.retryable/);
 

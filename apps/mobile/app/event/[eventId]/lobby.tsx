@@ -1081,10 +1081,9 @@ export default function EventLobbyScreen() {
             source: `event_lobby_${trigger}`,
           });
           if (prepared.ok !== true) {
-            clearDateEntryTransition(sessionIdToOpen);
             rcBreadcrumb(
               RC_CATEGORY.lobbyDateEntry,
-              "date_navigation_prepare_entry_failed",
+              "date_navigation_prepare_entry_failed_date_owned",
               {
                 session_id: sessionIdToOpen,
                 event_id: id,
@@ -1093,8 +1092,7 @@ export default function EventLobbyScreen() {
                 retryable: prepared.retryable,
               },
             );
-            void refetchActiveSession();
-            return;
+            markVideoDateRouteOwned(sessionIdToOpen, user.id);
           }
         }
 

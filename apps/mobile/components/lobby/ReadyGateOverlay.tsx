@@ -1011,7 +1011,7 @@ export function ReadyGateOverlay({
                 eventName: 'prepare_date_entry_failed',
                 payload: {
                   source_surface: 'ready_gate_overlay',
-                  source_action: 'prepare_entry_failed_no_nav',
+                  source_action: 'prepare_entry_failed_date_owned',
                   reason_code: result.code,
                   code: result.code,
                   http_status: result.httpStatus ?? undefined,
@@ -1024,14 +1024,10 @@ export function ReadyGateOverlay({
                   video_date_trace_id: result.entryAttemptId ?? undefined,
                 },
               });
-              setIsTransitioning(false);
-              setPrepareEntryStatus('failed');
-              setPrepareEntryFailure({
-                code: result.code,
-                retryable,
-                httpStatus: result.httpStatus,
-              });
-              prepareEntryHandoffStartedRef.current = false;
+              setPrepareEntryStatus('idle');
+              setPrepareEntryFailure(null);
+              prepareEntryHandoffStartedRef.current = true;
+              navigateWithLatency(`${source}_prepare_failed_date_owned`);
               return;
             }
 
@@ -1044,16 +1040,11 @@ export function ReadyGateOverlay({
           }
         } catch (error) {
           clearTimeout(slowWaitTimer);
-          if (!dateNavigationStartedRef.current) {
-            prepareEntryHandoffStartedRef.current = false;
-          }
-          setIsTransitioning(false);
-          setPrepareEntryStatus('failed');
-          setPrepareEntryFailure({
-            code: 'PREPARE_ENTRY_CLIENT_EXCEPTION',
-            retryable: true,
-          });
-          vdbg('ready_gate_prepare_entry_exception_no_nav', {
+          if (dateNavigationStartedRef.current || closedRef.current) return;
+          setPrepareEntryStatus('idle');
+          setPrepareEntryFailure(null);
+          prepareEntryHandoffStartedRef.current = true;
+          vdbg('ready_gate_prepare_entry_exception_date_owned', {
             sessionId,
             eventId,
             source,
@@ -1067,11 +1058,12 @@ export function ReadyGateOverlay({
             eventName: 'prepare_date_entry_failed',
             payload: {
               source_surface: 'ready_gate_overlay',
-              source_action: 'prepare_entry_exception_no_nav',
+              source_action: 'prepare_entry_exception_date_owned',
               reason_code: 'PREPARE_ENTRY_CLIENT_EXCEPTION',
               error_name: error instanceof Error ? error.name : undefined,
             },
           });
+          navigateWithLatency(`${source}_prepare_exception_date_owned`);
         } finally {
           clearTimeout(slowWaitTimer);
         }

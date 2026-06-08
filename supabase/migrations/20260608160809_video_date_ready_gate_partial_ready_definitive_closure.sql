@@ -465,25 +465,6 @@ BEGIN
     ELSE v_session.participant_1_id
   END;
 
-  IF v_session.state IS DISTINCT FROM 'ready_gate'::public.video_date_state
-     OR COALESCE(v_session.phase, 'ready_gate') IN ('handshake', 'date')
-     OR v_session.handshake_started_at IS NOT NULL
-     OR v_session.date_started_at IS NOT NULL
-     OR v_session.participant_1_joined_at IS NOT NULL
-     OR v_session.participant_2_joined_at IS NOT NULL THEN
-    RETURN jsonb_build_object(
-      'ok', true,
-      'success', true,
-      'session_id', v_session.id,
-      'event_id', v_session.event_id,
-      'status', v_status,
-      'ready_gate_status', v_status,
-      'actionable', true,
-      'source', v_source,
-      'non_ready_gate_owned', true
-    );
-  END IF;
-
   IF v_session.ended_at IS NOT NULL
      OR v_session.state = 'ended'::public.video_date_state
      OR COALESCE(v_session.phase, '') = 'ended'
@@ -502,6 +483,25 @@ BEGIN
       'retryable', false,
       'terminal', true,
       'source', v_source
+    );
+  END IF;
+
+  IF v_session.state IS DISTINCT FROM 'ready_gate'::public.video_date_state
+     OR COALESCE(v_session.phase, 'ready_gate') IN ('handshake', 'date')
+     OR v_session.handshake_started_at IS NOT NULL
+     OR v_session.date_started_at IS NOT NULL
+     OR v_session.participant_1_joined_at IS NOT NULL
+     OR v_session.participant_2_joined_at IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'ok', true,
+      'success', true,
+      'session_id', v_session.id,
+      'event_id', v_session.event_id,
+      'status', v_status,
+      'ready_gate_status', v_status,
+      'actionable', true,
+      'source', v_source,
+      'non_ready_gate_owned', true
     );
   END IF;
 
