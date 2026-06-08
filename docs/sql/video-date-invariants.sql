@@ -323,6 +323,91 @@ WITH invariant_results AS (
   UNION ALL
 
   SELECT
+    'stale_survey_pending_feedback_blocks_certification'::text,
+    'warning'::text,
+    CASE WHEN count(*) = 0 THEN 'pass' ELSE 'warn' END,
+    count(*)::integer,
+    COALESCE(jsonb_agg(sample ORDER BY rn) FILTER (WHERE rn <= 10), '[]'::jsonb),
+    'Survey-required participants still missing date_feedback more than 15 minutes after a survey-eligible end must block certification via --warn-as-error.'::text
+  FROM (
+    WITH survey_roles AS (
+      SELECT
+        vs.id AS session_id,
+        vs.event_id,
+        vs.ended_at,
+        er.id AS registration_id,
+        'participant_1'::text AS role,
+        vs.participant_1_id AS user_id,
+        er.queue_status
+      FROM public.video_sessions vs
+      JOIN public.event_registrations er
+        ON er.event_id = vs.event_id
+       AND er.profile_id = vs.participant_1_id
+      WHERE er.queue_status = 'in_survey'
+        AND vs.ended_at IS NOT NULL
+        AND vs.ended_at <= now() - interval '15 minutes'
+        AND public.video_date_session_is_post_date_survey_eligible_v2(
+          vs.ended_at,
+          vs.ended_reason,
+          vs.date_started_at,
+          vs.state::text,
+          vs.phase,
+          vs.participant_1_joined_at,
+          vs.participant_2_joined_at,
+          vs.participant_1_remote_seen_at,
+          vs.participant_2_remote_seen_at
+        )
+
+      UNION ALL
+
+      SELECT
+        vs.id,
+        vs.event_id,
+        vs.ended_at,
+        er.id,
+        'participant_2'::text,
+        vs.participant_2_id,
+        er.queue_status
+      FROM public.video_sessions vs
+      JOIN public.event_registrations er
+        ON er.event_id = vs.event_id
+       AND er.profile_id = vs.participant_2_id
+      WHERE er.queue_status = 'in_survey'
+        AND vs.ended_at IS NOT NULL
+        AND vs.ended_at <= now() - interval '15 minutes'
+        AND public.video_date_session_is_post_date_survey_eligible_v2(
+          vs.ended_at,
+          vs.ended_reason,
+          vs.date_started_at,
+          vs.state::text,
+          vs.phase,
+          vs.participant_1_joined_at,
+          vs.participant_2_joined_at,
+          vs.participant_1_remote_seen_at,
+          vs.participant_2_remote_seen_at
+        )
+    )
+    SELECT
+      row_number() OVER (ORDER BY sr.ended_at DESC, sr.session_id, sr.role) AS rn,
+      jsonb_build_object(
+        'registration_id', sr.registration_id,
+        'session_id', sr.session_id,
+        'event_id', sr.event_id,
+        'queue_status', sr.queue_status,
+        'missing_feedback_role', sr.role,
+        'ended_at', sr.ended_at,
+        'age_seconds', GREATEST(0, floor(extract(epoch FROM (now() - sr.ended_at))))::integer
+      ) AS sample
+    FROM survey_roles sr
+    LEFT JOIN public.date_feedback df
+      ON df.session_id = sr.session_id
+     AND df.user_id = sr.user_id
+    WHERE df.id IS NULL
+  ) failures
+
+  UNION ALL
+
+  SELECT
     'provider_join_webhook_evidence_present_for_recent_joined_sessions'::text,
     'warning'::text,
     CASE WHEN count(*) = 0 THEN 'pass' ELSE 'warn' END,
