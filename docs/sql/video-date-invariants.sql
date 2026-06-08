@@ -176,12 +176,84 @@ WITH invariant_results AS (
   UNION ALL
 
   SELECT
-    'survey_held_registration_requires_feedback_before_release'::text,
+    'survey_required_unfinished_feedback_must_remain_in_survey'::text,
     'critical'::text,
     CASE WHEN count(*) = 0 THEN 'pass' ELSE 'fail' END,
     count(*)::integer,
     COALESCE(jsonb_agg(sample ORDER BY rn) FILTER (WHERE rn <= 10), '[]'::jsonb),
-    'A participant held in_survey for a terminal video date must have date_feedback before leaving the date-stack finish line.'::text
+    'A terminal survey-eligible participant without date_feedback must remain owned by in_survey truth.'::text
+  FROM (
+    WITH survey_roles AS (
+      SELECT
+        vs.id AS session_id,
+        vs.event_id,
+        vs.started_at,
+        er.id AS registration_id,
+        'participant_1'::text AS role,
+        vs.participant_1_id AS user_id,
+        er.queue_status
+      FROM public.video_sessions vs
+      LEFT JOIN public.event_registrations er
+        ON er.event_id = vs.event_id
+       AND er.profile_id = vs.participant_1_id
+      WHERE (
+          vs.ended_at IS NOT NULL
+          OR vs.date_started_at IS NOT NULL
+          OR (
+            vs.participant_1_remote_seen_at IS NOT NULL
+            AND vs.participant_2_remote_seen_at IS NOT NULL
+          )
+        )
+
+      UNION ALL
+
+      SELECT
+        vs.id,
+        vs.event_id,
+        vs.started_at,
+        er.id,
+        'participant_2'::text,
+        vs.participant_2_id,
+        er.queue_status
+      FROM public.video_sessions vs
+      LEFT JOIN public.event_registrations er
+        ON er.event_id = vs.event_id
+       AND er.profile_id = vs.participant_2_id
+      WHERE (
+          vs.ended_at IS NOT NULL
+          OR vs.date_started_at IS NOT NULL
+          OR (
+            vs.participant_1_remote_seen_at IS NOT NULL
+            AND vs.participant_2_remote_seen_at IS NOT NULL
+          )
+        )
+    )
+    SELECT
+      row_number() OVER (ORDER BY sr.started_at DESC, sr.session_id, sr.role) AS rn,
+      jsonb_build_object(
+        'registration_id', sr.registration_id,
+        'session_id', sr.session_id,
+        'event_id', sr.event_id,
+        'queue_status', COALESCE(sr.queue_status, 'missing'),
+        'missing_feedback_role', sr.role
+      ) AS sample
+    FROM survey_roles sr
+    LEFT JOIN public.date_feedback df
+      ON df.session_id = sr.session_id
+     AND df.user_id = sr.user_id
+    WHERE df.id IS NULL
+      AND COALESCE(sr.queue_status, 'missing') <> 'in_survey'
+  ) failures
+
+  UNION ALL
+
+  SELECT
+    'survey_pending_feedback_held_in_survey'::text,
+    'warning'::text,
+    CASE WHEN count(*) = 0 THEN 'pass' ELSE 'warn' END,
+    count(*)::integer,
+    COALESCE(jsonb_agg(sample ORDER BY rn) FILTER (WHERE rn <= 10), '[]'::jsonb),
+    'Participants still held in_survey without date_feedback are pending operator/runtime evidence, not a release invariant failure.'::text
   FROM (
     WITH survey_roles AS (
       SELECT

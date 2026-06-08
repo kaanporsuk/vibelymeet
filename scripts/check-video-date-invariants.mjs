@@ -42,9 +42,12 @@ function usage() {
   console.error(`Usage: npm run check:video-date:invariants [-- --warn-as-error]
 
 Environment:
-  SUPABASE_DB_URL, PHASE8_STAGING_DB_URL, or DATABASE_URL
+  Optional: SUPABASE_DB_URL, PHASE8_STAGING_DB_URL, or DATABASE_URL
 
-The command runs docs/sql/video-date-invariants.sql through psql.
+The command runs docs/sql/video-date-invariants.sql through psql when a DB URL
+is available. Otherwise it falls back to the linked Supabase project via:
+  supabase db query --linked --file docs/sql/video-date-invariants.sql -o json
+
 It exits nonzero for critical FAIL rows. Warnings remain visible but do not
 fail the command unless --warn-as-error is passed.`);
 }
@@ -57,70 +60,137 @@ if (args.has("--help") || args.has("-h")) {
 
 loadLocalEnv();
 
-const url = dbUrl();
-if (!url) {
-  usage();
-  process.exit(2);
-}
-
-const result = spawnSync(
-  "psql",
-  [
-    url,
-    "-v",
-    "ON_ERROR_STOP=1",
-    "--quiet",
-    "--no-align",
-    "--tuples-only",
-    "--field-separator",
-    "\t",
-    "--pset",
-    "footer=off",
-    "-f",
-    sqlFile,
-  ],
-  {
-    cwd: repoRoot,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PSQLRC: "/dev/null",
+function runWithPsql(url) {
+  const result = spawnSync(
+    "psql",
+    [
+      url,
+      "-v",
+      "ON_ERROR_STOP=1",
+      "--quiet",
+      "--no-align",
+      "--tuples-only",
+      "--field-separator",
+      "\t",
+      "--pset",
+      "footer=off",
+      "-f",
+      sqlFile,
+    ],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PSQLRC: "/dev/null",
+      },
     },
-  },
+  );
+
+  if (result.error) {
+    console.error(`Failed to run psql: ${result.error.message}`);
+    process.exit(2);
+  }
+
+  if (result.stderr.trim()) {
+    process.stderr.write(result.stderr);
+  }
+
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout);
+    process.exit(result.status ?? 1);
+  }
+
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [invariantId, severity, status, rowCount, sample, detail] =
+        line.split("\t");
+      return {
+        invariantId,
+        severity,
+        status,
+        rowCount: Number(rowCount),
+        sample,
+        detail,
+      };
+    });
+}
+
+function extractJson(text) {
+  const start = text.indexOf("{");
+  if (start === -1) throw new Error("Supabase CLI did not return JSON");
+  let end = text.length;
+  while (end > start) {
+    const candidateEnd = text.lastIndexOf("}", end - 1);
+    if (candidateEnd === -1 || candidateEnd < start) break;
+    try {
+      return JSON.parse(text.slice(start, candidateEnd + 1));
+    } catch {
+      end = candidateEnd;
+    }
+  }
+  throw new Error("Supabase CLI returned malformed JSON");
+}
+
+function runWithSupabaseLinkedQuery() {
+  const relativeSqlFile = "docs/sql/video-date-invariants.sql";
+  const result = spawnSync(
+    "supabase",
+    ["db", "query", "--linked", "--file", relativeSqlFile, "-o", "json"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        SUPABASE_CLI_TELEMETRY_OPTOUT: "1",
+      },
+    },
+  );
+
+  if (result.error) {
+    console.error(`Failed to run supabase db query: ${result.error.message}`);
+    process.exit(2);
+  }
+
+  if (result.stderr.trim()) {
+    process.stderr.write(result.stderr);
+  }
+
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout);
+    process.exit(result.status ?? 1);
+  }
+
+  let parsed;
+  try {
+    parsed = extractJson(result.stdout);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.stdout.write(result.stdout);
+    process.exit(2);
+  }
+
+  return (parsed.rows ?? []).map((row) => ({
+    invariantId: String(row.invariant_id ?? ""),
+    severity: String(row.severity ?? ""),
+    status: String(row.status ?? ""),
+    rowCount: Number(row.row_count ?? 0),
+    sample: JSON.stringify(row.sample ?? []),
+    detail: String(row.detail ?? ""),
+  }));
+}
+
+const url = dbUrl();
+const rows = url ? runWithPsql(url) : runWithSupabaseLinkedQuery();
+
+console.log(
+  url
+    ? "Video Date invariant results"
+    : "Video Date invariant results (linked Supabase project)",
 );
-
-if (result.error) {
-  console.error(`Failed to run psql: ${result.error.message}`);
-  process.exit(2);
-}
-
-if (result.stderr.trim()) {
-  process.stderr.write(result.stderr);
-}
-
-if (result.status !== 0) {
-  process.stdout.write(result.stdout);
-  process.exit(result.status ?? 1);
-}
-
-const rows = result.stdout
-  .split(/\r?\n/)
-  .map((line) => line.trim())
-  .filter(Boolean)
-  .map((line) => {
-    const [invariantId, severity, status, rowCount, sample, detail] =
-      line.split("\t");
-    return {
-      invariantId,
-      severity,
-      status,
-      rowCount: Number(rowCount),
-      sample,
-      detail,
-    };
-  });
-
-console.log("Video Date invariant results");
 console.log("invariant_id\tseverity\tstatus\trow_count\tdetail\tsample");
 for (const row of rows) {
   console.log(
