@@ -64,6 +64,41 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-08 Implementation Update: Both Ready Definitive Date Owner And Eligibility
+
+Local source now closes the audited `both_ready + canonical Daily room` contract gap at the shared backend boundary used by web, native, and mobile clients.
+
+Implementation added:
+
+- Migration `20260608193915_video_date_both_ready_definitive_owner_eligibility.sql` wraps the public Ready Gate/date hot-path RPCs without changing their public names: `video_session_mark_ready_v2(...)`, `video_date_ready_gate_actionability_v1(...)`, `get_video_date_start_snapshot_v1(...)`, and `video_date_transition(...)`.
+- New service-only helper `video_date_participant_eligibility_v1(...)` rechecks participant eligibility before Ready Gate/date entry. It blocks deleted auth users, active suspensions, hidden profiles, and under-18 profiles before provider room/token work can begin.
+- New service-only helper `video_date_both_ready_route_payload_v1(...)` enriches successful and terminal payloads with explicit route truth: `route_decision`, `next_surface`, `ready_gate_completed`, `ready_gate_terminal`, `date_terminal`, `date_owned`, `both_ready_date_owned`, canonical Daily room name/URL, and provider room metadata when available.
+- `video_session_mark_ready_v2(...)` still delegates to the decisive ready commit base. On the second ready tap, the durable `both_ready` commit remains first, deterministic Daily room truth remains canonical, and date-starting notification/outbox work is fail-soft so notification degradation cannot poison the ready commit.
+- Successful `both_ready` now returns a date-owned route payload even if Daily provider room creation/token work is still pending or degraded. This makes `/date/:sessionId` the owner immediately and prevents Ready Gate/lobby loops from treating provider delay as a reason to reclaim the flow.
+- Terminal/survey truth is explicit in the same wrapper payloads. If the actor is already `in_survey` and feedback is missing, the returned next surface is `/date/:sessionId` with survey recovery semantics, not Ready Gate or lobby.
+- New service-only operator diagnostic `video_date_both_ready_operator_diagnostics_v1(...)` reports stuck `both_ready`/Daily/survey categories: missing bilateral join, Daily room domain mismatch, joined without bilateral remote-seen, remote-seen without date promotion, and survey-required without bilateral feedback.
+- The existing `daily-room` Edge Function already calls `video_date_ready_gate_actionability_v1(...)` before provider room/token work, so the new eligibility and date-owner semantics apply to current web/native/mobile entry without an Edge Function source change.
+- Contract coverage was added in `shared/matching/bothReadyCanonicalDailyRoomDefinitiveOwner.test.ts` and wired into both `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+- Branch delta: `docs/branch-deltas/fix-video-date-both-ready-definitive-owner-eligibility.md`.
+
+Verification completed locally:
+
+- `npx tsx shared/matching/bothReadyCanonicalDailyRoomDefinitiveOwner.test.ts`
+- `npm run test:daily-room-contract`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error`
+
+Linked Supabase dry-run planned only `20260608193915_video_date_both_ready_definitive_owner_eligibility.sql`; cloud apply was not performed in this pass. Linked DB lint returned exit 0 with existing warning-only legacy noise, and DB advisors returned `No issues found`.
+
+This is not product-health proof. Before calling Video Date healthy, apply the migration to Supabase cloud, deploy any required app builds, and run a fresh disposable two-user production acceptance flow through match -> Ready Gate -> `both_ready` -> same Daily room -> stable bilateral media/date -> end -> PostDateSurvey -> persisted `date_feedback` for both users.
+
 ## 2026-06-08 Implementation Update: Active Date Owner, Terminal Truth, And PostgREST Probes
 
 Local source now closes the latest audited gaps around active `/date` ownership, terminal observability, delayed Daily webhook proof, and HTTP-level lifecycle RPC contracts.
