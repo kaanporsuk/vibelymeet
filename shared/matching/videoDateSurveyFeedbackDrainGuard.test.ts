@@ -9,6 +9,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read(
   "supabase/migrations/20260608211359_video_date_survey_feedback_drain_guard.sql",
 );
+const lintRepairMigration = read(
+  "supabase/migrations/20260608214714_video_date_survey_feedback_gate_lint_repair.sql",
+);
 const videoSessionFlow = read("supabase/functions/_shared/matching/videoSessionFlow.ts");
 const webMatchQueue = read("src/hooks/useMatchQueue.ts");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
@@ -69,6 +72,15 @@ test("guarded drain RPCs return pending feedback before any Ready Gate promotion
   );
   assert.match(legacyDrain, /record_event_loop_observability\([\s\S]+'drain_match_queue'[\s\S]+'blocked'[\s\S]+'pending_post_date_feedback'/);
   assert.match(legacyDrain, /'legacy_wrapper', true/);
+});
+
+test("pending feedback helper orders by real video_sessions columns after lint repair", () => {
+  assert.match(lintRepairMigration, /CREATE OR REPLACE FUNCTION public\.video_date_actor_pending_feedback_gate_v1/);
+  assert.match(
+    lintRepairMigration,
+    /COALESCE\(vs\.ended_at,\s*vs\.state_updated_at,\s*vs\.started_at\) DESC/,
+  );
+  assert.doesNotMatch(lintRepairMigration, /vs\.created_at/);
 });
 
 test("date_feedback direct authenticated writes are closed while backend RPC ownership remains", () => {
