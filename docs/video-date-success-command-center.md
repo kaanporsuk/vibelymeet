@@ -226,6 +226,27 @@ Still not acceptance proof:
 
 - This closes the latest observed client lifecycle and RPC fail-soft gaps, but Video Date remains uncertified until a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion, including short leave/rejoin and prolonged absence checks.
 
+## 2026-06-08 CTO Audit Follow-Up: Classifier Precision, Guidance Sync, And Workspace Tidy
+
+Deep audit after PR #1240 found no reason to rewrite the applied migration stack, but it did find three cleanup items:
+
+- `shared/matching/videoDateLifecycleRpc.ts` treated generic `session_ended` lifecycle payloads as terminal-survey truth. Web and native both revalidated before opening survey, so this was not a direct false-survey opener, but it blurred telemetry and could send ineligible ended sessions through unnecessary survey-recovery work. The classifier now reserves terminal-survey truth for `queue_status = 'in_survey'`, `survey_required`, or JS-shaped `surveyRequired`; generic `session_ended` remains terminal-stop truth only.
+- `AGENTS.md`, `CODEX.md`, `CLAUDE.md`, and `docs/vibely-canonical-project-reference.md` still described PR #1235 / `20260608001000` as the current implementation/cloud top. They now point to PR #1240 and migration `20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql`, while preserving PR #1235 as the prior Daily-owner baseline.
+- The ignored top-level `dist/` build output was present again and was removed as generated local clutter. `node_modules/**/dist` package folders remain untouched.
+
+Audit decision:
+
+- The applied migration `20260608080938_video_date_lifecycle_rpc_last_resort_failsoft.sql` contains a harmless duplicate `v_actor := auth.uid();` assignment inside the `claim_video_date_surface(...)` wrapper source. Because that migration has already been applied to Supabase cloud, the file was not edited. If a live SQL behavior issue is later found, add a corrective migration instead of rewriting applied history.
+
+Verification:
+
+- Local checks passed: `npx tsx shared/matching/videoDateLifecycleRpcFailsoft.test.ts`, `npm run test:video-date-v4`, `npm run typecheck`, `npm run lint`, `git diff --check`, and generated-clutter scan for top-level `dist`, `.next`, `.turbo`, `coverage`, `build`, `test-results`, and `.expo`.
+- Supabase linked verification passed without mutation: migration list aligned through `20260608080938`, `supabase db push --linked --dry-run` returned `Remote database is up to date.`, `supabase db lint --linked --schema public --fail-on error` exited 0 with legacy warning-only backlog, and live catalog markers confirmed the final public shells are `SECURITY DEFINER`, authenticated-only, delegate to the preserved `*_20260608080938_last_resort_base` functions, and call the v2 exception/enrich/sanitize helpers.
+
+Still not acceptance proof:
+
+- This audit improves correctness and guidance hygiene only. Video Date remains uncertified until the fresh disposable two-user production run completes through survey completion, plus short leave/rejoin and prolonged absence checks.
+
 ---
 
 ## Known Recent Failure Pattern

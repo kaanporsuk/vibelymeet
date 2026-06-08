@@ -44,12 +44,10 @@ export function videoDateLifecycleRpcIndicatesTerminalSurvey(
   payload: VideoDateLifecycleRpcPayload,
 ): boolean {
   if (!isRecord(payload)) return false;
-  const code = videoDateLifecycleRpcCode(payload);
   return (
     normalizeText(payload.queue_status) === "in_survey" ||
     booleanValue(payload.survey_required) ||
-    booleanValue(payload.session_ended) ||
-    code === "session_ended"
+    booleanValue(payload.surveyRequired)
   );
 }
 
