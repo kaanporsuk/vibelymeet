@@ -43,7 +43,7 @@ Previous failed-session overlay: production session `4082fe36-8480-4d30-9a1d-1de
 1. **`first_remote_observed`** or **`remote_track_mounted`** before terminal peer-missing → **delayed join**, not a missing partner.
 2. **`no_remote_watchdog_recovery_start`** followed by **`first_remote_observed`** → **successful recovery** after one automatic rejoin attempt (native).
 3. **`peer_missing_terminal_watchdog_fire`** with no prior remote diagnostics → user-facing **peer-missing terminal**; confirm whether partner opened the date route (PostHog / route journey) and whether promotion rows exist for `session_id` (Supabase observability table).
-4. **`daily_no_remote_watchdog_historical_truth_requires_current_peer`** means the server can prove the encounter happened, but the client still could not see a current remote peer. This should not be treated as a false positive; inspect provider leave/rejoin order and post-encounter absence handling.
+4. **`daily_no_remote_watchdog_historical_truth_suppressed`** plus **`peer_missing_suppressed_remote_seen`** means the server can prove the encounter happened, but the client still could not see a current remote peer. The client kept the room recoverable and left terminalization to provider/server absence handling; inspect provider leave/rejoin order, current owner heartbeat, surface claim, reconnect grace, and provider-absence reconciliation.
 
 ### Incident triage — order of operations
 
@@ -100,7 +100,7 @@ Expected behavior after the current recovery migrations:
 - Native notification deep links are part of that same route-owner contract. Snapshot and fallback truth recovery must mark `/date/:sessionId` ownership for `go_date` and `go_survey`; fallback `go_survey` should emit `pending_survey_terminal_encounter` diagnostics and return `/date/:sessionId`, not lobby/tabs.
 - Current production observability after `20260605232304` should preserve Daily singleton continuity and parking fields such as `same_session_daily_continuity_latched`, `parked_singleton`, `singleton_parking_mode`, `route_owned`, `active_call_session_id_matches`, `truth_refresh_attempt`, and `historical_remote_seen_truth`.
 - If both sides have confirmed remote-media/date-entry evidence and neither side has passed or both-decided, `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` should promote the session to `date` immediately; deadline finalization is only a fallback and must never end that encounter as `handshake_timeout`.
-- After `date_started_at`, a missing peer is a post-encounter absence, not a pre-date partial join. Web/native/mobile should end it with `partner_absent_after_confirmed_encounter` when they need to terminalize manually.
+- After `date_started_at`, a missing peer is a post-encounter absence, not a pre-date partial join. Web/native/mobile should not auto-end solely from first-remote peer-missing when historical encounter truth exists; provider/server absence reconciliation owns automatic terminalization, while explicit user exits may still use `partner_absent_after_confirmed_encounter`.
 - `update_participant_status` must not overwrite `in_survey` to `offline`/`idle`/`browsing` while the user still has a survey-eligible ended session and no `date_feedback` row.
 - Terminal timeout/replay/already-ended paths should preserve or repair deterministic `daily_room_name` and `daily_room_url` for support forensics.
 

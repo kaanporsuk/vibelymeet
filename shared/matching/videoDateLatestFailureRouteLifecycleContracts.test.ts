@@ -97,9 +97,11 @@ test("same-session Daily remount cleanup is detach-only on web and native", () =
   );
   assert.match(
     webVideoCall,
-    /clearDailyAliveHeartbeatTimer\(`daily_call_cleanup:\$\{reason\}`\);[\s\S]{0,120}if \(!parkedSingleton\) \{\s*activeCallSessionIdRef\.current = null;/,
+    /if \(!parkedSingleton\) \{\s*activeDailyCallIdentityRef\.current = null;\s*clearDailyAliveHeartbeatTimer\(`daily_call_cleanup:\$\{reason\}`\);/,
   );
   assert.match(webVideoCall, /heartbeat_transferred: true/);
+  assert.match(webVideoCall, /daily_call_live_remount_heartbeat_preserved/);
+  assert.match(webVideoCall, /daily_call_live_remount_identity_preserved/);
 
   const nativeParkIndex = nativeDateRoute.indexOf(
     "parkSharedCallForWarmHandoff(call, cleanupReason)",

@@ -167,12 +167,16 @@ test("web and native date routes keep owner-alive heartbeats after Daily join", 
   }
 });
 
-test("web parked Daily singleton cleanup stops the old alive heartbeat", () => {
+test("web parked Daily singleton cleanup preserves the active alive heartbeat", () => {
   const cleanupStart = webDate.indexOf("const shouldParkLiveSingleton =");
   assert.notEqual(cleanupStart, -1, "web cleanup block should exist");
   const clearHeartbeatIndex = webDate.indexOf(
     'clearDailyAliveHeartbeatTimer(`daily_call_cleanup:${reason}`)',
     cleanupStart,
+  );
+  const clearHeartbeatGuardIndex = webDate.lastIndexOf(
+    "if (!parkedSingleton) {",
+    clearHeartbeatIndex,
   );
   const preserveContinuityIndex = webDate.indexOf(
     "if (!parkedSingleton) {\n          activeCallSessionIdRef.current = null;",
@@ -180,18 +184,15 @@ test("web parked Daily singleton cleanup stops the old alive heartbeat", () => {
   );
   assert.ok(clearHeartbeatIndex > cleanupStart, "cleanup should clear the alive heartbeat");
   assert.ok(
+    clearHeartbeatGuardIndex > cleanupStart,
+    "heartbeat cleanup should be guarded by non-parked cleanup",
+  );
+  assert.ok(
     preserveContinuityIndex > clearHeartbeatIndex,
-    "heartbeat cleanup should happen before same-session continuity preservation",
+    "destructive heartbeat cleanup should still precede destructive continuity clearing",
   );
-  const cleanupSlice = webDate.slice(
-    Math.max(0, clearHeartbeatIndex - 120),
-    clearHeartbeatIndex,
-  );
-  assert.doesNotMatch(
-    cleanupSlice,
-    /if \(!parkedSingleton\)/,
-    "parked singleton cleanup must not keep the old hook heartbeat interval alive",
-  );
+  assert.match(webDate, /daily_call_live_remount_heartbeat_preserved/);
+  assert.match(webDate, /daily_call_live_remount_identity_preserved/);
 });
 
 test("web and native date routes only report joined owner state with current provider proof", () => {

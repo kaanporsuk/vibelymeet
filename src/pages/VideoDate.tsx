@@ -683,7 +683,7 @@ const VideoDate = () => {
   const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
   const terminalDailyStopRef = useRef<((reason: string) => void) | null>(null);
   const terminalDailyStopRequestedRef = useRef(false);
-  const postEncounterPeerMissingEndRequestedRef = useRef<string | null>(null);
+  const postEncounterPeerMissingSuppressedRef = useRef<string | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<
     ((reason?: VideoDateEndReason) => Promise<void>) | null
@@ -5311,11 +5311,11 @@ const VideoDate = () => {
       videoSessionHasEncounterExposureTruth(handshakeTruth);
     if (!confirmedEncounter) return;
 
-    const key = `${id}:partner_absent_after_confirmed_encounter`;
-    if (postEncounterPeerMissingEndRequestedRef.current === key) return;
-    postEncounterPeerMissingEndRequestedRef.current = key;
+    const key = `${id}:post_encounter_peer_missing_terminal_suppressed`;
+    if (postEncounterPeerMissingSuppressedRef.current === key) return;
+    postEncounterPeerMissingSuppressedRef.current = key;
 
-    vdbg("post_encounter_peer_missing_terminal_end_requested", {
+    vdbg("post_encounter_peer_missing_terminal_end_suppressed", {
       sessionId: id,
       userId: user?.id ?? null,
       eventId: eventId ?? null,
@@ -5329,14 +5329,12 @@ const VideoDate = () => {
       session_id: id,
       event_id: eventId ?? null,
       source_surface: "video_date_route",
-      source_action: "post_encounter_peer_missing_terminal_end",
-      reason_code: "partner_absent_after_confirmed_encounter",
+      source_action: "post_encounter_peer_missing_terminal_end_suppressed",
+      reason_code: "provider_absence_server_owned_after_encounter",
     });
-    void handleCallEnd("partner_absent_after_confirmed_encounter");
   }, [
     dateStartedAt,
     eventId,
-    handleCallEnd,
     handshakeTruth,
     id,
     peerMissing.terminal,
