@@ -66,7 +66,7 @@ A successful Video Date run means:
 
 ## 2026-06-09 Implementation Update: PR #1242-#1256 Review Comments Follow-Up
 
-This branch uses the GitHub review-comments workflow for the last 15 PRs, `#1242` through `#1256`. No actionable Copilot-authored review comments were found. Current Codex review comments were mapped to source, migrations, and docs, then handled with targeted code fixes plus one forward Supabase corrective migration.
+PR #1257 used the GitHub review-comments workflow for the last 15 PRs, `#1242` through `#1256`. No actionable Copilot-authored review comments were found. Current Codex review comments were mapped to source, migrations, and docs, then handled with targeted code fixes plus one forward Supabase corrective migration.
 
 Implemented follow-ups:
 
@@ -79,7 +79,7 @@ Implemented follow-ups:
 - Branch delta: `docs/branch-deltas/fix-video-date-review-comments-1242-1256-followups.md`.
 - Contract coverage: `shared/matching/reviewComments1242_1256Followups.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
 
-Verification completed in this local pass:
+Verification completed before merge:
 
 - `jq empty package.json`
 - `npx tsx shared/matching/reviewComments1242_1256Followups.test.ts`
@@ -91,11 +91,19 @@ Verification completed in this local pass:
 - `git diff --check`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` planned only `20260608224048_review_comments_1242_1256_followups.sql`.
 
-Remaining publish verification for this branch:
+Publish and cloud verification completed after merge:
 
-- Merge the GitHub PR with branch deletion.
-- Apply the pending Supabase migration to linked project `schdyxcunwcvddlcshwd` after merge, then confirm post-apply dry-run, migration list alignment, DB lint, DB advisors, and live catalog markers.
-- Fresh disposable two-user production acceptance through both users persisting `date_feedback` remains required before calling Video Date healthy.
+- PR #1257 merged to `main` as `4e9f87d7107b92a3e197dc0ded41412a9de951aa`; local `main` and `origin/main` are aligned at that SHA.
+- Remote branch `codex/review-comments-1242-1256-followups` was deleted; `git ls-remote --heads origin codex/review-comments-1242-1256-followups main` returned only `refs/heads/main`.
+- GitHub checks passed: Host-safe smoke, Static matrix and contracts, Quick golden-path smoke, Video-date golden-path smoke, Phase 7 no-go guardrails, Phase 8 privacy/media contracts, Phase 9 playback/captions/lifecycle contracts, Vercel, and Vercel Preview Comments. Staging native/web matrix jobs were skipped by workflow design.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes` applied `20260608224048_review_comments_1242_1256_followups.sql` to linked project `schdyxcunwcvddlcshwd`.
+- Post-apply `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date.`
+- Post-apply `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` showed local and remote aligned through `20260608224048`.
+- Post-apply `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0 with only existing warning/notice-level legacy output.
+- Post-apply `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error` returned `No issues found`.
+- Live catalog markers returned true for the migration row, zero-feedback current-room scoping, retryable eligibility non-terminalization, remote-seen owner/call proof requirement, mark-ready auxiliary-error stripping, and authenticated execute grants for the public remote-seen and mark-ready RPCs.
+
+Fresh disposable two-user production acceptance through both users persisting `date_feedback` remains required before calling Video Date healthy.
 
 ---
 
