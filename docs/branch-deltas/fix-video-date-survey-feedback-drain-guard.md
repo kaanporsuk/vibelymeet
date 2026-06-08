@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Status: local implementation evidence only. This is not production-certified until merged, Supabase cloud is applied, deployed clients pick up the web/native changes, and a fresh disposable two-user production run completes through `date_feedback` for both users.
+Status: source and Supabase cloud evidence. This is not production-certified until deployed clients pick up the web/native changes and a fresh disposable two-user production run completes through `date_feedback` for both users.
 
 ## Problem
 
@@ -13,6 +13,7 @@ Direct authenticated `date_feedback` insert/update grants also left the mandator
 ## Implementation
 
 - Added migration `20260608211359_video_date_survey_feedback_drain_guard.sql`.
+- Added corrective migration `20260608214714_video_date_survey_feedback_gate_lint_repair.sql` after linked DB lint caught an invalid `video_sessions.created_at` fallback in the helper. The repaired helper orders by real `video_sessions` columns: `ended_at`, `state_updated_at`, then `started_at`.
 - Added service-only helper `video_date_actor_pending_feedback_gate_v1(event_id, actor_id)` that finds any same-event survey-eligible ended Video Date where the actor is a participant and has no `date_feedback` row, excluding blocked/reported pairs.
 - Wrapped both public queue-drain RPC names:
   - `drain_match_queue_v2(event_id, idempotency_key)`
@@ -35,18 +36,19 @@ Completed in this local pass:
 - `git diff --check`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error`
+- Live catalog marker query for migration rows, helper body, wrapper/base functions, execution grants, `date_feedback` table privileges, and removed write policies.
 
 Linked Supabase state:
 
-- Remote is aligned through `20260608202749_video_date_missing_feedback_certification_closure.sql`.
-- Local migration `20260608211359_video_date_survey_feedback_drain_guard.sql` is pending remotely.
-- Linked dry-run planned only `20260608211359_video_date_survey_feedback_drain_guard.sql`.
+- Remote is aligned through `20260608214714_video_date_survey_feedback_gate_lint_repair.sql`.
+- Post-apply linked dry-run returns `Remote database is up to date.`
 - Linked DB lint exited 0 with only existing warning/notice-level legacy output, and linked error-level advisors returned `No issues found`.
+- Live catalog markers confirmed both migration rows, repaired helper body with `vs.started_at` and no `vs.created_at`, both public drain wrappers and preserved bases, authenticated wrapper execution, service-only helper execution, revoked authenticated `date_feedback` insert/update/delete, preserved authenticated select, and removal of old direct write policies.
 
 Still required before calling the implementation shipped:
 
-- `supabase db push --linked --yes` for the new migration.
 - Web deployment and native/mobile client rollout so all production users receive the new routing behavior.
 - Fresh disposable two-user production acceptance through both users persisting `date_feedback`.
