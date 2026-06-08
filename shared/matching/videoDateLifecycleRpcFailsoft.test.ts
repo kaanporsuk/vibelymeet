@@ -18,6 +18,12 @@ const lifecycleMigration = read(
 const truthyAlignmentMigration = read(
   "supabase/migrations/20260607183100_video_date_lifecycle_truthy_helper_alignment.sql",
 );
+const definitiveRecoveryMigration = read(
+  "supabase/migrations/20260607222923_video_date_daily_owner_definitive_recovery.sql",
+);
+const correctiveSanitizationMigration = read(
+  "supabase/migrations/20260608001000_video_date_base_failsoft_payload_sanitization.sql",
+);
 const webHook = read("src/hooks/useVideoCall.ts");
 const webDate = read("src/pages/VideoDate.tsx");
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
@@ -50,6 +56,94 @@ test("lifecycle RPC wrappers convert terminal-bound exceptions into fail-soft JS
   assert.match(truthyAlignmentMigration, /video_date_lifecycle_failsoft_payload_v1/);
   assert.match(truthyAlignmentMigration, /video_date_enrich_lifecycle_payload_v1/);
   assert.doesNotMatch(truthyAlignmentMigration, /->>\s*'[^']+'\)::boolean/);
+});
+
+test("definitive recovery keeps provider-overlap RPCs behind final fail-soft wrappers", () => {
+  assert.match(
+    definitiveRecoveryMigration,
+    /ALTER FUNCTION public\.mark_video_date_daily_alive\(uuid, text, text, text, text, text\)\s+RENAME TO mark_video_date_daily_alive_20260607222923_definitive_base/,
+  );
+  assert.match(
+    definitiveRecoveryMigration,
+    /ALTER FUNCTION public\.mark_video_date_daily_joined\(uuid, text, text, text, text, text\)\s+RENAME TO mark_video_date_daily_joined_20260607222923_definitive_base/,
+  );
+  assert.match(
+    definitiveRecoveryMigration,
+    /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260607222923_definitive_base/,
+  );
+
+  for (const functionName of [
+    "mark_video_date_daily_alive",
+    "mark_video_date_daily_joined",
+    "video_date_transition",
+  ] as const) {
+    const body = functionBody(definitiveRecoveryMigration, functionName);
+    assert.match(body, /video_date_enrich_lifecycle_payload_v1/);
+    assert.match(body, /EXCEPTION\s+WHEN OTHERS THEN/);
+    assert.match(body, /video_date_lifecycle_rpc_exception_observability_v1/);
+    assert.match(body, /video_date_lifecycle_safe_failsoft_payload_v1/);
+    assert.match(body, /video_date_lifecycle_safe_failsoft_payload_v1\([\s\S]*SQLSTATE,\s*NULL,\s*NULL,\s*NULL\s*\)/);
+  }
+
+  assert.match(definitiveRecoveryMigration, /video_date_lifecycle_failsoft_payload_v1/);
+  assert.match(definitiveRecoveryMigration, /fallback_payload_builder_failed/);
+  assert.match(definitiveRecoveryMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("definitive recovery last-resort fail-soft payload is sanitized", () => {
+  const telemetryBody = functionBody(
+    definitiveRecoveryMigration,
+    "video_date_lifecycle_rpc_exception_observability_v1",
+  );
+  const safeFailsoftBody = functionBody(
+    definitiveRecoveryMigration,
+    "video_date_lifecycle_safe_failsoft_payload_v1",
+  );
+
+  assert.match(telemetryBody, /'message', p_message/);
+  assert.match(telemetryBody, /'detail', NULLIF\(p_detail, ''\)/);
+  assert.match(telemetryBody, /'hint', NULLIF\(p_hint, ''\)/);
+
+  assert.match(safeFailsoftBody, /fallback_payload_builder_failed/);
+  assert.match(safeFailsoftBody, /video_date_lifecycle_rpc_exception_observability_v1/);
+  assert.match(safeFailsoftBody, /retry_after_ms/);
+  assert.doesNotMatch(safeFailsoftBody, /'message',\s*p_message/);
+  assert.doesNotMatch(safeFailsoftBody, /'detail',\s*NULLIF\(p_detail, ''\)/);
+  assert.doesNotMatch(safeFailsoftBody, /'hint',\s*NULLIF\(p_hint, ''\)/);
+  assert.doesNotMatch(safeFailsoftBody, /'fallback_message'/);
+  assert.doesNotMatch(safeFailsoftBody, /'fallback_detail'/);
+  assert.doesNotMatch(safeFailsoftBody, /'fallback_hint'/);
+});
+
+test("corrective recovery sanitizes base-returned fail-soft payloads", () => {
+  const sanitizerBody = functionBody(
+    correctiveSanitizationMigration,
+    "video_date_lifecycle_sanitize_client_failsoft_payload_v1",
+  );
+
+  assert.match(sanitizerBody, /v_has_failure_shape/);
+  assert.match(sanitizerBody, /video_date_lifecycle_jsonb_true_v1\(v_payload, 'ok'\)/);
+  assert.match(sanitizerBody, /video_date_lifecycle_jsonb_true_v1\(v_payload, 'success'\)/);
+  assert.match(sanitizerBody, /- 'message'/);
+  assert.match(sanitizerBody, /- 'detail'/);
+  assert.match(sanitizerBody, /- 'hint'/);
+  assert.match(sanitizerBody, /- 'fallback_message'/);
+  assert.match(sanitizerBody, /- 'fallback_detail'/);
+  assert.match(sanitizerBody, /- 'fallback_hint'/);
+
+  for (const functionName of [
+    "mark_video_date_daily_alive",
+    "mark_video_date_daily_joined",
+    "video_date_transition",
+  ] as const) {
+    const body = functionBody(correctiveSanitizationMigration, functionName);
+    assert.match(body, /_20260607222923_definitive_base/);
+    assert.match(body, /video_date_enrich_lifecycle_payload_v1/);
+    assert.match(body, /RETURN public\.video_date_lifecycle_sanitize_client_failsoft_payload_v1\(v_result\)/);
+    assert.match(body, /video_date_lifecycle_safe_failsoft_payload_v1\([\s\S]*SQLSTATE,\s*NULL,\s*NULL,\s*NULL\s*\)/);
+  }
+
+  assert.match(correctiveSanitizationMigration, /NOTIFY pgrst, 'reload schema'/);
 });
 
 test("shared lifecycle RPC classifier recognizes all terminal survey shapes", () => {

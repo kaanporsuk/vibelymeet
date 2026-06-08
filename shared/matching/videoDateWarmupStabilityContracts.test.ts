@@ -120,8 +120,10 @@ test("web Daily start is single-owned and same-session calls are reused instead 
   assert.match(webVideoCall, /daily_call_busy_internal_retry/);
   assert.match(webVideoCall, /return await startCall\(sessionId,\s*\{\s*internalRetry: true/);
   assert.match(webVideoCall, /eventName: "daily_call_cleanup"/);
-  assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS = 20_000/);
+  assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS: number \| null = null/);
   assert.match(webVideoCall, /parkingMode: "live_same_session_remount"/);
+  assert.match(webVideoCall, /idleDestroyDisabled: idleMs == null/);
+  assert.match(webVideoCall, /eventName: "daily_call_singleton_idle_destroy"/);
   assert.doesNotMatch(webVideoCall, /warm_handoff/);
   assert.match(webVideoCall, /sameSessionDailyContinuity =[\s\S]+dailyCallSingletonEligible[\s\S]+hasSameSessionDailyContinuity\(sessionId\)/);
   assert.match(webVideoCall, /sameSessionDailyContinuityLatched: hasSameSessionDailyContinuity\(sessionId\)/);
@@ -215,7 +217,7 @@ test("native background only sends backend away after local grace expiry", () =>
   );
 
   assert.match(backgroundBlock, /native_background_grace_started/);
-  assert.match(backgroundBlock, /await cleanupDailyAndLocalState\(\)/);
+  assert.match(backgroundBlock, /await cleanupDailyAndLocalState\(\{\s*mode: ["']destructive["'],\s*reason: ["']app_background["'],\s*\}\)/);
   assert.doesNotMatch(backgroundBlock, /signalVideoDateLeave\(\s*sessionId,\s*["']app_background["']/);
   assert.match(backgroundBlock, /signalVideoDateLeave\(\s*sessionId,\s*["']app_background_timeout["'],\s*\)/);
 });
