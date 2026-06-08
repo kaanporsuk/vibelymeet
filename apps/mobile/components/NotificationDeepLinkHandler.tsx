@@ -34,6 +34,11 @@ import {
   decideCanonicalVideoDateRoute,
 } from '@clientShared/matching/videoDateRouteDecision';
 import {
+  isPendingPostDateFeedbackDrainResult,
+  pendingPostDateFeedbackSessionIdFromDrainPayload,
+  type DrainMatchQueueResult,
+} from '@shared/matching/videoSessionFlow';
+import {
   clearDateEntryTransition,
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
@@ -580,11 +585,26 @@ async function reconcileHrefWithRegistration(
     } catch {
       /* best-effort — drain still runs */
     }
-    await drainMatchQueue(vs.event_id as string, userId, {
+    const drainResult = await drainMatchQueue(vs.event_id as string, userId, {
       drainMatchQueueV2: options?.drainMatchQueueV2 === true,
       sourceAction: 'notification_queued_session_rescue',
       sourceSurface: 'notification_deep_link',
     });
+    if (isPendingPostDateFeedbackDrainResult(drainResult as DrainMatchQueueResult | null | undefined)) {
+      const pendingSessionId = pendingPostDateFeedbackSessionIdFromDrainPayload(
+        drainResult as DrainMatchQueueResult | null | undefined,
+      );
+      if (pendingSessionId) {
+        markVideoDateEntryPipelineStarted(pendingSessionId);
+        markVideoDateRouteOwned(pendingSessionId, userId);
+        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_pending_feedback', {
+          session_id: sid,
+          pending_session_id: pendingSessionId,
+          event_id: String(vs.event_id),
+        });
+        return videoDateHref(pendingSessionId);
+      }
+    }
     reg = await fetchReg();
     truth = await fetchVideoSessionDateEntryTruth(sid);
     recovery = adviseVideoSessionTruthRecovery({

@@ -525,6 +525,46 @@ export const PostDateSurvey = ({
     [navigate, eventId, sessionId]
   );
 
+  const handlePendingPostDateFeedback = useCallback(
+    (pendingSessionId: string) => {
+      trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "post_date_survey",
+        source_action: "survey_queue_drain",
+        outcome: "blocked",
+        reason_code: "pending_post_date_feedback",
+        next_session_id: pendingSessionId,
+      });
+
+      if (!pendingSessionId || pendingSessionId === sessionId) {
+        queuedNavigationStartedRef.current = false;
+        setStep("verdict");
+        return;
+      }
+
+      queuedNavigationStartedRef.current = true;
+      const target = `/date/${encodeURIComponent(pendingSessionId)}`;
+      trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        action: "survey",
+        route: "date",
+        video_session_id: pendingSessionId,
+        reason_code: "pending_post_date_feedback",
+      });
+      vdbgRedirect(target, "survey_queue_pending_feedback", {
+        sessionId,
+        eventId,
+        pendingSessionId,
+      });
+      navigate(target, { replace: true });
+    },
+    [navigate, eventId, sessionId],
+  );
+
   const { queuedCount, isDraining } = useMatchQueue({
     eventId,
     currentStatus: surveyStatus,
@@ -533,6 +573,7 @@ export const PostDateSurvey = ({
     sourceSurface: "post_date_survey",
     suppressDrainReasonToasts: true,
     onVideoSessionReady: handleQueueMatch,
+    onPendingPostDateFeedback: handlePendingPostDateFeedback,
   });
 
   const continuityDecision = useMemo(

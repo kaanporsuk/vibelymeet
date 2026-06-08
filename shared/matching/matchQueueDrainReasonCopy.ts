@@ -10,7 +10,8 @@ export type MatchQueueDrainReasonCopy = {
     | "lock_busy"
     | "self_runtime_not_ready"
     | "partner_runtime_not_ready"
-    | "blocked_or_reported_pair";
+    | "blocked_or_reported_pair"
+    | "pending_post_date_feedback";
   title: string;
   message: string;
 };
@@ -71,6 +72,11 @@ const MATCH_QUEUE_DRAIN_REASON_COPY: Record<MatchQueueDrainReasonCopy["reason"],
     title: "Match unavailable",
     message: "This match is no longer available. You can keep browsing.",
   },
+  pending_post_date_feedback: {
+    reason: "pending_post_date_feedback",
+    title: "Feedback required",
+    message: "Finish your post-date feedback before the next Ready Gate opens.",
+  },
 };
 
 function readDrainReason(input: unknown): string | null {
@@ -96,7 +102,8 @@ export function getMatchQueueDrainReasonCopy(input: unknown): MatchQueueDrainRea
     reason === "lock_busy" ||
     reason === "self_runtime_not_ready" ||
     reason === "partner_runtime_not_ready" ||
-    reason === "blocked_or_reported_pair"
+    reason === "blocked_or_reported_pair" ||
+    reason === "pending_post_date_feedback"
   ) {
     return MATCH_QUEUE_DRAIN_REASON_COPY[reason];
   }

@@ -30,7 +30,11 @@ import { drainMatchQueue, fetchEventDeck, getQueuedMatchCount, type EventDeckFet
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
 import { supabase } from '@/lib/supabase';
 import { deckCardUrl } from '@/lib/imageUrl';
-import { videoSessionIdFromDrainPayload } from '@shared/matching/videoSessionFlow';
+import {
+  isPendingPostDateFeedbackDrainResult,
+  pendingPostDateFeedbackSessionIdFromDrainPayload,
+  videoSessionIdFromDrainPayload,
+} from '@shared/matching/videoSessionFlow';
 import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
@@ -576,7 +580,44 @@ export function PostDateSurvey({
         });
         if (cancelled) return;
         const nextSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
-        if (result?.found && nextSessionId) {
+        if (isPendingPostDateFeedbackDrainResult(result ?? undefined)) {
+          const pendingSessionId = pendingPostDateFeedbackSessionIdFromDrainPayload(result ?? undefined);
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_BLOCKED, {
+            platform: 'native',
+            event_id: eventId,
+            session_id: pendingSessionId ?? sessionId,
+            source_surface: 'post_date_survey',
+            source_action: 'survey_queue_drain',
+            reason_code: 'pending_post_date_feedback',
+          });
+          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: 'post_date_survey',
+            source_action: 'survey_queue_drain',
+            outcome: 'blocked',
+            reason_code: 'pending_post_date_feedback',
+            next_session_id: pendingSessionId,
+          });
+
+          if (pendingSessionId && pendingSessionId !== sessionId && onVideoDateReady) {
+            queuedNavigationStartedRef.current = true;
+            trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              action: 'survey',
+              route: 'date',
+              video_session_id: pendingSessionId,
+              reason_code: 'pending_post_date_feedback',
+            });
+            onVideoDateReady(pendingSessionId);
+          } else {
+            queuedNavigationStartedRef.current = false;
+            setStep('verdict');
+          }
+        } else if (result?.found && nextSessionId) {
           queuedNavigationStartedRef.current = true;
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
             platform: 'native',
@@ -641,7 +682,7 @@ export function PostDateSurvey({
     return () => {
       cancelled = true;
     };
-  }, [drainQueueV2.enabled, eventId, onQueuedVideoSessionReady, sessionId, userId]);
+  }, [drainQueueV2.enabled, eventId, onQueuedVideoSessionReady, onVideoDateReady, sessionId, userId]);
 
   useEffect(() => {
     if (step !== 'celebration' || !userId || !partnerId) return;

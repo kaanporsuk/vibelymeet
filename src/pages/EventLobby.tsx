@@ -1252,6 +1252,18 @@ const EventLobby = () => {
     });
   }, []);
 
+  const handlePendingPostDateFeedbackDrain = useCallback(
+    (pendingSessionId: string) => {
+      if (!pendingSessionId) return;
+      navigateToDateSession(
+        pendingSessionId,
+        "match_queue_pending_post_date_feedback",
+        { force: true, forceSurvey: true },
+      );
+    },
+    [navigateToDateSession],
+  );
+
   // Queue drain / realtime — activates ready gate when a queued video session becomes ready
   const {
     queuedCount,
@@ -1268,6 +1280,7 @@ const EventLobby = () => {
     onQueuedSessionExpired: () => {
       toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
     },
+    onPendingPostDateFeedback: handlePendingPostDateFeedbackDrain,
   });
 
   // Swipe action — show Ready Gate on immediate match and converge queued matches immediately.

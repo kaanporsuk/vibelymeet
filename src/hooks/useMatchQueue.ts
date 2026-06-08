@@ -5,7 +5,9 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
   type DrainMatchQueueResult,
+  isPendingPostDateFeedbackDrainResult,
   isVideoSessionQueuedTtlExpiryTransition,
+  pendingPostDateFeedbackSessionIdFromDrainPayload,
   videoSessionIdFromDrainPayload,
 } from "@shared/matching/videoSessionFlow";
 import { getMatchQueueDrainReasonCopy } from "@clientShared/matching/matchQueueDrainReasonCopy";
@@ -68,6 +70,8 @@ interface UseMatchQueueOptions {
   enableSurveyPhaseDrain?: boolean;
   /** Canonical: `video_sessions.id` when queue drain or realtime activates ready gate. */
   onVideoSessionReady?: (videoSessionId: string, partnerId: string) => void;
+  /** Survey ownership: actor must finish date_feedback before another Ready Gate can open. */
+  onPendingPostDateFeedback?: (videoSessionId: string) => void;
   /** Fired at most once per session id (deduped) when a queued session expires (TTL) for this user. */
   onQueuedSessionExpired?: (videoSessionId: string) => void;
 }
@@ -80,6 +84,7 @@ export const useMatchQueue = ({
   suppressDrainReasonToasts = false,
   enableSurveyPhaseDrain,
   onVideoSessionReady,
+  onPendingPostDateFeedback,
   onQueuedSessionExpired,
 }: UseMatchQueueOptions) => {
   const { user } = useUserProfile();
@@ -87,9 +92,12 @@ export const useMatchQueue = ({
   const [queuedCount, setQueuedCount] = useState(0);
   const [isDraining, setIsDraining] = useState(false);
   const onReadyRef = useRef(onVideoSessionReady);
+  const onPendingPostDateFeedbackRef = useRef(onPendingPostDateFeedback);
   const onQueuedExpiredRef = useRef(onQueuedSessionExpired);
   /** Dedupe ready callbacks across drain polling plus realtime INSERT/UPDATE fan-out. */
   const readyNotifiedIdsRef = useRef(new Set<string>());
+  /** Dedupe pending-feedback survey callbacks across queue-drain retries. */
+  const pendingFeedbackNotifiedIdsRef = useRef(new Set<string>());
   /** Dedupe TTL-expiry toasts per `video_sessions.id` for this hook instance. */
   const queuedExpiryNotifiedIdsRef = useRef(new Set<string>());
   /** Dedupe informational drain-reason toasts per user/event/reason for this hook instance. */
@@ -115,6 +123,10 @@ export const useMatchQueue = ({
   }, [onVideoSessionReady]);
 
   useEffect(() => {
+    onPendingPostDateFeedbackRef.current = onPendingPostDateFeedback;
+  }, [onPendingPostDateFeedback]);
+
+  useEffect(() => {
     onQueuedExpiredRef.current = onQueuedSessionExpired;
   }, [onQueuedSessionExpired]);
 
@@ -135,6 +147,7 @@ export const useMatchQueue = ({
     setQueuedCount(0);
     setIsDraining(false);
     readyNotifiedIdsRef.current.clear();
+    pendingFeedbackNotifiedIdsRef.current.clear();
     queuedExpiryNotifiedIdsRef.current.clear();
     drainReasonNotifiedKeysRef.current.clear();
   }, [eventId, user?.id]);
@@ -143,6 +156,12 @@ export const useMatchQueue = ({
     if (readyNotifiedIdsRef.current.has(videoSessionId)) return;
     readyNotifiedIdsRef.current.add(videoSessionId);
     onReadyRef.current?.(videoSessionId, partnerId);
+  }, []);
+
+  const notifyPendingPostDateFeedbackOnce = useCallback((videoSessionId: string) => {
+    if (pendingFeedbackNotifiedIdsRef.current.has(videoSessionId)) return;
+    pendingFeedbackNotifiedIdsRef.current.add(videoSessionId);
+    onPendingPostDateFeedbackRef.current?.(videoSessionId);
   }, []);
 
   const refreshQueueCount = useCallback(async (minimumOnFailure = 0) => {
@@ -276,7 +295,19 @@ export const useMatchQueue = ({
           ? String((data as { reason?: unknown }).reason ?? "")
           : null;
       const sessionId = videoSessionIdFromDrainPayload(result);
-      if (result?.found && sessionId && result.partner_id) {
+      if (isPendingPostDateFeedbackDrainResult(result)) {
+        const pendingSessionId = pendingPostDateFeedbackSessionIdFromDrainPayload(result);
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_BLOCKED, {
+          platform: "web",
+          event_id: requestEventId,
+          source_surface: sourceSurface,
+          reason: "pending_post_date_feedback",
+          session_id: pendingSessionId,
+        });
+        if (pendingSessionId) {
+          notifyPendingPostDateFeedbackOnce(pendingSessionId);
+        }
+      } else if (result?.found && sessionId && result.partner_id) {
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
           platform: "web",
           event_id: requestEventId,
@@ -304,7 +335,10 @@ export const useMatchQueue = ({
         });
       }
 
-      const copy = result?.found ? null : getMatchQueueDrainReasonCopy(reason);
+      const copy =
+        result?.found || isPendingPostDateFeedbackDrainResult(result)
+          ? null
+          : getMatchQueueDrainReasonCopy(reason);
       if (copy && !suppressDrainReasonToasts) {
         const key = `${requestUserId}:${requestEventId}:${copy.reason}`;
         if (!drainReasonNotifiedKeysRef.current.has(key)) {
@@ -344,6 +378,7 @@ export const useMatchQueue = ({
     suppressDrainReasonToasts,
     refreshQueueCount,
     notifyReadyOnce,
+    notifyPendingPostDateFeedbackOnce,
     drainMatchQueueV2.enabled,
     isCurrentScope,
   ]);
