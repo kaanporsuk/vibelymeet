@@ -328,7 +328,7 @@ WITH invariant_results AS (
     CASE WHEN count(*) = 0 THEN 'pass' ELSE 'warn' END,
     count(*)::integer,
     COALESCE(jsonb_agg(sample ORDER BY rn) FILTER (WHERE rn <= 10), '[]'::jsonb),
-    'Survey-required participants still missing date_feedback more than 15 minutes after a survey-eligible end must block certification via --warn-as-error.'::text
+    'Survey-required participants still missing date_feedback more than 15 minutes after a survey-eligible end must block certification via --warn-as-error unless a service-owned certification-only exception exists. Exceptions do not complete the survey or persist date_feedback.'::text
   FROM (
     WITH survey_roles AS (
       SELECT
@@ -403,6 +403,14 @@ WITH invariant_results AS (
       ON df.session_id = sr.session_id
      AND df.user_id = sr.user_id
     WHERE df.id IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.video_date_certification_feedback_exceptions ex
+        WHERE ex.session_id = sr.session_id
+          AND ex.missing_user_id = sr.user_id
+          AND ex.revoked_at IS NULL
+          AND (ex.expires_at IS NULL OR ex.expires_at > now())
+      )
   ) failures
 
   UNION ALL
