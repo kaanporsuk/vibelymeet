@@ -42,9 +42,24 @@ export type DrainMatchQueueResult = {
   /** @deprecated Same as `video_session_id` when found — not `matches.id`. */
   match_id?: string;
   video_session_id?: string;
+  session_id?: string;
   event_id?: string;
   partner_id?: string;
   queued?: boolean;
+  blocked?: boolean;
+  reason?: string;
+  code?: string;
+  error_code?: string;
+  route?: string;
+  path?: string;
+  next_surface?: {
+    action?: string;
+    route?: string;
+    path?: string;
+    session_id?: string;
+    event_id?: string;
+    reason?: string;
+  } | null;
 };
 
 /**
@@ -86,11 +101,34 @@ export function shouldTrackQueuedSwipeSession(
 }
 
 export function videoSessionIdFromDrainPayload(
-  payload: Pick<DrainMatchQueueResult, "video_session_id" | "match_id"> | null | undefined,
+  payload: Pick<DrainMatchQueueResult, "video_session_id" | "match_id" | "session_id"> | null | undefined,
 ): string | undefined {
   if (!payload) return undefined;
-  const v = payload.video_session_id ?? payload.match_id;
+  const v = payload.video_session_id ?? payload.session_id ?? payload.match_id;
   return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+export function isPendingPostDateFeedbackDrainResult(
+  payload: DrainMatchQueueResult | null | undefined,
+): boolean {
+  if (!payload) return false;
+  return (
+    payload.reason === "pending_post_date_feedback" ||
+    payload.code === "PENDING_POST_DATE_FEEDBACK" ||
+    payload.error_code === "PENDING_POST_DATE_FEEDBACK" ||
+    payload.next_surface?.reason === "pending_post_date_feedback"
+  );
+}
+
+export function pendingPostDateFeedbackSessionIdFromDrainPayload(
+  payload: DrainMatchQueueResult | null | undefined,
+): string | undefined {
+  if (!isPendingPostDateFeedbackDrainResult(payload)) return undefined;
+  const nextSurfaceSessionId = payload?.next_surface?.session_id;
+  if (typeof nextSurfaceSessionId === "string" && nextSurfaceSessionId.length > 0) {
+    return nextSurfaceSessionId;
+  }
+  return videoSessionIdFromDrainPayload(payload);
 }
 
 /**

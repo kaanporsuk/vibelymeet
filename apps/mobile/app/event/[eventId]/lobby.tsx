@@ -132,13 +132,16 @@ import {
 import { isFeatureFlagEnabledWithAlias } from "@clientShared/featureFlags/featureFlagAliasResolution";
 import {
   getSwipeFailureUserMessage,
+  isPendingPostDateFeedbackDrainResult,
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
+  pendingPostDateFeedbackSessionIdFromDrainPayload,
   shouldOpenReadyGateFromSwipePayload,
   shouldAdvanceLobbyDeckAfterSwipe,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   isVideoSessionQueuedTtlExpiryTransition,
+  type DrainMatchQueueResult,
 } from "@shared/matching/videoSessionFlow";
 import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
 import {
@@ -1469,6 +1472,23 @@ export default function EventLobbyScreen() {
     [id, user?.id],
   );
 
+  const handlePendingPostDateFeedbackDrain = useCallback(
+    (payload: unknown, sourceAction: string): boolean => {
+      const result = payload as DrainMatchQueueResult | null | undefined;
+      if (!isPendingPostDateFeedbackDrainResult(result)) return false;
+      const pendingSessionId = pendingPostDateFeedbackSessionIdFromDrainPayload(result);
+      if (!pendingSessionId) return true;
+      navigateToDateSession(
+        pendingSessionId,
+        sourceAction,
+        "replace",
+        { force: true, forceSurvey: true },
+      );
+      return true;
+    },
+    [navigateToDateSession],
+  );
+
   useEffect(() => {
     if (!id || !user?.id) return;
     if (!lobbySideEffectsEnabled || !isLobbyFocused || appState !== "active")
@@ -2204,6 +2224,12 @@ export default function EventLobbyScreen() {
       const promotedSessionId = videoSessionIdFromDrainPayload(
         result ?? undefined,
       );
+      if (!cancelled && handlePendingPostDateFeedbackDrain(
+        result,
+        "queue_drain_interval_pending_post_date_feedback",
+      )) {
+        return;
+      }
       if (result?.found && promotedSessionId) {
         openReadyGateWithSession(promotedSessionId, "queue_drain_interval");
       } else {
@@ -2237,6 +2263,7 @@ export default function EventLobbyScreen() {
     openReadyGateWithSession,
     scheduleLobbyRefreshBurst,
     showDrainReasonInfoOnce,
+    handlePendingPostDateFeedbackDrain,
     drainQueueV2.enabled,
   ]);
 
@@ -2249,6 +2276,12 @@ export default function EventLobbyScreen() {
         sourceAction: "queue_drain_initial",
       });
       const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
+      if (!cancelled && handlePendingPostDateFeedbackDrain(
+        result,
+        "queue_drain_initial_pending_post_date_feedback",
+      )) {
+        return;
+      }
       if (result?.found && sessionId) {
         openReadyGateWithSession(sessionId, "queue_drain_initial");
       } else {
@@ -2268,6 +2301,7 @@ export default function EventLobbyScreen() {
     openReadyGateWithSession,
     scheduleLobbyRefreshBurst,
     showDrainReasonInfoOnce,
+    handlePendingPostDateFeedbackDrain,
     drainQueueV2.enabled,
   ]);
 
@@ -2571,6 +2605,12 @@ export default function EventLobbyScreen() {
         const promotedId = videoSessionIdFromDrainPayload(
           drainResult ?? undefined,
         );
+        if (handlePendingPostDateFeedbackDrain(
+          drainResult,
+          "video_session_insert_queue_drain_pending_post_date_feedback",
+        )) {
+          return;
+        }
         if (drainResult?.found && promotedId) {
           openReadyGateWithSession(
             promotedId,
@@ -2629,6 +2669,7 @@ export default function EventLobbyScreen() {
     show,
     showDrainReasonInfoOnce,
     navigateToDateSession,
+    handlePendingPostDateFeedbackDrain,
     drainQueueV2.enabled,
     deckPrefetchPolishEnabled,
     lobbyBroadcastSessionId,

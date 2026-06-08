@@ -64,6 +64,63 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Survey Feedback Drain Guard
+
+Local source now closes the synchronous ownership gap between queue drain and the mandatory post-date verdict finish line.
+
+Problem addressed:
+
+- `date_feedback` is the finish line, but survey/lobby queue drain could still promote the actor to another Ready Gate before their own `date_feedback` row existed for an ended survey-required Video Date.
+- The 2026-06-08 missing-feedback reminder/certification closure made stale missing feedback visible and warn-as-error blocking, but it did not synchronously reject a queue-drain promotion in the same user session.
+- Direct authenticated `date_feedback` insert/update grants and old own-row insert/update policies still left the mandatory verdict table writeable outside the canonical RPC path.
+
+Implementation added:
+
+- Migration `20260608211359_video_date_survey_feedback_drain_guard.sql`.
+- Service-only helper `video_date_actor_pending_feedback_gate_v1(...)`, using the current `video_date_session_is_post_date_survey_eligible_v2(...)` truth plus actor-missing `date_feedback` checks.
+- Public `drain_match_queue_v2(...)` and legacy `drain_match_queue(...)` now return structured `pending_post_date_feedback` with `found=false`, `queued=false`, `blocked=true`, `session_id`/`video_session_id`, and `next_surface.action='survey'` before any Ready Gate promotion delegate can run.
+- Web/native/mobile clients now treat `pending_post_date_feedback` as survey ownership:
+  - Web `useMatchQueue` exposes `onPendingPostDateFeedback`.
+  - Web PostDateSurvey stays on/reopens the verdict step or routes to `/date/:sessionId`.
+  - Web EventLobby routes escaped users to `/date/:sessionId` with forced survey ownership.
+  - Native PostDateSurvey routes pending feedback through the date route, never the Ready Gate callback.
+  - Native EventLobby handles interval, initial, and realtime queue-drain rescue results before `openReadyGateWithSession`.
+  - Native notification queued-session rescue returns `videoDateHref(pendingSessionId)` when the guard blocks promotion.
+- `date_feedback` direct authenticated insert/update/delete is revoked; old own-row insert/update RLS policies are dropped. Mandatory verdict writes remain backend-owned through `submit_post_date_verdict_v3` / `post-date-verdict`; optional details remain through `update_post_date_feedback_details`.
+- Contract coverage added in `shared/matching/videoDateSurveyFeedbackDrainGuard.test.ts` and wired into `npm run test:video-date:red-flags` plus `npm run test:video-date-v4`.
+- Branch delta: `docs/branch-deltas/fix-video-date-survey-feedback-drain-guard.md`.
+
+Verification completed in this local pass:
+
+- `npx tsx shared/matching/videoDateSurveyFeedbackDrainGuard.test.ts`
+- `npm run test:video-date:red-flags`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error`
+
+Linked Supabase state:
+
+- Remote migration history is aligned through `20260608202749_video_date_missing_feedback_certification_closure.sql`.
+- Local migration `20260608211359_video_date_survey_feedback_drain_guard.sql` is pending remotely.
+- Linked dry-run planned only `20260608211359_video_date_survey_feedback_drain_guard.sql`.
+- Linked DB lint exited 0 with only existing warning/notice-level legacy output, and linked error-level advisors returned `No issues found`.
+
+Not yet performed in this pass:
+
+- Cloud apply via `supabase db push --linked --yes`.
+- Web deployment and native/mobile client rollout.
+- Fresh disposable two-user production acceptance through both users persisting `date_feedback`.
+
+This is source/schema/client implementation evidence only until merged, applied to Supabase cloud, shipped to web/native clients, and proven by the fresh two-user acceptance run.
+
+---
+
 ## 2026-06-08 Implementation Update: Missing Feedback Certification Closure
 
 Source and linked Supabase cloud now close the zero-feedback post-date survey recovery gap that remained after the A-H / Daily/date ownership fixes.

@@ -2603,8 +2603,10 @@ test("native post-date survey drains queued ready gates across the whole survey 
   assert.match(nativePostDateSurvey, /const result = await drainMatchQueue\(eventId, userId, \{/);
   assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
   assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
+  assert.match(nativePostDateSurvey, /isPendingPostDateFeedbackDrainResult\(result \?\? undefined\)/);
+  assert.match(nativePostDateSurvey, /onVideoDateReady\(pendingSessionId\)/);
   assert.match(nativePostDateSurvey, /onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
-  assert.match(nativePostDateSurvey, /\}, \[drainQueueV2\.enabled, eventId, onQueuedVideoSessionReady, sessionId, userId\]\);/);
+  assert.match(nativePostDateSurvey, /\}, \[drainQueueV2\.enabled, eventId, onQueuedVideoSessionReady, onVideoDateReady, sessionId, userId\]\);/);
   assert.doesNotMatch(nativePostDateSurvey, /step !== ['"]safety['"]/);
   assert.doesNotMatch(nativePostDateSurvey, /drainMatchQueue\(eventId, userId\)[\s\S]{0,900}\[eventId, onQueuedVideoSessionReady, step, userId\]/);
 });
