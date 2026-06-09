@@ -1,7 +1,9 @@
-# Web Mystery Match parity
+# Web Mystery Match parity (superseded)
 
 Branch: `fix/web-mystery-match-parity`
 Date: 2026-06-06
+
+Superseded 2026-06-09: Mystery Match was removed from the active web, native, and backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. This branch delta is retained only as historical context and must not be used to restore parity unless the product decision changes.
 
 ## Problem
 

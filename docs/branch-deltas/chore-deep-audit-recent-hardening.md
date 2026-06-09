@@ -7,6 +7,8 @@ deck payload/media, observability, regression harness, native contract, native p
 and closure streams. Use `docs/audits/event-lobby-closure-report.md` plus
 `docs/audits/event-lobby-deep-cleanup-audit-2026-05-01.md` for current Event Lobby status.
 
+2026-06-09 supersession: Mystery Match was removed from the active product/backend path. Historical references below describe the pre-removal hardening state only.
+
 ## Problem
 
 After the Event Lobby active-event, swipe retry, web gating, Ready Gate, Video Date, OneSignal, and payment hardening streams landed, the repo needed one more pass to verify deployed state, tidy stale docs/local artifacts, and close any small client/backend contract drift found during review.
@@ -23,7 +25,7 @@ After the Event Lobby active-event, swipe retry, web gating, Ready Gate, Video D
 ## Implementation Summary
 
 - Web Event Lobby gating now includes `archived_at` / `ended_at` backend markers via `EventDetails`.
-- Native Event Lobby side effects now use one confirmed-live gate before deck fetch, event status writes, foreground heartbeats, queue promotion refresh/drain, and Mystery Match.
+- Native Event Lobby side effects used one confirmed-live gate before deck fetch, event status writes, foreground heartbeats, queue promotion refresh/drain, and then-supported Mystery Match. The Mystery Match path was later removed on 2026-06-09.
 - Native lifecycle handling now reacts to ended/completed/cancelled/archived/draft plus `ended_at` / `archived_at`.
 - Native event status writes no-op while the hook is disabled.
 - Docs now point to the active Event Lobby hardening record and canonical `www` app origin.

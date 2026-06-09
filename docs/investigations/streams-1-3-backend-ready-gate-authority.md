@@ -3,9 +3,11 @@
 Branch: `docs/investigate-streams-1-3-backend-ready-gate`
 Base verified: latest `origin/main` as of 2026-05-01
 
+Superseded note, 2026-06-09: this investigation preserved the May 1 backend state. Mystery Match was later removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`; current source and generated types should not expose `find_mystery_match`.
+
 ## Executive verdict: PASS
 
-Streams 1, 2, and 3 are present on `main`, and the current migration tail preserves their backend authority contracts. Later Event Lobby migrations rewrap some Stream 1 RPCs, but the final definitions still enforce canonical active-event state before deck, swipe, mystery, drain, or promotion side effects. Stream 3 does not erase Stream 2 expiry/rowcount hardening; it delegates active-event behavior to the Stream 2 base after its event-inactive gate.
+Streams 1, 2, and 3 are present on `main`, and the May 1 migration tail preserved their backend authority contracts. Later Event Lobby migrations rewrapped some Stream 1 RPCs, but the final definitions for that snapshot still enforced canonical active-event state before deck, swipe, then-supported Mystery Match, drain, or promotion side effects. Stream 3 did not erase Stream 2 expiry/rowcount hardening; it delegated active-event behavior to the Stream 2 base after its event-inactive gate.
 
 No material code defect was found in this investigation-only pass.
 
@@ -50,7 +52,7 @@ PASS.
 
 - Active-event helpers exist. The original stream adds `get_event_lobby_inactive_reason(uuid)` and `is_event_lobby_active(uuid)`. The later canonical-state migration adds `get_event_lobby_active_state(uuid, timestamptz)` and keeps the original helpers as compatibility wrappers.
 - Internal-only/service-role helper access is preserved. Helper execution is revoked from `PUBLIC`, `anon`, and `authenticated`; `service_role` has execute.
-- Wrappers exist for `get_event_deck`, `handle_swipe`, `find_mystery_match`, `promote_ready_gate_if_eligible`, and `drain_match_queue`.
+- Wrappers existed for `get_event_deck`, `handle_swipe`, then-supported `find_mystery_match`, `promote_ready_gate_if_eligible`, and `drain_match_queue`. Current schema drops `find_mystery_match`.
 - The active rule enforces live status, no ended/archived terminal fields, and DB time inside `event_date + COALESCE(duration_minutes, 60)`. The later canonical helper also distinguishes `event_draft`, `event_not_started`, and archived status.
 - Nonparticipants do not receive detailed lifecycle leakage before auth/registration/admission checks. Auth/participant checks precede inactive reason returns in swipe, mystery, promotion, and drain paths; deck authenticates the requested viewer before active-state lookup.
 - Service-role remains trusted where intended, especially promotion and internal helper paths.
@@ -96,7 +98,7 @@ PASS.
 - Stream 3 wrapping did not erase Stream 2 logic. `ready_gate_transition_20260501200000_event_inactive_base` is the Stream 2-hardened function, and Stream 3 delegates to it whenever the event-inactive precondition does not block.
 - Later migrations did not overwrite `ready_gate_transition`, `video_date_transition`, or `confirm_video_date_entry_prepared` after Stream 3.
 - Later Event Lobby migrations did overwrite/recreate `handle_swipe`, `get_event_deck`, and `promote_ready_gate_if_eligible`, but preserved active-event checks using `get_event_lobby_active_state`, event-row share locks before mutation/delegation, and safe grants.
-- `find_mystery_match` and `drain_match_queue` final definitions remain from `20260501223000_event_lobby_canonical_active_state.sql` and retain Stream 1 active-event protection.
+- In the May 1 snapshot, `find_mystery_match` and `drain_match_queue` final definitions remained from `20260501223000_event_lobby_canonical_active_state.sql` and retained Stream 1 active-event protection. Current schema removes `find_mystery_match`; `drain_match_queue` remains the supported queue promotion surface.
 - No migration currently sorts before Streams 1-3 in a way that would undermine their order. The later tail sorts after `20260501200000`.
 - No app/mobile direct client writes to Ready Gate-owned `video_sessions` fields were found. `20260501112000_video_sessions_rls_write_lockdown.sql` revokes `INSERT`, `UPDATE`, and `DELETE` on `video_sessions` from `anon` and `authenticated`. The only direct `video_sessions` updates found outside migrations were service/server function updates to Daily room metadata cleanup/provider fields.
 

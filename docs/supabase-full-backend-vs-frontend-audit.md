@@ -13,6 +13,8 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 **Live DB SQL:** Sections that require Postgres (full RPC enumeration vs `types.ts`, `pg_publication_tables`, RLS dump, triggers, cron, indexes, storage buckets) should be executed in the **Supabase SQL Editor** using the queries in this doc. This report uses **generated types** (`src/integrations/supabase/types.ts`) as the RPC catalog and **migrations** for RLS/trigger hints where live SQL was not executed here.
 
 > Current repo addendum (2026-05-26): this document is a historical/live audit snapshot. The current repo contains **71 deployable Edge Functions** with **71 matching `supabase/config.toml` entries**. Historical rows below that mention `account-pause`, `account-resume`, `email-drip`, or `unsubscribe` are superseded for current ops: those function slugs are absent from current source/config/cloud inventory unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` and `docs/external-dependency-closure-plan-2026-05-23.md` for current closure state.
+>
+> Current Event Lobby addendum (2026-06-09): Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. `find_mystery_match` is no longer in generated Supabase types, web/native `useMysteryMatch` hooks are deleted, and `video_sessions.session_source` is defaulted/constrained to `reciprocal_swipe`.
 
 ---
 
@@ -96,7 +98,6 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | check_premium_status | p_user_id | boolean |
 | deduct_credit | p_user_id, p_credit_type | boolean |
 | drain_match_queue | p_event_id, p_user_id | Json |
-| find_mystery_match | p_event_id, p_user_id | Json |
 | find_video_date_match | p_event_id, p_user_id | Json |
 | generate_recurring_events | p_parent_id, p_count? | number |
 | get_event_deck | p_event_id, p_user_id, p_limit? | setof row |
@@ -128,7 +129,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | check_premium_status | usePremium | **—** (native: RevenueCat / subscriptionApi) |
 | get_event_deck | useEventDeck | eventsApi |
 | drain_match_queue | useMatchQueue | eventsApi |
-| find_mystery_match | useMysteryMatch | useMysteryMatch |
+| find_mystery_match | Removed 2026-06-09; no web caller | Removed 2026-06-09; no native caller |
 | update_participant_status | useEventStatus | videoDateApi |
 | video_date_transition | VideoDate | videoDateApi |
 | ready_gate_transition | useReadyGate | readyGateApi |

@@ -36,7 +36,7 @@ Full file reads were performed for **Events list** (Screen 2) and **Event detail
 
 **Checked:** Lobby profile card vibe tags already limited to 3 + "+N" (web parity). Card aspect, overlay, and action button sizes were not changed in this pass.
 
-**Remaining:** Card width/height from web (e.g. % of viewport); gradient overlay stops; name/age overlay font size and shadow; Pass/Super Vibe/Vibe button exact sizes and icons; empty state copy and Mystery Match CTA.
+**Remaining:** Card width/height from web (e.g. % of viewport); gradient overlay stops; name/age overlay font size and shadow; Pass/Super Vibe/Vibe button exact sizes and icons; current empty state copy without Mystery Match.
 
 ---
 

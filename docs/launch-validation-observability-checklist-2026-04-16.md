@@ -5,8 +5,10 @@ Status: post-Wave-1 launch-readiness pack (docs-only, no code/deploy actions).
 Scope is intentionally narrow to the recently merged fixes:
 - Ready Gate permission preflight
 - date pre-join timeout/retry recovery
-- pending Mystery Match -> Ready Gate promotion behavior
+- queued reciprocal match -> Ready Gate promotion behavior
 - duplicate session-open protection
+
+Update 2026-06-09: Mystery Match is removed from the active product/backend path. This checklist now validates reciprocal swipe and queued-match promotion only.
 
 ---
 
@@ -35,10 +37,10 @@ Run these as manual smoke checks on production-like builds/accounts.
 - [ ] Back-to-lobby action exits cleanly.
 - [ ] No infinite spinner after timeout/failure.
 
-### E. Pending Mystery Match -> Ready Gate promotion
-- [ ] Empty deck -> "Try Mystery Match" -> waiting state appears.
-- [ ] While partner becomes available, lobby opens Ready Gate without requiring full app restart.
-- [ ] Out-of-order updates (`queue_status` before/after `current_room_id`) still end in Ready Gate open.
+### E. Queued reciprocal match -> Ready Gate promotion
+- [ ] Two registered users produce a reciprocal swipe or queued reciprocal match for the same live event.
+- [ ] While the actor remains in lobby, supported queue promotion opens Ready Gate without requiring full app restart.
+- [ ] Out-of-order updates (`queue_status` before/after `current_room_id`) still end in Ready Gate open for the promoted reciprocal-swipe session.
 
 ### F. Duplicate session-open protection
 - [ ] Same `video_sessions.id` does not repeatedly reopen overlay while already active.
@@ -58,7 +60,7 @@ Use existing surfaces only: Sentry + DB SQL + existing RC breadcrumbs/messages.
 | Permission denial frequency during Ready Gate | RC breadcrumbs: `rc.ready_gate` + `lobby_overlay_permissions_denied` / `standalone_permissions_denied` | % of Ready Gate entries with denial |
 | Repeated same-session open attempts | RC breadcrumb `rc.lobby.date_entry` + `navigate_to_video_date` keyed by `session_id` | Duplicate opens for same `session_id` in short window |
 | Time from `both_ready` to successful join | `video_sessions` timestamps + first handshake/date transition timestamp | p50/p95 latency from `both_ready` to handshake/date start |
-| Users falling back from pending search without reaching Ready Gate | lobby waiting-state behavior + DB queued session outcomes (`queued_ttl_expired` / never promoted) | Drop-off rate from pending search to no Ready Gate |
+| Queued reciprocal matches not reaching Ready Gate | lobby queue-drain behavior + DB queued session outcomes (`queued_ttl_expired` / never promoted) | Drop-off rate from queued reciprocal match to no Ready Gate |
 
 ---
 
@@ -72,7 +74,7 @@ Use these thresholds for launch triage decisions (rolling 24h and 7d trend).
 | Recoverable pre-join failures present but stable | 1-3% retries, users recover on first retry | Monitor |
 | `READY_GATE_NOT_READY` clustered near join despite retries | >3% sustained for 2+ days OR clear spike post-release | Tiny backend `both_ready` grace patch candidate |
 | Join funnel still shows unresolved dead-end symptoms | Repeated unresolved pre-join failures, increasing abandon after retry | Deeper investigation |
-| Pending-search drop-off elevated | Rising queued->expired without Ready Gate while realtime healthy | Deeper investigation |
+| Queued-promotion drop-off elevated | Rising queued->expired without Ready Gate while realtime healthy | Deeper investigation |
 
 Notes:
 - "Tiny backend grace patch" means only extending `ready_gate_expires_at` refresh at `both_ready` in `ready_gate_transition`.
@@ -155,4 +157,3 @@ Interpretation guidance:
 - Pause code changes now.
 - Proceed with launch validation + observability monitoring for this slice.
 - Only consider a tiny backend `both_ready` grace extension if threshold conditions above are met.
-
