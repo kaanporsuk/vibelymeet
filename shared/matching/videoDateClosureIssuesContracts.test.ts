@@ -36,6 +36,10 @@ const definitiveCloudAlignmentMigration = readFileSync(
   "supabase/migrations/20260602005051_video_date_definitive_cloud_alignment.sql",
   "utf8",
 );
+const legacyQueueSessionRpcRemovalMigration = readFileSync(
+  "supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql",
+  "utf8",
+);
 const eventRegistrationDmlLockdownMigration = readFileSync(
   "supabase/migrations/20260606164737_event_registration_rpc_owned_dml_lockdown.sql",
   "utf8",
@@ -259,6 +263,18 @@ test("definitive cloud alignment closes anon Video Date RPC and table grants wit
   assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.video_sessions FROM PUBLIC, anon/);
   assert.match(definitiveCloudAlignmentMigration, /GRANT SELECT ON TABLE public\.video_sessions TO authenticated/);
   assert.match(definitiveCloudAlignmentMigration, /REVOKE ALL ON TABLE public\.video_date_credit_extension_spends FROM PUBLIC, anon, authenticated/);
+});
+
+test("legacy direct queue and session RPCs are removed from the current backend contract", () => {
+  assert.match(
+    legacyQueueSessionRpcRemovalMigration,
+    /DROP FUNCTION IF EXISTS public\.find_video_date_match\(uuid, uuid\)/,
+  );
+  assert.match(
+    legacyQueueSessionRpcRemovalMigration,
+    /DROP FUNCTION IF EXISTS public\.join_matching_queue\(uuid, uuid\)/,
+  );
+  assert.doesNotMatch(legacyQueueSessionRpcRemovalMigration, /DROP FUNCTION IF EXISTS public\.leave_matching_queue/i);
 });
 
 test("web lobby treats readiness as non-blocking diagnostics for deck swipes", () => {

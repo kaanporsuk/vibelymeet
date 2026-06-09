@@ -97,6 +97,30 @@ Read-only verification addendum from the same 2026-06-09 session:
 
 ---
 
+## 2026-06-09 Implementation Update: Legacy Direct Queue/Session RPCs Removed
+
+Current source and linked Supabase cloud now remove the deprecated direct queue/session RPC surfaces from the active Event Lobby and Video Date backend contract:
+
+- `public.find_video_date_match(uuid, uuid)`
+- `public.join_matching_queue(uuid, uuid)`
+
+Implementation added:
+
+- Forward migration `20260609163130_remove_legacy_queue_session_rpcs.sql` drops only the two deprecated RPCs above.
+- `leave_matching_queue(uuid)` is intentionally retained for a separate cleanup/proof pass.
+- Supabase generated types were regenerated from the linked project after the migration; neither removed RPC appears in `src/integrations/supabase/types.ts`.
+- `supabase/validation/event_lobby_active_event_contract.sql` now validates RPC absence with `to_regprocedure(...) is null` and also asserts `leave_matching_queue(uuid)` still exists.
+- Focused Event Lobby and Video Date contract tests now assert removal instead of preserving `deprecated_legacy_queue_surface` callable shims.
+
+Proof boundary:
+
+- The only supported Event Lobby -> Video Date creation path remains `/event/:eventId/lobby` -> deck/swipe through `swipe-actions` -> backend `handle_swipe` / `handle_swipe_v2` -> reciprocal swipe or supported queue promotion -> Ready Gate -> Video Date.
+- Do not restore `find_video_date_match` or `join_matching_queue` as compatibility no-ops unless product direction changes.
+- Historical applied migrations and older audits can still mention these RPCs as past behavior; active source, generated types, validation requiring callability, or tests preserving callable no-op behavior are blockers.
+- This remains a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
+
 ## 2026-06-09 Implementation Update: Hot-Path No-Throw Shells And Daily Same-Session Adoption
 
 Current local source now includes the next active-entry hardening pass after the latest production failure still stalled at `/date/:sessionId` with `Still connecting...`.

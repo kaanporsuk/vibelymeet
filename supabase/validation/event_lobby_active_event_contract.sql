@@ -221,17 +221,12 @@ select
     not like '%e.status = ''live''%'
   as ok;
 
--- 8) Deprecated direct legacy session paths still cannot create sessions.
+-- 8) Deprecated direct legacy session paths are removed, not callable shims.
 select
-  'legacy_direct_session_paths_deprecated' as check_name,
-  pg_get_functiondef('public.find_video_date_match(uuid,uuid)'::regprocedure)
-    like '%deprecated_legacy_queue_surface%'
-  and pg_get_functiondef('public.join_matching_queue(uuid,uuid)'::regprocedure)
-    like '%deprecated_legacy_queue_surface%'
-  and pg_get_functiondef('public.find_video_date_match(uuid,uuid)'::regprocedure)
-    not like '%INSERT INTO public.video_sessions%'
-  and pg_get_functiondef('public.join_matching_queue(uuid,uuid)'::regprocedure)
-    not like '%INSERT INTO public.video_sessions%'
+  'legacy_direct_session_rpcs_removed' as check_name,
+  to_regprocedure('public.find_video_date_match(uuid,uuid)') is null
+  and to_regprocedure('public.join_matching_queue(uuid,uuid)') is null
+  and to_regprocedure('public.leave_matching_queue(uuid)') is not null
   as ok;
 
 -- 9) Public client contracts remain callable.

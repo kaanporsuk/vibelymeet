@@ -8,6 +8,8 @@
 >
 > Update 2026-06-09: Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. Historical references below to `find_mystery_match`, `useMysteryMatch`, or `session_source = 'mystery_match'` do not describe current schema or client behavior. Current Video Date session creation is reciprocal swipe plus supported queue promotion into Ready Gate.
 >
+> Update 2026-06-09: direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`. Historical rows below that list them as callable do not describe current schema. `leave_matching_queue(uuid)` remains intentionally retained.
+>
 > Historical note: this document preserves a March 18, 2026 live audit snapshot. For current schema truth, use the latest migrations, live DB state, and `src/integrations/supabase/types.ts`.
 
 ---
@@ -99,7 +101,7 @@ This March 18 snapshot included `find_mystery_match`. It is no longer callable i
 
 - **RPCs called in code but not in live DB:** None.
 - **RPCs in live DB not called by code (and not by Edge Functions):**  
-  `find_video_date_match`, `join_matching_queue`, `get_own_pii`, `get_user_subscription_status`, `can_view_profile_photo`, `check_gender_compatibility`, `haversine_distance`, `is_blocked`, `is_registered_for_event`, `has_role` — these are used by other RPCs/triggers or reserved for future use; no broken call sites.
+  Historical snapshot list included `find_video_date_match` and `join_matching_queue`; both were removed on 2026-06-09. Remaining historical examples include `get_own_pii`, `get_user_subscription_status`, `can_view_profile_photo`, `check_gender_compatibility`, `haversine_distance`, `is_blocked`, `is_registered_for_event`, and `has_role` — verify current live state before using this March 18 list.
 
 ### 2c. Critical RPCs: existence and signatures
 

@@ -15,6 +15,8 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 > Current repo addendum (2026-05-26): this document is a historical/live audit snapshot. The current repo contains **71 deployable Edge Functions** with **71 matching `supabase/config.toml` entries**. Historical rows below that mention `account-pause`, `account-resume`, `email-drip`, or `unsubscribe` are superseded for current ops: those function slugs are absent from current source/config/cloud inventory unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` and `docs/external-dependency-closure-plan-2026-05-23.md` for current closure state.
 >
 > Current Event Lobby addendum (2026-06-09): Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. `find_mystery_match` is no longer in generated Supabase types, web/native `useMysteryMatch` hooks are deleted, and `video_sessions.session_source` is defaulted/constrained to `reciprocal_swipe`.
+>
+> Current leaner-path addendum (2026-06-09): direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`. Generated Supabase types no longer expose either RPC. `leave_matching_queue(uuid)` remains intentionally retained for a separate proof pass.
 
 ---
 
@@ -98,7 +100,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | check_premium_status | p_user_id | boolean |
 | deduct_credit | p_user_id, p_credit_type | boolean |
 | drain_match_queue | p_event_id, p_user_id | Json |
-| find_video_date_match | p_event_id, p_user_id | Json |
+| find_video_date_match | Removed 2026-06-09 | Removed |
 | generate_recurring_events | p_parent_id, p_count? | number |
 | get_event_deck | p_event_id, p_user_id, p_limit? | setof row |
 | get_other_city_events | p_user_id, p_user_lat?, p_user_lng? | setof row |
@@ -110,7 +112,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | haversine_distance | lat/lng pairs | number |
 | is_blocked | user1_id, user2_id | boolean |
 | is_registered_for_event | _event_id, _user_id | boolean |
-| join_matching_queue | p_event_id, p_user_id | Json |
+| join_matching_queue | Removed 2026-06-09 | Removed |
 | leave_matching_queue | p_event_id, p_user_id | Json |
 | update_participant_status | p_event_id, p_user_id, p_status | void |
 | daily_drop_transition | p_drop_id, p_action, p_text? | Json |
@@ -139,7 +141,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | leave_matching_queue | VideoDate | date/[id] |
 | handle_swipe | **only via** swipe-actions EF | **only via** swipe-actions EF |
 
-**Not referenced in src/ or apps/mobile/** (likely DB/trigger/internal): `join_matching_queue`, `find_video_date_match`, `can_view_profile_photo`, `check_gender_compatibility`, `get_own_pii`, `get_user_subscription_status`, `has_role`, `haversine_distance`, `is_blocked`, `is_registered_for_event` — confirm with SQL + grep before marking dead.
+**Not referenced in src/ or apps/mobile/** (likely DB/trigger/internal): `can_view_profile_photo`, `check_gender_compatibility`, `get_own_pii`, `get_user_subscription_status`, `has_role`, `haversine_distance`, `is_blocked`, `is_registered_for_event` — confirm with SQL + grep before marking dead. `join_matching_queue` and `find_video_date_match` were removed on 2026-06-09 after that confirmation.
 
 ### 2c. Flags
 
@@ -359,7 +361,7 @@ SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = 'public
 6. **Run live SQL pack:** RPC list, publication tables, RLS dump, indexes — attach diff to this doc. **HIGH** (process)
 7. **Blocked / reports:** Ensure native flows hit same tables/policies as web. **MEDIUM**
 8. **Credits:** Audit all spend paths use `deduct_credit`. **LOW–MEDIUM**
-9. **Prune or document unused RPCs** (`join_matching_queue`, etc.). **LOW**
+9. **Prune or document unused RPCs**. **LOW** `join_matching_queue` and `find_video_date_match` were pruned on 2026-06-09.
 10. **Remove or justify LOVABLE_API_KEY** in secrets. **LOW**
 
 **Immediate vs deferred**
