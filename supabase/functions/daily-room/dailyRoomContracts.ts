@@ -1,7 +1,5 @@
 export type DateRoomAction =
   | "ensure_date_room"
-  | "create_date_room"
-  | "join_date_room"
   | "prepare_date_entry"
   | "prepare_diagnostic_entry"
   | "prepare_solo_entry"

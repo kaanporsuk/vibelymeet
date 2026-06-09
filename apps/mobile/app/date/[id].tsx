@@ -705,8 +705,8 @@ function isReadyGateRace(code?: string): boolean {
  *  perceives no extra latency, long enough to absorb cross-region replica lag. Two retries by
  *  design: longer windows are better handled by `recoverFromNotStartableDateTruth` redirecting. */
 const READY_GATE_RACE_RETRY_BACKOFFS_MS = [220, 320];
-const NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1600] as const;
-const NATIVE_CREATE_DATE_ROOM_RETRY_AFTER_MAX_MS = 30_000;
+const NATIVE_PREPARE_DATE_ENTRY_RETRY_DELAYS_MS = [700, 1600] as const;
+const NATIVE_PREPARE_DATE_ENTRY_RETRY_AFTER_MAX_MS = 30_000;
 
 function dailyRoomTokenRetryDelayMs(
   result: Extract<GetDailyRoomTokenResult, { ok: false }>,
@@ -724,7 +724,7 @@ function dailyRoomTokenRetryDelayMs(
         : null;
   return Math.min(
     Math.max(1, retryAfterMs ?? fallbackMs),
-    NATIVE_CREATE_DATE_ROOM_RETRY_AFTER_MAX_MS,
+    NATIVE_PREPARE_DATE_ENTRY_RETRY_AFTER_MAX_MS,
   );
 }
 
@@ -4233,7 +4233,7 @@ export default function VideoDateScreen() {
   ]);
 
   const recoverFromNotStartableDateTruth = useCallback(
-    async (source: "enter_handshake" | "create_date_room") => {
+    async (source: "enter_handshake" | "prepare_date_entry") => {
       if (!sessionId || !user?.id) return false;
       const [vs, regRes] = await Promise.all([
         fetchVideoSessionDateEntryTruth(sessionId),
@@ -8644,7 +8644,7 @@ export default function VideoDateScreen() {
       });
       if (truthRecovery1.action !== "go_date") {
         const redirected =
-          await recoverFromNotStartableDateTruth("create_date_room");
+          await recoverFromNotStartableDateTruth("prepare_date_entry");
         if (redirected) {
           hasStartedJoinRef.current = false;
           vdbg("prejoin_state_hasStartedJoinRef", {
@@ -8816,7 +8816,7 @@ export default function VideoDateScreen() {
       try {
         currentStep = setPrejoinStep("daily_room");
         dailyTokenStartedAtMs = Date.now();
-        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "create_date_room_start", {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "prepare_date_entry_start", {
           session_id: sessionId,
           user_id: user?.id ?? null,
           event_id: truth0.event_id,
@@ -8923,7 +8923,7 @@ export default function VideoDateScreen() {
           latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
           attempt_count: 1,
         });
-        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "create_date_room_fail", {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "prepare_date_entry_fail", {
           session_id: sessionId,
           user_id: user?.id ?? null,
           reason: timedOut ? "timeout" : "exception",
@@ -9003,7 +9003,7 @@ export default function VideoDateScreen() {
       if (!tokenRes.ok) {
         if (tokenRes.code === "READY_GATE_NOT_READY") {
           const redirected =
-            await recoverFromNotStartableDateTruth("create_date_room");
+            await recoverFromNotStartableDateTruth("prepare_date_entry");
           if (redirected) {
             hasStartedJoinRef.current = false;
             vdbg("prejoin_state_hasStartedJoinRef", {
@@ -9023,14 +9023,14 @@ export default function VideoDateScreen() {
             return;
           }
           // Recover did not redirect: truth says startable, but daily-room read on the server side
-          // may have hit a stale snapshot. Bounded retry — refetch truth, retry create_date_room.
+          // may have hit a stale snapshot. Bounded retry: refetch truth, retry prepare_date_entry.
           rcBreadcrumb(
             RC_CATEGORY.videoDateEntry,
             "ready_gate_not_ready_retry_start",
             {
               session_id: sessionId,
               user_id: user.id,
-              source: "create_date_room",
+              source: "prepare_date_entry",
             },
           );
           let dailyRoomRecovered = false;
@@ -9058,7 +9058,7 @@ export default function VideoDateScreen() {
                   {
                     session_id: sessionId,
                     user_id: user.id,
-                    source: "create_date_room",
+                    source: "prepare_date_entry",
                     attempt: i + 1,
                     backoff_ms: delay,
                   },
@@ -9080,7 +9080,7 @@ export default function VideoDateScreen() {
               {
                 session_id: sessionId,
                 user_id: user.id,
-                source: "create_date_room",
+                source: "prepare_date_entry",
               },
             );
           }
@@ -9093,7 +9093,7 @@ export default function VideoDateScreen() {
       ) {
         rcBreadcrumb(
           RC_CATEGORY.videoDateEntry,
-          "create_date_room_retryable_retry_start",
+          "prepare_date_entry_retryable_retry_start",
           {
             session_id: sessionId,
             user_id: user.id,
@@ -9103,13 +9103,13 @@ export default function VideoDateScreen() {
         );
         for (
           let i = 0;
-          i < NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS.length;
+          i < NATIVE_PREPARE_DATE_ENTRY_RETRY_DELAYS_MS.length;
           i += 1
         ) {
           if (cancelled || tokenRes.ok || !tokenRes.retryable) break;
           const delay = dailyRoomTokenRetryDelayMs(
             tokenRes,
-            NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS[i],
+            NATIVE_PREPARE_DATE_ENTRY_RETRY_DELAYS_MS[i],
           );
           vdbg("prejoin_step_prejoin_daily_room_retry_scheduled", {
             sessionId,
@@ -9134,7 +9134,7 @@ export default function VideoDateScreen() {
               tokenRes = retried;
               rcBreadcrumb(
                 RC_CATEGORY.videoDateEntry,
-                "create_date_room_retryable_retry_success",
+                "prepare_date_entry_retryable_retry_success",
                 {
                   session_id: sessionId,
                   user_id: user.id,
@@ -9205,7 +9205,7 @@ export default function VideoDateScreen() {
           video_date_trace_id:
             tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
-        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "create_date_room_fail", {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, "prepare_date_entry_fail", {
           session_id: sessionId,
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
@@ -9216,7 +9216,7 @@ export default function VideoDateScreen() {
           video_date_trace_id:
             tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
-        addVideoDateBreadcrumb("create_date_room failed", "error", {
+        addVideoDateBreadcrumb("prepare_date_entry failed", "error", {
           sessionId,
           code: tokenRes.code,
           httpStatus: tokenRes.httpStatus,
@@ -9243,7 +9243,7 @@ export default function VideoDateScreen() {
             {
               session_id: sessionId,
               user_id: user.id,
-              source: "create_date_room",
+              source: "prepare_date_entry",
             },
           );
         }
@@ -9308,7 +9308,7 @@ export default function VideoDateScreen() {
         entry_attempt_id: entryAttemptId,
         video_date_trace_id: videoDateTraceId,
       });
-      rcBreadcrumb(RC_CATEGORY.videoDateEntry, "create_date_room_ok", {
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, "prepare_date_entry_ok", {
         session_id: sessionId,
         user_id: user?.id ?? null,
         room_name: tokenResult.room_name,

@@ -5,8 +5,6 @@ import {
 
 export const DAILY_ROOM_ACTIONS = {
   ENSURE_ROOM: "ensure_date_room",
-  CREATE: "create_date_room",
-  JOIN: "join_date_room",
   PREPARE_ENTRY: "prepare_date_entry",
   PREPARE_SOLO_ENTRY: "prepare_solo_entry",
 } as const;
@@ -192,7 +190,7 @@ export function classifyDailyRoomFailureKind(input: {
   timedOut?: boolean;
   networkError?: boolean;
 }): DailyRoomFailureKind {
-  const { action, httpStatus, serverCode, timedOut, networkError } = input;
+  const { httpStatus, serverCode, timedOut, networkError } = input;
   const code = serverCode ?? "";
 
   if (timedOut || networkError) return "network";
@@ -215,11 +213,7 @@ export function classifyDailyRoomFailureKind(input: {
   if (code === "DAILY_PROVIDER_UNAVAILABLE")
     return "DAILY_PROVIDER_UNAVAILABLE";
   if (code === "DAILY_REQUEST_REJECTED") return "DAILY_REQUEST_REJECTED";
-  if (httpStatus === 404) {
-    return action === DAILY_ROOM_ACTIONS.JOIN
-      ? "ROOM_NOT_FOUND"
-      : "SESSION_NOT_FOUND";
-  }
+  if (httpStatus === 404) return "SESSION_NOT_FOUND";
   if (
     code === "DAILY_PROVIDER_ERROR" ||
     code === "MISSING_TOKEN" ||

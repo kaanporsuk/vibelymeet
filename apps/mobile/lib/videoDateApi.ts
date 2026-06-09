@@ -135,7 +135,7 @@ export type RoomTokenResult = {
   provider_verify_skipped?: boolean | null;
 };
 
-/** Classified create_date_room failure (no secrets). */
+/** Classified prepare_date_entry failure (no secrets). */
 export type RoomTokenFailureCode = DailyRoomFailureKind;
 
 export type GetDailyRoomTokenResult =

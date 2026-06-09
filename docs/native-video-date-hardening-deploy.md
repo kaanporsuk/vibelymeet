@@ -2,6 +2,8 @@
 
 **Status:** Merged to `main` (PRs #192 / #193). Use this doc for deploy history and operator checklist.
 
+Current 2026-06-09 supersession note: this document describes the historical hardening deploy. The active Video Date room/token entry path is now `daily-room` `prepare_date_entry`; the legacy public `create_date_room` and `join_date_room` actions have been removed from the active Edge Function action contract.
+
 ## What changed
 
 1. **Edge Function `daily-room`**

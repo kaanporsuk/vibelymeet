@@ -233,7 +233,7 @@ test("daily-room refuses partial-ready provider work without the actionability R
   const prepareBlock = blockBetween(
     dailyRoom,
     'if (action === "prepare_date_entry")',
-    'if (action === "create_date_room")',
+    'if (action === "create_match_call")',
   );
   assert.match(prepareBlock, /source: "daily_room\.prepare_date_entry"/);
   assert.ok(prepareBlock.indexOf("requireVideoDateReadyGateActionability") < prepareBlock.indexOf('p_action: "prepare_entry"'));

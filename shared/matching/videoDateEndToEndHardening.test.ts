@@ -51,7 +51,7 @@ const dailyRoomFunction = readFileSync(
 const videoDateRoomNameTokenWithExpiryEject =
   /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*(?:roomName|providerRoomName),\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
 const videoDateRoomProofTokenWithExpiryEject =
-  /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
+  /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*(?:roomProof\.roomName|providerRoomName),\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
 
 function indexOfMatch(source: string, pattern: RegExp, start = 0): number {
   const match = source.slice(start).match(pattern);
@@ -1077,24 +1077,17 @@ test("daily-room prepare_date_entry verifies or recreates unsafe provider room s
   assert.ok(prepareTokenIndex > prepareVerifyIndex);
 });
 
-test("legacy join_date_room verifies or recovers provider room before token issuance", () => {
-  const joinIndex = dailyRoomFunction.indexOf('if (action === "join_date_room")');
-  const nextActionIndex = dailyRoomFunction.indexOf("if (action === \"create_match_call\")", joinIndex);
-  const joinBlock = dailyRoomFunction.slice(joinIndex, nextActionIndex);
+test("legacy Daily-room create/join actions are removed from the public date entry dispatch", () => {
+  assert.doesNotMatch(dailyRoomFunction, /if \(action === "create_date_room"\)/);
+  assert.doesNotMatch(dailyRoomFunction, /if \(action === "join_date_room"\)/);
+  assert.doesNotMatch(dailyRoomContracts, /"create_date_room"/);
+  assert.doesNotMatch(dailyRoomContracts, /"join_date_room"/);
 
-  assert.match(joinBlock, /daily_room_name, daily_room_url/);
-  assert.match(joinBlock, /if \(videoDateRoomGateSessionEnded\(session\)\)[\s\S]*code: "SESSION_ENDED"/);
-  assert.match(joinBlock, /if \(!canIssueVideoDateRoomToken\(session\)\)[\s\S]*code: "READY_GATE_NOT_READY"/);
-  assert.doesNotMatch(joinBlock, /if \(!session\.daily_room_name\)[\s\S]*code: "ROOM_NOT_FOUND"/);
-  assert.doesNotMatch(joinBlock, /daily_room_name_guard/);
-  assert.match(joinBlock, /const roomProof = await ensureVideoDateProviderRoomForToken/);
-  assert.match(joinBlock, videoDateRoomProofTokenWithExpiryEject);
-  assert.doesNotMatch(joinBlock, /createMeetingToken\(\s*session\.daily_room_name/);
-
-  const joinVerifyIndex = joinBlock.indexOf("ensureVideoDateProviderRoomForToken");
-  const joinTokenIndex = joinBlock.indexOf("createMeetingToken(");
-  assert.ok(joinVerifyIndex >= 0);
-  assert.ok(joinTokenIndex > joinVerifyIndex);
+  const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
+  const prepareTokenIndex = indexOfMatch(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject, prepareIndex);
+  const prepareVerifyIndex = dailyRoomFunction.indexOf("ensureVideoDateProviderRoomForToken", prepareIndex);
+  assert.ok(prepareVerifyIndex > prepareIndex);
+  assert.ok(prepareTokenIndex > prepareVerifyIndex);
 });
 
 test("web ready-gate paths keep date ownership after both-ready prepare failures", () => {
@@ -2025,7 +2018,8 @@ test("date route truth requires provider metadata before navigating to video", (
   assert.match(webVideoDatePage, /in_ready_gate_without_provider_prepared_truth/);
   assert.match(nativeVideoDateRoute, /in_ready_gate_without_provider_prepared_truth/);
   assert.doesNotMatch(nativeEventLobby, /phase === ['"]handshake['"] \|\| phase === ['"]date['"]/);
-  assert.match(dailyRoomFunction, /allow Daily token only after provider-prepared handshake\/date truth is confirmed/);
+  assert.match(dailyRoomFunction, /Provider-idempotent room\/token contract/);
+  assert.match(dailyRoomFunction, /const roomProof = await ensureVideoDateProviderRoomForToken/);
 });
 
 test("web and native active-session recovery share pending survey contract", () => {

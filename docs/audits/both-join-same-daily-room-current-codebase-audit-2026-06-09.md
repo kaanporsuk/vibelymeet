@@ -2,6 +2,8 @@
 
 Audit date: 2026-06-09
 
+Supersession note, 2026-06-09: the later Daily-room legacy action cleanup removes public `create_date_room` and `join_date_room` action support from the active Edge Function contract/dispatch. Current room/token entry remains `prepare_date_entry`; provider room creation/reuse/verification remains internal to the active prepare path.
+
 Repo audited: `/Users/kaanporsuk/Documents/Vibely/Git/vibelymeet`
 
 Local commit audited: `47ca0c6b8a5cbda0c0b1d9910e0ee416bd5de835`

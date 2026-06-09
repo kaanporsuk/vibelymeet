@@ -145,6 +145,34 @@ Proof boundary:
 
 ---
 
+## 2026-06-09 Implementation Update: Daily-room Legacy Date Actions Removed
+
+Current source now removes the legacy public/client-facing `daily-room` Edge Function action support for `create_date_room` and `join_date_room`.
+
+Implementation added:
+
+- `supabase/functions/daily-room/index.ts` no longer lists `create_date_room` or `join_date_room` as Daily-config-required date actions and no longer dispatches either public action branch.
+- `supabase/functions/daily-room/dailyRoomContracts.ts` removes both names from `DateRoomAction`.
+- `shared/matching/dailyRoomFailure.ts` removes `DAILY_ROOM_ACTIONS.CREATE` and `DAILY_ROOM_ACTIONS.JOIN`; unactioned 404 Daily-room failures now classify as `SESSION_NOT_FOUND` unless the server explicitly returns `ROOM_NOT_FOUND`.
+- Web and native active date-entry labels now describe the current path as `prepare_date_entry`, including retry constants, breadcrumbs, recovery sources, and the native token-failure comment.
+- Added `shared/matching/dailyRoomLegacyActionRemovalContracts.test.ts` and wired it into `npm run test:event-lobby-regression`.
+- Branch delta: `docs/branch-deltas/remove-daily-room-legacy-actions.md`.
+- Supabase deployment proof: `supabase functions deploy daily-room --project-ref schdyxcunwcvddlcshwd --use-api` succeeded on 2026-06-09; `supabase functions list --project-ref schdyxcunwcvddlcshwd` showed `daily-room` ACTIVE version 863 updated at `2026-06-09 18:19:07 UTC`.
+
+Preserved:
+
+- `prepare_date_entry` remains the web/native room and token entry path.
+- `video_date_transition('enter_handshake')` remains intentionally preserved.
+- `ensure_date_room`, `prepare_diagnostic_entry`, `prepare_solo_entry`, `video_date_leave`, `delete_room`, and match-call actions remain intact.
+- Provider-side Daily room creation/reuse/verification remains inside `prepare_date_entry` and `ensure_date_room`.
+- Existing `create_date_room_*` provider observability operation labels remain intact as shared Daily provider lifecycle internals used by `prepare_date_entry`.
+
+Proof boundary:
+
+- This is a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
+
 ## 2026-06-09 Implementation Update: Hot-Path No-Throw Shells And Daily Same-Session Adoption
 
 Current local source now includes the next active-entry hardening pass after the latest production failure still stalled at `/date/:sessionId` with `Still connecting...`.
