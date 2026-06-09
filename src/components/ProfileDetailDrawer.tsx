@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Heart, Loader2, MessageCircle, Video, X } from "lucide-react";
+import { Heart, Loader2, MessageCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { OtherUserFullProfileView } from "@/components/profile/OtherUserFullProfileView";
@@ -29,7 +29,6 @@ interface ProfileDetailDrawerProps {
   };
   trigger?: ReactNode;
   onMessage?: () => void;
-  onVideoCall?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   showActions?: boolean;
@@ -40,7 +39,6 @@ export const ProfileDetailDrawer = ({
   match,
   trigger,
   onMessage,
-  onVideoCall,
   open: controlledOpen,
   onOpenChange,
   showActions = true,
@@ -95,20 +93,6 @@ export const ProfileDetailDrawer = ({
         >
           <MessageCircle className="h-4 w-4" />
           Message
-        </Button>
-      ) : null}
-      {onVideoCall ? (
-        <Button
-          type="button"
-          variant="secondary"
-          className="flex-1 rounded-2xl"
-          onClick={() => {
-            setOpen(false);
-            onVideoCall();
-          }}
-        >
-          <Video className="h-4 w-4" />
-          Video
         </Button>
       ) : null}
     </div>

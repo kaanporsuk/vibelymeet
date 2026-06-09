@@ -24,7 +24,6 @@ import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
 import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletionBanner";
-import { MatchCallProvider } from "@/hooks/useMatchCall";
 import { useWebChatOutbox, WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
 import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
 import { supabase } from "@/integrations/supabase/client";
@@ -709,7 +708,6 @@ const App = () => {
               }}
             >
               <BrowserRouter>
-                <MatchCallProvider>
                   <WebChatOutboxRunner />
                   <WebUploadRecoveryNotifier />
                   <WebPostDateOutboxRunner />
@@ -775,7 +773,6 @@ const App = () => {
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </Suspense>
-                </MatchCallProvider>
               </BrowserRouter>
             </Sentry.ErrorBoundary>
             <AnalyticsConsentBanner consent={analyticsConsent} />

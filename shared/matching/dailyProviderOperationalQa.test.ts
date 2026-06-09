@@ -62,11 +62,9 @@ function vercelCspDirective(name: string): string[] {
 
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const dailyRoomContracts = read("supabase/functions/daily-room/dailyRoomContracts.ts");
-const matchCallCleanup = read("supabase/functions/match-call-room-cleanup/index.ts");
 const videoDateCleanup = read("supabase/functions/video-date-room-cleanup/index.ts");
 const supabaseConfig = read("supabase/config.toml");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
-const webMatchCall = read("src/hooks/useMatchCall.tsx");
 const webDailyCallObjectConfig = read("src/lib/dailyCallObjectConfig.ts");
 const webDailyCallInstance = read("src/lib/dailyCallInstance.ts");
 const webDailyPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
@@ -85,8 +83,6 @@ const nativeReadyStandalone = read("apps/mobile/app/ready/[id].tsx");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");
-const nativeMatchCall = read("apps/mobile/lib/useMatchCall.tsx");
-const nativeMatchCallApi = read("apps/mobile/lib/matchCallApi.ts");
 const rootPackageJson = read("package.json");
 const nativePackageJson = read("apps/mobile/package.json");
 const providerSheet = read("_cursor_context/vibely_daily_provider_sheet.md");
@@ -138,16 +134,15 @@ test("video-date room names derive deterministically from session id", () => {
   assert.match(dailyRoom, /roomName:\s*videoDateRoomNameForSession\(sessionId\)/);
 });
 
-test("match-call room creation and answer token flow remain present", () => {
-  assert.match(dailyRoom, /if \(action === "create_match_call"\)/);
-  assert.match(dailyRoom, /const roomName = `call-\$\{matchId/);
-  assert.match(dailyRoom, /await createDailyRoom\(roomName, matchCallRoomProperties\(callTypeValue\)\)/);
-  assertOrder(dailyRoom, [
-    ["answer action", "if (action === \"answer_match_call\")"],
-    ["backend answer transition", "p_action: \"answer\""],
-    ["provider room proof", "ensureMatchCallProviderRoomForToken"],
-    ["callee token", "token = await createMeetingToken"],
-  ]);
+test("daily-room no longer exposes chat Match Call room or token actions", () => {
+  for (const action of ["create_match_call", "answer_match_call", "join_match_call"] as const) {
+    assert.doesNotMatch(dailyRoom, new RegExp(`if \\(action === "${action}"\\)`));
+    assert.doesNotMatch(dailyRoom, new RegExp(`["']${action}["']`));
+  }
+  assert.doesNotMatch(dailyRoom, /matchCallRoomProperties/);
+  assert.doesNotMatch(dailyRoom, /ensureMatchCallProviderRoomForToken/);
+  assert.doesNotMatch(dailyRoom, /`call-\$\{matchId/);
+  assert.match(dailyRoom, /if \(action === "prepare_date_entry"\)/);
 });
 
 test("delete_room posture is authenticated, participant-gated, and intentionally supported", () => {
@@ -155,15 +150,14 @@ test("delete_room posture is authenticated, participant-gated, and intentionally
   assert.match(dailyRoom, /\/\/ All actions require auth/);
   assert.match(dailyRoom, /if \(!authHeader\)/);
   assert.match(dailyRoom, /if \(action === "delete_room"\)/);
-  assert.match(dailyRoom, /Caller must be a verified participant of the room/);
+  assert.match(dailyRoom, /Caller must be a verified participant of the Video Date room/);
   assert.match(dailyRoom, /authorized = vsRow\.participant_1_id === user\.id \|\| vsRow\.participant_2_id === user\.id/);
-  assert.match(dailyRoom, /authorized = callRow\.caller_id === user\.id \|\| callRow\.callee_id === user\.id/);
   assert.match(dailyRoomContracts, /VIDEO_DATE_CLEANUP_OWNED_BY_CRON/);
-  assert.match(dailyRoomContracts, /MATCH_CALL_ACTIVE_ROOM_DELETE_SKIPPED/);
+  assert.doesNotMatch(dailyRoomContracts, /MATCH_CALL/);
   assert.match(providerSheet, /delete_room` is intentionally supported for client cleanup, but it is not unauthenticated/);
 });
 
-test("cleanup workers preserve provider delete posture for terminal rows", () => {
+test("video-date cleanup worker preserves provider delete posture for terminal rows", () => {
   assert.match(videoDateCleanup, /DAILY_API_KEY/);
   assert.match(videoDateCleanup, /DELETE/);
   assert.match(videoDateCleanup, /daily_room_name/);
@@ -173,9 +167,7 @@ test("cleanup workers preserve provider delete posture for terminal rows", () =>
   assert.match(videoDateCleanup, /bucket: "room_delete"/);
   assert.match(videoDateCleanup, /Retry-After/);
   assert.doesNotMatch(videoDateCleanup, /(?<!WithTimeout)fetch\(/);
-  assert.match(matchCallCleanup, /DAILY_API_KEY/);
-  assert.match(matchCallCleanup, /provider_deleted_at/);
-  assert.match(matchCallCleanup, /DELETE/);
+  assert.equal(existsSync(join(root, "supabase/functions/match-call-room-cleanup/index.ts")), false);
 });
 
 test("web and native date paths remain backend prepare-entry gated", () => {
@@ -211,14 +203,9 @@ test("web Daily call objects use the CSP-friendly avoidEval path", () => {
   assert.match(webDailyCallObjectConfig, /const dailyConfig: DailyAdvancedConfigWithVideoDateKnobs = \{\s*avoidEval:\s*true/s);
   assert.match(webDailyCallObjectConfig, /dailyConfig,/);
   assert.match(webVideoCall, /dailyVideoDateCallObjectOptions/);
-  assert.match(webMatchCall, /dailyCallObjectOptions/);
-  for (const [label, source] of [
-    ["web video date", webVideoCall],
-    ["web match call", webMatchCall],
-  ] as const) {
-    const rawCreateCallObjectCalls = source.match(/createCallObject\(\s*\{/g) ?? [];
-    assert.deepEqual(rawCreateCallObjectCalls, [], `${label} must use a shared Daily helper for createCallObject`);
-  }
+  const rawCreateCallObjectCalls = webVideoCall.match(/createCallObject\(\s*\{/g) ?? [];
+  assert.deepEqual(rawCreateCallObjectCalls, [], "web video date must use a shared Daily helper for createCallObject");
+  assert.equal(existsSync(join(root, "src/hooks/useMatchCall.tsx")), false);
 });
 
 test("web Video Date Daily create paths use guarded singleton recovery", () => {
@@ -427,149 +414,45 @@ test("web Daily CSP supports CSP-safe script loading and websocket signaling", (
   assert.ok(!vercelCspDirective("frame-src").includes("https://*.daily.co"));
 });
 
-test("existing match-call paths remain present on web and native", () => {
-  for (const source of [webMatchCall, nativeMatchCall]) {
-    assert.match(source, /create_match_call|createMatchCall/);
-    assert.match(source, /answer_match_call|answerMatchCall/);
-    assert.match(source, /join_match_call|joinMatchCall/);
-    assert.match(source, /delete_room|deleteMatchCallRoom/);
-    assert.match(source, /startCallAttemptRef/);
-    assert.match(source, /startCallLockRef/);
-    assert.match(source, /runSingleJoinFlow/);
-    assert.match(source, /joiningCallIdRef/);
-    assert.match(source, /joinPromiseRef/);
-    assert.match(source, /queueReconcileCallRow/);
-    assert.match(source, /start_call_watchdog_fired/);
-    assert.match(source, /start_call_stale_success_ignored/);
-    assert.doesNotMatch(
-      source,
-      /if \(!isCurrentStartCallAttempt\(\)\) \{\s*await (transitionCall|transitionMatchCall)\(callId, ["']join_failed["']\)/,
-    );
-    assert.match(source, /participant-joined/);
-    assert.match(source, /participant-left/);
+test("chat MatchCall Daily paths are removed from source and schema contract", () => {
+  const removalMigration = read("supabase/migrations/20260609224646_remove_match_calls.sql");
+  const webChat = read("src/pages/Chat.tsx");
+  const nativeChat = read("apps/mobile/app/chat/[id].tsx");
+  const generatedTypes = read("src/integrations/supabase/types.ts");
+
+  for (const path of [
+    "src/hooks/useMatchCall.tsx",
+    "src/components/chat/IncomingCallOverlay.tsx",
+    "src/components/chat/ActiveCallOverlay.tsx",
+    "apps/mobile/lib/useMatchCall.tsx",
+    "apps/mobile/lib/matchCallApi.ts",
+    "apps/mobile/components/chat/IncomingCallOverlay.tsx",
+    "apps/mobile/components/chat/ActiveCallOverlay.tsx",
+    "supabase/functions/match-call-room-cleanup/index.ts",
+  ]) {
+    assert.equal(existsSync(join(root, path)), false, `${path} should be removed`);
   }
-  assert.match(nativeMatchCallApi, /body:\s*\{ action: 'create_match_call', matchId, callType \}/);
-  assert.match(nativeMatchCallApi, /body:\s*\{ action: 'answer_match_call', callId \}/);
-  assert.match(nativeMatchCallApi, /body:\s*\{ action: 'join_match_call', callId \}/);
-  assert.match(nativeMatchCallApi, /body:\s*\{ action: 'delete_room', roomName \}/);
-});
 
-test("chat MatchCall Daily errors use one-shot provider teardown", () => {
-  for (const source of [webMatchCall, nativeMatchCall]) {
-    assert.match(source, /providerTeardownPromiseRef/);
-    assert.match(source, /const teardownForProviderError = useCallback/);
-    assert.match(source, /const waitForProviderTeardown = useCallback/);
-    assert.match(source, /provider_teardown_deduped/);
-    assert.match(source, /provider_teardown_awaited_by_flow/);
-    assert.match(source, /Promise\.resolve\(\)\s*\.\s*then\(\(\) => endCall\(["']provider_error["']\)\)/);
-    assert.match(source, /endCall\(["']provider_error["']\)/);
-    assert.match(source, /if \(await waitForProviderTeardown\(["']answer_call_catch["']\)\) return/);
-    assert.match(source, /if \(await waitForProviderTeardown\(["']start_call_catch["']\)\)[\s\S]*return/);
-    assert.match(source, /if \(await waitForProviderTeardown\(["']active_rejoin_catch["']\)\) return/);
-    assert.match(
-      source,
-      /callObject\.on\(["']error["'],\s*\([^)]*event[^)]*\)\s*=>[\s\S]*teardownForProviderError\(["']daily_error["'],\s*event\)/,
-    );
-    assert.match(
-      source,
-      /callObject\.on\(["']left-meeting["'],\s*\([^)]*event[^)]*\)\s*=>[\s\S]*dailyEventHasError\(event\)[\s\S]*teardownForProviderError\(["']left_meeting_error["'],\s*event\)/,
-    );
+  for (const source of [dailyRoom, webChat, nativeChat, generatedTypes]) {
+    assert.doesNotMatch(source, /create_match_call|answer_match_call|join_match_call/);
+    assert.doesNotMatch(source, /match_call_transition|expire_stale_match_calls|notify_match_calls/);
   }
-  assert.match(webMatchCall, /toast\.error\(["']Call connection error["']\)/);
-  assert.match(nativeMatchCall, /Alert\.alert\(["']Call connection error["'],\s*["']Please try again\.["']\)/);
-});
-
-test("chat MatchCall cleanup owns Daily ref clearing and destroy", () => {
-  for (const source of [webMatchCall, nativeMatchCall]) {
-    const cleanupStart = source.indexOf("const cleanupLocalCall = useCallback");
-    const cleanupEnd = source.indexOf("const runSingleJoinFlow", cleanupStart);
-    const eventsStart = source.indexOf("const setupCallEvents = useCallback");
-    const eventsEnd = source.indexOf("const markIncomingCallMissed", eventsStart);
-    assert.ok(cleanupStart > 0 && cleanupEnd > cleanupStart, "cleanupLocalCall block should exist");
-    assert.ok(eventsStart > 0 && eventsEnd > eventsStart, "setupCallEvents block should exist");
-
-    const cleanupBlock = source.slice(cleanupStart, cleanupEnd);
-    const eventBlock = source.slice(eventsStart, eventsEnd);
-    assert.match(cleanupBlock, /localCallCleanupPromiseRef/);
-    assert.match(cleanupBlock, /const cleanupPromise = Promise\.resolve\(\)\.then\(async \(\) =>/);
-    assert.match(cleanupBlock, /preserveCallStateCleanupRef\.current = true/);
-    assert.match(cleanupBlock, /callObjectRef\.current = null/);
-    assert.match(cleanupBlock, /await callObject\.destroy\(\)/);
-    assert.match(eventBlock, /if \(preserveCallStateCleanupRef\.current\) return/);
-    assert.doesNotMatch(eventBlock, /callObjectRef\.current = null/);
-  }
-});
-
-test("chat MatchCall fresh creates recover stale or duplicate Daily objects", () => {
-  for (const source of [webMatchCall, nativeMatchCall]) {
-    assert.match(source, /isReusableDailyCallObject/);
-    assert.match(source, /readDailyMeetingState\(callObject\)\s*={2,3}\s*["']joined-meeting["']/);
-    assert.match(source, /isBusyDailyMeetingState/);
-    assert.match(source, /return !isTerminalDailyMeetingState\(state\)/);
-    assert.match(source, /Duplicate\\s\+DailyIframe\\s\+instances/);
-    assert.match(source, /multiple\\s\+call\\s\+instances/);
-    assert.match(source, /call\\s\+object\.\*already/);
-    assert.match(source, /existing\\s\+call\\s\+instance/);
-    assert.match(source, /fresh_create_duplicate_daily_instance_busy/);
-    assert.match(source, /cleanupStaleCallObjectForFreshCreate/);
-    assert.match(source, /fresh_create_cleaned_stale_call_object/);
-    assert.match(source, /fresh_create_recovered_duplicate_daily_instance/);
-    assert.match(source, /getCallInstance\(\)/);
-    assert.match(source, /const callObject = await createFreshMatchCallObject/);
-    assert.match(source, /preserveCallState:\s*true/);
-    assert.doesNotMatch(source, /allowMultipleCallInstances/);
-    assert.doesNotMatch(source, /skipped_duplicate_join/);
-  }
-});
-
-test("chat MatchCall refuses to steal non-terminal Daily singletons from other surfaces", () => {
-  for (const source of [webMatchCall, nativeMatchCall]) {
-    const joinStart = source.indexOf("const joinActiveCall = useCallback");
-    const joinEnd = source.indexOf("const reconcileCallRow", joinStart);
-    assert.ok(joinStart > 0 && joinEnd > joinStart, "joinActiveCall block should exist");
-    const joinBlock = source.slice(joinStart, joinEnd);
-
-    assert.match(source, /const hasBusyExternalDailyCall = useCallback/);
-    assert.match(source, /external_daily_call_busy/);
-    assert.match(source, /answer_call_preflight/);
-    assert.match(source, /start_call_preflight/);
-    assert.match(source, /active_rejoin_preflight/);
-    assert.match(source, /if \(await hasBusyExternalDailyCall\(["']answer_call_preflight["']\)\)/);
-    assert.match(source, /if \(await hasBusyExternalDailyCall\(["']start_call_preflight["']\)\)/);
-    assert.match(source, /if \(!callObjectRef\.current && await hasBusyExternalDailyCall\(["']active_rejoin_preflight["']\)\)/);
-    assert.match(source, /if \(!isBusyDailyMeetingState\(meetingState\)\) return false/);
-    assert.match(source, /fresh_create_duplicate_daily_instance_busy/);
-    assert.ok(
-      joinBlock.indexOf("active_rejoin_preflight") < joinBlock.indexOf("trackedCallIdRef.current = row.id"),
-      "active rejoin should check external Daily ownership before mutating local chat-call refs",
-    );
-  }
-});
-
-test("match_call_transition keeps duplicate answer and decline idempotent", () => {
-  const amendment = read(
-    "supabase/migrations/20260510150000_match_call_transition_idempotent_duplicate_events.sql",
-  );
-  assert.match(
-    amendment,
-    /p_action IN \('end', 'mark_missed', 'join_failed'\)\s+OR \(p_action = 'decline' AND v_call.status = 'declined'\)/,
-  );
-  assert.match(amendment, /IF v_call.status = 'active' THEN[\s\S]*'idempotent', true/s);
+  assert.doesNotMatch(dailyRoom, /match_calls|MatchCall|matchCall/);
+  assert.doesNotMatch(generatedTypes, /\bmatch_calls\b/);
+  assert.match(removalMigration, /DROP TABLE IF EXISTS public\.match_calls CASCADE/);
+  assert.match(removalMigration, /DROP FUNCTION IF EXISTS public\.match_call_transition\(uuid, text, text\)/);
+  assert.match(removalMigration, /DROP FUNCTION IF EXISTS public\.expire_stale_match_calls\(\)/);
 });
 
 test("Daily operational QA adds no env vars, migrations, native modules, expo-av, or unrelated provider changes", () => {
   const dailyEnvSource = [
     dailyRoom,
-    matchCallCleanup,
     videoDateCleanup,
     webVideoCall,
-    webMatchCall,
     webPrepareEntry,
     nativeDateRoute,
     nativeVideoDateApi,
     nativePrepareEntry,
-    nativeMatchCall,
-    nativeMatchCallApi,
   ].join("\n");
   const dailyEnvNames = Array.from(
     new Set([...dailyEnvSource.matchAll(/(?:Deno\.env\.get\(["']|import\.meta\.env\??\.|process\.env\.)([A-Z0-9_]+)/g)]

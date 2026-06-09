@@ -3,14 +3,10 @@ import assert from "node:assert/strict";
 import {
   buildMeetingTokenProperties,
   buildVideoDateRoomProperties,
-  canIssueAnswerTokenForMatchCallStatus,
-  canReuseOpenMatchCallForCreateRetry,
-  canReuseOpenMatchCallSameParticipants,
   classifyDeleteRoomSafety,
   evaluateDailyProductionConfigReadiness,
   isDailyRoomAlreadyExistsErrorText,
   isDailyRoomUrlForName,
-  isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
   resolveDailyRuntimeConfig,
@@ -205,149 +201,7 @@ test("missing or expired provider rooms are planned for same-name recovery", () 
   });
 });
 
-test("same-caller open match-call retry can reuse the existing canonical room", () => {
-  const call = {
-    id: "call-1",
-    match_id: "match-1",
-    caller_id: "caller-1",
-    callee_id: "callee-1",
-    call_type: "video",
-    daily_room_name: "call-match1",
-    daily_room_url: "https://vibelyapp.daily.co/call-match1",
-    status: "ringing",
-  };
-
-  assert.equal(
-    canReuseOpenMatchCallForCreateRetry(call, {
-      matchId: "match-1",
-      callerId: "caller-1",
-      calleeId: "callee-1",
-      callType: "video",
-    }),
-    true,
-  );
-  assert.equal(
-    canReuseOpenMatchCallForCreateRetry({ ...call, daily_room_url: null }, {
-      matchId: "match-1",
-      callerId: "caller-1",
-      calleeId: "callee-1",
-      callType: "video",
-    }),
-    true,
-  );
-  assert.equal(
-    canReuseOpenMatchCallForCreateRetry({ ...call, caller_id: "callee-1", callee_id: "caller-1" }, {
-      matchId: "match-1",
-      callerId: "caller-1",
-      calleeId: "callee-1",
-      callType: "video",
-    }),
-    false,
-  );
-  assert.equal(
-    canReuseOpenMatchCallForCreateRetry({ ...call, call_type: "voice" }, {
-      matchId: "match-1",
-      callerId: "caller-1",
-      calleeId: "callee-1",
-      callType: "video",
-    }),
-    false,
-  );
-  assert.equal(
-    canReuseOpenMatchCallForCreateRetry({ ...call, status: "ended" }, {
-      matchId: "match-1",
-      callerId: "caller-1",
-      calleeId: "callee-1",
-      callType: "video",
-    }),
-    false,
-  );
-});
-
-test("same-participants variant tolerates call_type mismatch for rejoin", () => {
-  const call = {
-    id: "call-1",
-    match_id: "match-1",
-    caller_id: "caller-1",
-    callee_id: "callee-1",
-    call_type: "voice" as const,
-    daily_room_name: "call-match1",
-    daily_room_url: "https://vibelyapp.daily.co/call-match1",
-    status: "ringing" as const,
-  };
-  const requestVideo = {
-    matchId: "match-1",
-    callerId: "caller-1",
-    calleeId: "callee-1",
-    callType: "video" as const,
-  };
-  assert.equal(canReuseOpenMatchCallSameParticipants(call, requestVideo), true);
-  assert.equal(canReuseOpenMatchCallForCreateRetry(call, requestVideo), false);
-  assert.equal(
-    canReuseOpenMatchCallSameParticipants({ ...call, daily_room_name: null }, requestVideo),
-    false,
-  );
-  assert.equal(
-    canReuseOpenMatchCallSameParticipants({ ...call, status: "ended" }, requestVideo),
-    false,
-  );
-  assert.equal(
-    canReuseOpenMatchCallSameParticipants(
-      { ...call, caller_id: "callee-1", callee_id: "caller-1" },
-      requestVideo,
-    ),
-    false,
-  );
-});
-
-test("isIncomingMatchCallForRequester detects reverse-direction open call", () => {
-  const call = {
-    id: "call-1",
-    match_id: "match-1",
-    caller_id: "partner",
-    callee_id: "me",
-    call_type: "video" as const,
-    daily_room_name: "call-match1",
-    daily_room_url: "https://vibelyapp.daily.co/call-match1",
-    status: "ringing" as const,
-  };
-  assert.equal(
-    isIncomingMatchCallForRequester(call, {
-      matchId: "match-1",
-      callerId: "me",
-      calleeId: "partner",
-      callType: "voice",
-    }),
-    true,
-  );
-  assert.equal(
-    isIncomingMatchCallForRequester(call, {
-      matchId: "match-1",
-      callerId: "partner",
-      calleeId: "me",
-      callType: "voice",
-    }),
-    false,
-  );
-  assert.equal(
-    isIncomingMatchCallForRequester({ ...call, status: "ended" }, {
-      matchId: "match-1",
-      callerId: "me",
-      calleeId: "partner",
-      callType: "voice",
-    }),
-    false,
-  );
-});
-
-test("answer_match_call can issue fresh tokens for ringing and active idempotent retry", () => {
-  assert.equal(canIssueAnswerTokenForMatchCallStatus("ringing"), true);
-  assert.equal(canIssueAnswerTokenForMatchCallStatus("active"), true);
-  assert.equal(canIssueAnswerTokenForMatchCallStatus("ended"), false);
-  assert.equal(canIssueAnswerTokenForMatchCallStatus("missed"), false);
-});
-
-test("delete_room safety gates prevent peer-joining and active-call room deletion", () => {
+test("delete_room safety delegates video-date room deletion to cron", () => {
   assert.deepEqual(
     classifyDeleteRoomSafety({
       roomType: "video_date",
@@ -363,51 +217,13 @@ test("delete_room safety gates prevent peer-joining and active-call room deletio
   );
   assert.deepEqual(
     classifyDeleteRoomSafety({
-      roomType: "match_call",
-      status: "ringing",
-      endedAt: null,
+      roomType: "video_date",
+      endedAt: "2026-04-29T01:00:00.000Z",
     }),
     {
       shouldDelete: false,
-      code: "MATCH_CALL_ACTIVE_ROOM_DELETE_SKIPPED",
-      outcome: "skipped_peer_joining",
-    },
-  );
-  assert.deepEqual(
-    classifyDeleteRoomSafety({
-      roomType: "match_call",
-      status: "active",
-      endedAt: null,
-    }),
-    {
-      shouldDelete: false,
-      code: "MATCH_CALL_ACTIVE_ROOM_DELETE_SKIPPED",
+      code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON",
       outcome: "skipped_active_session",
-    },
-  );
-  assert.deepEqual(
-    classifyDeleteRoomSafety({
-      roomType: "match_call",
-      status: "ended",
-      endedAt: "2026-04-29T01:00:00.000Z",
-    }),
-    {
-      shouldDelete: true,
-      code: "SAFE_TO_DELETE",
-      outcome: "delete_allowed",
-    },
-  );
-  assert.deepEqual(
-    classifyDeleteRoomSafety({
-      roomType: "match_call",
-      status: "ended",
-      endedAt: "2026-04-29T01:00:00.000Z",
-      providerDeletedAt: "2026-04-29T01:03:00.000Z",
-    }),
-    {
-      shouldDelete: false,
-      code: "MATCH_CALL_ROOM_ALREADY_CLEANED",
-      outcome: "not_found_idempotent",
     },
   );
 });

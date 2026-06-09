@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import {
   permissionUxMediaKindForRequiredGrants,
@@ -8,6 +10,12 @@ import {
   permissionUxStatusFromMediaPermissionStatus,
   resolvePermissionUx,
 } from "./permissionUx";
+
+const root = process.cwd();
+
+function read(path: string): string {
+  return readFileSync(join(root, path), "utf8");
+}
 
 test("permission UX maps native denial states to retry vs Settings recovery", () => {
   assert.equal(permissionUxStatusFromGrant({ status: "denied", canAskAgain: true }), "denied_retryable");
@@ -49,21 +57,13 @@ test("chat vibe clip uses compact prompt copy with upload fallback", () => {
   assert.equal(blocked.primaryLabel, "Open Settings");
 });
 
-test("match calls use intent-specific media permission copy", () => {
-  const voice = resolvePermissionUx({ capability: "match_call_voice", status: "promptable", platform: "web" });
-  const video = resolvePermissionUx({
-    capability: "match_call_video",
-    status: "blocked_settings",
-    platform: "android",
-    mediaKind: "camera",
-  });
+test("match-call permission capabilities are not part of the active permission UX contract", () => {
+  const source = read("shared/permissions/permissionUx.ts");
 
-  assert.equal(voice.title, "Microphone needed");
-  assert.match(voice.message, /voice call/);
-  assert.equal(voice.primaryLabel, "Allow microphone");
-  assert.equal(video.title, "Camera needed");
-  assert.match(video.message, /Camera access is off/);
-  assert.equal(video.primaryLabel, "Open Settings");
+  assert.doesNotMatch(source, /match_call_voice/);
+  assert.doesNotMatch(source, /match_call_video/);
+  assert.doesNotMatch(source, /voice call/i);
+  assert.doesNotMatch(source, /video call/i);
 });
 
 test("required media copy names the missing half after partial camera or microphone grants", () => {

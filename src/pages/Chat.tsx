@@ -13,7 +13,6 @@ import {
   CalendarDays,
   CalendarPlus,
   Gamepad2,
-  Phone,
   ChevronDown,
   Plus,
   Video,
@@ -105,7 +104,6 @@ import type { MediaCaptions } from "../../shared/media/captions";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useMatchCall } from "@/hooks/useMatchCall";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 import {
   buildVibeClipRecovery,
@@ -983,20 +981,6 @@ const Chat = () => {
       unlock();
     };
   }, []);
-
-  const matchCall = useMatchCall({
-    matchId: chatData?.matchId || null,
-    partnerUserId: chatData?.otherUser?.id ?? id ?? null,
-    partnerName: chatData?.otherUser?.name ?? "Your match",
-    partnerAvatar: (() => {
-      const primaryPath = resolvePrimaryProfilePhotoPath({
-        photos: chatData?.otherUser?.photos,
-        avatar_url: chatData?.otherUser?.avatar_url,
-      });
-      return primaryPath ? avatarUrl(primaryPath) : null;
-    })(),
-    onCallEnded: () => {},
-  });
 
   useRealtimeMessages({
     matchId: chatData?.matchId || null,
@@ -2737,17 +2721,6 @@ const Chat = () => {
     setShowAttachmentTray(false);
   }, [guardActiveConversation, hydratedDateSuggestions, warnAboutActiveSuggestion]);
 
-  const startMatchCall = useCallback(
-    (type: "voice" | "video") => {
-      if (!chatData?.matchId) {
-        toast.error("No active match for calling");
-        return;
-      }
-      void matchCall.startCall(type);
-    },
-    [chatData?.matchId, matchCall],
-  );
-
   const openShareScheduleAsCounter = useCallback(
     (suggestionId: string, previousRevision: DateSuggestionWithRelations["revisions"][0]) => {
       // Counter response with own selected schedule blocks: routes through the
@@ -2858,7 +2831,6 @@ const Chat = () => {
         threadAnchorLabel={threadAnchorLabel}
         matchId={chatData?.matchId || undefined}
         onBack={returnToMatches}
-        onVideoCall={startMatchCall}
         onFocusInput={() => inputRef.current?.focus()}
         onOpenMediaHealth={() => setShowMediaHealth(true)}
       />
@@ -3766,28 +3738,6 @@ const Chat = () => {
                 >
                   <Gamepad2 className="h-4 w-4 shrink-0 text-cyan-400/90" aria-hidden />
                   <span className="truncate">Games</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startMatchCall("voice")}
-                  disabled={!chatData?.matchId}
-                  className={quickActionButtonClass}
-                  aria-label="Start voice call"
-                  title="Voice Call"
-                >
-                  <Phone className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden />
-                  <span className="truncate">Voice Call</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startMatchCall("video")}
-                  disabled={!chatData?.matchId}
-                  className={quickActionButtonClass}
-                  aria-label="Start video call"
-                  title="Video Call"
-                >
-                  <Video className="h-4 w-4 shrink-0 text-violet-300" aria-hidden />
-                  <span className="truncate">Video Call</span>
                 </button>
                 <button
                   type="button"

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -339,11 +339,9 @@ test("known other-user profile surfaces use safe RPC helpers instead of direct p
     "src/hooks/useMatches.ts",
     "src/hooks/useMessages.ts",
     "src/hooks/useScheduleHub.ts",
-    "src/hooks/useMatchCall.tsx",
     "src/components/safety/ReportWizard.tsx",
     "apps/mobile/lib/chatApi.ts",
     "apps/mobile/lib/useScheduleHub.ts",
-    "apps/mobile/lib/useMatchCall.tsx",
   ];
 
   for (const file of surfaces) {
@@ -351,6 +349,9 @@ test("known other-user profile surfaces use safe RPC helpers instead of direct p
     assert.doesNotMatch(source, /\.from\(['"]profiles['"]\)\s*\.select\(/, `${file} should not directly select profiles`);
     assert.match(source, /fetchUserProfile|get_profile_for_viewer/, `${file} should use the safe profile read surface`);
   }
+
+  assert.equal(existsSync(join(root, "src/hooks/useMatchCall.tsx")), false);
+  assert.equal(existsSync(join(root, "apps/mobile/lib/useMatchCall.tsx")), false);
 });
 
 test("validation pack covers requested role matrix and direct-table-vs-rpc delta", () => {

@@ -4,8 +4,6 @@ import { getUserBadge, useTierCapabilities } from "@/hooks/useEntitlements";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
-  Video,
-  Phone,
   MoreVertical,
   BellOff,
   Bell,
@@ -75,7 +73,6 @@ interface ChatHeaderProps {
   threadAnchorLabel?: string | null;
   matchId?: string;
   onBack: () => void;
-  onVideoCall: (type: "voice" | "video") => void;
   onFocusInput: () => void;
   onOpenMediaHealth?: () => void;
 }
@@ -87,7 +84,6 @@ export const ChatHeader = ({
   threadAnchorLabel,
   matchId,
   onBack,
-  onVideoCall,
   onFocusInput,
   onOpenMediaHealth,
 }: ChatHeaderProps) => {
@@ -168,14 +164,6 @@ export const ChatHeader = ({
       description: "Our team will review it within 24 hours",
     });
     onBack();
-  };
-
-  const handleVoiceCall = () => {
-    onVideoCall("voice");
-  };
-
-  const handleVideoCall = () => {
-    onVideoCall("video");
   };
 
   const handleBackClick = (event: MouseEvent<HTMLButtonElement>) => {
@@ -339,34 +327,9 @@ export const ChatHeader = ({
               </button>
             }
             onMessage={onFocusInput}
-            onVideoCall={handleVideoCall}
           />
 
           <div className="flex items-center gap-0.5 shrink-0">
-            <div className="flex items-center rounded-xl bg-secondary/50 border border-border/35 p-0.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-lg h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-secondary/80"
-                onClick={handleVoiceCall}
-                disabled={!matchId}
-                aria-label="Voice call"
-                title="Voice call"
-              >
-                <Phone className="w-[18px] h-[18px]" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-lg h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-secondary/80"
-                onClick={handleVideoCall}
-                disabled={!matchId}
-                aria-label="Video call"
-                title="Video call"
-              >
-                <Video className="w-[18px] h-[18px]" />
-              </Button>
-            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button

@@ -204,12 +204,11 @@ test("native permission metadata matches the shipped runtime prompts", () => {
   }
 });
 
-test("native push and match-call permission recovery survives interrupted or returning flows", () => {
+test("native push permission recovery survives interrupted or returning flows", () => {
   const requestPush = read("apps/mobile/lib/requestPushPermissions.ts");
   const dashboardPrompt = read("apps/mobile/components/notifications/PushPermissionPrompt.tsx");
   const onboardingStep = read("apps/mobile/components/onboarding/steps/NotificationStep.tsx");
   const masterSwitch = read("apps/mobile/lib/pushMasterSwitch.ts");
-  const matchCall = read("apps/mobile/lib/useMatchCall.tsx");
   const nativeMedia = read("apps/mobile/lib/nativeMediaPermissions.ts");
   const nativeOneSignal = read("apps/mobile/lib/onesignal.ts");
   const nativeAuth = read("apps/mobile/context/AuthContext.tsx");
@@ -288,9 +287,9 @@ test("native push and match-call permission recovery survives interrupted or ret
     "native push should not set push_enabled=true until the durable backend subscription sync succeeds",
   );
 
-  assert.match(matchCall, /requestNativeMatchCallMediaPermission\(nextCallType\)/);
-  assert.match(matchCall, /active_rejoin_media_preflight_blocked/);
-  assert.match(matchCall, /showMatchCallPermissionRecovery\(mediaPreflight, \(\) => \{[\s\S]*joinActiveCall\(row\)/);
+  assert.equal(existsSync(join(root, "apps/mobile/lib/useMatchCall.tsx")), false);
+  assert.equal(existsSync(join(root, "apps/mobile/lib/matchCallApi.ts")), false);
+  assert.doesNotMatch(nativeMedia, /match_call_voice|match_call_video/);
   assert.match(nativeMedia, /const isSettingsOnly =/);
   assert.match(nativeMedia, /permissionState = isSettingsOnly[\s\S]*\? 'denied'/);
   assert.match(nativeOneSignal, /register_onesignal_push_subscription/);
