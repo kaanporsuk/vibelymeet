@@ -47,9 +47,8 @@ export const ReadyGateQueueTransitions: Record<
 };
 
 export const MatchStatusTransitions: Record<MatchStatus, MatchStatus[]> = {
-  [MatchStatus.Pending]: [MatchStatus.Active, MatchStatus.Queued],
+  [MatchStatus.Pending]: [MatchStatus.Active],
   [MatchStatus.Active]: [MatchStatus.Completed, MatchStatus.Unmatched],
-  [MatchStatus.Queued]: [MatchStatus.Active, MatchStatus.Unmatched],
   [MatchStatus.Completed]: [],
   [MatchStatus.Unmatched]: [],
 };
@@ -73,4 +72,3 @@ export const SubscriptionTransitions: Record<
   ],
   [SubscriptionState.Canceled]: [],
 };
-

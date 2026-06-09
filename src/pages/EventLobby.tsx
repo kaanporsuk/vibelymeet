@@ -20,7 +20,6 @@ import {
   Heart,
   Star,
   Clock,
-  Sparkles,
   Moon,
   Radio,
   AlertCircle,
@@ -43,7 +42,6 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useNonBlockingVideoDateReadiness } from "@/hooks/useVideoDateReadiness";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
-import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { useActiveSession } from "@/hooks/useActiveSession";
 import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -70,7 +68,7 @@ import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
 } from "@clientShared/observability/videoDateOperatorMetrics";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
@@ -88,10 +86,7 @@ import {
   secondsUntilPostDateEventEnd,
   type PostDateContinuityDecision,
 } from "@clientShared/matching/postDateContinuity";
-import {
-  QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
-  shouldAdvanceLobbyDeckAfterSwipe,
-} from "@shared/matching/videoSessionFlow";
+import { shouldAdvanceLobbyDeckAfterSwipe } from "@shared/matching/videoSessionFlow";
 import {
   buildVideoDateDeckPrefetchTelemetryPayload,
   getVideoDateDeckAdaptiveRefetchIntervalMs,
@@ -122,10 +117,8 @@ import {
   resolveDeckEmptyReason,
 } from "@clientShared/observability/eventLobbyObservability";
 import { isActiveSessionSingleOwnerEnabled } from "@/lib/runtimeFlags";
-import { fetchVideoDateQueueHint } from "@/lib/videoDateQueueHint";
 import {
   resolveEventDeckPhase4UiState,
-  resolveVideoDateQueueCopy,
   type EventDeckPhase4UiState,
 } from "@clientShared/matching/videoDatePhase4Ux";
 
@@ -398,8 +391,6 @@ const EventLobby = () => {
   const [dateNavigationSessionId, setDateNavigationSessionId] = useState<
     string | null
   >(null);
-  const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] =
-    useState(false);
   const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
   const singleOwnerActiveSessionEnabled = isActiveSessionSingleOwnerEnabled();
   const providerScopedHydration = useEventActiveSession(eventId);
@@ -448,7 +439,6 @@ const EventLobby = () => {
   const lobbyActionsEnabled =
     lobbyGateActionsEnabled && !activeDateRouteOwnsLobby;
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({
-    queuedCount: 0,
     visibleCount: 0,
   });
   const deckFetchEnabled = deckEnabled && !readyGatePressureActive;
@@ -458,11 +448,9 @@ const EventLobby = () => {
         enabled: deckFetchEnabled,
         eventEndAtMs: eventEndTimeMs,
         nowMs: lobbyClockMs,
-        queuedCount: deckAdaptiveInputs.queuedCount,
         visibleCount: deckAdaptiveInputs.visibleCount,
       }),
     [
-      deckAdaptiveInputs.queuedCount,
       deckAdaptiveInputs.visibleCount,
       deckFetchEnabled,
       eventEndTimeMs,
@@ -1175,7 +1163,6 @@ const EventLobby = () => {
     setEventInactiveReasonOverrideWithSource(null, null);
     setEventEndedAtOverride(null);
     setPostSurveyReturnContext(false);
-    setCheckingNextDateAfterSurvey(false);
     postSurveyRouteTrackedRef.current = null;
     deckLoadedTrackedRef.current = null;
     deckEmptyTrackedRef.current = null;
@@ -1251,65 +1238,14 @@ const EventLobby = () => {
     });
   }, []);
 
-  const handlePendingPostDateFeedbackDrain = useCallback(
-    (pendingSessionId: string) => {
-      if (!pendingSessionId) return;
-      navigateToDateSession(
-        pendingSessionId,
-        "match_queue_pending_post_date_feedback",
-        { force: true, forceSurvey: true },
-      );
-    },
-    [navigateToDateSession],
-  );
-
-  // Queue drain / realtime — activates ready gate when a queued video session becomes ready
-  const {
-    queuedCount,
-    refreshQueueCount,
-    isDraining: queueDrainInFlight,
-  } = useMatchQueue({
-    eventId,
-    currentStatus: currentStatus || "browsing",
-    enabled: lobbySideEffectsEnabled,
-    onVideoSessionReady: (videoSessionId) => {
-      openReadyGateSession(videoSessionId, "match_queue");
-      scheduleLobbyConvergenceRefresh(videoSessionId, "match_queue");
-    },
-    onQueuedSessionExpired: () => {
-      toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
-    },
-    onPendingPostDateFeedback: handlePendingPostDateFeedbackDrain,
-  });
-
-  // Swipe action — show Ready Gate on immediate match and converge queued matches immediately.
+  // Swipe action — show Ready Gate only for direct mutual matches.
   const { swipe } = useSwipeAction({
     eventId: eventId || "",
     onVideoSessionReady: (videoSessionId) => {
       openReadyGateSession(videoSessionId, "swipe_result");
       scheduleLobbyConvergenceRefresh(videoSessionId, "swipe_result");
     },
-    onVideoSessionQueued: (videoSessionId) => {
-      void refreshQueueCount(1);
-      scheduleLobbyConvergenceRefresh(videoSessionId, "swipe_queued");
-    },
   });
-  const queueHintEnabled =
-    lobbySideEffectsEnabled && Boolean(eventId && user?.id) && queuedCount > 0;
-  const { data: queueHint = null } = useQuery({
-    queryKey: ["video-date-queue-hint", eventId, user?.id],
-    queryFn: () => fetchVideoDateQueueHint(eventId ?? "", user?.id ?? ""),
-    enabled: queueHintEnabled,
-    refetchInterval: queueHintEnabled ? 5_000 : false,
-    refetchIntervalInBackground: false,
-    staleTime: 3_000,
-  });
-  const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queuedCount);
-  const queueHintLabel = queueHintCopy.compactLabel;
-  const queueHintDetailParts =
-    queueHintCopy.detailParts.length > 0
-      ? queueHintCopy.detailParts
-      : [queueHintLabel];
 
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled) return;
@@ -1477,7 +1413,6 @@ const EventLobby = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void stampForeground();
-        void refreshQueueCount();
       }
     };
 
@@ -1496,7 +1431,6 @@ const EventLobby = () => {
     lobbySideEffectsEnabled,
     location.pathname,
     currentStatus,
-    refreshQueueCount,
   ]);
 
   // Backend-truth-first: scoped active session for this event (ready gate vs /date)
@@ -1572,7 +1506,6 @@ const EventLobby = () => {
     const hasPostSurveyQuery = searchParams.get("postSurveyComplete") === "1";
     if ((!st?.lobbyRefresh && !hasPostSurveyQuery) || !eventId || !user?.id)
       return;
-    setCheckingNextDateAfterSurvey(true);
     setPostSurveyReturnContext(true);
     dateNavigationSessionIdRef.current = null;
     setDateNavigationSessionId(null);
@@ -1600,18 +1533,6 @@ const EventLobby = () => {
     navigate,
     queryClient,
     clearReadyGateSession,
-  ]);
-
-  useEffect(() => {
-    if (!checkingNextDateAfterSurvey) return;
-    if (queueDrainInFlight || !sessionHydrated || deckLoading) return;
-    const timer = setTimeout(() => setCheckingNextDateAfterSurvey(false), 900);
-    return () => clearTimeout(timer);
-  }, [
-    checkingNextDateAfterSurvey,
-    queueDrainInFlight,
-    sessionHydrated,
-    deckLoading,
   ]);
 
   // FAILURE 1 FIX: Realtime subscription for own registration status changes
@@ -1669,7 +1590,6 @@ const EventLobby = () => {
                 currentRoomId,
               },
             );
-            setCheckingNextDateAfterSurvey(true);
             setPostSurveyReturnContext(true);
             clearReadyGateSession("registration_realtime_pending_survey");
             void refetchScopedSession();
@@ -2030,13 +1950,12 @@ const EventLobby = () => {
 
   useEffect(() => {
     setDeckAdaptiveInputs((current) => {
-      const next = { queuedCount, visibleCount: sortedProfiles.length };
-      return current.queuedCount === next.queuedCount &&
-        current.visibleCount === next.visibleCount
+      const next = { visibleCount: sortedProfiles.length };
+      return current.visibleCount === next.visibleCount
         ? current
         : next;
     });
-  }, [queuedCount, sortedProfiles.length]);
+  }, [sortedProfiles.length]);
 
   useEffect(() => {
     if (
@@ -2206,7 +2125,6 @@ const EventLobby = () => {
         totalProfiles: profiles.length,
         visibleProfiles: sortedProfiles.length,
         deckEverLoaded: deckEverLoadedRef.current,
-        queuedCount,
         userPaused: user?.isPaused ?? false,
         deckStateReason: deckState?.reason ?? null,
       }),
@@ -2217,7 +2135,6 @@ const EventLobby = () => {
       deckState?.reason,
       lobbyGate.kind,
       profiles.length,
-      queuedCount,
       sortedProfiles.length,
       user?.isPaused,
     ],
@@ -2628,7 +2545,7 @@ const EventLobby = () => {
         result_code: code,
       });
 
-      if (code === "match" || code === "match_queued") {
+      if (code === "match") {
         haptics.medium();
         void queryClient.invalidateQueries({
           queryKey: ["profile-live-counts"],
@@ -2898,7 +2815,6 @@ const EventLobby = () => {
       getPostDateLobbyContinuityDecision({
         yieldingToVideoDate: yieldingToVideoDateUi,
         yieldingToReadyGate: yieldingToReadyGateUi,
-        hasQueuedSession: queueDrainInFlight || queuedCount > 0,
         deckLoading,
         deckHasCandidate: Boolean(currentProfile),
         deckError,
@@ -2910,20 +2826,13 @@ const EventLobby = () => {
       deckError,
       deckLoading,
       eventLiveForContinuity,
-      queueDrainInFlight,
-      queuedCount,
       secondsUntilEventEnd,
       yieldingToReadyGateUi,
       yieldingToVideoDateUi,
     ],
   );
-  const showPostSurveyQueueCheck =
-    checkingNextDateAfterSurvey &&
-    !yieldingToVideoDateUi &&
-    !yieldingToReadyGateUi &&
-    !(currentProfile && !deckLoading);
   const suppressDeckUiForConvergence =
-    yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
+    yieldingToVideoDateUi || yieldingToReadyGateUi;
 
   useEffect(() => {
     const viewerId = user?.id;
@@ -3087,8 +2996,6 @@ const EventLobby = () => {
     user?.isPaused,
   ]);
 
-  const showQueueWaitingPanel =
-    queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence;
   const readyGateOverlayAllowed = Boolean(
     activeSessionId &&
     eventId &&
@@ -3099,11 +3006,6 @@ const EventLobby = () => {
 
   useEffect(() => {
     if (!postSurveyReturnContext || !eventId) return;
-    if (
-      checkingNextDateAfterSurvey &&
-      postSurveyContinuityDecision.action === "refreshing_deck"
-    )
-      return;
     if (postSurveyRouteTrackedRef.current) return;
     postSurveyRouteTrackedRef.current = postSurveyContinuityDecision.action;
     const route =
@@ -3126,7 +3028,6 @@ const EventLobby = () => {
       event_id: eventId,
       action: postSurveyContinuityDecision.action,
       source: "lobby_post_survey_return",
-      queued_count: queuedCount,
       deck_count: sortedProfiles.length,
       seconds_until_event_end: secondsUntilEventEnd,
     });
@@ -3135,17 +3036,14 @@ const EventLobby = () => {
       event_id: eventId,
       action: postSurveyContinuityDecision.action,
       route,
-      queued_count: queuedCount,
       deck_count: sortedProfiles.length,
       seconds_until_event_end: secondsUntilEventEnd,
     });
   }, [
-    checkingNextDateAfterSurvey,
     currentProfile,
     eventId,
     postSurveyContinuityDecision.action,
     postSurveyReturnContext,
-    queuedCount,
     secondsUntilEventEnd,
     sortedProfiles.length,
   ]);
@@ -3163,13 +3061,10 @@ const EventLobby = () => {
       event_id: eventId,
       source_surface: yieldingToVideoDateUi
         ? "video_date"
-        : showPostSurveyQueueCheck
-          ? "post_survey_queue_check"
-          : "ready_gate",
+        : "ready_gate",
     });
   }, [
     eventId,
-    showPostSurveyQueueCheck,
     suppressDeckUiForConvergence,
     yieldingToVideoDateUi,
   ]);
@@ -3258,17 +3153,6 @@ const EventLobby = () => {
                   </span>
                   Live now
                 </span>
-                {queuedCount > 0 &&
-                  !activeSessionId &&
-                  !suppressDeckUiForConvergence && (
-                    <span
-                      className="inline-flex max-w-[min(200px,46vw)] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25"
-                      title={`${queueHintLabel}. You will enter Ready Gate when promoted, not while this badge is showing.`}
-                    >
-                      <Sparkles className="w-3 h-3 shrink-0 opacity-90" />
-                      {queueHintLabel}
-                    </span>
-                  )}
               </div>
             </div>
 
@@ -3316,58 +3200,19 @@ const EventLobby = () => {
 
       {/* Card Area */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-5 max-w-lg mx-auto w-full relative z-10">
-        {showQueueWaitingPanel && (
-          <section
-            className="mb-4 w-full rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/[0.08] p-4 text-left shadow-[0_0_28px_rgba(217,70,239,0.08)]"
-            aria-label="Queue status"
-          >
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fuchsia-400/15 text-fuchsia-200">
-                <Sparkles className="h-4 w-4" aria-hidden="true" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-sm font-display font-semibold text-white">
-                  {queueHintCopy.title}
-                </h2>
-                <p className="mt-1 text-xs leading-5 text-white/55">
-                  {queueHintCopy.message}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {queueHintDetailParts.map((part) => (
-                    <span
-                      key={part}
-                      className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-white/75"
-                    >
-                      {part}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
         {suppressDeckUiForConvergence ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full min-h-[min(280px,50vh)]">
             <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)] mb-5" />
             <p className="text-lg font-display font-semibold text-white">
               {yieldingToVideoDateUi
                 ? "Joining your date..."
-                : showPostSurveyQueueCheck
-                  ? postSurveyContinuityDecision.title
-                  : "Opening Ready Gate..."}
+                : "Opening Ready Gate..."}
             </p>
             <p className="text-sm text-white/55 mt-2">
               {yieldingToVideoDateUi
                 ? "Taking you to the same video session as your match."
-                : showPostSurveyQueueCheck
-                  ? postSurveyContinuityDecision.message
-                  : "Syncing with your match. Almost there."}
+                : "Syncing with your match. Almost there."}
             </p>
-            {showPostSurveyQueueCheck && (
-              <div className="mt-6 w-full">
-                <CardSkeleton decision={postSurveyContinuityDecision} compact />
-              </div>
-            )}
           </div>
         ) : user?.isPaused ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
@@ -3489,7 +3334,7 @@ const EventLobby = () => {
           />
         ) : (
           <div className="w-full space-y-3">
-            {checkingNextDateAfterSurvey && postSurveyReturnContext && (
+            {postSurveyReturnContext && (
               <PostSurveyLobbyStatus decision={postSurveyContinuityDecision} />
             )}
             <div className="text-center px-1">

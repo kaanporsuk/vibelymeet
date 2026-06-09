@@ -19,7 +19,6 @@ import {
   safeVideoDateTimelineRows,
   safeRate,
   summarizeLatencyMs,
-  summarizeQueueDrain,
   summarizeSwipeRecovery,
   type MetricStatus,
   type VideoDateSessionTimelineRow,
@@ -28,7 +27,6 @@ import {
 
 const MAX_ROWS = 10_000;
 const PUSH_PROVIDER_FAILURE_STATUSES = new Set(["failed", "bounced"]);
-const SURVEY_CONVERSION_WINDOW_MS = 10 * 60 * 1000;
 const SLOW_LAUNCH_SESSION_LIMIT = 20;
 const SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5;
 const SLOW_LAUNCH_TIMELINE_ROW_LIMIT = 12;
@@ -83,17 +81,6 @@ type VideoSessionRow = {
   participant_2_joined_at?: string | null;
 };
 
-type FeedbackRow = {
-  created_at: string;
-  session_id: string | null;
-  user_id: string | null;
-};
-
-type QueueDrainRow = {
-  outcome: string | null;
-  reason_code: string | null;
-};
-
 type QueueFairnessHealthRow = {
   event_id: string | null;
   queued_session_count: number | null;
@@ -109,8 +96,6 @@ type QueueFairnessHealthRow = {
   avg_candidate_score: number | null;
   actor_platform_slots: Record<string, number> | null;
   actor_gender_slots: Record<string, number> | null;
-  drain_attempts_15m: number | null;
-  drain_successes_15m: number | null;
   no_match_attempts_15m: number | null;
   runtime_blocked_attempts_15m: number | null;
   fairness_status: MetricStatus | null;
@@ -325,10 +310,9 @@ function parseAction(body: unknown): "metrics" | "get_session_timeline" {
 
 function isReadyGateOpen(row: EventLoopRow): boolean {
   return (
-    (row.operation === "handle_swipe" &&
-      row.outcome === "success" &&
-      row.reason_code === "match_immediate") ||
-    (row.operation === "promote_ready_gate_if_eligible" && row.outcome === "success")
+    row.operation === "handle_swipe" &&
+    row.outcome === "success" &&
+    row.reason_code === "match_immediate"
   );
 }
 
@@ -447,32 +431,6 @@ async function getEventSessionIds(
   );
 }
 
-async function fetchFeedbackRowsForSessions(
-  service: SupabaseClientLike,
-  sessionIds: string[],
-  sinceIso: string,
-): Promise<QueryResult<FeedbackRow>> {
-  const uniqueIds = Array.from(new Set(sessionIds.filter(Boolean)));
-  const allRows: FeedbackRow[] = [];
-
-  for (let i = 0; i < uniqueIds.length; i += 500) {
-    const chunk = uniqueIds.slice(i, i + 500);
-    const { data, error } = await service
-      .from("date_feedback")
-      .select("created_at,session_id,user_id")
-      .gte("created_at", sinceIso)
-      .in("session_id", chunk)
-      .order("created_at", { ascending: true })
-      .limit(MAX_ROWS);
-
-    if (error) return { rows: allRows, error: sanitizeErrorMessage(error.message), truncated: allRows.length >= MAX_ROWS };
-    allRows.push(...((data ?? []) as FeedbackRow[]));
-    if (allRows.length >= MAX_ROWS) break;
-  }
-
-  return { rows: allRows.slice(0, MAX_ROWS), truncated: allRows.length >= MAX_ROWS };
-}
-
 async function getReadyGateLatency(
   service: SupabaseClientLike,
   sinceIso: string,
@@ -482,7 +440,7 @@ async function getReadyGateLatency(
     .from("event_loop_observability_events")
     .select("created_at,event_id,session_id,operation,outcome,reason_code")
     .gte("created_at", sinceIso)
-    .in("operation", ["handle_swipe", "promote_ready_gate_if_eligible"])
+    .eq("operation", "handle_swipe")
     .not("session_id", "is", null)
     .order("created_at", { ascending: true })
     .limit(MAX_ROWS);
@@ -795,180 +753,6 @@ async function getSwipeRecovery(
   };
 }
 
-async function getSurveyToNextReadyGate(
-  service: SupabaseClientLike,
-  sinceIso: string,
-  eventId: string | null,
-) {
-  const eventSessions = eventId
-    ? await fetchRows<Pick<VideoSessionRow, "id" | "event_id">>(
-        service
-          .from("video_sessions")
-          .select("id,event_id")
-          .eq("event_id", eventId)
-          .order("started_at", { ascending: false })
-          .limit(MAX_ROWS),
-      )
-    : null;
-
-  if (eventSessions?.error) {
-    return {
-      surveys: 0,
-      next_ready_gate_opens: 0,
-      conversion_rate: null,
-      status: "unknown" as MetricStatus,
-      source_error: eventSessions.error,
-      truncated: eventSessions.truncated,
-    };
-  }
-
-  const feedbackResult = eventSessions
-    ? await fetchFeedbackRowsForSessions(
-        service,
-        eventSessions.rows.map((session) => session.id),
-        sinceIso,
-      )
-    : await fetchRows<FeedbackRow>(
-        service
-          .from("date_feedback")
-          .select("created_at,session_id,user_id")
-          .gte("created_at", sinceIso)
-          .order("created_at", { ascending: true })
-          .limit(MAX_ROWS),
-      );
-
-  if (feedbackResult.error) {
-    return {
-      surveys: 0,
-      next_ready_gate_opens: 0,
-      conversion_rate: null,
-      status: "unknown" as MetricStatus,
-      source_error: feedbackResult.error,
-      truncated: feedbackResult.truncated,
-    };
-  }
-
-  const sessionLookup = eventSessions ?? await fetchByIds<Pick<VideoSessionRow, "id" | "event_id">>(
-    service,
-    "video_sessions",
-    "id,event_id",
-    feedbackResult.rows.map((row) => row.session_id ?? ""),
-  );
-
-  if (sessionLookup.error) {
-    return {
-      surveys: 0,
-      next_ready_gate_opens: 0,
-      conversion_rate: null,
-      status: "unknown" as MetricStatus,
-      source_error: sessionLookup.error,
-      truncated: feedbackResult.truncated || sessionLookup.truncated,
-    };
-  }
-
-  const eventBySession = new Map(sessionLookup.rows.map((session) => [session.id, session.event_id]));
-  const surveys = feedbackResult.rows
-    .map((row) => ({
-      createdAtMs: new Date(row.created_at).getTime(),
-      eventId: row.session_id ? eventBySession.get(row.session_id) ?? null : null,
-      userId: row.user_id,
-    }))
-    .filter((row) => row.eventId && row.userId && Number.isFinite(row.createdAtMs))
-    .filter((row) => !eventId || row.eventId === eventId);
-
-  let readyQuery = service
-    .from("event_loop_observability_events")
-    .select("created_at,event_id,actor_id,session_id,operation,outcome,reason_code")
-    .gte("created_at", sinceIso)
-    .in("operation", ["handle_swipe", "promote_ready_gate_if_eligible"])
-    .order("created_at", { ascending: true })
-    .limit(MAX_ROWS);
-
-  if (eventId) readyQuery = readyQuery.eq("event_id", eventId);
-
-  const readyResult = await fetchRows<EventLoopRow>(readyQuery);
-  if (readyResult.error) {
-    return {
-      surveys: surveys.length,
-      next_ready_gate_opens: 0,
-      conversion_rate: null,
-      status: "unknown" as MetricStatus,
-      source_error: readyResult.error,
-      truncated: feedbackResult.truncated || sessionLookup.truncated || readyResult.truncated,
-    };
-  }
-
-  const readyRows = readyResult.rows
-    .filter(isReadyGateOpen)
-    .map((row) => ({
-      createdAtMs: new Date(row.created_at).getTime(),
-      eventId: row.event_id,
-      actorId: row.actor_id,
-    }))
-    .filter((row) => row.eventId && row.actorId && Number.isFinite(row.createdAtMs));
-
-  const conversions = surveys.filter((survey) =>
-    readyRows.some(
-      (ready) =>
-        ready.eventId === survey.eventId &&
-        ready.actorId === survey.userId &&
-        ready.createdAtMs >= survey.createdAtMs &&
-        ready.createdAtMs <= survey.createdAtMs + SURVEY_CONVERSION_WINDOW_MS,
-    ),
-  ).length;
-
-  const conversionRate = safeRate(conversions, surveys.length);
-  return {
-    surveys: surveys.length,
-    next_ready_gate_opens: conversions,
-    conversion_rate: conversionRate,
-    status: classifyHigherIsBetter(conversionRate, 0.35, 0.2),
-    truncated: feedbackResult.truncated || sessionLookup.truncated || readyResult.truncated,
-  };
-}
-
-async function getQueueDrainFailures(
-  service: SupabaseClientLike,
-  sinceIso: string,
-  eventId: string | null,
-) {
-  let query = service
-    .from("v_event_loop_observability_metric_streams")
-    .select("outcome,reason_code")
-    .gte("created_at", sinceIso)
-    .eq("metric_stream", "drain_rpc_outer")
-    .order("created_at", { ascending: false })
-    .limit(MAX_ROWS);
-
-  if (eventId) query = query.eq("event_id", eventId);
-
-  const result = await fetchRows<QueueDrainRow>(query);
-  if (result.error) {
-    return {
-      attempts: 0,
-      successes: 0,
-      no_ops: 0,
-      blocked: 0,
-      failures: 0,
-      failure_rate: null,
-      non_success_rate: null,
-      top_failure_reasons: [],
-      top_no_op_reasons: [],
-      top_blocked_reasons: [],
-      status: "unknown" as MetricStatus,
-      source_error: result.error,
-      truncated: result.truncated,
-    };
-  }
-
-  const summary = summarizeQueueDrain(result.rows);
-  return {
-    ...summary,
-    status: classifyLowerIsBetter(summary.failure_rate, 0.05, 0.15),
-    truncated: result.truncated,
-  };
-}
-
 function worstMetricStatus(statuses: Array<MetricStatus | null | undefined>): MetricStatus {
   if (statuses.includes("critical")) return "critical";
   if (statuses.includes("warning")) return "warning";
@@ -993,7 +777,7 @@ async function getQueueFairnessHealth(
   let query = service
     .from("v_video_date_queue_fairness_event_health")
     .select(
-      "event_id,queued_session_count,queued_participant_slots,oldest_wait_seconds,p95_wait_seconds,starved_slots_120s,starved_slots_300s,both_hot_ready_slots,not_both_hot_ready_slots,reliability_penalized_slots,max_candidate_score,avg_candidate_score,actor_platform_slots,actor_gender_slots,drain_attempts_15m,drain_successes_15m,no_match_attempts_15m,runtime_blocked_attempts_15m,fairness_status",
+      "event_id,queued_session_count,queued_participant_slots,oldest_wait_seconds,p95_wait_seconds,starved_slots_120s,starved_slots_300s,both_hot_ready_slots,not_both_hot_ready_slots,reliability_penalized_slots,max_candidate_score,avg_candidate_score,actor_platform_slots,actor_gender_slots,no_match_attempts_15m,runtime_blocked_attempts_15m,fairness_status",
     )
     .order("oldest_wait_seconds", { ascending: false })
     .limit(MAX_ROWS);
@@ -1497,8 +1281,6 @@ function emptySprint7SafetyPrivacyOpsHealth(
     prepare_entry_failure_count: 0,
     daily_join_failure_count: 0,
     client_stuck_observed_count: 0,
-    queue_drain_miss_count: 0,
-    queue_drain_failure_count: 0,
     report_count: 0,
     pending_report_count: 0,
     report_with_block_count: 0,
@@ -1617,8 +1399,6 @@ async function buildWindowMetrics(
     readyTapToFirstRemoteFrame,
     readyGateLatency,
     simultaneousSwipeRecovery,
-    surveyToNextReadyGate,
-    queueDrainFailures,
     queueFairness,
     dailyPerformanceDecision,
     dailyPerformanceEmissionHealth,
@@ -1627,8 +1407,6 @@ async function buildWindowMetrics(
     getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
     getSwipeRecovery(service, sinceIso, eventId),
-    getSurveyToNextReadyGate(service, sinceIso, eventId),
-    getQueueDrainFailures(service, sinceIso, eventId),
     getQueueFairnessHealth(service, eventId),
     getDailyPerformanceDecision(service, window, eventId),
     getDailyPerformanceEmissionHealth(service, window, eventId),
@@ -1643,8 +1421,6 @@ async function buildWindowMetrics(
     ready_tap_to_first_remote_frame_latency: readyTapToFirstRemoteFrame,
     ready_gate_open_to_date_join_latency: readyGateLatency,
     simultaneous_swipe_recovery: simultaneousSwipeRecovery,
-    survey_to_next_ready_gate_conversion: surveyToNextReadyGate,
-    queue_drain_failures: queueDrainFailures,
     queue_fairness: queueFairness,
     daily_performance_decision: dailyPerformanceDecision,
     daily_performance_emission_health: dailyPerformanceEmissionHealth,

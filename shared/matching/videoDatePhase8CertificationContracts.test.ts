@@ -331,7 +331,8 @@ test("PR 8.2 runtime RLS, chaos, and load certification are documented and recor
   assert.match(runtimeRlsTest, /VIDEO_DATE_RLS_NON_PARTICIPANT_JWT/);
   assert.match(runtimeRlsTest, /assert\.notEqual\(nonParticipant\.status, "SUBSCRIBED"\)/);
   assert.match(phase8LiveCertificationScript, /CHAOS_SCENARIOS = \[[\s\S]*"duplicate_taps"[\s\S]*"broadcast_loss"[\s\S]*"daily_webhook_loss"[\s\S]*"worker_crash_retry"[\s\S]*"delayed_push_deeplink"/);
-  assert.match(phase8LiveCertificationScript, /LOAD_PATHS = \[[\s\S]*"queue_drain"[\s\S]*"deadline_finalizer"[\s\S]*"outbox_drainer"[\s\S]*"snapshot_fetch"[\s\S]*"daily_credentialed_entry"/);
+  assert.match(phase8LiveCertificationScript, /LOAD_PATHS = \[[\s\S]*"deadline_finalizer"[\s\S]*"outbox_drainer"[\s\S]*"snapshot_fetch"[\s\S]*"daily_credentialed_entry"/);
+  assert.doesNotMatch(phase8LiveCertificationScript, /"queue_drain"|queue_drain:/);
   assert.match(phase8LiveCertificationScript, /video-date-outbox-drainer/);
   assert.match(phase8LiveCertificationScript, /video-date-deadline-finalizer/);
   assert.match(phase8LiveCertificationScript, /synthetic-video-date-monitor/);

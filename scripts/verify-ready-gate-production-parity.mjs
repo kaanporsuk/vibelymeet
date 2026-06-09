@@ -100,13 +100,6 @@ function runLocalChecks() {
     "GET DIAGNOSTICS v_row_count = ROW_COUNT",
   ], "Ready Gate transition migration");
 
-  checkSource("supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql", [
-    "drain_match_queue_v2",
-    "self_runtime_not_ready",
-    "partner_runtime_not_ready",
-    "admission_not_confirmed",
-  ], "Queue drain v2 migration");
-
   checkSource("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql", [
     "video_date_provider_outbox_failure_log",
     "video_date_provider_dead_letters",

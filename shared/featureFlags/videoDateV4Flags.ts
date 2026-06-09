@@ -7,7 +7,6 @@ export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
   "video_date.timeline_v2",
   "video_date.deck_prefetch_polish_v2",
   "video_date.lobby_timeline_v2",
-  "video_date.post_date_instant_next_v2",
   "video_date.daily_call_singleton_v2",
   "video_date.broadcast_batched_v2",
   "video_date.resilience_v2",
@@ -36,7 +35,6 @@ export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
   "video_date.outbox_v2.submit_verdict",
   "video_date.outbox_v2.extension",
   "video_date.outbox_v2.safety",
-  "video_date.outbox_v2.drain_match_queue",
 ] as const;
 
 export type VideoDateV4ClientFeatureFlagKey = (typeof VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS)[number];

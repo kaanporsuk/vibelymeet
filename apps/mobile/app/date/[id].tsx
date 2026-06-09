@@ -133,7 +133,6 @@ import { fonts, spacing } from "@/constants/theme";
 import Colors from "@/constants/Colors";
 import { useColorScheme } from "@/components/useColorScheme";
 import { trackEvent } from "@/lib/analytics";
-import { fetchEventDeck, type EventDeckFetchResult } from "@/lib/eventsApi";
 import { emitNativeVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import { setSafeAudioMode } from "@/lib/safeAudioMode";
 import { requestNativeCameraMicrophonePermissions } from "@/lib/nativeMediaPermissions";
@@ -157,7 +156,7 @@ import {
 } from "@clientShared/observability/videoDateOperatorMetrics";
 import { getVideoDatePermissionHandoff } from "@clientShared/matching/videoDatePermissionHandoff";
 import { LiveSurfaceOfflineStrip } from "@/components/connectivity/LiveSurfaceOfflineStrip";
-import { avatarUrl, deckCardUrl } from "@/lib/imageUrl";
+import { avatarUrl } from "@/lib/imageUrl";
 import {
   clearDateEntryTransition,
   clearVideoDateRouteOwnership,
@@ -223,7 +222,6 @@ import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
 } from "@clientShared/matching/videoDateWarmupChoiceNotice";
-import { getVideoDateDeckPrefetchItems } from "@clientShared/matching/videoDateDeckPrefetch";
 import { refreshVideoDateToken } from "@/lib/videoDateTokenRefresh";
 import {
   getVideoDateEntryOwner,
@@ -1230,9 +1228,6 @@ export default function VideoDateScreen() {
   const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
   const timelineV2 = useFeatureFlag("video_date.timeline_v2");
   const multiDeviceV2 = useFeatureFlag("video_date.multi_device_v2");
-  const postDateInstantNextV2 = useFeatureFlag(
-    "video_date.post_date_instant_next_v2",
-  );
   const dailyCallSingletonV2 = useFeatureFlag(
     "video_date.daily_call_singleton_v2",
   );
@@ -1267,8 +1262,6 @@ export default function VideoDateScreen() {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const [postDateSurveyShellPrestaged, setPostDateSurveyShellPrestaged] =
-    useState(false);
   const [controlsStackHeight, setControlsStackHeight] = useState(
     DATE_CONTROLS_STACK_HEIGHT,
   );
@@ -1641,7 +1634,6 @@ export default function VideoDateScreen() {
   const localVideoReadyTrackedRef = useRef(false);
   const remoteReadableTrackedRef = useRef(false);
   const warmupTimerStartedTrackedRef = useRef<string | null>(null);
-  const postDatePrestageKeyRef = useRef<string | null>(null);
   const resilienceModeTrackedKeyRef = useRef<string | null>(null);
   const resilienceDailyAdaptationKeyRef = useRef<string | null>(null);
   const abortConnectionInFlightRef = useRef(false);
@@ -1739,9 +1731,7 @@ export default function VideoDateScreen() {
     terminalSurveyHardStopRef.current = false;
     dailyReconnectPerformanceStartedAtRef.current = null;
     dailyReconnectPerformanceSourceRef.current = null;
-    postDatePrestageKeyRef.current = null;
     resilienceDailyAdaptationKeyRef.current = null;
-    setPostDateSurveyShellPrestaged(false);
     if (warmupChoiceNoticeTimerRef.current) {
       clearTimeout(warmupChoiceNoticeTimerRef.current);
       warmupChoiceNoticeTimerRef.current = null;
@@ -11482,68 +11472,6 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (
-      !postDateInstantNextV2.enabled ||
-      !sessionId ||
-      !user?.id ||
-      showFeedback ||
-      phase !== "date"
-    )
-      return;
-    if (displayTimeLeft > 30) return;
-    const surveyEventId = eventId || session?.event_id || "";
-    const key = `${sessionId}:${surveyEventId}:${user.id}`;
-    if (postDatePrestageKeyRef.current === key) return;
-    postDatePrestageKeyRef.current = key;
-    setPostDateSurveyShellPrestaged(true);
-    if (surveyEventId) {
-      void queryClient
-        .prefetchQuery({
-          queryKey: ["event-deck", surveyEventId, user.id, "deck_v3"],
-          queryFn: () => fetchEventDeck(surveyEventId, user.id),
-          staleTime: 10_000,
-        })
-        .then(() => {
-          const profiles =
-            queryClient.getQueryData<EventDeckFetchResult>([
-              "event-deck",
-              surveyEventId,
-              user.id,
-              "deck_v3",
-            ])?.profiles ?? [];
-          for (const item of getVideoDateDeckPrefetchItems(profiles)) {
-            const src = deckCardUrl(item.source);
-            if (src) void Image.prefetch(src);
-          }
-        })
-        .catch(() => undefined);
-    }
-    if (fullPartner?.avatarUrl || fullPartner?.photos?.[0]) {
-      void Image.prefetch(
-        fullPartner.avatarUrl ?? fullPartner.photos?.[0] ?? "",
-      );
-    }
-    trackEvent("post_date_survey_prestaged", {
-      platform: "native",
-      session_id: sessionId,
-      event_id: surveyEventId || null,
-      remaining_seconds: displayTimeLeft,
-    });
-  }, [
-    displayTimeLeft,
-    eventId,
-    fullPartner?.avatarUrl,
-    fullPartner?.photos,
-    phase,
-    postDateInstantNextV2.enabled,
-    queryClient,
-    session?.event_id,
-    sessionId,
-    showFeedback,
-    user?.id,
-  ]);
-
-  useEffect(() => {
-    if (
       !resilienceV2.enabled ||
       !sessionId ||
       showFeedback ||
@@ -12298,32 +12226,6 @@ export default function VideoDateScreen() {
     }
   }, [eventId, sessionId, user?.id]);
 
-  const handleSurveyQueuedVideoSessionReady = useCallback(
-    (videoSessionId: string) => {
-      const target = readyGateHref(videoSessionId);
-      vdbgRedirect(target, "survey_queue_match_ready", {
-        sessionId: sessionId ?? null,
-        eventId,
-        readyGateSessionId: videoSessionId,
-      });
-      router.replace(target);
-    },
-    [eventId, sessionId],
-  );
-
-  const handleSurveyVideoDateReady = useCallback(
-    (videoSessionId: string) => {
-      const target = `/date/${videoSessionId}` as const;
-      vdbgRedirect(target, "survey_active_video_date_ready", {
-        sessionId: sessionId ?? null,
-        eventId: eventId ?? null,
-        videoSessionId,
-      });
-      router.replace(target);
-    },
-    [eventId, sessionId],
-  );
-
   const surveyPartnerId =
     partnerId ||
     (session && user?.id
@@ -12365,8 +12267,6 @@ export default function VideoDateScreen() {
           onSubmitVerdict={handleSurveySubmit}
           onMutualMatch={handleSurveyMutualMatch}
           onStartChatting={handleSurveyStartChatting}
-          onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
-          onVideoDateReady={handleSurveyVideoDateReady}
           onDone={handleSurveyDone}
         />
         {warmupChoiceNotice ? (
@@ -12524,30 +12424,6 @@ export default function VideoDateScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <LiveSurfaceOfflineStrip />
-      {postDateInstantNextV2.enabled &&
-      postDateSurveyShellPrestaged &&
-      !showFeedback ? (
-        <View
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.postDateSurveyPrestageShell}
-        >
-          {partnerAvatarUri ? (
-            <Image
-              source={{ uri: partnerAvatarUri }}
-              style={styles.postDateSurveyPrestageImage}
-            />
-          ) : (
-            <View
-              style={[
-                styles.postDateSurveyPrestageImage,
-                { backgroundColor: theme.surface },
-              ]}
-            />
-          )}
-        </View>
-      ) : null}
       {surfaceClaimBlocked && !showFeedback ? (
         <View style={styles.initialTimeoutWrap}>
           <View
@@ -13567,17 +13443,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.1)",
   },
   waitingTimerText: { fontSize: 12, fontWeight: "700" },
-  postDateSurveyPrestageShell: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    opacity: 0,
-    overflow: "hidden",
-  },
-  postDateSurveyPrestageImage: {
-    width: 1,
-    height: 1,
-  },
   initialTimeoutWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",

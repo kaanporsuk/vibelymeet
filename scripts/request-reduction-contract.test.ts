@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -26,23 +26,20 @@ test("active session hydration is coalesced and EventLobby can use the provider 
   assert.doesNotMatch(eventLobby, /useActiveSession\(user\?\.id,\s*\{\s*eventId\s*\}\)/);
 });
 
-test("focused web hot-path count queries no longer use HEAD", () => {
-  const useMatchQueue = read("src/hooks/useMatchQueue.ts");
-  const queueHint = read("src/lib/videoDateQueueHint.ts");
+test("focused web hot-path count queries no longer use HEAD or queue hints", () => {
   const eventLobby = read("src/pages/EventLobby.tsx");
   const pushPrompt = read("src/components/PushPermissionPrompt.tsx");
 
   for (const [label, source] of [
-    ["useMatchQueue", useMatchQueue],
     ["EventLobby", eventLobby],
     ["PushPermissionPrompt", pushPrompt],
   ] as const) {
     assert.doesNotMatch(source, /head:\s*true/, `${label} should avoid HEAD count queries`);
   }
 
-  assert.match(useMatchQueue, /fetchVideoDateQueueHint/);
-  assert.match(queueHint, /\.rpc\("get_video_date_queue_hint_v1"/);
-  assert.doesNotMatch(useMatchQueue, /\.from\("video_sessions"\)[\s\S]{0,240}\.select\(/);
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
+  assert.equal(existsSync(join(root, "src/lib/videoDateQueueHint.ts")), false);
+  assert.doesNotMatch(eventLobby, /fetchVideoDateQueueHint|useMatchQueue|getQueuedMatchCount/);
   assert.match(eventLobby, /\.from\("event_swipes"\)[\s\S]{0,240}\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
   assert.match(pushPrompt, /\.from\("matches"\)[\s\S]{0,240}\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
   assert.match(pushPrompt, /\.from\("event_registrations"\)[\s\S]{0,240}\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
@@ -295,8 +292,8 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   assert.doesNotMatch(nativeDateSuggestionData, /\.select\(["']\*["']\)/);
   assert.doesNotMatch(notificationPreferences, /\.select\(["']\*["']\)/);
   assert.match(matchSuccessModal, /\.from\("matches"\)\.select\("id",\s*\{\s*count:\s*"exact",\s*head:\s*true\s*\}\)/);
-  assert.match(nativeEventsApi, /getQueuedMatchCount/);
-  assert.match(nativeEventsApi, /const hint = await fetchVideoDateQueueHint\(eventId, userId\)/);
+  assert.doesNotMatch(nativeEventsApi, /getQueuedMatchCount/);
+  assert.doesNotMatch(nativeEventsApi, /fetchVideoDateQueueHint/);
   assert.doesNotMatch(nativeEventsApi, /\.from\('video_sessions'\)[\s\S]{0,160}\.select\('id',\s*\{\s*count:\s*'exact'/);
   assert.match(nativeEventsApi, /\.from\('event_swipes'\)[\s\S]{0,120}\.select\('id',\s*\{\s*count:\s*'exact',\s*head:\s*true\s*\}\)/);
   assert.match(matches, /\.rpc\("get_dashboard_visible_matches",\s*\{\s*p_limit:\s*5\s*\}\)/);

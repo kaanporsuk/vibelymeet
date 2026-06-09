@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -16,7 +16,6 @@ const invariantSql = read("docs/sql/video-date-invariants.sql");
 const packageJson = read("package.json");
 
 const clientSources = [
-  "src/hooks/useMatchQueue.ts",
   "src/pages/EventLobby.tsx",
   "src/components/video-date/PostDateSurvey.tsx",
   "apps/mobile/app/event/[eventId]/lobby.tsx",
@@ -102,6 +101,7 @@ test("product routing and queue gates do not depend on certification exceptions"
     drainGuardMigration,
     /video_date_certification_feedback_exceptions|certification_feedback_exception/,
   );
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
 
   for (const [path, source] of clientSources) {
     assert.doesNotMatch(

@@ -114,15 +114,16 @@ test("mark-ready safety failures strip nested auxiliary diagnostics", () => {
   assert.match(markReady, /- 'message'/);
 });
 
-test("post-date survey drains ignore stale same-session pending feedback after verdict submission", () => {
+test("post-date surveys removed stale pending-feedback queue-drain handling", () => {
   for (const [name, source] of [
     ["web survey", webSurvey],
     ["native survey", nativeSurvey],
   ] as const) {
-    assert.match(source, /stale_pending_post_date_feedback/, name);
+    assert.doesNotMatch(source, /stale_pending_post_date_feedback|pending_post_date_feedback/, name);
+    assert.doesNotMatch(source, /drainMatchQueue|getQueuedMatchCount|onQueuedVideoSessionReady/, name);
     assert.match(source, /verdictUiState === ["']submitting["']/, name);
     assert.match(source, /verdictUiState === ["']confirmed["']/, name);
-    assert.match(source, /verdictUiState === ["']awaiting_partner["']/, name);
+    assert.match(source, /awaiting_partner/, name);
     assert.match(source, /finishSurveyInFlightRef\.current/, name);
   }
 });

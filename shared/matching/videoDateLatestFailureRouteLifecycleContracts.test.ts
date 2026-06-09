@@ -121,7 +121,7 @@ test("same-session Daily remount cleanup is detach-only on web and native", () =
   assert.match(nativeDateRoute, /callRefPreserved: true/);
 });
 
-test("active date route ownership disables competing lobby queue and status loops", () => {
+test("active date route ownership disables competing lobby status loops without queue drains", () => {
   assert.match(webLobby, /const activeDateRouteOwnsLobby = Boolean\(/);
   assert.match(webLobby, /dateNavigationSessionId/);
   assert.match(webLobby, /scopedSessionQueueStatus === "in_survey"/);
@@ -130,14 +130,7 @@ test("active date route ownership disables competing lobby queue and status loop
     webLobby,
     /const lobbySideEffectsEnabled =\s*lobbyGateSideEffectsEnabled && !activeDateRouteOwnsLobby/,
   );
-  assert.match(
-    webLobby,
-    /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/,
-  );
-  assert.match(
-    webLobby,
-    /const queueHintEnabled =\s*lobbySideEffectsEnabled && Boolean\(eventId && user\?\.id\) && queuedCount > 0/,
-  );
+  assert.doesNotMatch(webLobby, /useMatchQueue|queueHintEnabled|fetchVideoDateQueueHint/);
 
   assert.match(nativeLobby, /const activeDateRouteOwnsLobby = Boolean\(/);
   assert.match(nativeLobby, /sameEventActiveSession\?\.kind === "video"/);
@@ -153,10 +146,7 @@ test("active date route ownership disables competing lobby queue and status loop
     nativeLobby,
     /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/,
   );
-  assert.match(
-    nativeLobby,
-    /const queueHintEnabled =\s*deckQueryEnabled[\s\S]*sameEventActiveSession\?\.kind === "syncing"/,
-  );
+  assert.doesNotMatch(nativeLobby, /queueHintEnabled|fetchVideoDateQueueHint|drainMatchQueue/);
 });
 
 test("latest failure route lifecycle contract stays in the v4 verification script", () => {

@@ -2,7 +2,6 @@
  * Active session detection — parity with web `useActiveSession` (Stage 1 / Stream 1).
  * - Video rejoin: in_handshake / in_date with a live video_sessions row → /date/[id]
  * - Ready Gate: in_ready_gate → /ready/[id] (native) or lobby overlay (event screen)
- * - Queued mutual: browsing + live queued session row → `syncing` (lobby convergence; drain promotes)
  *
  * In-app routes for `ActiveSession` kinds: `activeSessionRoutes.ts` (`hrefForActiveSession`, path builders).
  */
@@ -28,14 +27,12 @@ import {
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
-import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 import { isDateNavigationSuppressedAfterManualExit } from '@/lib/dateNavigationGuard';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
-  | { kind: 'ready_gate'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_ready_gate' }
-  | { kind: 'syncing'; sessionId: string; eventId: string };
+  | { kind: 'ready_gate'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_ready_gate' };
 
 type Options = { eventId?: string | null };
 
@@ -188,7 +185,7 @@ async function syncReadyGateActiveSession(
     partnerName: string | null;
   },
   emitStaleActiveSessionDetected?: EmitStaleActiveSessionDetected,
-): Promise<{ activeSession: Exclude<ActiveSession, { kind: 'syncing' }> | null; reason: string }> {
+): Promise<{ activeSession: ActiveSession | null; reason: string }> {
   const { data, error } = await supabase.rpc('ready_gate_transition', {
     p_session_id: base.sessionId,
     p_action: 'sync',
@@ -270,7 +267,7 @@ async function findDirectVideoSessionFallback(
   userId: string,
   eventFilter: string | null,
   emitStaleActiveSessionDetected?: EmitStaleActiveSessionDetected,
-): Promise<Exclude<ActiveSession, { kind: 'syncing' }> | null> {
+): Promise<ActiveSession | null> {
   const nowMs = Date.now();
   const query = supabase
     .from('video_sessions')
@@ -712,25 +709,6 @@ export function useActiveSession(
         setHydrated(true);
       }
       return;
-    }
-
-    // Secondary: queued mutual match while still browsing — registration row may not qualify for primary filter.
-    if (eventFilter) {
-      const queueHint = await fetchVideoDateQueueHint(eventFilter, userId);
-      if (!queueHint.ok) {
-        if (__DEV__) console.warn('[useActiveSession] queued session lookup failed:', queueHint.reason ?? 'unknown');
-      } else if (queueHint.queued && queueHint.sessionId) {
-        if (mounted.current) {
-          setActiveSession({
-            kind: 'syncing',
-            sessionId: queueHint.sessionId,
-            eventId: eventFilter,
-          });
-          setHydrated(true);
-        }
-        return;
-      }
-
     }
 
     if (mounted.current) {

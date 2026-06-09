@@ -64,7 +64,7 @@ test("predictive deck source selection ignores whitespace-only media fields", ()
   assert.equal(getVideoDateDeckPrefetchItems([{ id: "p2", primary_photo_path: "photos/a.jpg" }], -1).length, 0);
 });
 
-test("adaptive deck refetch follows late-event and queue-depth cadence", () => {
+test("adaptive deck refetch follows late-event and visible-card cadence", () => {
   const nowMs = Date.parse("2026-05-24T12:00:00.000Z");
 
   assert.equal(
@@ -72,7 +72,6 @@ test("adaptive deck refetch follows late-event and queue-depth cadence", () => {
       enabled: true,
       nowMs,
       eventEndAtMs: nowMs + 10 * 60_000,
-      queuedCount: 0,
       visibleCount: 4,
     }),
     VIDEO_DATE_DECK_DEFAULT_REFETCH_INTERVAL_MS,
@@ -100,7 +99,6 @@ test("adaptive deck refetch follows late-event and queue-depth cadence", () => {
       enabled: true,
       nowMs,
       eventEndAtMs: nowMs + 25_000,
-      queuedCount: 1,
       visibleCount: 1,
     }),
     VIDEO_DATE_DECK_LAST_CHANCE_REFETCH_INTERVAL_MS,
@@ -110,8 +108,7 @@ test("adaptive deck refetch follows late-event and queue-depth cadence", () => {
       enabled: true,
       nowMs,
       eventEndAtMs: nowMs + 10 * 60_000,
-      queuedCount: 1,
-      visibleCount: 4,
+      visibleCount: 1,
     }),
     VIDEO_DATE_DECK_LATE_REFETCH_INTERVAL_MS,
   );
@@ -121,7 +118,6 @@ test("adaptive deck refetch follows late-event and queue-depth cadence", () => {
       enabled: true,
       nowMs,
       eventEndAtMs: nowMs + 10 * 60_000,
-      queuedCount: Number.NaN,
       visibleCount: Number.NaN,
     }),
     VIDEO_DATE_DECK_LATE_REFETCH_INTERVAL_MS,

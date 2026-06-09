@@ -8,9 +8,6 @@ with checks(check_name, ok) as (
     not has_function_privilege('anon', 'public.get_event_deck_v3(uuid,uuid,integer)', 'EXECUTE')
     and has_function_privilege('authenticated', 'public.get_event_deck_v3(uuid,uuid,integer)', 'EXECUTE')
     and has_function_privilege('service_role', 'public.get_event_deck_v3(uuid,uuid,integer)', 'EXECUTE')
-    and not has_function_privilege('anon', 'public.get_video_date_queue_hint_v1(uuid,uuid)', 'EXECUTE')
-    and has_function_privilege('authenticated', 'public.get_video_date_queue_hint_v1(uuid,uuid)', 'EXECUTE')
-    and has_function_privilege('service_role', 'public.get_video_date_queue_hint_v1(uuid,uuid)', 'EXECUTE')
     and not has_function_privilege('anon', 'public.get_event_ticket_payment_status_v1(uuid)', 'EXECUTE')
     and has_function_privilege('authenticated', 'public.get_event_ticket_payment_status_v1(uuid)', 'EXECUTE')
     and has_function_privilege('service_role', 'public.get_event_ticket_payment_status_v1(uuid)', 'EXECUTE')
@@ -30,16 +27,16 @@ with checks(check_name, ok) as (
       like '%get_event_lobby_active_state(p_event_id, now())%'
     and pg_get_functiondef('public.get_event_deck_v3(uuid,uuid,integer)'::regprocedure)
       like '%COALESCE(er.admission_status, ''confirmed'') = ''confirmed''%'
-    and pg_get_functiondef('public.get_video_date_queue_hint_v1(uuid,uuid)'::regprocedure)
-      like '%SECURITY DEFINER%'
-    and pg_get_functiondef('public.get_video_date_queue_hint_v1(uuid,uuid)'::regprocedure)
-      like '%v_uid uuid := auth.uid()%'
-    and pg_get_functiondef('public.get_video_date_queue_hint_v1(uuid,uuid)'::regprocedure)
-      like '%v_uid IS NULL OR v_uid <> p_user_id%'
-    and pg_get_functiondef('public.get_video_date_queue_hint_v1(uuid,uuid)'::regprocedure)
-      like '%COALESCE(er.admission_status, ''confirmed'') = ''confirmed''%'
-    and pg_get_functiondef('public.get_video_date_queue_hint_v1(uuid,uuid)'::regprocedure)
-      like '%COALESCE(vs.queued_expires_at, COALESCE(vs.started_at, now()) + interval ''10 minutes'') > now()%'
+
+  union all
+
+  -- 2b) Queued auto-promotion public APIs are removed.
+  select
+    'video_date_phase5_queued_auto_promotion_rpcs_removed',
+    to_regprocedure('public.get_video_date_queue_hint_v1(uuid,uuid)') is null
+    and to_regprocedure('public.drain_match_queue(uuid)') is null
+    and to_regprocedure('public.drain_match_queue_v2(uuid,text)') is null
+    and to_regprocedure('public.promote_ready_gate_if_eligible(uuid,uuid)') is null
 
   union all
 

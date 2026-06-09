@@ -191,7 +191,6 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.deck_prefetch_polish_v2",
     "video_date.deck_optimistic_v1",
     "video_date.lobby_timeline_v2",
-    "video_date.post_date_instant_next_v2",
     "video_date.daily_call_singleton_v2",
     "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",
@@ -212,7 +211,6 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.outbox_v2.submit_verdict",
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
-    "video_date.outbox_v2.drain_match_queue",
   ]) {
     assert.match(videoDateFlags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
     assert.match(videoDateFlagSeedMigration, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}',\\s*false,\\s*0`));

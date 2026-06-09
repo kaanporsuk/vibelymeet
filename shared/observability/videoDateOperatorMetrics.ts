@@ -7,8 +7,6 @@ export type VideoDateOperatorMetricId =
   | "ready_tap_to_first_remote_frame_latency"
   | "ready_gate_open_to_date_join_latency"
   | "simultaneous_swipe_collision_rate"
-  | "survey_to_next_ready_gate_conversion"
-  | "queue_drain_failure_rate"
   | "queue_fairness_starvation_rate"
   | "timer_drift_recovered_by_server_truth";
 
@@ -71,28 +69,6 @@ export const VIDEO_DATE_OPERATOR_METRIC_DEFINITIONS = [
     unit: "rate",
     limitation:
       "After the simultaneous-swipe recovery migration, already_matched rows with a session id represent recovered same-pair sessions.",
-  },
-  {
-    id: "survey_to_next_ready_gate_conversion",
-    label: "Survey to next Ready Gate conversion",
-    source: "mixed",
-    primarySources: [
-      "post_date_continuity_survey_complete",
-      "post_date_continuity_next_action_decided",
-      "post_date_continuity_route_taken",
-      "date_feedback",
-      "event_loop_observability_events",
-    ],
-    thresholds: { warning: 0.35, critical: 0.2, direction: "higher_is_better" },
-    unit: "rate",
-  },
-  {
-    id: "queue_drain_failure_rate",
-    label: "Queue drain failure rate",
-    source: "database_truth",
-    primarySources: ["v_event_loop_drain_events", "v_event_loop_observability_metric_streams"],
-    thresholds: { warning: 0.05, critical: 0.15, direction: "lower_is_better" },
-    unit: "rate",
   },
   {
     id: "queue_fairness_starvation_rate",

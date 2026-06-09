@@ -9,8 +9,8 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const closureMigration = read("supabase/migrations/20260523202000_reliability_gap_closure.sql");
 const reviewCommentMigration = read("supabase/migrations/20260525170000_review_comments_1032_1040.sql");
-const queueFairnessMigration = read("supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql");
 const publicApiMigration = read("supabase/migrations/20260523123000_public_api_interface_changes.sql");
+const autoNextRemovalMigration = read("supabase/migrations/20260610000100_remove_post_date_instant_next.sql");
 const eventProfileAdapters = read("supabase/functions/_shared/eventProfileAdapters.ts");
 const packageJson = read("package.json");
 
@@ -25,9 +25,7 @@ function functionSection(source: string, functionName: string): string {
 const recoverySection = functionSection(closureMigration, "recover_ready_gate_missing_rooms_v1");
 const reviewRecoverySection = functionSection(reviewCommentMigration, "recover_ready_gate_missing_rooms_v1");
 const expireWrapperSection = functionSection(closureMigration, "expire_stale_video_sessions_bounded");
-const drainSection = functionSection(closureMigration, "drain_match_queue_v2");
 const deckV3Section = functionSection(closureMigration, "get_event_deck_v3");
-const authoritativeDrainSection = functionSection(queueFairnessMigration, "drain_match_queue_v2");
 const authoritativeDeckV3Section = functionSection(publicApiMigration, "get_event_deck_v3");
 
 test("Ready Gate missing-room recovery enqueues room repair before terminal cleanup", () => {
@@ -86,21 +84,11 @@ test("Ready Gate missing-room early-grace recovery does not extend itself via st
   assert.match(reviewCommentMigration, /without extending early grace through state_updated_at/);
 });
 
-test("drain_match_queue_v2 uses non-blocking advisory locks and exposes lock_busy", () => {
+test("queue drain reliability overlays are superseded by the auto-next removal migration", () => {
   assert.match(closureMigration, /Additive authoritative overlays for earlier queue\/deck migrations/);
-  assert.match(drainSection, /pg_try_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
-  assert.match(drainSection, /pg_try_advisory_xact_lock\(\s+hashtextextended\(\s+'event_lobby_participant_session:' \|\| p_event_id::text/);
-  assert.match(drainSection, /'lock_busy'/);
-  assert.match(drainSection, /'lock_scope', 'command'/);
-  assert.match(drainSection, /'lock_scope', 'participant_session_low'/);
-  assert.match(drainSection, /'lock_scope', 'participant_session_high'/);
-  assert.doesNotMatch(drainSection, /pg_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
-  assert.doesNotMatch(drainSection, /pg_advisory_xact_lock\(\s+hashtextextended\(\s+'event_lobby_participant_session:' \|\| p_event_id::text/);
-  assert.equal(
-    authoritativeDrainSection.includes("pg_try_advisory_xact_lock"),
-    true,
-    "the amended authoritative migration and additive overlay should agree on non-blocking lock semantics",
-  );
+  assert.match(autoNextRemovalMigration, /DROP FUNCTION IF EXISTS public\.drain_match_queue\(uuid\)/);
+  assert.match(autoNextRemovalMigration, /DROP FUNCTION IF EXISTS public\.drain_match_queue_v2\(uuid, text\)/);
+  assert.match(autoNextRemovalMigration, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible\(uuid, uuid\)/);
 });
 
 test("deck v3 emits canonical deck states while adapters keep aliases and granular empty states safe", () => {

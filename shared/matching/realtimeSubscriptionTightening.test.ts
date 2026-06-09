@@ -10,7 +10,6 @@ function read(path: string): string {
 }
 
 const webEventLobby = read("src/pages/EventLobby.tsx");
-const webMatchQueue = read("src/hooks/useMatchQueue.ts");
 const webActiveSession = read("src/hooks/useActiveSession.ts");
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -23,7 +22,6 @@ const nativeReadyGateOverlay = read("apps/mobile/components/lobby/ReadyGateOverl
 
 const webRealtimeFiles = [
   "src/pages/EventLobby.tsx",
-  "src/hooks/useMatchQueue.ts",
   "src/hooks/useActiveSession.ts",
   "src/hooks/useReadyGate.ts",
   "src/components/lobby/ReadyGateOverlay.tsx",
@@ -82,8 +80,8 @@ test("web Ready Gate current-session realtime remains session-id scoped", () => 
   assert.match(webReadyGateOverlay, /table:\s*"video_sessions"[\s\S]{0,140}filter:\s*`id=eq\.\$\{sessionId\}`/);
 });
 
-test("web lobby, match queue, and active-session discovery avoid broad event-level video_sessions realtime", () => {
-  for (const path of ["src/pages/EventLobby.tsx", "src/hooks/useMatchQueue.ts", "src/hooks/useActiveSession.ts"]) {
+test("web lobby and active-session discovery avoid broad event-level video_sessions realtime", () => {
+  for (const path of ["src/pages/EventLobby.tsx", "src/hooks/useActiveSession.ts"]) {
     assertNoBroadEventVideoSessionRealtime(path);
     const source = read(path);
     assert.match(source, /participant_1_id=eq\.\$\{(?:user\.id|userId)\}/, `${path} should subscribe to participant_1_id`);
@@ -102,19 +100,15 @@ test("web fallback refetch and polling paths remain present", () => {
   assert.match(webEventLobby, /visibilitychange/);
   assert.match(webEventLobby, /setInterval\(/);
   assert.match(webEventLobby, /refetchScopedSession/);
-  assert.match(webMatchQueue, /refreshQueueCount/);
-  assert.match(webMatchQueue, /drain_match_queue/);
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
+  assert.doesNotMatch(webEventLobby, /refreshQueueCount|drain_match_queue|fetchVideoDateQueueHint/);
   assert.match(webActiveSession, /visibilitychange/);
   assert.match(webActiveSession, /setInterval\(/);
 });
 
-test("web match queue keeps survey drain quiet while preserving lobby drain toasts", () => {
-  assert.match(webMatchQueue, /sourceSurface\s*=\s*"event_lobby"/);
-  assert.match(webMatchQueue, /suppressDrainReasonToasts\s*=\s*false/);
-  assert.match(webMatchQueue, /!suppressDrainReasonToasts/);
-  assert.match(webMatchQueue, /id:\s*`match-queue-drain:\$\{key\}`/);
-  assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /sourceSurface:\s*"post_date_survey"/);
-  assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /suppressDrainReasonToasts:\s*true/);
+test("web match queue drain toasts are removed", () => {
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
+  assert.doesNotMatch(read("src/components/video-date/PostDateSurvey.tsx"), /suppressDrainReasonToasts|drain_match_queue|useMatchQueue/);
 });
 
 test("duplicate navigation and terminal latches remain session-scoped in web Ready Gate surfaces", () => {

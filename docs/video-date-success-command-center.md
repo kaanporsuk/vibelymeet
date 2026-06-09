@@ -82,7 +82,7 @@ Implementation added:
 
 Proof boundary:
 
-- This is a simplification/removal pass, not Video Date product acceptance. The only supported creation path is now swipe/mutual-match plus supported queue promotion into Ready Gate.
+- This is a simplification/removal pass, not Video Date product acceptance. The only supported creation path is now swipe/mutual-match into Ready Gate.
 - Video Date remains unaccepted until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion by both users, plus short leave/rejoin and prolonged absence checks.
 
 Read-only verification addendum from the same 2026-06-09 session:
@@ -115,9 +115,9 @@ Implementation added:
 
 Proof boundary:
 
-- The only supported Event Lobby -> Video Date creation path remains `/event/:eventId/lobby` -> deck/swipe through `swipe-actions` -> backend `handle_swipe` / `handle_swipe_v2` -> reciprocal swipe or supported queue promotion -> Ready Gate -> Video Date.
+- The only supported Event Lobby -> Video Date creation path remains `/event/:eventId/lobby` -> deck/swipe through `swipe-actions` -> backend `handle_swipe` / `handle_swipe_v2` -> direct mutual match -> Ready Gate -> Video Date.
 - Do not restore `find_video_date_match`, `join_matching_queue`, or `leave_matching_queue` as compatibility no-ops unless product direction changes.
-- Do not remove `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, Video Date state-machine behavior, or post-date survey behavior as part of this cleanup.
+- This legacy RPC cleanup originally preserved `drain_match_queue` and `promote_ready_gate_if_eligible`; the later Post-Date Instant Next removal supersedes that preservation and removes those queued auto-promotion surfaces while keeping Ready Gate, Video Date state-machine behavior, and post-date survey behavior.
 - Historical applied migrations and older audits can still mention these RPCs as past behavior; active source, generated types, validation requiring callability, or tests preserving callable no-op behavior are blockers.
 - This remains a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
 
@@ -138,10 +138,35 @@ Implementation added:
 
 Proof boundary:
 
-- The only supported Event Lobby -> Video Date creation path remains `/event/:eventId/lobby` -> deck/swipe through `swipe-actions` -> `handle_swipe_v2` -> reciprocal swipe or supported queue promotion -> Ready Gate -> Video Date.
+- The only supported Event Lobby -> Video Date creation path remains `/event/:eventId/lobby` -> deck/swipe through `swipe-actions` -> `handle_swipe_v2` -> direct mutual match -> Ready Gate -> Video Date.
 - Current session creation no longer stores a source discriminator. Historical migrations and older docs may still mention the temporary marker as past behavior; active source, generated types, validation, or tests must not preserve it as a current field.
-- `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, the Video Date state machine, and post-date survey behavior remain in scope and intact.
+- This session-source cleanup originally preserved `drain_match_queue` and `promote_ready_gate_if_eligible`; the later Post-Date Instant Next removal supersedes that queue-preservation boundary while keeping Ready Gate, the Video Date state machine, and post-date survey behavior.
 - This remains a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
+
+## 2026-06-09 Implementation Update: Post-Date Instant Next Removed
+
+Current local source now removes the post-date instant-next and queued auto-promotion path from the active Video Date golden flow.
+
+Implementation added:
+
+- Web/native `PostDateSurvey` no longer drains a match queue, prefetches queued decks, or follows server `ready_gate` / `video_date` auto-next actions after survey completion.
+- Web/native Event Lobby no longer imports queue hints, polls queued counts, shows queued convergence UI, or drains queued sessions from lobby refresh/realtime paths.
+- Native notification reconciliation no longer rescues queued sessions through `drain_match_queue`.
+- Shared queue-drain eligibility/reason-copy helpers and queue-drain observability events were removed.
+- Feature flags `video_date.post_date_instant_next_v2` and `video_date.outbox_v2.drain_match_queue` were removed from client contracts.
+- Forward migration `20260610000100_remove_post_date_instant_next.sql` deletes those flags, expires existing queued sessions, rejects processing `drain_match_queue` commands, rewrites `mark_lobby_foreground` to heartbeat only, wraps swipe output so future `match_queued` results become non-session swipe results, rewrites `resolve_post_date_next_surface` to return only survey/lobby/chat/wrap-up/home, strips legacy queue-drain counters from Sprint 7 ops payloads, and drops queue drain, queue hint, queued promotion, and pending-feedback queue-drain RPCs.
+- Admin Video Date Ops no longer shows queue-drain health or survey-to-next-gate conversion metrics.
+- Branch delta: `docs/branch-deltas/remove-post-date-instant-next.md`.
+
+Preserved:
+
+- Event Lobby deck/swipe, direct mutual match -> Ready Gate, Ready Gate mark-ready, `prepare_date_entry`, Video Date, post-date survey, persisted `date_feedback`, Chat, `matches`, and the global `match_id` contract.
+
+Proof boundary:
+
+- This is source/cloud implementation evidence, not product acceptance. Linked Supabase cloud is applied through `20260610000100_remove_post_date_instant_next.sql`, and generated Supabase types were regenerated from the linked project without reintroducing the removed RPCs. Video Date remains unaccepted until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion by both users, plus short leave/rejoin and prolonged absence checks.
 
 ---
 

@@ -47,18 +47,6 @@ function sessionStageNotificationData(eventId: string, videoSessionId: string): 
   };
 }
 
-function queuedMatchNotificationData(eventId: string, videoSessionId: string): Record<string, string> {
-  const path = `/event/${encodeURIComponent(eventId)}/lobby`;
-  return {
-    ...sessionStageNotificationData(eventId, videoSessionId),
-    url: path,
-    deep_link: path,
-    session_state: "queued",
-    ready_gate_status: "queued",
-    queued: "true",
-  };
-}
-
 async function enqueueNotificationOutbox(
   serviceClient: any,
   args: {
@@ -272,7 +260,6 @@ function shouldAttemptSwipeNotification(
   if (suppressNotifications) return false;
   const outcome = getSwipeOutcome(result);
   return outcome === "match" ||
-    outcome === "match_queued" ||
     outcome === "vibe_recorded" ||
     outcome === "super_vibe_sent";
 }
@@ -386,7 +373,7 @@ serve(async (req) => {
       result: raw.result === "swipe_recorded" ? "vibe_recorded" : raw.result,
       outcome: raw.outcome ?? (raw.result === "swipe_recorded" ? "vibe_recorded" : raw.result),
     };
-    if (result.result === "match" || result.result === "match_queued") {
+    if (result.result === "match") {
       if (result.match_id && !result.video_session_id) {
         result.video_session_id = result.match_id;
       }
@@ -573,116 +560,6 @@ serve(async (req) => {
           });
         }
         // No email: legacy `new_match` template implied persistent chat + /matches — incorrect for session stage.
-      } else if (result.result === "match_queued" && sessionId) {
-        const queuedPayload = queuedMatchNotificationData(eventIdStr, sessionId);
-        const queuedAction = { kind: "open_event_lobby", eventId: eventIdStr };
-        const queuedBody = {
-          category: "ready_gate" as const,
-          data: queuedPayload,
-          action: queuedAction,
-        };
-        try {
-          await enqueueNotificationOutbox(serviceClient, {
-            userId: String(target_id),
-            ...queuedBody,
-            title: "Stay in the lobby",
-            body: "You matched. Ready Gate will open when you are both available.",
-            dedupeKey: `swipe:${eventIdStr}:${sessionId}:match_queued:${target_id}`,
-            sessionId,
-            eventId: eventIdStr,
-            actorId,
-            targetId: String(target_id),
-            swipeType: String(swipe_type),
-            outcome: "match_queued",
-          });
-          logLifecycle({
-            event_id: eventIdStr,
-            session_id: sessionId,
-            user_id: String(target_id),
-            target_id: String(target_id),
-            event_name: "notification_enqueued",
-            category: "ready_gate",
-            result: "notify_enqueued",
-            outcome: "notification_enqueued",
-            reason: "match_queued",
-            swipe_type: String(swipe_type),
-            session_id_present: true,
-            notification_attempted: true,
-            notification_suppressed: false,
-            notification_suppressed_reason: null,
-            error_reason: null,
-          });
-        } catch (e) {
-          console.error("swipe-actions match_queued enqueue target:", e);
-          logLifecycle({
-            event_id: eventIdStr,
-            session_id: sessionId,
-            user_id: String(target_id),
-            target_id: String(target_id),
-            event_name: "notification_suppressed",
-            category: "ready_gate",
-            result: "notify_error",
-            outcome: "notify_error",
-            reason: "notify_error",
-            swipe_type: String(swipe_type),
-            session_id_present: true,
-            notification_attempted: true,
-            notification_suppressed: true,
-            notification_suppressed_reason: "notify_error",
-            error_reason: "notify_error",
-          });
-        }
-        try {
-          await enqueueNotificationOutbox(serviceClient, {
-            userId: actorId,
-            ...queuedBody,
-            title: "Stay in the lobby",
-            body: "You matched. Ready Gate will open when you are both available.",
-            dedupeKey: `swipe:${eventIdStr}:${sessionId}:match_queued:${actorId}`,
-            sessionId,
-            eventId: eventIdStr,
-            actorId,
-            targetId: String(target_id),
-            swipeType: String(swipe_type),
-            outcome: "match_queued",
-          });
-          logLifecycle({
-            event_id: eventIdStr,
-            session_id: sessionId,
-            user_id: actorId,
-            target_id: String(target_id),
-            event_name: "notification_enqueued",
-            category: "ready_gate",
-            result: "notify_enqueued",
-            outcome: "notification_enqueued",
-            reason: "match_queued",
-            swipe_type: String(swipe_type),
-            session_id_present: true,
-            notification_attempted: true,
-            notification_suppressed: false,
-            notification_suppressed_reason: null,
-            error_reason: null,
-          });
-        } catch (e) {
-          console.error("swipe-actions match_queued enqueue actor:", e);
-          logLifecycle({
-            event_id: eventIdStr,
-            session_id: sessionId,
-            user_id: actorId,
-            target_id: String(target_id),
-            event_name: "notification_suppressed",
-            category: "ready_gate",
-            result: "notify_error",
-            outcome: "notify_error",
-            reason: "notify_error",
-            swipe_type: String(swipe_type),
-            session_id_present: true,
-            notification_attempted: true,
-            notification_suppressed: true,
-            notification_suppressed_reason: "notify_error",
-            error_reason: "notify_error",
-          });
-        }
       } else if (
         result.result === "super_vibe_sent" ||
         result.result === "vibe_recorded"

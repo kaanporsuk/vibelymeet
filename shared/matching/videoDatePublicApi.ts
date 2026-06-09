@@ -45,19 +45,6 @@ const VIDEO_DATE_TOKEN_REFRESH_RATE_LIMIT_ERRORS = new Set([
   "token_refresh_rate_limited",
 ]);
 
-export type VideoDateQueueHint = {
-  ok: boolean;
-  queued: boolean;
-  reason: string | null;
-  sessionId: string | null;
-  eventQueuedCount: number;
-  userQueuedCount: number;
-  position: number | null;
-  waitAgeSeconds: number;
-  estimatedWaitSeconds: number | null;
-  reliefActive: boolean;
-};
-
 export type EventTicketPaymentSettlementStatus = {
   checkoutSessionId: string | null;
   outcome: string | null;
@@ -282,22 +269,6 @@ export async function normalizeVideoDateTokenRefreshInvokeError(
     if (normalized.ok === false) return normalized;
   }
   return { ok: false, error: "token_refresh_function_failed", retryable: true };
-}
-
-export function normalizeVideoDateQueueHint(payload: unknown): VideoDateQueueHint {
-  const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  return {
-    ok: record.ok === true,
-    queued: record.queued === true,
-    reason: nullableString(record.reason),
-    sessionId: nullableString(record.session_id) ?? nullableString(record.sessionId),
-    eventQueuedCount: integerOrDefault(record.event_queued_count ?? record.eventQueuedCount, 0),
-    userQueuedCount: integerOrDefault(record.user_queued_count ?? record.userQueuedCount, 0),
-    position: nullableInteger(record.position),
-    waitAgeSeconds: integerOrDefault(record.wait_age_seconds ?? record.waitAgeSeconds, 0),
-    estimatedWaitSeconds: nullableInteger(record.estimated_wait_seconds ?? record.estimatedWaitSeconds),
-    reliefActive: record.relief_active === true || record.reliefActive === true,
-  };
 }
 
 export function normalizeEventTicketPaymentStatus(payload: unknown): EventTicketPaymentStatus {
@@ -567,14 +538,6 @@ function stringOrDefault(value: unknown, fallback: string): string {
 
 function nullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function nullableInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
-}
-
-function integerOrDefault(value: unknown, fallback: number): number {
-  return nullableInteger(value) ?? fallback;
 }
 
 function errorText(error: unknown): string {

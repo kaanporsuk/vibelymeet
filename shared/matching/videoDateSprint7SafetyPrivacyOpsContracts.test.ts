@@ -63,8 +63,6 @@ test("Sprint 7 service-role operator health RPC is aggregate-only and wired into
     "pending_survey_recovery_count",
     "prepare_entry_failure_count",
     "daily_join_failure_count",
-    "queue_drain_miss_count",
-    "queue_drain_failure_count",
     "webhook_dlq_count",
     "orphan_room_cleanup_failed_count",
     "report_with_block_count",

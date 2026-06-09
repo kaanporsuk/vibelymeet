@@ -210,35 +210,15 @@ select
     not like '%session_source%'
   as ok;
 
--- 9) Queue promotion paths return event_not_valid before promoting Ready Gate.
+-- 9) Queued auto-promotion paths are removed from the active contract.
 select
-  'queue_promotion_active_guard_present' as check_name,
-  pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
-    like '%public.promote_ready_gate_if_eligible_20260505223000_lock_order_base%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
-    not like '%INSERT INTO public.video_sessions%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260505223000_lock_order_base(uuid,uuid)'::regprocedure)
-    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260505223000_lock_order_base(uuid,uuid)'::regprocedure)
-    like '%''reason'', ''event_not_valid''%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260505223000_lock_order_base(uuid,uuid)'::regprocedure)
-    like '%''inactive_reason'', v_inactive_reason%'
-  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%public.drain_match_queue_v2(p_event_id, v_key)%'
-  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    not like '%INSERT INTO public.video_sessions%'
-  and pg_get_functiondef('public.drain_match_queue_v2(uuid,text)'::regprocedure)
-    like '%public.drain_match_queue_v2_20260605232304_single_owner_base%'
-  and pg_get_functiondef('public.drain_match_queue_v2_20260605232304_single_owner_base(uuid,text)'::regprocedure)
-    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
-  and pg_get_functiondef('public.drain_match_queue_v2_20260605232304_single_owner_base(uuid,text)'::regprocedure)
-    like '%''reason'', ''event_not_valid''%'
-  and pg_get_functiondef('public.drain_match_queue_v2_20260605232304_single_owner_base(uuid,text)'::regprocedure)
-    like '%''inactive_reason'', v_inactive_reason%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260501180000_active_base(uuid,uuid)'::regprocedure)
-    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
-  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260501180000_active_base(uuid,uuid)'::regprocedure)
-    not like '%e.status = ''live''%'
+  'queued_auto_promotion_rpcs_removed' as check_name,
+  to_regprocedure('public.drain_match_queue(uuid)') is null
+  and to_regprocedure('public.drain_match_queue(uuid,uuid)') is null
+  and to_regprocedure('public.drain_match_queue_v2(uuid,text)') is null
+  and to_regprocedure('public.get_video_date_queue_hint_v1(uuid,uuid)') is null
+  and to_regprocedure('public.promote_ready_gate_if_eligible(uuid,uuid)') is null
+  and to_regprocedure('public.video_date_actor_pending_feedback_gate_v1(uuid,uuid)') is null
   as ok;
 
 -- 10) Deprecated direct legacy session paths are removed, not callable shims.
@@ -255,5 +235,4 @@ select
   has_function_privilege('authenticated', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.handle_swipe_v2(uuid,uuid,uuid,text,text)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.drain_match_queue(uuid)', 'EXECUTE')
   as ok;

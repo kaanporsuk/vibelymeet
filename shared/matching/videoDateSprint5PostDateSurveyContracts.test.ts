@@ -17,6 +17,9 @@ const sprint5Migration = read(
 const reviewFollowupMigration = read(
   "supabase/migrations/20260525235900_review_comments_1060_1070_followups.sql",
 );
+const autoNextRemovalMigration = read(
+  "supabase/migrations/20260610000100_remove_post_date_instant_next.sql",
+);
 const postDateVerdictFunction = read("supabase/functions/post-date-verdict/index.ts");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
@@ -124,8 +127,9 @@ test("Sprint 5 safety reports force a pass before any match or notification path
 });
 
 test("Sprint 5 next-surface authority suppresses unsafe chat and same-pair active surfaces", () => {
-  const resolver = functionBody(
-    "CREATE OR REPLACE FUNCTION public.resolve_post_date_next_surface",
+  const resolver = autoNextRemovalMigration.slice(
+    autoNextRemovalMigration.indexOf("CREATE OR REPLACE FUNCTION public.resolve_post_date_next_surface"),
+    autoNextRemovalMigration.indexOf("COMMENT ON FUNCTION public.resolve_post_date_next_surface"),
   );
   assert.match(resolver, /v_pair_blocked_or_reported boolean := false/);
   assert.match(resolver, /public\.is_blocked\(v_uid, v_target_id\)/);
@@ -135,12 +139,10 @@ test("Sprint 5 next-surface authority suppresses unsafe chat and same-pair activ
     /public\.video_date_session_is_post_date_survey_eligible\([\s\S]+AND NOT v_has_feedback[\s\S]+AND NOT COALESCE\(v_pair_blocked_or_reported, false\) THEN/,
   );
   assert.match(resolver, /IF NOT COALESCE\(v_pair_blocked_or_reported, false\) THEN[\s\S]+SELECT id INTO v_match_id/);
-  assert.match(resolver, /AND NOT public\.is_blocked\([\s\S]+v_uid,[\s\S]+CASE[\s\S]+vs\.participant_1_id = v_uid/);
-  assert.match(resolver, /AND NOT EXISTS \([\s\S]+FROM public\.user_reports ur[\s\S]+vs\.participant_1_id = v_uid/);
   assert.match(resolver, /IF v_match_id IS NOT NULL AND NOT COALESCE\(v_pair_blocked_or_reported, false\) THEN/);
   assert.match(resolver, /'reason', CASE[\s\S]+WHEN COALESCE\(v_pair_blocked_or_reported, false\) THEN 'pair_safety_blocked'/);
-  assert.match(resolver, /'route', 'ready_gate'/);
-  assert.match(resolver, /'route', 'date'/);
+  assert.doesNotMatch(resolver, /'route', 'ready_gate'/);
+  assert.doesNotMatch(resolver, /'action', 'video_date'/);
   assert.match(resolver, /'route', 'chat'/);
   assert.match(resolver, /'route', 'event_wrap_up'/);
 });
@@ -149,15 +151,13 @@ test("web and native surveys use backend next-surface authority before fallbacks
   for (const source of [webSurvey, nativeSurvey]) {
     assert.match(source, /resolve_post_date_next_surface/);
     assert.match(source, /normalizeServerPostDateNextSurface/);
-    assert.match(source, /fetchPostDateNextSessionTruth/);
     assert.match(source, /decideCanonicalVideoDateRoute/);
-    assert.match(source, /canonicalNextRoute\.target === ['"]ready_gate['"]/);
-    assert.match(source, /canonicalNextRoute\.target === ['"]date['"]/);
     assert.match(source, /canonicalNextRoute\.target === ['"]survey['"]/);
     assert.match(source, /canonicalNextRoute\.target === ['"]chat['"]/);
     assert.match(source, /canonicalNextRoute\.target === ['"]lobby['"]/);
     assert.match(source, /canonicalNextRoute\.target === ['"]ended['"]/);
     assert.match(source, /canonicalNextRoute\.target === ['"]home['"]/);
+    assert.match(source, /removed_auto_next_target_ignored/);
   }
   assert.doesNotMatch(
     webSurvey,
@@ -174,15 +174,14 @@ test("web and native surveys use backend next-surface authority before fallbacks
   );
 });
 
-test("survey queue drain opens standalone Ready Gate instead of stale lobby state", () => {
+test("survey no longer drains queued sessions after post-date completion", () => {
   assert.match(webSurvey, /sourceSurface:\s*"post_date_survey"/);
-  assert.match(webSurvey, /enableSurveyPhaseDrain:\s*true/);
-  assert.match(webSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
-  assert.match(webSurvey, /vdbgRedirect\(target, "survey_queue_match_ready"/);
   assert.match(nativeSurvey, /sourceSurface: ['"]post_date_survey['"]/);
-  assert.match(nativeSurvey, /sourceAction: ['"]survey_queue_drain['"]/);
-  assert.match(nativeSurvey, /onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
-  assert.match(nativeSurvey, /route: ['"]ready_gate['"]/);
+  for (const source of [webSurvey, nativeSurvey]) {
+    assert.match(source, /removed_auto_next_target_ignored/);
+    assert.doesNotMatch(source, /enableSurveyPhaseDrain|survey_queue_drain|onQueuedVideoSessionReady/);
+    assert.doesNotMatch(source, /drainMatchQueue|getQueuedMatchCount|useMatchQueue/);
+  }
 });
 
 test("shared canonical routing consumes final post-date next surfaces consistently", () => {

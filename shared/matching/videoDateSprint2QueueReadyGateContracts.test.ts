@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -12,7 +12,6 @@ function read(path: string): string {
 const sprint2Migration = read(
   "supabase/migrations/20260525213000_video_date_sprint2_queue_hint_drain_alignment.sql",
 );
-const webUseMatchQueue = read("src/hooks/useMatchQueue.ts");
 const webEventLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
@@ -27,7 +26,7 @@ const eventEndedReadyGateMigration = read(
 );
 const packageJson = read("package.json");
 
-test("Sprint 2 queue hint uses the same base eligibility as queue drain", () => {
+test("Sprint 2 historical queue hint used the same base eligibility as queue drain", () => {
   assert.match(sprint2Migration, /CREATE OR REPLACE FUNCTION public\.get_video_date_queue_hint_v1/);
   assert.match(sprint2Migration, /public\.get_event_lobby_active_state\(p_event_id, now\(\)\)/);
   assert.match(sprint2Migration, /WITH eligible_queue AS/);
@@ -43,7 +42,7 @@ test("Sprint 2 queue hint uses the same base eligibility as queue drain", () => 
   assert.match(sprint2Migration, /public\.v_video_date_queue_fairness_candidates/);
 });
 
-test("Sprint 2 legacy queue drain delegates to v2 semantics", () => {
+test("Sprint 2 historical legacy queue drain delegates to v2 semantics", () => {
   assert.match(sprint2Migration, /CREATE OR REPLACE FUNCTION public\.drain_match_queue\(\s*p_event_id uuid\s*\)/s);
   assert.match(sprint2Migration, /'legacy:' \|\|/);
   assert.match(sprint2Migration, /RETURN public\.drain_match_queue_v2\(p_event_id, v_key\)/);
@@ -53,65 +52,24 @@ test("Sprint 2 legacy queue drain delegates to v2 semantics", () => {
   assert.match(sprint2Migration, /queue eligibility, locking, TTL, safety, active-session, and Ready Gate promotion semantics/);
 });
 
-test("Sprint 2 web queue recovery cannot leave a user silently queued", () => {
-  assert.match(webUseMatchQueue, /QUEUED_SESSION_RECOVERY_FIRST_DRAIN_MS = 1_200/);
-  assert.match(webUseMatchQueue, /QUEUED_SESSION_RECOVERY_DRAIN_MS = 5_000/);
-  assert.match(webUseMatchQueue, /drainInFlightRef/);
-  assert.match(webUseMatchQueue, /activeDrainSeqRef/);
-  assert.match(webUseMatchQueue, /activeRefreshSeqRef/);
-  assert.match(webUseMatchQueue, /scopeRef/);
-  assert.match(webUseMatchQueue, /const isCurrentScope = useCallback/);
-  assert.match(webUseMatchQueue, /!isCurrentScope\(requestEventId, requestUserId\)/);
-  assert.match(webUseMatchQueue, /const drainQueueOnce = useCallback/);
-  assert.match(webUseMatchQueue, /sourceAction,/);
-  assert.match(webUseMatchQueue, /queued_recovery_poll/);
-  assert.match(webUseMatchQueue, /setInterval\(\(\) =>\s*{\s*void drainQueueOnce\("queued_recovery_poll"\)/s);
-  assert.match(webUseMatchQueue, /void refreshQueueCount\(\)/);
-  assert.match(webUseMatchQueue, /minimumOnFailure = 0/);
-  assert.match(webUseMatchQueue, /shouldRetainQueueCountOnHintFailure/);
-  assert.match(webUseMatchQueue, /RETRYABLE_QUEUE_HINT_FAILURE_REASONS/);
-  assert.match(webUseMatchQueue, /code === "not_registered"/);
-  assert.match(webUseMatchQueue, /code === "missing_args"/);
-  assert.match(webUseMatchQueue, /code === "42501"/);
-  assert.match(webUseMatchQueue, /code === "22P02"/);
-  assert.match(webUseMatchQueue, /setQueuedCount\(0\)/);
-  assert.match(webUseMatchQueue, /isVideoDateReadyGateActiveStatus\(session\.ready_gate_status\)/);
-  assert.doesNotMatch(
-    webUseMatchQueue,
-    /session\.ready_gate_status === "ready" && payload\.old\?\.ready_gate_status === "queued"/,
-  );
+test("Sprint 2 web queue recovery is removed from current source", () => {
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
+  assert.doesNotMatch(webEventLobby, /queued_recovery_poll|refreshQueueCount|drainQueueOnce|useMatchQueue/);
 });
 
-test("Sprint 2 web lobby starts convergence immediately after queued swipe and queue promotion", () => {
-  assert.match(webEventLobby, /onVideoSessionReady: \(videoSessionId\) => \{\s*openReadyGateSession\(videoSessionId, "match_queue"\)/s);
-  assert.match(webEventLobby, /scheduleLobbyConvergenceRefresh\(videoSessionId, "match_queue"\)/);
-  assert.match(webEventLobby, /onVideoSessionQueued: \(videoSessionId\) => \{/);
-  assert.match(webEventLobby, /void refreshQueueCount\(1\)/);
-  assert.match(webEventLobby, /scheduleLobbyConvergenceRefresh\(videoSessionId, "swipe_queued"\)/);
+test("Sprint 2 web lobby opens only direct mutual match sessions", () => {
+  assert.match(webEventLobby, /onVideoSessionReady: \(videoSessionId\) => \{/);
+  assert.doesNotMatch(webEventLobby, /onVideoSessionQueued|swipe_queued|refreshQueueCount|match_queue/);
 });
 
-test("Sprint 2 native lobby and queue count stay on the shared hint and drain path", () => {
-  assert.match(nativeLobby, /fetchVideoDateQueueHint/);
-  assert.match(nativeLobby, /getQueuedMatchCount\(requestEventId, requestUserId\)/);
-  assert.match(nativeLobby, /sourceAction: ['"]queue_drain_interval['"]/);
-  assert.match(nativeLobby, /openReadyGateWithSession\(promotedSessionId, ['"]queue_drain_interval['"]\)/);
-  assert.match(nativeLobby, /sourceAction: ['"]video_session_insert_queue_drain['"]/);
-  assert.match(nativeLobby, /scheduleLobbyRefreshBurst\(['"]video_session_insert_queue_drain['"]\)/);
-  assert.match(nativeLobby, /queueRefreshSeqRef/);
-  assert.match(nativeLobby, /queueRefreshScopeRef/);
-  assert.match(nativeLobby, /!isActiveLobbyContextRef\.current/);
-  assert.match(nativeEventsApi, /export async function getQueuedMatchCount/);
-  assert.match(nativeEventsApi, /const hint = await fetchVideoDateQueueHint\(eventId, userId\)/);
-  assert.match(nativeEventsApi, /hint\.ok \? hint\.userQueuedCount : 0/);
+test("Sprint 2 native lobby and events API no longer expose queue count or drain paths", () => {
+  assert.doesNotMatch(nativeLobby, /fetchVideoDateQueueHint|getQueuedMatchCount|queue_drain_interval|video_session_insert_queue_drain|queueRefreshSeqRef/);
+  assert.doesNotMatch(nativeEventsApi, /export async function getQueuedMatchCount|fetchVideoDateQueueHint|drainMatchQueue/);
 });
 
-test("Sprint 2 post-date survey queue drain uses the same eligibility surface on web and native", () => {
-  assert.match(webPostDateSurvey, /useMatchQueue/);
-  assert.match(webPostDateSurvey, /enableSurveyPhaseDrain: true/);
-  assert.match(webPostDateSurvey, /sourceSurface: "post_date_survey"/);
-  assert.match(nativePostDateSurvey, /getQueuedMatchCount\(eventId, userId\)/);
-  assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
+test("Sprint 2 post-date survey queue drain is removed on web and native", () => {
+  assert.doesNotMatch(webPostDateSurvey, /useMatchQueue|enableSurveyPhaseDrain|drain_match_queue|onQueuedVideoSessionReady|onVideoDateReady/);
+  assert.doesNotMatch(nativePostDateSurvey, /getQueuedMatchCount|drainMatchQueueV2|drain_match_queue|onQueuedVideoSessionReady|onVideoDateReady/);
 });
 
 test("Sprint 2 Ready Gate actions keep server truth authoritative across web and native", () => {

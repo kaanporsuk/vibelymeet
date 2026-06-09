@@ -251,29 +251,6 @@ interface VideoDateOpsWindow {
     source_error?: string;
     truncated?: boolean;
   };
-  survey_to_next_ready_gate_conversion: {
-    surveys: number;
-    next_ready_gate_opens: number;
-    conversion_rate: number | null;
-    status: VideoDateOpsStatus;
-    source_error?: string;
-    truncated?: boolean;
-  };
-  queue_drain_failures: {
-    attempts: number;
-    successes: number;
-    no_ops: number;
-    blocked: number;
-    failures: number;
-    failure_rate: number | null;
-    non_success_rate: number | null;
-    top_failure_reasons: Array<{ reason: string; count: number }>;
-    top_no_op_reasons: Array<{ reason: string; count: number }>;
-    top_blocked_reasons: Array<{ reason: string; count: number }>;
-    status: VideoDateOpsStatus;
-    source_error?: string;
-    truncated?: boolean;
-  };
   queue_fairness: {
     event_count: number;
     active_event_count?: number;
@@ -388,9 +365,6 @@ const formatMs = (value: number | null | undefined): string => {
   if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
   return `${Math.round(value)}ms`;
 };
-
-const formatReasonCounts = (reasons: Array<{ reason: string; count: number }>): string =>
-  reasons.map((reason) => `${reason.reason} ${reason.count}`).join(", ");
 
 const statusBadgeClass = (status: VideoDateOpsStatus): string => {
   switch (status) {
@@ -748,7 +722,7 @@ const AdminLiveEventMetrics = () => {
                   Video Date Ops
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Service-role aggregate health for first-frame latency, Daily performance, room-pool decisioning, Ready Gate, swipe recovery, post-survey continuity, drain, and timer drift.
+                  Service-role aggregate health for first-frame latency, Daily performance, room-pool decisioning, Ready Gate, swipe recovery, fairness, and timer drift.
                 </p>
               </div>
               {videoDateOps?.generated_at && (
@@ -786,8 +760,6 @@ const AdminLiveEventMetrics = () => {
                   const readyTapToFrame = window.ready_tap_to_first_remote_frame_latency;
                   const latency = window.ready_gate_open_to_date_join_latency;
                   const swipe = window.simultaneous_swipe_recovery;
-                  const survey = window.survey_to_next_ready_gate_conversion;
-                  const drain = window.queue_drain_failures;
                   const fairness = window.queue_fairness;
                   const dailyDecision = window.daily_performance_decision;
                   const dailyEmission = window.daily_performance_emission_health;
@@ -796,8 +768,6 @@ const AdminLiveEventMetrics = () => {
                     readyTapToFrame.truncated,
                     latency.truncated,
                     swipe.truncated,
-                    survey.truncated,
-                    drain.truncated,
                     fairness?.truncated,
                     dailyDecision?.truncated,
                     dailyEmission?.truncated,
@@ -807,12 +777,6 @@ const AdminLiveEventMetrics = () => {
                     rawFirstFrameCount > readyTapToFrame.sample_count
                       ? `${readyTapToFrame.sample_count} deduped first-frame samples (${rawFirstFrameCount} raw)`
                       : `${readyTapToFrame.sample_count} first-frame samples`;
-                  const drainSuccesses = drain.successes ?? Math.max(0, drain.attempts - drain.failures);
-                  const drainNoOps = drain.no_ops ?? 0;
-                  const drainBlocked = drain.blocked ?? 0;
-                  const drainFailureReasons = formatReasonCounts(drain.top_failure_reasons ?? []);
-                  const drainNoOpReasons = formatReasonCounts(drain.top_no_op_reasons ?? []);
-                  const drainBlockedReasons = formatReasonCounts(drain.top_blocked_reasons ?? []);
                   const queueFairnessDetail = fairness?.source_error
                     || `${fairness?.queued_session_count ?? 0} queued sessions, ${fairness?.starved_slots_120s ?? 0}/${fairness?.queued_participant_slots ?? 0} slots over 120s, ${fairness?.no_match_attempts_15m ?? 0} no-match attempts in 15m`;
                   const dailyPoolDetail = dailyDecision?.source_error
@@ -868,28 +832,6 @@ const AdminLiveEventMetrics = () => {
                             `${swipe.recovered_rows}/${swipe.collision_rows} collisions recovered, ${formatRate(swipe.collision_rate)} collision rate`
                           }
                           status={swipe.recovery_status}
-                        />
-                        <VideoDateOpsTile
-                          label="Survey -> next gate"
-                          value={formatRate(survey.conversion_rate)}
-                          detail={
-                            survey.source_error ||
-                            `${survey.next_ready_gate_opens}/${survey.surveys} survey completions opened a Ready Gate`
-                          }
-                          status={survey.status}
-                        />
-                        <VideoDateOpsTile
-                          label="Queue drain health"
-                          value={formatRate(drain.failure_rate)}
-                          detail={
-                            drain.source_error ||
-                            `${drainSuccesses} success, ${drainNoOps} no-op, ${drainBlocked} blocked, ${drain.failures}/${drain.attempts} true failures${
-                              drainFailureReasons ? `; failures: ${drainFailureReasons}` : ""
-                            }${drainNoOpReasons ? `; no-op: ${drainNoOpReasons}` : ""}${
-                              drainBlockedReasons ? `; blocked: ${drainBlockedReasons}` : ""
-                            }`
-                          }
-                          status={drain.status}
                         />
                         <VideoDateOpsTile
                           label="Queue fairness"

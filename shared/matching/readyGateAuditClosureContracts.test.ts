@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -30,22 +30,13 @@ test("web and native Ready Gate surfaces render shared vibe chips from existing 
   assert.match(webOverlay, /sharedVibes\.map/);
 });
 
-test("queue promotion copy explains foreground and runtime readiness instead of silent waiting", () => {
+test("queue promotion copy is removed with post-date instant-next", () => {
   const queueCopy = read("shared/matching/videoDatePhase4Ux.ts");
-  const drainCopy = read("shared/matching/matchQueueDrainReasonCopy.ts");
+  const readyGateContract = read("docs/contracts/event-lobby-ready-queue-contract.md");
 
-  assert.match(queueCopy, /Keep this lobby open so we can confirm presence/);
-  assert.match(queueCopy, /Keep the lobby open while we hold your spot/);
-  for (const reason of [
-    "no_queued_session",
-    "session_not_promotable",
-    "registration_missing",
-    "admission_not_confirmed",
-    "pair_already_met_this_event",
-    "lock_busy",
-  ]) {
-    assert.match(drainCopy, new RegExp(reason));
-  }
+  assert.equal(existsSync(join(root, "shared/matching/matchQueueDrainReasonCopy.ts")), false);
+  assert.doesNotMatch(queueCopy, /match_queued/);
+  assert.match(readyGateContract, /Removed Queue Drain/);
 });
 
 test("Ready Gate transition failures use shared multi-device conflict copy", () => {

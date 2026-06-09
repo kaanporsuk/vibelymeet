@@ -230,7 +230,6 @@ export function getVideoDateDeckAdaptiveRefetchIntervalMs(input: {
   enabled: boolean;
   eventEndAtMs?: number | null;
   nowMs?: number;
-  queuedCount?: number | null;
   visibleCount?: number | null;
   hidden?: boolean;
 }): number | false {
@@ -246,9 +245,8 @@ export function getVideoDateDeckAdaptiveRefetchIntervalMs(input: {
   if (remainingMs <= 120_000) return VIDEO_DATE_DECK_FINAL_REFETCH_INTERVAL_MS;
   if (remainingMs <= 300_000) return VIDEO_DATE_DECK_LATE_REFETCH_INTERVAL_MS;
 
-  const queuedCount = finiteNonNegativeInteger(input.queuedCount);
   const visibleCount = finiteNonNegativeInteger(input.visibleCount);
-  if (queuedCount > 0 || visibleCount <= 1) return VIDEO_DATE_DECK_LATE_REFETCH_INTERVAL_MS;
+  if (visibleCount <= 1) return VIDEO_DATE_DECK_LATE_REFETCH_INTERVAL_MS;
 
   return VIDEO_DATE_DECK_DEFAULT_REFETCH_INTERVAL_MS;
 }

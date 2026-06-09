@@ -1,5 +1,5 @@
--- Read-only validation pack for Event Lobby busy-user, Ready Gate, and
--- queued-match contract hardening.
+-- Read-only validation pack for Event Lobby busy-user and Ready Gate direct
+-- mutual-match contract hardening after queued auto-promotion removal.
 -- Safe for production catalog verification after the migration is applied.
 
 with deck as (
@@ -55,36 +55,14 @@ select
   and bool_and(position('FROM public.event_swipes es' in def) < position('public.handle_swipe_20260501210000_idempotency_base' in def)) as ok
 from swipe;
 
-with promote as (
-  select
-    pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure) as def,
-    p.prosecdef,
-    p.proconfig
-  from pg_proc p
-  join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public'
-    and p.proname = 'promote_ready_gate_if_eligible'
-    and pg_get_function_identity_arguments(p.oid) = 'p_event_id uuid, p_uid uuid'
-)
 select
-  'promote_ready_gate_participant_lock_and_conflict_guard' as check_name,
-  count(*) = 1
-  and bool_and(prosecdef)
-  and bool_and(proconfig @> array['search_path=public'])
-  and bool_and(def like '%public.get_event_lobby_active_state(p_event_id, now())%')
-  and bool_and(def like '%event_lobby_participant_session:%')
-  and bool_and(def like '%pre_promotion_active_session_guard%')
-  and bool_and(def like '%''reason'', ''participant_has_active_session_conflict''%')
-  and bool_and(def like '%public.promote_ready_gate_if_eligible_20260501180000_active_base%')
-  and bool_and(position('pre_promotion_active_session_guard' in def) < position('public.promote_ready_gate_if_eligible_20260501180000_active_base' in def)) as ok
-from promote;
-
-select
-  'drain_match_queue_uses_public_promotion_contract' as check_name,
-  pg_get_functiondef('public.drain_match_queue_20260501180000_active_base(uuid)'::regprocedure)
-    like '%public.promote_ready_gate_if_eligible(p_event_id, v_uid)%'
-  and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%public.drain_match_queue_20260501180000_active_base%'
+  'queued_auto_promotion_rpcs_removed' as check_name,
+  to_regprocedure('public.drain_match_queue(uuid)') is null
+  and to_regprocedure('public.drain_match_queue(uuid,uuid)') is null
+  and to_regprocedure('public.drain_match_queue_v2(uuid,text)') is null
+  and to_regprocedure('public.get_video_date_queue_hint_v1(uuid,uuid)') is null
+  and to_regprocedure('public.promote_ready_gate_if_eligible(uuid,uuid)') is null
+  and to_regprocedure('public.video_date_actor_pending_feedback_gate_v1(uuid,uuid)') is null
   as ok;
 
 select
@@ -92,9 +70,6 @@ select
   has_function_privilege('authenticated', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.handle_swipe_v2(uuid,uuid,uuid,text,text)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.promote_ready_gate_if_eligible(uuid,uuid)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.drain_match_queue(uuid)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.promote_ready_gate_if_eligible(uuid,uuid)', 'EXECUTE')
-  and not has_function_privilege('anon', 'public.drain_match_queue(uuid)', 'EXECUTE') as ok;
+  as ok;

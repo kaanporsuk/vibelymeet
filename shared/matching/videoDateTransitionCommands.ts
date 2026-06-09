@@ -37,13 +37,6 @@ export function buildVideoDateSafetyIdempotencyKey(
   return buildVideoDateSignalIdempotencyKey(sessionId, `phase3:safety:${action}:${clientRequestId}`);
 }
 
-export function buildVideoDateQueueDrainIdempotencyKey(
-  eventId: string,
-  clientRequestId: string,
-): string {
-  return buildVideoDateSignalIdempotencyKey(eventId, `phase3:drain_match_queue:${clientRequestId}`);
-}
-
 export function createVideoDateClientRequestId(): string {
   return generateIdempotencyKey();
 }

@@ -567,7 +567,6 @@ export default function DashboardScreen() {
 
   const handleEndActiveSession = useCallback(async () => {
     if (!activeSession || !user?.id) return;
-    if (activeSession.kind === 'syncing') return;
     if (activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey') {
       return;
     }
@@ -1005,7 +1004,7 @@ export default function DashboardScreen() {
         </View>
       </GlassHeaderBar>
 
-      {sessionHydrated && activeSession && activeSession.kind !== 'syncing' && (
+      {sessionHydrated && activeSession && (
         <View style={[styles.rejoinBannerWrap, { backgroundColor: theme.background }]}>
           <View style={styles.rejoinBannerInner}>
             <ActiveCallBanner

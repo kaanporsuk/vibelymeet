@@ -5,7 +5,6 @@ import {
   normalizedSwipeSessionStageResult,
   shouldAdvanceLobbyDeckAfterSwipe,
   shouldOpenReadyGateFromSwipePayload,
-  shouldTrackQueuedSwipeSession,
   SWIPE_PAIR_ALREADY_MET_USER_MESSAGE,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
   SWIPE_TARGET_UNAVAILABLE_USER_MESSAGE,
@@ -21,11 +20,20 @@ test("swipe payload helpers normalize legacy names and session id aliases", () =
   );
 });
 
-test("already_matched with a routable session opens Ready Gate", () => {
+test("match and already_matched with routable sessions open Ready Gate", () => {
+  assert.equal(
+    shouldOpenReadyGateFromSwipePayload({
+      result: "match",
+      video_session_id: "session-1",
+      event_id: "event-1",
+      immediate: true,
+    }),
+    true,
+  );
   assert.equal(
     shouldOpenReadyGateFromSwipePayload({
       result: "already_matched",
-      video_session_id: "session-1",
+      video_session_id: "session-2",
       event_id: "event-1",
       immediate: true,
       ready_gate_status: "ready",
@@ -34,7 +42,7 @@ test("already_matched with a routable session opens Ready Gate", () => {
   );
 });
 
-test("queued and busy swipe outcomes do not open Ready Gate immediately", () => {
+test("busy or non-immediate swipe outcomes do not open Ready Gate", () => {
   assert.equal(
     shouldOpenReadyGateFromSwipePayload({
       result: "already_matched",
@@ -53,47 +61,10 @@ test("queued and busy swipe outcomes do not open Ready Gate immediately", () => 
     }),
     false,
   );
-});
-
-test("match_immediate and match_queued semantics remain distinct", () => {
-  assert.equal(
-    shouldOpenReadyGateFromSwipePayload({
-      result: "match",
-      video_session_id: "session-1",
-      event_id: "event-1",
-      immediate: true,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldOpenReadyGateFromSwipePayload({
-      outcome: "match",
-      video_session_id: "session-1b",
-      event_id: "event-1",
-      immediate: true,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldTrackQueuedSwipeSession({
-      result: "match_queued",
-      video_session_id: "session-2",
-      event_id: "event-1",
-    }),
-    true,
-  );
-  assert.equal(
-    shouldTrackQueuedSwipeSession({
-      outcome: "match_queued",
-      video_session_id: "session-2b",
-      event_id: "event-1",
-    }),
-    true,
-  );
   assert.equal(shouldOpenReadyGateFromSwipePayload({ result: "match_queued", video_session_id: "session-2" }), false);
 });
 
-test("already_matched remains a no-advance deck result even when routable", () => {
+test("deck advancement keeps duplicate and active-session failures pinned", () => {
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("already_matched"), false);
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("already_swiped"), false);
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("account_paused"), false);

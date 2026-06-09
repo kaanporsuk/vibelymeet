@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 
@@ -15,12 +14,9 @@ import { cn } from "@/lib/utils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { fetchEventDeck, type EventDeckFetchResult } from "@/hooks/useEventDeck";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
-import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
-import { deckCardUrl } from "@/utils/imageUrl";
 import { submitWebPostDateOutboxItem } from "@/lib/postDateOutbox/execute";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import type {
@@ -32,7 +28,6 @@ import {
   isPostDateEventNearlyOver,
   normalizeServerPostDateNextSurface,
   secondsUntilPostDateEventEnd,
-  shouldEnablePostDateSurveyQueueDrain,
   type PostDateContinuityDecision,
 } from "@clientShared/matching/postDateContinuity";
 import {
@@ -46,7 +41,6 @@ import {
   getVideoDateMicroVerdictCopy,
   getVideoDateMicroVerdictRemainingSeconds,
 } from "@clientShared/matching/videoDateMicroVerdict";
-import { getVideoDateDeckPrefetchItems } from "@clientShared/matching/videoDateDeckPrefetch";
 import {
   createVideoDateSessionChannel,
   type VideoDateSessionBroadcastEvent,
@@ -63,7 +57,6 @@ import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
   webPathForCanonicalVideoDateRoute,
-  type VideoDateRouteSessionTruth,
 } from "@clientShared/matching/videoDateRouteDecision";
 
 interface PostDateSurveyProps {
@@ -76,27 +69,6 @@ interface PostDateSurveyProps {
 }
 
 type SurveyStep = "verdict" | "celebration" | "awaiting_partner" | "highlights" | "safety";
-const SURVEY_DRAIN_SOFT_WAIT_MS = 1800;
-const POST_DATE_NEXT_SESSION_TRUTH_SELECT =
-  "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function fetchPostDateNextSessionTruth(
-  sessionId: string | null | undefined,
-  action: string | null | undefined,
-): Promise<VideoDateRouteSessionTruth | null> {
-  if (!sessionId || (action !== "video_date" && action !== "ready_gate")) return null;
-  const { data, error } = await supabase
-    .from("video_sessions")
-    .select(POST_DATE_NEXT_SESSION_TRUTH_SELECT)
-    .eq("id", sessionId)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data as VideoDateRouteSessionTruth;
-}
 
 const PostDateContinuityStrip = ({ decision }: { decision: PostDateContinuityDecision }) => {
   const toneClass = {
@@ -149,12 +121,10 @@ export const PostDateSurvey = ({
   eventId,
 }: PostDateSurveyProps) => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
   const microVerdictV2 = useFeatureFlag("video_date.micro_verdict_v2");
   const submitVerdictV3 = useFeatureFlag("video_date.outbox_v2.submit_verdict");
-  const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
   const verdictConfirmV2 = useFeatureFlag("video_date.verdict_confirm_v2");
   const verdictConfirmV1 = useFeatureFlag("video_date.verdict_confirm_v1");
   const [step, setStep] = useState<SurveyStep>("verdict");
@@ -165,7 +135,7 @@ export const PostDateSurvey = ({
   const [verdictRetryable, setVerdictRetryable] = useState(false);
   const [lastVerdictAttempt, setLastVerdictAttempt] = useState<boolean | null>(null);
   const [isFinishingSurvey, setIsFinishingSurvey] = useState(false);
-  const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
+  const [, setSurveyStatus] = useState<string>("in_survey");
   // Data for the polished mutual-match celebration
   const [celebrationData, setCelebrationData] = useState<{
     partnerAge: number;
@@ -175,7 +145,6 @@ export const PostDateSurvey = ({
   const surveyShellImpressionRef = useRef(false);
   const verdictStepImpressionRef = useRef(false);
   const finishSurveyInFlightRef = useRef(false);
-  const queuedNavigationStartedRef = useRef(false);
   const reportBeforeVerdictRef = useRef(false);
   const reportPassVerdictSavedRef = useRef(false);
   const pendingVerdictConfirmRef = useRef<{
@@ -187,7 +156,6 @@ export const PostDateSurvey = ({
   const safetySaveInFlightRef = useRef(false);
   const safetyReportInFlightRef = useRef(false);
   const verdictOpenedAtMsRef = useRef(Date.now());
-  const instantNextPrefetchKeyRef = useRef<string | null>(null);
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
   const verdictConfirmEnabled = useMemo(
     () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2, verdictConfirmV1),
@@ -331,7 +299,6 @@ export const PostDateSurvey = ({
     surveyShellImpressionRef.current = false;
     verdictStepImpressionRef.current = false;
     finishSurveyInFlightRef.current = false;
-    queuedNavigationStartedRef.current = false;
     reportBeforeVerdictRef.current = false;
     reportPassVerdictSavedRef.current = false;
     highlightsSaveInFlightRef.current = false;
@@ -368,55 +335,6 @@ export const PostDateSurvey = ({
       clearVerdictConfirmTimeout();
     };
   }, [clearVerdictConfirmTimeout, resolvePendingVerdictConfirm]);
-
-  useEffect(() => {
-    if (!postDateInstantNextV2.enabled || !isOpen || !eventId || !user?.id) return;
-    const key = `${eventId}:${user.id}:${sessionId}`;
-    if (instantNextPrefetchKeyRef.current === key) return;
-    instantNextPrefetchKeyRef.current = key;
-    trackEvent("post_date_instant_next_prewarm_started", {
-      platform: "web",
-      session_id: sessionId,
-      event_id: eventId,
-      source_surface: "post_date_survey",
-    });
-    void queryClient
-      .prefetchQuery({
-        queryKey: ["event-deck", eventId, user.id, "deck_v3"],
-        queryFn: () => fetchEventDeck(eventId, user.id),
-        staleTime: 10_000,
-      })
-      .then(() => {
-        const profiles = queryClient.getQueryData<EventDeckFetchResult>([
-          "event-deck",
-          eventId,
-          user.id,
-          "deck_v3",
-        ])?.profiles ?? [];
-        for (const item of getVideoDateDeckPrefetchItems(profiles)) {
-          const src = deckCardUrl(item.source);
-          if (!src) continue;
-          const image = new Image();
-          image.decoding = "async";
-          image.src = src;
-        }
-        trackEvent("post_date_instant_next_prewarm_result", {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          outcome: "success",
-          deck_count: profiles.length,
-        });
-      })
-      .catch(() => {
-        trackEvent("post_date_instant_next_prewarm_result", {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          outcome: "failure",
-        });
-      });
-  }, [eventId, isOpen, postDateInstantNextV2.enabled, queryClient, sessionId, user?.id]);
 
   const logJourney = useCallback(
     (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
@@ -486,159 +404,25 @@ export const PostDateSurvey = ({
     checkEventActive,
   } = useEventLifecycle({ eventId });
 
-  /**
-   * Post-date survey is intentionally anchored on `/date/:sessionId` (not lobby `useActiveSession`).
-   * We still poll `drain_match_queue` here as a fallback when realtime lags — see `enableSurveyPhaseDrain`.
-   */
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAt),
     [eventEndsAt]
   );
-  const surveyQueueDrainEnabled = useMemo(
-    () =>
-      shouldEnablePostDateSurveyQueueDrain({
-        hasEventId: Boolean(eventId),
-        eventLifecycleResolved: isEventLifecycleResolved,
-        eventActive: isEventActive,
-        secondsUntilEventEnd,
-      }),
-    [eventId, isEventActive, isEventLifecycleResolved, secondsUntilEventEnd],
-  );
-
-  const handleQueueMatch = useCallback(
-    (videoSessionId: string, _queuePartnerId: string) => {
-      if (queuedNavigationStartedRef.current) return;
-      queuedNavigationStartedRef.current = true;
-      trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        action: "ready_gate",
-        source: "survey_queue_drain",
-        video_session_id: videoSessionId,
-      });
-      trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        source_surface: "post_date_survey",
-        source_action: "survey_queue_drain",
-        outcome: "success",
-        reason_code: "queue_drain_found",
-        next_session_id: videoSessionId,
-      });
-      trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CONVERSION, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        source_surface: "post_date_survey",
-        source_action: "ready_gate_from_survey_drain",
-        outcome: "success",
-        next_session_id: videoSessionId,
-      });
-      toast("Your next date is ready 💚", { duration: 2000 });
-      const target = `/ready/${encodeURIComponent(videoSessionId)}`;
-      trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        action: "ready_gate",
-        route: "ready_gate",
-        video_session_id: videoSessionId,
-      });
-      vdbgRedirect(target, "survey_queue_match_ready", { sessionId, eventId, readyGateSessionId: videoSessionId });
-      navigate(target, { replace: true });
-    },
-    [navigate, eventId, sessionId]
-  );
-
-  const handlePendingPostDateFeedback = useCallback(
-    (pendingSessionId: string) => {
-      trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        source_surface: "post_date_survey",
-        source_action: "survey_queue_drain",
-        outcome: "blocked",
-        reason_code: "pending_post_date_feedback",
-        next_session_id: pendingSessionId,
-      });
-
-      if (!pendingSessionId || pendingSessionId === sessionId) {
-        if (
-          verdictUiState === "submitting" ||
-          verdictUiState === "confirmed" ||
-          verdictUiState === "awaiting_partner" ||
-          isFinishingSurvey ||
-          finishSurveyInFlightRef.current
-        ) {
-          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            source_surface: "post_date_survey",
-            source_action: "survey_queue_drain",
-            outcome: "no_op",
-            reason_code: "stale_pending_post_date_feedback",
-            next_session_id: pendingSessionId,
-            verdict_ui_state: verdictUiState,
-          });
-          return;
-        }
-        queuedNavigationStartedRef.current = false;
-        setStep("verdict");
-        return;
-      }
-
-      queuedNavigationStartedRef.current = true;
-      const target = `/date/${encodeURIComponent(pendingSessionId)}`;
-      trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        action: "survey",
-        route: "date",
-        video_session_id: pendingSessionId,
-        reason_code: "pending_post_date_feedback",
-      });
-      vdbgRedirect(target, "survey_queue_pending_feedback", {
-        sessionId,
-        eventId,
-        pendingSessionId,
-      });
-      navigate(target, { replace: true });
-    },
-    [navigate, eventId, sessionId, verdictUiState, isFinishingSurvey],
-  );
-
-  const { queuedCount, isDraining } = useMatchQueue({
-    eventId,
-    currentStatus: surveyStatus,
-    enabled: surveyQueueDrainEnabled,
-    enableSurveyPhaseDrain: true,
-    sourceSurface: "post_date_survey",
-    suppressDrainReasonToasts: true,
-    onVideoSessionReady: handleQueueMatch,
-    onPendingPostDateFeedback: handlePendingPostDateFeedback,
-  });
 
   const continuityDecision = useMemo(
     () =>
       getPostDateSurveyContinuityDecision({
-        isDrainingQueue: isDraining,
-        queuedCount,
         isSubmittingSurvey: isFinishingSurvey,
         eventActive: isEventActive,
         eventLifecycleResolved: isEventLifecycleResolved,
         secondsUntilEventEnd,
         hasEventId: Boolean(eventId),
       }),
-    [eventId, isDraining, queuedCount, isFinishingSurvey, isEventActive, isEventLifecycleResolved, secondsUntilEventEnd]
+    [eventId, isFinishingSurvey, isEventActive, isEventLifecycleResolved, secondsUntilEventEnd]
   );
 
   const finishSurvey = useCallback(async () => {
-    if (finishSurveyInFlightRef.current || queuedNavigationStartedRef.current) return;
+    if (finishSurveyInFlightRef.current) return;
     finishSurveyInFlightRef.current = true;
     setIsFinishingSurvey(true);
     trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_SURVEY_COMPLETE, {
@@ -646,153 +430,126 @@ export const PostDateSurvey = ({
       session_id: sessionId,
       event_id: eventId,
       decision_at_submit: continuityDecision.action,
-      queued_count: queuedCount,
       seconds_until_event_end: secondsUntilEventEnd,
     });
     try {
-      if (isDraining) {
-        await sleep(SURVEY_DRAIN_SOFT_WAIT_MS);
-        if (queuedNavigationStartedRef.current) return;
-      }
-
       const { data: nextData, error: nextError } = await supabase.rpc("resolve_post_date_next_surface", {
         p_session_id: sessionId,
       });
       const serverNext = normalizeServerPostDateNextSurface(nextData);
       if (!nextError && serverNext) {
-        const nextEventId = serverNext.eventId ?? eventId;
-        const nextSessionId = serverNext.nextSessionId ?? serverNext.sessionId ?? sessionId;
-        const nextSessionTruth = await fetchPostDateNextSessionTruth(nextSessionId, serverNext.action);
-        const canonicalNextRoute = decideCanonicalVideoDateRoute({
-          sessionId: nextSessionId,
-          eventId: nextEventId,
-          truth: nextSessionTruth,
-          serverNextSurface: {
-            ...serverNext,
-            targetId: serverNext.targetId ?? partnerId,
-          },
-        });
-        const canonicalNextLog = canonicalVideoDateRouteLogDetail(canonicalNextRoute, {
-          sourceSurface: "post_date_survey",
-          sourceAction: "survey_finish_server_continuity",
-        });
-        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: nextEventId,
-          action: serverNext.action,
-          source: "survey_finish_server_continuity",
-          reason_code: serverNext.reason,
-          ...canonicalNextLog,
-          next_session_id: serverNext.nextSessionId,
-          match_id: serverNext.matchId,
-          seconds_until_event_end: serverNext.secondsUntilEventEnd,
-        });
-        trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: nextEventId,
-          source_surface: "post_date_survey",
-          source_action: "survey_finish_server_continuity",
-          outcome: "success",
-          reason_code: serverNext.reason ?? serverNext.action,
-          next_session_id: serverNext.nextSessionId,
-        });
-
-        if (canonicalNextRoute.target === "ready_gate" && nextSessionId) {
-          queuedNavigationStartedRef.current = true;
-          const target = `/ready/${encodeURIComponent(nextSessionId)}`;
-          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+        if (serverNext.action === "ready_gate" || serverNext.action === "video_date") {
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
             platform: "web",
             session_id: sessionId,
-            event_id: nextEventId,
-            action: "ready_gate",
-            route: "ready_gate",
-            video_session_id: nextSessionId,
+            event_id: serverNext.eventId ?? eventId,
+            action: "fresh_deck",
+            source: "survey_finish_server_continuity",
+            reason_code: "removed_auto_next_target_ignored",
+            removed_action: serverNext.action,
           });
-          vdbgRedirect(target, "survey_finish_server_ready_gate", { sessionId, eventId: nextEventId, nextSessionId });
-          navigate(target, { replace: true });
-          return;
-        }
-
-        if (canonicalNextRoute.target === "survey") {
-          setStep("verdict");
-          return;
-        }
-
-        if (canonicalNextRoute.target === "date" && nextSessionId) {
-          const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
-          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: nextEventId,
-            action: "video_date",
-            route: "date",
-            video_session_id: nextSessionId,
+        } else {
+          const nextEventId = serverNext.eventId ?? eventId;
+          const nextSessionId = serverNext.nextSessionId ?? serverNext.sessionId ?? sessionId;
+          const canonicalNextRoute = decideCanonicalVideoDateRoute({
+            sessionId: nextSessionId,
+            eventId: nextEventId,
+            truth: null,
+            serverNextSurface: {
+              ...serverNext,
+              targetId: serverNext.targetId ?? partnerId,
+            },
           });
-          vdbgRedirect(target, "survey_finish_server_video_date", { sessionId, eventId: nextEventId, nextSessionId });
-          navigate(target);
-          return;
-        }
-
-        if (canonicalNextRoute.target === "chat") {
-          const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
-          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+          const canonicalNextLog = canonicalVideoDateRouteLogDetail(canonicalNextRoute, {
+            sourceSurface: "post_date_survey",
+            sourceAction: "survey_finish_server_continuity",
+          });
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
             platform: "web",
             session_id: sessionId,
             event_id: nextEventId,
-            action: "chat",
-            route: "chat",
+            action: serverNext.action,
+            source: "survey_finish_server_continuity",
+            reason_code: serverNext.reason,
+            ...canonicalNextLog,
+            next_session_id: serverNext.nextSessionId,
             match_id: serverNext.matchId,
-          });
-          vdbgRedirect(target, "survey_finish_server_chat", { sessionId, eventId: nextEventId, matchId: serverNext.matchId });
-          navigate(target);
-          return;
-        }
-
-        if (canonicalNextRoute.target === "lobby" && nextEventId) {
-          logJourney("survey_completed", { source: "finish_survey_server_lobby" }, "survey_completed");
-          setStatus("browsing");
-          setSurveyStatus("browsing");
-          toast("You're back in the lobby — keep browsing 💚", { duration: 2000 });
-          const target = `${webPathForCanonicalVideoDateRoute(canonicalNextRoute)}?postSurveyComplete=1`;
-          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: nextEventId,
-            action: "lobby",
-            route: "event_lobby",
             seconds_until_event_end: serverNext.secondsUntilEventEnd,
           });
-          vdbgRedirect(target, "survey_finish_server_lobby", { sessionId, eventId: nextEventId, lobbyRefresh: true });
-          navigate(target, { state: { lobbyRefresh: true } });
-          return;
-        }
-
-        if (canonicalNextRoute.target === "ended") {
-          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
             platform: "web",
             session_id: sessionId,
             event_id: nextEventId,
-            action: "event_ended",
-            route: "event_ended_modal",
-            reason_code: serverNext.reason,
+            source_surface: "post_date_survey",
+            source_action: "survey_finish_server_continuity",
+            outcome: "success",
+            reason_code: serverNext.reason ?? serverNext.action,
+            next_session_id: serverNext.nextSessionId,
           });
-          setStatus("offline");
-          setShowEventEnded(true);
-          return;
-        }
 
-        if (canonicalNextRoute.target === "home") {
-          const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
-          vdbgRedirect(target, "survey_finish_server_home", { sessionId });
-          navigate(target);
-          return;
+          if (canonicalNextRoute.target === "survey") {
+            setStep("verdict");
+            return;
+          }
+
+          if (canonicalNextRoute.target === "chat") {
+            const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
+            trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: nextEventId,
+              action: "chat",
+              route: "chat",
+              match_id: serverNext.matchId,
+            });
+            vdbgRedirect(target, "survey_finish_server_chat", { sessionId, eventId: nextEventId, matchId: serverNext.matchId });
+            navigate(target);
+            return;
+          }
+
+          if (canonicalNextRoute.target === "lobby" && nextEventId) {
+            logJourney("survey_completed", { source: "finish_survey_server_lobby" }, "survey_completed");
+            setStatus("browsing");
+            setSurveyStatus("browsing");
+            toast("You're back in the lobby — keep browsing 💚", { duration: 2000 });
+            const target = `${webPathForCanonicalVideoDateRoute(canonicalNextRoute)}?postSurveyComplete=1`;
+            trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: nextEventId,
+              action: "lobby",
+              route: "event_lobby",
+              seconds_until_event_end: serverNext.secondsUntilEventEnd,
+            });
+            vdbgRedirect(target, "survey_finish_server_lobby", { sessionId, eventId: nextEventId, lobbyRefresh: true });
+            navigate(target, { state: { lobbyRefresh: true } });
+            return;
+          }
+
+          if (canonicalNextRoute.target === "ended") {
+            trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: nextEventId,
+              action: "event_ended",
+              route: "event_ended_modal",
+              reason_code: serverNext.reason,
+            });
+            setStatus("offline");
+            setShowEventEnded(true);
+            return;
+          }
+
+          if (canonicalNextRoute.target === "home") {
+            const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
+            vdbgRedirect(target, "survey_finish_server_home", { sessionId });
+            navigate(target);
+            return;
+          }
         }
       }
 
       const active = await checkEventActive();
-      if (queuedNavigationStartedRef.current) return;
 
       if (active) {
         const nextAction = isPostDateEventNearlyOver(secondsUntilEventEnd) ? "last_chance" : "fresh_deck";
@@ -802,7 +559,6 @@ export const PostDateSurvey = ({
           event_id: eventId,
           action: nextAction,
           source: "survey_finish_event_active",
-          queued_count: queuedCount,
           seconds_until_event_end: secondsUntilEventEnd,
         });
         trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
@@ -813,7 +569,6 @@ export const PostDateSurvey = ({
           source_action: "survey_finish_event_active",
           outcome: "no_op",
           reason_code: nextAction,
-          queued_count: queuedCount,
           seconds_until_event_end: secondsUntilEventEnd,
         });
         logJourney("survey_completed", { source: "finish_survey_active_event" }, "survey_completed");
@@ -834,7 +589,6 @@ export const PostDateSurvey = ({
             event_id: eventId,
             action: nextAction,
             route: "event_lobby",
-            queued_count: queuedCount,
             seconds_until_event_end: secondsUntilEventEnd,
           });
           vdbgRedirect(target, "survey_finish", { sessionId, eventId, lobbyRefresh: true });
@@ -863,7 +617,6 @@ export const PostDateSurvey = ({
           event_id: eventId,
           action: "event_ended",
           source: "survey_finish_event_inactive",
-          queued_count: queuedCount,
           seconds_until_event_end: secondsUntilEventEnd,
         });
         trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
@@ -874,7 +627,6 @@ export const PostDateSurvey = ({
           source_action: "survey_finish_event_inactive",
           outcome: "blocked",
           reason_code: "event_ended",
-          queued_count: queuedCount,
           seconds_until_event_end: secondsUntilEventEnd,
         });
         trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
@@ -894,10 +646,8 @@ export const PostDateSurvey = ({
         setShowEventEnded(true);
       }
     } finally {
-      if (!queuedNavigationStartedRef.current) {
-        finishSurveyInFlightRef.current = false;
-        setIsFinishingSurvey(false);
-      }
+      finishSurveyInFlightRef.current = false;
+      setIsFinishingSurvey(false);
     }
   }, [
     navigate,
@@ -907,9 +657,7 @@ export const PostDateSurvey = ({
     setStatus,
     checkEventActive,
     logJourney,
-    isDraining,
     continuityDecision.action,
-    queuedCount,
     secondsUntilEventEnd,
   ]);
 
@@ -917,26 +665,11 @@ export const PostDateSurvey = ({
   const handleVerdict = useCallback(
     async (liked: boolean) => {
       if (!user?.id || isSubmitting || verdictUiState === "submitting" || verdictUiState === "confirmed") return;
-      const previousStep = step;
-      const optimisticStep: SurveyStep = liked ? "awaiting_partner" : "highlights";
-      const canOptimisticallyAdvanceVerdict = postDateInstantNextV2.enabled && !verdictConfirmEnabled;
-      let optimisticallyAdvanced = false;
       setIsSubmitting(true);
       setVerdictUiState("submitting");
       setVerdictError(null);
       setVerdictRetryable(false);
       setLastVerdictAttempt(liked);
-      if (canOptimisticallyAdvanceVerdict) {
-        setStep(optimisticStep);
-        optimisticallyAdvanced = true;
-        trackEvent("post_date_verdict_optimistic_started", {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          verdict: liked ? "vibe" : "pass",
-          optimistic_step: optimisticStep,
-        });
-      }
 
       trackEvent(
         liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
@@ -977,16 +710,6 @@ export const PostDateSurvey = ({
                 ? "This date session is no longer available."
                 : "Something went wrong. Please try again.",
           );
-          if (optimisticallyAdvanced) {
-            setStep(previousStep);
-            trackEvent("post_date_verdict_optimistic_rollback", {
-              platform: "web",
-              session_id: sessionId,
-              event_id: eventId,
-              reason: code,
-              rollback_step: previousStep,
-            });
-          }
           setVerdictUiState("retryable_failed");
           return;
         }
@@ -995,16 +718,6 @@ export const PostDateSurvey = ({
           setVerdictRetryable(true);
           setVerdictError("Couldn't confirm your answer. Tap to retry.");
           setVerdictUiState("retryable_failed");
-          if (optimisticallyAdvanced) {
-            setStep(previousStep);
-            trackEvent("post_date_verdict_optimistic_rollback", {
-              platform: "web",
-              session_id: sessionId,
-              event_id: eventId,
-              reason: "confirmation_timeout",
-              rollback_step: previousStep,
-            });
-          }
           return;
         }
         const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, "verdict_submitted");
@@ -1012,27 +725,9 @@ export const PostDateSurvey = ({
           setVerdictRetryable(true);
           setVerdictError("Couldn't confirm your answer. Tap to retry.");
           setVerdictUiState("retryable_failed");
-          if (optimisticallyAdvanced) {
-            setStep(previousStep);
-            trackEvent("post_date_verdict_optimistic_rollback", {
-              platform: "web",
-              session_id: sessionId,
-              event_id: eventId,
-              reason: "date_feedback_row_missing_after_verdict",
-              rollback_step: previousStep,
-            });
-          }
           return;
         }
         const confirmedVerdict = normalizePostDateVerdictConfirmationResult(confirmedResult);
-        if (optimisticallyAdvanced) {
-          trackEvent("post_date_verdict_optimistic_confirmed", {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            verdict: liked ? "vibe" : "pass",
-          });
-        }
 
         trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
           platform: "web",
@@ -1092,16 +787,6 @@ export const PostDateSurvey = ({
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
         setVerdictUiState("retryable_failed");
-        if (optimisticallyAdvanced) {
-          setStep(previousStep);
-          trackEvent("post_date_verdict_optimistic_rollback", {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            reason: "exception",
-            rollback_step: previousStep,
-          });
-        }
       } finally {
         setIsSubmitting(false);
       }
@@ -1113,10 +798,8 @@ export const PostDateSurvey = ({
       isSubmitting,
       verdictUiState,
       logJourney,
-      postDateInstantNextV2.enabled,
       verdictConfirmEnabled,
       submitVerdictV3.enabled,
-      step,
       waitForVerdictConfirmation,
       applyConfirmedVerdictStep,
       confirmActorFeedbackRow,
@@ -1494,7 +1177,7 @@ export const PostDateSurvey = ({
                   }}
                   onReport={handleReport}
                   isBusy={isFinishingSurvey || safetySaveInFlightRef.current || safetyReportInFlightRef.current}
-                  pendingMessage={isFinishingSurvey || isDraining ? continuityDecision.message : undefined}
+                  pendingMessage={isFinishingSurvey ? continuityDecision.message : undefined}
                 />
               )}
             </AnimatePresence>

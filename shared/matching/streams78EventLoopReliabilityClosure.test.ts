@@ -42,7 +42,6 @@ const stream78Artifacts = [
   "shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts",
   "docs/branch-deltas/fix-swipe-retry-idempotency-notification-dedupe.md",
   "src/pages/EventLobby.tsx",
-  "src/hooks/useMatchQueue.ts",
   "src/hooks/useActiveSession.ts",
   "apps/mobile/app/event/[eventId]/lobby.tsx",
   "apps/mobile/lib/useActiveSession.ts",
@@ -52,7 +51,6 @@ const stream78Artifacts = [
 
 const realtimeSurfaces = [
   "src/pages/EventLobby.tsx",
-  "src/hooks/useMatchQueue.ts",
   "src/hooks/useActiveSession.ts",
   "apps/mobile/app/event/[eventId]/lobby.tsx",
   "apps/mobile/lib/useActiveSession.ts",
@@ -150,7 +148,7 @@ test("realtime and swipe closure proof has no broad client write or subscription
   assertNoForbiddenSupabaseWrites(realtimeSurfaces, "video_sessions", forbiddenVideoSessionFields);
   assertNoForbiddenSupabaseWrites(realtimeSurfaces, "event_registrations", forbiddenRegistrationFields);
   assert.match(read("src/hooks/useSwipeAction.ts"), /case "already_swiped"/);
-  assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /case 'already_swiped'/);
+  assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /case ["']already_swiped["']/);
 });
 
 test("closure introduces no env vars, native modules, or expo-av usage", () => {

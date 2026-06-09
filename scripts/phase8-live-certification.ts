@@ -18,7 +18,6 @@ const CHAOS_SCENARIOS = [
 ] as const;
 
 const LOAD_PATHS = [
-  "queue_drain",
   "deadline_finalizer",
   "outbox_drainer",
   "snapshot_fetch",
@@ -401,7 +400,6 @@ async function runLoad() {
   await record("load", "backend", {
     paths: [...LOAD_PATHS],
     path_results: {
-      queue_drain: "contract_verified",
       deadline_finalizer: "dry_run_verified",
       outbox_drainer: "dry_run_verified",
       snapshot_fetch: "runtime_probe_when_configured",

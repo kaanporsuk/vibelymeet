@@ -1,5 +1,4 @@
 export type EventLobbyPlatform = "web" | "native";
-export type QueueDrainSourceSurface = "event_lobby" | "post_date_survey" | "notification_deep_link";
 
 export const EventLobbyObservabilityEvents = {
   LOBBY_ENTERED: "lobby_entered",
@@ -11,8 +10,6 @@ export const EventLobbyObservabilityEvents = {
   LOBBY_SWIPE_DUPLICATE_SUPPRESSED: "lobby_swipe_duplicate_suppressed",
   READY_GATE_SHOWN: "ready_gate_shown",
   READY_GATE_TRANSITION: "ready_gate_transition",
-  QUEUE_DRAIN_ATTEMPTED: "queue_drain_attempted",
-  QUEUE_DRAIN_RESULT: "queue_drain_result",
   DATE_ENTERED_FROM_LOBBY: "date_entered_from_lobby",
   NOTIFICATION_SUPPRESSED: "notification_suppressed",
   NOTIFICATION_SENT: "notification_sent",
@@ -79,7 +76,6 @@ const USER_INELIGIBLE_GATE_KINDS = new Set([
 
 const NOTIFICATION_ATTEMPT_OUTCOMES = new Set([
   "match",
-  "match_queued",
   "vibe_recorded",
   "super_vibe_sent",
 ]);
@@ -154,7 +150,6 @@ export function resolveDeckEmptyReason(input: {
   totalProfiles?: number | null;
   visibleProfiles?: number | null;
   deckEverLoaded?: boolean;
-  queuedCount?: number | null;
   yieldingToReadyGate?: boolean;
   yieldingToVideoDate?: boolean;
   userPaused?: boolean;
@@ -177,12 +172,7 @@ export function resolveDeckEmptyReason(input: {
   if (deckStateReason === "media_unavailable") return "rpc_error";
   if (deckStateReason === "recoverable_fetch_error") return "network_error";
   if (deckStateReason === "terminal_event_state") return "event_not_active";
-  if (
-    deckStateReason === "queue_waiting" ||
-    deckStateReason === "queued" ||
-    deckStateReason === "match_queued" ||
-    deckStateReason === "all_candidates_busy_or_unavailable"
-  ) {
+  if (deckStateReason === "all_candidates_busy_or_unavailable") {
     return "all_candidates_busy_or_unavailable";
   }
   if (deckStateReason === "no_remaining_profiles") return "all_candidates_seen_locally";
@@ -192,7 +182,7 @@ export function resolveDeckEmptyReason(input: {
   if (!input.deckEnabled || EVENT_INACTIVE_GATE_KINDS.has(gateKind)) {
     return EVENT_INACTIVE_GATE_KINDS.has(gateKind) ? "event_not_active" : "user_not_eligible";
   }
-  if (input.yieldingToReadyGate || input.yieldingToVideoDate || (input.queuedCount ?? 0) > 0) {
+  if (input.yieldingToReadyGate || input.yieldingToVideoDate) {
     return "all_candidates_busy_or_unavailable";
   }
   if ((input.totalProfiles ?? 0) > 0 && (input.visibleProfiles ?? 0) === 0) {
@@ -266,34 +256,5 @@ export function buildLobbySwipeResultPayload(input: {
     notification_attempted: wasSwipeNotificationAttempted(input.result),
     notification_suppressed_reason: notificationSuppressedReason,
     duplicate: isDuplicateSwipeResult(input.result),
-  };
-}
-
-export function buildQueueDrainResultPayload(input: {
-  eventId: string;
-  platform: EventLobbyPlatform;
-  sourceSurface?: QueueDrainSourceSurface;
-  result?: {
-    found?: boolean | null;
-    queued?: boolean | null;
-    reason?: unknown;
-    video_session_id?: unknown;
-    match_id?: unknown;
-  } | null;
-  error?: unknown;
-  sourceAction?: string;
-}) {
-  const reason = input.error
-    ? classifyDeckFetchError(input.error)
-    : sanitizeReasonCode(input.result?.reason ?? (input.result?.found ? "promoted" : input.result?.queued ? "queued" : "no_queued_session"));
-  return {
-    event_id: input.eventId,
-    platform: input.platform,
-    source_surface: input.sourceSurface ?? "event_lobby",
-    source_action: input.sourceAction ?? "drain_match_queue",
-    outcome: input.error ? "error" : input.result?.found ? "promoted" : input.result?.queued ? "queued" : "no_match",
-    reason,
-    session_id_present: Boolean((input.result as { video_session_id?: unknown; match_id?: unknown } | null | undefined)?.video_session_id ||
-      (input.result as { match_id?: unknown } | null | undefined)?.match_id),
   };
 }

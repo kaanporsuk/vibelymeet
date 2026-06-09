@@ -1,12 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeVideoDateSnapshot, normalizeVideoDateSnapshotInvokeError } from "./videoDateSnapshot";
 import { resolveVideoDateReadinessDiagnostic } from "./videoDateReadinessV2";
 import {
   isVideoDateDailyTokenJoinError,
-  normalizeVideoDateQueueHint,
   shouldRefreshVideoDateTokenBeforeJoin,
 } from "./videoDatePublicApi";
 
@@ -40,8 +39,6 @@ const webSnapshotLib = readFileSync(join(root, "src/lib/videoDateSnapshot.ts"), 
 const nativeSnapshotLib = readFileSync(join(root, "apps/mobile/lib/videoDateSnapshot.ts"), "utf8");
 const webTokenRefreshLib = readFileSync(join(root, "src/lib/videoDateTokenRefresh.ts"), "utf8");
 const nativeTokenRefreshLib = readFileSync(join(root, "apps/mobile/lib/videoDateTokenRefresh.ts"), "utf8");
-const webQueueHintLib = readFileSync(join(root, "src/lib/videoDateQueueHint.ts"), "utf8");
-const nativeQueueHintLib = readFileSync(join(root, "apps/mobile/lib/videoDateQueueHint.ts"), "utf8");
 const publicApiLib = readFileSync(join(root, "shared/matching/videoDatePublicApi.ts"), "utf8");
 const phase4UxLib = readFileSync(join(root, "shared/matching/videoDatePhase4Ux.ts"), "utf8");
 const eventProfileAdapters = readFileSync(join(root, "supabase/functions/_shared/eventProfileAdapters.ts"), "utf8");
@@ -219,7 +216,7 @@ test("PR 1.3 deck v3 and persistent ready-gate suppression are adopted; Phase 8 
   assert.match(nativeActiveSession, /isReadyGateSuppressedForSession/);
 });
 
-test("public API interface changes are exposed for deck state, queue hints, payment status, and token refresh", () => {
+test("public API interface changes expose deck state, payment status, token refresh, and remove active queue hints", () => {
   assert.match(config, /\[functions\.video-date-token-refresh\]\s+verify_jwt = true/);
   assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_event_deck_v3/);
   assert.match(publicApiMigration, /'deck_state'/);
@@ -247,16 +244,15 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(tokenRefreshFunction, /ejectAtTokenExp: true/);
   assert.match(webTokenRefreshLib, /VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME/);
   assert.match(nativeTokenRefreshLib, /VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME/);
-  assert.match(webQueueHintLib, /get_video_date_queue_hint_v1/);
-  assert.match(nativeQueueHintLib, /get_video_date_queue_hint_v1/);
+  assert.equal(existsSync(join(root, "src/lib/videoDateQueueHint.ts")), false);
+  assert.equal(existsSync(join(root, "apps/mobile/lib/videoDateQueueHint.ts")), false);
   assert.match(webPaymentStatusLib, /get_event_ticket_payment_status_v1/);
   assert.match(nativePaymentStatusLib, /get_event_ticket_payment_status_v1/);
   assert.match(webPaymentSuccess, /fetchEventTicketPaymentStatus/);
   assert.match(nativePaymentSuccess, /fetchEventTicketPaymentStatus/);
   assert.match(publicApiLib, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
   assert.match(publicApiLib, /eventTicketPaymentSuccessCopy/);
-  assert.match(publicApiLib, /estimatedWaitSeconds/);
-  assert.match(publicApiLib, /estimated_wait_seconds/);
+  assert.doesNotMatch(publicApiLib, /VideoDateQueueHint|normalizeVideoDateQueueHint|estimatedWaitSeconds|estimated_wait_seconds/);
   assert.match(publicApiLib, /shouldRefreshVideoDateTokenBeforeJoin/);
   assert.match(publicApiLib, /isVideoDateDailyTokenJoinError/);
   assert.doesNotMatch(webDeckHook, /fetchEventDeckProfiles/);
@@ -269,14 +265,14 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(nativeVideoDate, /daily_token_refresh_join_retry/);
   assert.match(nativeVideoDate, /adviseVideoDateTokenRecovery/);
   assert.match(nativeVideoDate, /trigger: ["']before_join["']/);
-  assert.match(webLobby, /fetchVideoDateQueueHint/);
+  assert.doesNotMatch(webLobby, /fetchVideoDateQueueHint|get_video_date_queue_hint_v1/);
   assert.match(webLobby, /resolveEventDeckPhase4UiState/);
   assert.match(webLobby, /deckState\?\.reason === "event_not_active"/);
   assert.match(webLobby, /deckState\?\.inactive_reason/);
   assert.match(phase4UxLib, /no_confirmed_candidates/);
   assert.match(phase4UxLib, /scan_window_exhausted/);
-  assert.match(phase4UxLib, /formatVideoDateQueueEtaLabel/);
-  assert.match(nativeLobby, /fetchVideoDateQueueHint/);
+  assert.doesNotMatch(phase4UxLib, /formatVideoDateQueueEtaLabel|formatVideoDateQueueHintLabel/);
+  assert.doesNotMatch(nativeLobby, /fetchVideoDateQueueHint|get_video_date_queue_hint_v1/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+resolvedEventLifecycle\?\.isLive/);
   assert.match(nativeLobby, /deckState\?\.reason !== ['"]event_not_active['"]/);
   assert.match(
@@ -285,11 +281,10 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   );
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
   assert.match(nativeLobby, /deckState\?\.inactive_reason/);
-  assert.match(webLobby, /resolveVideoDateQueueCopy/);
-  assert.match(nativeLobby, /resolveVideoDateQueueCopy/);
-  assert.match(phase4UxLib, /formatVideoDateQueueHintLabel/);
-  assert.match(phase4UxLib, /priority boost/);
-  assert.match(nativeActiveSession, /fetchVideoDateQueueHint/);
+  assert.doesNotMatch(webLobby, /resolveVideoDateQueueCopy/);
+  assert.doesNotMatch(nativeLobby, /resolveVideoDateQueueCopy/);
+  assert.doesNotMatch(phase4UxLib, /priority boost/);
+  assert.doesNotMatch(nativeActiveSession, /fetchVideoDateQueueHint|get_video_date_queue_hint_v1/);
   assert.doesNotMatch(nativeActiveSession, /\.eq\('ready_gate_status', 'queued'\)/);
 });
 
@@ -306,14 +301,7 @@ test("public API helpers handle malformed edge cases conservatively", () => {
   assert.equal(isVideoDateDailyTokenJoinError({ errorMsg: "Meeting token expired" }), true);
   assert.equal(isVideoDateDailyTokenJoinError({ message: "Camera permission denied" }), false);
 
-  const queueHint = normalizeVideoDateQueueHint({
-    ok: true,
-    queued: true,
-    estimated_wait_seconds: 45,
-    relief_active: true,
-  });
-  assert.equal(queueHint.estimatedWaitSeconds, 45);
-  assert.equal(queueHint.reliefActive, true);
+  assert.doesNotMatch(publicApiLib, /normalizeVideoDateQueueHint|VideoDateQueueHint/);
 });
 
 test("PR 1.4 micro-verdict is UX-only and does not auto-submit verdicts", () => {

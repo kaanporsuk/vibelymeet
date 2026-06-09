@@ -98,7 +98,7 @@ test("queued session with current_room_id remains lobby/syncing, not Ready Gate 
   assert.equal(isActiveSessionDirectFallbackFresh(queued, NOW_MS), false);
   assert.match(webActiveSession, /\.in\("queue_status", \["in_handshake", "in_date", "in_survey", "in_ready_gate"\]\)/);
   assert.match(nativeActiveSession, /\.in\('queue_status', \['in_handshake', 'in_date', 'in_survey', 'in_ready_gate'\]\)/);
-  assert.match(nativeActiveSession, /kind: 'syncing'/);
+  assert.doesNotMatch(nativeActiveSession, /kind: 'syncing'/);
 });
 
 test("Mystery Match payload compatibility is superseded by hard removal", () => {
@@ -136,7 +136,7 @@ test("Daily/provider/notification side effects stay fail-soft after decisive ses
   assert.match(mutualMatchHandoff, /EXCEPTION\s+WHEN OTHERS THEN[\s\S]*'error', 'outbox_enqueue_failed'/);
   assert.match(mutualMatchHandoff, /Auxiliary provider\/notification enqueue failures return structured JSON and must not poison decisive session commits/);
   assert.match(swipeActions, /result\.result === "match" && sessionId[\s\S]*catch \(e\)[\s\S]*notification_suppressed_reason: "notify_error"/);
-  assert.match(swipeActions, /result\.result === "match_queued" && sessionId[\s\S]*catch \(e\)[\s\S]*notification_suppressed_reason: "notify_error"/);
+  assert.doesNotMatch(swipeActions, /result\.result === "match_queued" && sessionId/);
   assert.match(swipeActions, /return new Response\(\s*JSON\.stringify\(\{ success: true, \.\.\.result \}\)/);
 });
 

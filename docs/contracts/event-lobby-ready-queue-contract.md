@@ -1,7 +1,7 @@
-# Event Lobby Ready Gate And Queue Contract
+# Event Lobby Ready Gate Contract
 
-Date: 2026-05-01
-Scope: Event Lobby deck, swipe, Ready Gate promotion, and queue drain.
+Date: 2026-06-09
+Scope: Event Lobby deck, swipe, direct mutual match, and Ready Gate entry after queued auto-promotion removal.
 
 ## Canonical Policy
 
@@ -14,27 +14,27 @@ The backend owns swipe eligibility and session creation. Web and native may show
 | `in_ready_gate` | Hide from backend deck | Direct swipe returns active-session conflict before mutation |
 | `in_handshake` | Hide from backend deck | Direct swipe returns active-session conflict before mutation |
 | `in_date` | Hide from backend deck | Direct swipe returns active-session conflict before mutation |
-| `in_survey` | Hide from backend deck | Queue drain may only proceed if backend promotion eligibility allows it |
-| `offline` | Hide from backend deck | Queued promotion remains backend-owned |
+| `in_survey` | Hide from backend deck | Hidden until survey/date-feedback routing returns the user to lobby/chat/wrap-up |
+| `offline` | Hide from backend deck | No queued promotion fallback |
 | Other / unknown | Hide from backend deck | Backend decides through active-event, safety, idempotency, and conflict guards |
 
 Clients may keep informational busy badges for stale cached cards, but active in-session users are not normal swipe targets once the backend deck refreshes.
 
 ## Match Outcomes
 
-`immediate match`: mutual vibe/super-vibe when both users are lobby-present and idle/browsing. Backend creates or reuses one `video_sessions` row and moves both registrations to `in_ready_gate`.
-
-`queued match`: mutual vibe/super-vibe when one or both participants are not promotable right now. Backend creates/reuses a queued `video_sessions` row and keeps registrations in lobby-compatible status so queue drain can promote later.
+`immediate match`: mutual vibe/super-vibe when both users are promotable. Backend creates or reuses one `video_sessions` row and moves both registrations to `in_ready_gate`.
 
 `already matched`: duplicate/retry path for an existing same-pair active session. Clients should recover the returned `video_session_id`.
 
-`active-session conflict`: either participant already has another unended active session/queued session. `handle_swipe` now returns `participant_has_active_session_conflict` before inserting `event_swipes`, creating `video_sessions`, or updating registration room pointers.
+`active-session conflict`: either participant already has another unended active session. `handle_swipe` returns `participant_has_active_session_conflict` before inserting `event_swipes`, creating `video_sessions`, or updating registration room pointers.
 
-`partner unavailable`: safety, visibility, blocked/reported, paused, not-registered, and inactive-event paths remain non-mutating and notification-suppressed where applicable.
+`partner unavailable`: safety, visibility, blocked/reported, paused, not-registered, inactive-event, or not-currently-promotable paths remain non-mutating and notification-suppressed where applicable.
+
+`match_queued`: removed from the active client contract. Migration `20260610000100_remove_post_date_instant_next.sql` expires existing queued sessions and wraps the active swipe base so future queued results are converted to a non-session swipe result.
 
 ## Ready Gate State Machine
 
-Ready Gate ready: promotion sets `ready_gate_status = ready`, `ready_gate_expires_at`, `event_registrations.queue_status = in_ready_gate`, `current_room_id`, and `current_partner_id`.
+Ready Gate ready: direct mutual match sets `ready_gate_status = ready`, `ready_gate_expires_at`, `event_registrations.queue_status = in_ready_gate`, `current_room_id`, and `current_partner_id`.
 
 Skip: `ready_gate_transition` handles skip/forfeit semantics without client-created sessions.
 
@@ -44,25 +44,24 @@ Expire: expiry terminalizes the Ready Gate session and clears/normalizes registr
 
 Both-ready: both participants ready moves the session toward date entry. Clients may navigate only after backend truth says the session is both-ready or date-entry eligible.
 
-Return-from-date: returning users must be reconciled through backend session truth and registration state. They should not be reintroduced as swipeable cards while the prior session remains active.
+Return-from-date: returning users must be reconciled through backend session truth and registration state. They should not be reintroduced as swipeable cards while the prior session remains active or survey-required.
 
-## Queue Drain
+## Removed Queue Drain
 
-`drain_match_queue` remains a backend-owned promotion attempt. It requires the canonical active-event state and delegates promotion through `promote_ready_gate_if_eligible`.
+`drain_match_queue`, `drain_match_queue_v2`, queue hints, queued promotion via `promote_ready_gate_if_eligible`, post-date instant-next routing, and pending-feedback queue-drain blockers are removed from the active contract. Clients must not poll queued counts, drain queued sessions, rescue queued sessions from notifications, or auto-route from survey completion into another Ready Gate/Video Date.
 
-`promote_ready_gate_if_eligible` now acquires ordered participant advisory locks for the queued pair, checks for another unended session involving either participant, and returns `participant_has_active_session_conflict` before promotion if a conflict exists.
+Post-date routing is authoritative through `resolve_post_date_next_surface`, but the allowed next actions are survey, lobby, chat, wrap-up, or home. It must not return another Ready Gate or Video Date action.
 
 ## One-Active-Session Invariant
 
 One active session per user is enforced by:
 
-- deck filtering that hides active Ready Gate, handshake, and date candidates;
+- deck filtering that hides active Ready Gate, entry, and date candidates;
 - direct swipe pre-mutation conflict checks;
-- ordered participant advisory locks shared by swipe and queue promotion;
 - pair-level swipe serialization in the canonical mutation base;
-- promotion conflict checks before queued sessions move into Ready Gate.
+- Ready Gate/date lifecycle cleanup before users can return to normal deck participation.
 
-The invariant is intentionally backend-owned. Clients should handle `participant_has_active_session_conflict`, `already_matched`, and `event_not_active` as terminal/recovery outcomes, not retry loops.
+The invariant is backend-owned. Clients should handle `participant_has_active_session_conflict`, `already_matched`, and `event_not_active` as terminal/recovery outcomes, not retry loops.
 
 ## Web/Native UI Expectations
 
