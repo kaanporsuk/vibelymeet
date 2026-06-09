@@ -13,7 +13,7 @@
 | Provider | Role in native | Primary touchpoints |
 |----------|----------------|---------------------|
 | **Supabase** | Auth (PKCE + AsyncStorage), Postgres reads/writes, RPCs, Realtime, Edge Function invokes | `apps/mobile/lib/supabase.ts`, domain `lib/*Api.ts` |
-| **Daily.co** | Video date + match-call WebRTC rooms | `@daily-co/react-native-daily-js`, Edge `daily-room` (`create_date_room`, `delete_room`) |
+| **Daily.co** | Video date + match-call WebRTC rooms | `@daily-co/react-native-daily-js`, Edge `daily-room` (`prepare_date_entry`, `delete_room`) |
 | **Bunny** | Vibe video TUS upload + Stream CDN playback hostnames | `create-video-upload` / playback URL helpers, `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` for photos |
 | **OneSignal** | Push registration + notification routing | `react-native-onesignal`, `apps/mobile/lib/onesignal.ts`, prefs mirror web columns |
 | **RevenueCat** | IAP + entitlement gate | `react-native-purchases`, `lib/revenuecat.ts`, webhook-synced backend |
@@ -40,7 +40,7 @@
 | Item | Backend source of truth | Native status |
 |------|-------------------------|---------------|
 | Session | `video_sessions` rows + Realtime | `useVideoDateSession` (`videoDateApi.ts`) |
-| Room + token | Edge **`daily-room`** `create_date_room` | `getDailyRoomToken`; classified errors (`READY_GATE_NOT_READY`, etc.) |
+| Room + token | Edge **`daily-room`** `prepare_date_entry` | `getDailyRoomToken`; classified errors (`READY_GATE_NOT_READY`, etc.) |
 | Phases | RPC **`video_date_transition`** (`enter_handshake`, `end`, …) | Implemented; leave path includes `delete_room` + queue leave when applicable |
 
 **Docs:** `docs/mobile-sprint5.md`, `docs/native-video-date-hardening-deploy.md`.

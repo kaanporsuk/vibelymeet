@@ -60,10 +60,6 @@ import {
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
 import {
-  ensureVideoDateRoomWarmup,
-  videoDateRoomWarmupAfterReadyEnabled,
-} from '@/lib/videoDateRoomWarmup';
-import {
   markNativeVideoDateLaunchIntent,
   videoDateLaunchBreadcrumb,
 } from '@/lib/videoDateLaunchTrace';
@@ -215,12 +211,6 @@ export default function ReadyGateScreen() {
   const expirySyncRetryAtMsRef = useRef(0);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const readyGateEntryProofKeyRef = useRef<string | null>(null);
-  const roomWarmupStartedRef = useRef(false);
-  const roomWarmupRoomRef = useRef<{
-    roomName: string;
-    roomUrl: string;
-  } | null>(null);
-  const dailyPrewarmAfterRoomWarmupStartedRef = useRef(false);
   const activeSessionIdRef = useRef<string | null>(
     sessionId ? String(sessionId) : null,
   );
@@ -365,132 +355,6 @@ export default function ReadyGateScreen() {
     });
     return applyMediaPermissionResult(result);
   }, [applyMediaPermissionResult, sessionId, user?.id]);
-
-  const startDailyPrewarmFromWarmRoom = useCallback(
-    (
-      source: string,
-      room: {
-        roomName: string;
-        roomUrl: string;
-      },
-    ) => {
-      if (!sessionId || !user?.id) return;
-      if (
-        dailyPrewarmAfterRoomWarmupStartedRef.current ||
-        dateNavigationStartedRef.current ||
-        transitioning
-      ) {
-        return;
-      }
-      dailyPrewarmAfterRoomWarmupStartedRef.current = true;
-      const sid = String(sessionId);
-      const uid = user.id;
-      void startNativeVideoDateDailyPrewarm({
-        sessionId: sid,
-        userId: uid,
-        eventId,
-        roomName: room.roomName,
-        roomUrl: room.roomUrl,
-        source: 'ready_standalone_room_warmup_success',
-      }).then((prewarm) => {
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_daily_prewarm_after_room_warmup', {
-          session_id: sid,
-          event_id: eventId,
-          source,
-          room_name: room.roomName,
-          ok: prewarm.ok,
-          reason: prewarm.ok === true ? null : prewarm.reason,
-        });
-      });
-    },
-    [eventId, sessionId, transitioning, user?.id],
-  );
-
-  const startRoomWarmupAfterReady = useCallback(
-    (
-      source: string,
-      readyGateStatus?: string | null,
-      permissionProven = false,
-    ) => {
-      if (!videoDateRoomWarmupAfterReadyEnabled()) return;
-      const canPrewarmDaily =
-        permissionProven === true || hasMediaPermission === true;
-      if (roomWarmupStartedRef.current) {
-        if (canPrewarmDaily && roomWarmupRoomRef.current) {
-          startDailyPrewarmFromWarmRoom(source, roomWarmupRoomRef.current);
-        }
-        return;
-      }
-      if (
-        dateNavigationStartedRef.current ||
-        transitioning
-      ) {
-        return;
-      }
-      if (
-        readyGateStatus &&
-        !['ready', 'ready_a', 'ready_b', 'both_ready'].includes(
-          readyGateStatus,
-        )
-      ) {
-        return;
-      }
-      if (readyGateStatus === 'both_ready') return;
-      if (!sessionId || !user?.id) return;
-
-      const sid = String(sessionId);
-      const uid = user.id;
-      const activeSessionId = activeSessionIdRef.current;
-      roomWarmupStartedRef.current = true;
-
-      void (async () => {
-        const result = await ensureVideoDateRoomWarmup(sid, {
-          eventId,
-          userId: uid,
-          source,
-        });
-        if (activeSessionIdRef.current !== activeSessionId) return;
-        if (dateNavigationStartedRef.current || transitioning) return;
-        if (result.ok !== true) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_room_warmup_after_ready_skipped', {
-            session_id: sid,
-            event_id: eventId,
-            source,
-            code: result.code,
-            retryable: result.retryable,
-          });
-          return;
-        }
-
-        const warmedRoom = {
-          roomName: result.data.room_name,
-          roomUrl: result.data.room_url,
-        };
-        roomWarmupRoomRef.current = warmedRoom;
-        if (!canPrewarmDaily || dateNavigationStartedRef.current || transitioning) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_daily_prewarm_after_room_warmup_skipped', {
-            session_id: sid,
-            event_id: eventId,
-            source,
-            reason: canPrewarmDaily
-              ? 'closed_or_navigating'
-              : 'permission_not_proven',
-          });
-          return;
-        }
-
-        startDailyPrewarmFromWarmRoom(source, warmedRoom);
-      })();
-    },
-    [
-      eventId,
-      hasMediaPermission,
-      sessionId,
-      startDailyPrewarmFromWarmRoom,
-      transitioning,
-      user?.id,
-    ],
-  );
 
   useSettingsReturnRefresh({
     wasOpenedRef: permissionSettingsOpenedRef,
@@ -808,9 +672,6 @@ export default function ReadyGateScreen() {
     terminalRecoveryKeyRef.current = null;
     nonRetryablePrepareBlockerRef.current = null;
     readyGateEntryProofKeyRef.current = null;
-    roomWarmupStartedRef.current = false;
-    roomWarmupRoomRef.current = null;
-    dailyPrewarmAfterRoomWarmupStartedRef.current = false;
     guardedSyncCooldownUntilMsRef.current = 0;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
@@ -875,25 +736,6 @@ export default function ReadyGateScreen() {
     sessionLookupDone,
     status,
     syncSession,
-    user?.id,
-  ]);
-
-  useEffect(() => {
-    if (!sessionLookupDone || !sessionId || !user?.id) return;
-    if (!isReadyGateReadyProgressStatus(status) || status === 'both_ready') {
-      return;
-    }
-    startRoomWarmupAfterReady(
-      'standalone_initial_ready_pre_create',
-      status,
-      hasMediaPermission === true,
-    );
-  }, [
-    hasMediaPermission,
-    sessionId,
-    sessionLookupDone,
-    startRoomWarmupAfterReady,
-    status,
     user?.id,
   ]);
 
@@ -1951,12 +1793,6 @@ export default function ReadyGateScreen() {
                               await reconcileFromCanonicalTruth(
                                 'mark_ready_timeout_sync_both_ready',
                               );
-                            } else {
-                              startRoomWarmupAfterReady(
-                                'ready_tap_mark_ready_timeout_sync_success',
-                                syncResult.status,
-                                true,
-                              );
                             }
                             return;
                           }
@@ -1982,12 +1818,6 @@ export default function ReadyGateScreen() {
                         setTransitioning(true);
                         await reconcileFromCanonicalTruth(
                           'mark_ready_rpc_both_ready',
-                        );
-                      } else {
-                        startRoomWarmupAfterReady(
-                          'ready_tap_mark_ready_success',
-                          result.status ?? null,
-                          true,
                         );
                       }
                     } catch (e) {

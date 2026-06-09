@@ -145,6 +145,36 @@ Proof boundary:
 
 ---
 
+## 2026-06-09 Implementation Update: Daily-room Non-Golden Video Date Actions Removed
+
+Current source now removes the legacy/non-golden public/client-facing `daily-room` Video Date entry action support for `create_date_room`, `join_date_room`, `ensure_date_room`, `prepare_diagnostic_entry`, and `prepare_solo_entry`.
+
+Implementation added:
+
+- `supabase/functions/daily-room/index.ts` no longer lists `create_date_room`, `join_date_room`, `ensure_date_room`, `prepare_diagnostic_entry`, or `prepare_solo_entry` as Daily-config-required date actions and no longer dispatches those public Video Date entry branches.
+- `supabase/functions/daily-room/dailyRoomContracts.ts` removes the non-golden Video Date entry names from `DateRoomAction`; the active date-entry action is `prepare_date_entry`.
+- `shared/matching/dailyRoomFailure.ts` removes `DAILY_ROOM_ACTIONS.CREATE` and `DAILY_ROOM_ACTIONS.JOIN`; unactioned 404 Daily-room failures now classify as `SESSION_NOT_FOUND` unless the server explicitly returns `ROOM_NOT_FOUND`.
+- Web/native Ready Gate surfaces no longer call room-only warmup, solo prejoin, or Daily diagnostic room helpers. Readiness checks record local camera/mic capability only.
+- Active observability no longer exposes `room_warmup_*` or `daily_prewarm_solo_*` checkpoints/fields; historical migrations can still mention them as past schema/checkpoint history.
+- Added/updated removal coverage in `shared/matching/dailyRoomLegacyActionRemovalContracts.test.ts`, `shared/matching/readyGatePartialReadyDefinitiveClosure.test.ts`, `shared/matching/nativeReadyGateParityContract.test.ts`, and related static contracts.
+- Branch delta: `docs/branch-deltas/remove-daily-room-non-golden-actions.md`.
+- Supabase deployment proof: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy daily-room --project-ref schdyxcunwcvddlcshwd --use-api` succeeded on 2026-06-09; `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions list --project-ref schdyxcunwcvddlcshwd` showed `daily-room` ACTIVE version 864 updated at `2026-06-09 19:08:53 UTC`.
+
+Preserved:
+
+- `prepare_date_entry` remains the web/native room and token entry path.
+- `video_date_transition('enter_handshake')` remains intentionally preserved.
+- `video_date_leave` and `delete_room` remain cleanup/end actions required after successful Video Date flows.
+- Match-call actions `create_match_call`, `answer_match_call`, and `join_match_call` remain active for the separate Chat call product and are deferred to a separate extraction/removal PR.
+- Provider-side Daily room creation/reuse/verification remains inside `prepare_date_entry`.
+- Existing `create_date_room_*` provider observability operation labels remain intact as shared Daily provider lifecycle internals used by `prepare_date_entry`.
+
+Proof boundary:
+
+- This is a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
+
 ## 2026-06-09 Implementation Update: Hot-Path No-Throw Shells And Daily Same-Session Adoption
 
 Current local source now includes the next active-entry hardening pass after the latest production failure still stalled at `/date/:sessionId` with `Still connecting...`.
@@ -912,8 +942,8 @@ What this closes:
 - `video_session_mark_ready_v2(...)` and `video_date_transition('prepare_entry')` are wrapped through the canonical actionability gate before the decisive base RPC can commit readiness or routeable date state.
 - First-ready partner notification is fail-soft outbox work after the ready commit, so notification/provider failure cannot poison readiness.
 - `get_video_date_start_snapshot_v1(...)` now removes `mark_ready` / date-entry affordances from invalid partial-ready truth instead of letting clients advertise stale actions.
-- `ensure_date_room` and `prepare_date_entry` call the actionability RPC before provider room/token work.
-- `prepare_solo_entry` is server-disabled with `SOLO_PREJOIN_DISABLED`, and it is no longer in the Daily config-required action list, so disabled solo prejoin cannot mint a token or mask behind provider configuration errors.
+- `prepare_date_entry` calls the actionability RPC before provider room/token work.
+- `ensure_date_room` and `prepare_solo_entry` have since been removed from active source by the Daily-room non-golden action cleanup; solo prejoin is no longer kept as a disabled compatibility branch.
 - `terminalize_event_ready_gates(...)` now delegates through the new terminalizer and no longer exempts pre-date Ready Gate rows solely because room metadata was warmed; only route-owned handshake/date or concrete Daily join evidence is excluded.
 - `video_sessions_ready_gate_timestamp_consistency` is added `NOT VALID` for new writes, and `video_date_partial_ready_diagnostics_v1(...)` gives service-only diagnostics for active partial-ready drift.
 

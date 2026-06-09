@@ -3374,7 +3374,7 @@ const VideoDate = () => {
       if (failure.kind === "READY_GATE_NOT_READY") {
         void (async () => {
           const redirected = await recoverFromNotStartableDateTruth(
-            "create_date_room_not_ready",
+            "prepare_date_entry_not_ready",
           );
           if (!redirected) {
             setHandshakeStartFailed(true);
@@ -3385,7 +3385,7 @@ const VideoDate = () => {
       }
 
       if (failure.kind === "SESSION_ENDED") {
-        void recoverFromEndedSessionTruth("create_date_room_session_ended");
+        void recoverFromEndedSessionTruth("prepare_date_entry_session_ended");
         return;
       }
 
@@ -3399,7 +3399,7 @@ const VideoDate = () => {
         const target = eventId
           ? `/event/${encodeURIComponent(eventId)}/lobby`
           : "/events";
-        vdbgRedirect(target, "create_date_room_access_denied", {
+        vdbgRedirect(target, "prepare_date_entry_access_denied", {
           sessionId: id,
           userId: user?.id ?? null,
           eventId: eventId ?? null,

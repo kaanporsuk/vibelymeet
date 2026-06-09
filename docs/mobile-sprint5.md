@@ -2,7 +2,7 @@
 
 Sprint 5 implements the real video date room on mobile using the same backend and Daily.co contracts as web. Cross-platform calls (mobile–web, mobile–mobile) are supported.
 
-Current 2026-06-09 note: this sprint note preserves the implementation shape at the time it was written. The legacy `leave_matching_queue(uuid)` RPC has since been removed from the active backend contract by `20260609165218_remove_leave_matching_queue.sql`; current web/native end flows rely on `video_date_transition('end')`, Daily cleanup, and the supported Event Lobby path.
+Current 2026-06-09 note: this sprint note preserves the implementation shape at the time it was written. The legacy `leave_matching_queue(uuid)` RPC has since been removed from the active backend contract by `20260609165218_remove_leave_matching_queue.sql`, and the legacy public `daily-room` actions `create_date_room` / `join_date_room` have since been removed from the active Edge Function action contract. Current web/native room and token acquisition uses `prepare_date_entry`; end flows rely on `video_date_transition('end')`, Daily cleanup, and the supported Event Lobby path.
 
 ## Repo contracts used
 

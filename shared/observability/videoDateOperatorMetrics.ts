@@ -169,9 +169,6 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "daily_room_create_started"
   | "daily_room_create_success"
   | "daily_room_create_failure"
-  | "room_warmup_started"
-  | "room_warmup_success"
-  | "room_warmup_failure"
   | "prepare_entry_started"
   | "prepare_entry_success"
   | "prepare_entry_failure"
@@ -215,9 +212,6 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "daily_prewarm_join_started"
   | "daily_prewarm_join_success"
   | "daily_prewarm_join_failure"
-  | "daily_prewarm_solo_join_started"
-  | "daily_prewarm_solo_join_success"
-  | "daily_prewarm_solo_join_failure"
   | "daily_prewarm_consumed"
   | "daily_prewarm_fallback"
   | "daily_prewarm_destroyed"
@@ -239,8 +233,6 @@ export type ReadyGateToDateLatencyContext = {
   readyGateTransitionStartedAtMs?: number;
   readyGateTransitionCompletedAtMs?: number;
   bothReadyObservedAtMs?: number;
-  roomWarmupStartedAtMs?: number;
-  roomWarmupCompletedAtMs?: number;
   prepareEntryStartedAtMs?: number;
   prepareEntryCompletedAtMs?: number;
   providerVerifyStartedAtMs?: number;
@@ -267,8 +259,6 @@ export type ReadyGateToDateLatencyContext = {
   dailyPrewarmPreAuthSuccessAtMs?: number;
   dailyPrewarmJoinStartedAtMs?: number;
   dailyPrewarmJoinCompletedAtMs?: number;
-  dailyPrewarmSoloJoinStartedAtMs?: number;
-  dailyPrewarmSoloJoinCompletedAtMs?: number;
   dailyPrewarmConsumedAtMs?: number;
   dailyPrewarmFallbackAtMs?: number;
   dailyPrewarmDestroyedAtMs?: number;
@@ -316,7 +306,6 @@ export type ReadyGateToDateLatencyDurations = {
   dailyJoinDurationMs: number | null;
   dailyReconnectDurationMs: number | null;
   extensionRefreshDurationMs: number | null;
-  roomWarmupDurationMs: number | null;
   dailyRoomCreateDurationMs: number | null;
   prepareEntryDurationMs: number | null;
   providerVerifyDurationMs: number | null;
@@ -359,11 +348,6 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "daily_room_create_success":
     case "daily_room_create_failure":
       return "dailyRoomCreateCompletedAtMs";
-    case "room_warmup_started":
-      return "roomWarmupStartedAtMs";
-    case "room_warmup_success":
-    case "room_warmup_failure":
-      return "roomWarmupCompletedAtMs";
     case "prepare_entry_started":
       return "prepareEntryStartedAtMs";
     case "prepare_entry_success":
@@ -440,11 +424,6 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "daily_prewarm_join_success":
     case "daily_prewarm_join_failure":
       return "dailyPrewarmJoinCompletedAtMs";
-    case "daily_prewarm_solo_join_started":
-      return "dailyPrewarmSoloJoinStartedAtMs";
-    case "daily_prewarm_solo_join_success":
-    case "daily_prewarm_solo_join_failure":
-      return "dailyPrewarmSoloJoinCompletedAtMs";
     case "daily_prewarm_consumed":
       return "dailyPrewarmConsumedAtMs";
     case "daily_prewarm_fallback":
@@ -586,7 +565,6 @@ export function getReadyGateToDateLatencyDurations(
     dailyJoinDurationMs: diffMs(context?.dailyJoinStartedAtMs, context?.dailyJoinCompletedAtMs),
     dailyReconnectDurationMs: diffMs(context?.dailyReconnectStartedAtMs, context?.dailyReconnectCompletedAtMs),
     extensionRefreshDurationMs: diffMs(context?.extensionRefreshStartedAtMs, context?.extensionRefreshCompletedAtMs),
-    roomWarmupDurationMs: diffMs(context?.roomWarmupStartedAtMs, context?.roomWarmupCompletedAtMs),
     dailyRoomCreateDurationMs: diffMs(context?.dailyRoomCreateStartedAtMs, context?.dailyRoomCreateCompletedAtMs),
     prepareEntryDurationMs: diffMs(context?.prepareEntryStartedAtMs, context?.prepareEntryCompletedAtMs),
     providerVerifyDurationMs: diffMs(context?.providerVerifyStartedAtMs, context?.providerVerifyCompletedAtMs),
@@ -664,7 +642,6 @@ export function buildReadyGateToDateLatencyPayload({
     daily_join_ms: durations.dailyJoinDurationMs,
     daily_reconnect_ms: durations.dailyReconnectDurationMs,
     extension_refresh_ms: durations.extensionRefreshDurationMs,
-    room_warmup_ms: durations.roomWarmupDurationMs,
     daily_room_create_ms: durations.dailyRoomCreateDurationMs,
     prepare_entry_ms: durations.prepareEntryDurationMs,
     provider_verify_ms: durations.providerVerifyDurationMs,

@@ -56,10 +56,6 @@ import {
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
-import {
-  ensureVideoDateRoomWarmup,
-  videoDateRoomWarmupAfterReadyEnabled,
-} from '@/lib/videoDateRoomWarmup';
 import { recordReadyGateEntered } from '@/lib/readyGateEntryProof';
 import {
   getReadyGateCountdownProgress,
@@ -89,7 +85,6 @@ import {
   recordReadyGateToDateLatencyCheckpoint,
   startReadyGateToDateLatencyContext,
 } from '@clientShared/observability/videoDateOperatorMetrics';
-import { getVideoDatePermissionHandoff } from '@clientShared/matching/videoDatePermissionHandoff';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
 import {
   resolveReadyGateDiagnosticChecklist,
@@ -251,7 +246,6 @@ export function ReadyGateOverlay({
   const activeReadyGateKeyRef = useRef(activeReadyGateKey);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
-  const roomWarmupStartedRef = useRef(false);
   const duplicateNavSuppressionKeysRef = useRef(new Set<string>());
   const duplicateTerminalSuppressionKeysRef = useRef(new Set<string>());
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
@@ -281,7 +275,6 @@ export function ReadyGateOverlay({
   const cancelTerminalReadyGateWork = useCallback(
     (reason: string) => {
       prepareEntryHandoffStartedRef.current = false;
-      roomWarmupStartedRef.current = false;
       destroyNativeVideoDateDailyPrewarm(sessionId, userId, reason);
     },
     [sessionId, userId],
@@ -465,102 +458,6 @@ export function ReadyGateOverlay({
       );
     },
     [eventId, sessionId, trackNativeReadyGateEvent],
-  );
-
-  const startRoomWarmupAfterReady = useCallback(
-    (source: string, readyGateStatus?: string | null) => {
-      if (!videoDateRoomWarmupAfterReadyEnabled()) return;
-      if (
-        roomWarmupStartedRef.current ||
-        dateNavigationStartedRef.current ||
-        closedRef.current
-      )
-        return;
-      // 'ready' is the freshly-minted mutual-swipe state. Pre-creating the
-      // room here removes the room create/verify roundtrip from the ready-tap path.
-      if (
-        readyGateStatus &&
-        !['ready', 'ready_a', 'ready_b', 'both_ready'].includes(readyGateStatus)
-      ) {
-        return;
-      }
-      if (
-        readyGateStatus === 'both_ready' &&
-        prepareEntryHandoffStartedRef.current
-      )
-        return;
-      roomWarmupStartedRef.current = true;
-      const readyGateKey = activeReadyGateKey;
-
-      void (async () => {
-        const result = await ensureVideoDateRoomWarmup(sessionId, {
-          eventId,
-          userId,
-          source,
-        });
-        if (activeReadyGateKeyRef.current !== readyGateKey) return;
-        if (dateNavigationStartedRef.current || closedRef.current) return;
-        if (result.ok !== true) {
-          vdbg('ready_gate_room_warmup_after_ready_skipped', {
-            sessionId,
-            eventId,
-            userId,
-            source,
-            code: result.code,
-            retryable: result.retryable,
-          });
-          return;
-        }
-
-        const permissionProven =
-          hasMediaPermission === true ||
-          Boolean(getVideoDatePermissionHandoff(sessionId, userId));
-        if (activeReadyGateKeyRef.current !== readyGateKey) return;
-        if (
-          !permissionProven ||
-          prepareEntryHandoffStartedRef.current ||
-          dateNavigationStartedRef.current ||
-          closedRef.current
-        ) {
-          vdbg('ready_gate_daily_prewarm_after_room_warmup_skipped', {
-            sessionId,
-            eventId,
-            userId,
-            source,
-            reason: permissionProven
-              ? prepareEntryHandoffStartedRef.current
-                ? 'prepare_entry_in_progress'
-                : 'closed_or_navigating'
-              : 'permission_not_proven',
-          });
-          return;
-        }
-
-        const prewarm = await startNativeVideoDateDailyPrewarm({
-          sessionId,
-          userId,
-          eventId,
-          roomName: result.data.room_name,
-          roomUrl: result.data.room_url,
-          source: 'ready_gate_room_warmup_success',
-        });
-        vdbg('ready_gate_daily_prewarm_after_room_warmup', {
-          sessionId,
-          eventId,
-          userId,
-          source,
-          roomName: result.data.room_name,
-          ok: prewarm.ok,
-          reason: prewarm.ok === true ? null : prewarm.reason,
-        });
-        // The ReadyGate warms camera/token/preauth only; it must never perform a
-        // real Daily join. A lobby-side join would start the backend handshake/
-        // warm-up clock before the user is on a stable /date route, causing
-        // handshake_timeout. The real join + mark_video_date_daily_joined is
-        // owned solely by /date (useVideoCall.startCall).
-      })();
-    },
-    [activeReadyGateKey, eventId, hasMediaPermission, sessionId, userId],
   );
 
   const preloadVideoDateRoute = useCallback(
@@ -1184,17 +1081,6 @@ export function ReadyGateOverlay({
         phase: vs?.phase ?? null,
       });
 
-      const readyGateStatus = vs?.ready_gate_status ?? null;
-      if (
-        readyGateStatus === 'ready' &&
-        !vs?.ended_at &&
-        !roomWarmupStartedRef.current &&
-        !dateNavigationStartedRef.current &&
-        !closedRef.current
-      ) {
-        startRoomWarmupAfterReady('mutual_swipe_pre_create', readyGateStatus);
-      }
-
       if (canAttemptDaily || decision === 'navigate_date') {
         closedRef.current = false;
         startPrepareEntryHandoff(source);
@@ -1229,7 +1115,6 @@ export function ReadyGateOverlay({
       onLobbyUserMessage,
       sessionId,
       startPrepareEntryHandoff,
-      startRoomWarmupAfterReady,
       userId,
     ],
   );
@@ -1480,7 +1365,6 @@ export function ReadyGateOverlay({
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
-    roomWarmupStartedRef.current = false;
     duplicateNavSuppressionKeysRef.current.clear();
     duplicateTerminalSuppressionKeysRef.current.clear();
     nonRetryablePrepareFailureRef.current = null;
@@ -1713,16 +1597,6 @@ export function ReadyGateOverlay({
       ]);
       const reg = regResult.data;
       if (cancelled) return;
-      const readyGateStatus = vs?.ready_gate_status ?? null;
-      if (
-        readyGateStatus === 'ready' &&
-        !vs?.ended_at &&
-        !roomWarmupStartedRef.current &&
-        !dateNavigationStartedRef.current &&
-        !closedRef.current
-      ) {
-        startRoomWarmupAfterReady('mutual_swipe_pre_create', readyGateStatus);
-      }
       const recovery = adviseVideoSessionTruthRecovery({
         sessionId,
         eventId,
@@ -1780,7 +1654,6 @@ export function ReadyGateOverlay({
     onLobbyUserMessage,
     reconcileFromCanonicalTruth,
     sessionId,
-    startRoomWarmupAfterReady,
     userId,
   ]);
 
@@ -2524,11 +2397,6 @@ export function ReadyGateOverlay({
                                   startPrepareEntryHandoff(
                                     'both_ready_observed_via_rpc_short_circuit',
                                   );
-                                } else {
-                                  startRoomWarmupAfterReady(
-                                    'ready_tap_mark_ready_timeout_sync_success',
-                                    syncResult.status,
-                                  );
                                 }
                                 return;
                               }
@@ -2552,11 +2420,6 @@ export function ReadyGateOverlay({
                             );
                           } else if (result.isTerminal === true) {
                             return;
-                          } else {
-                            startRoomWarmupAfterReady(
-                              'ready_tap_mark_ready_success',
-                              result.status ?? null,
-                            );
                           }
                         } catch (e) {
                           const fallback =

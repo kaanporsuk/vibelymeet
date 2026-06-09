@@ -110,7 +110,6 @@ const requiredFilePaths = [
   "src/lib/videoDatePrepareEntry.ts",
   "src/lib/videoDateDailyPrewarm.ts",
   "src/lib/videoDateTokenRefresh.ts",
-  "src/lib/videoDateRoomWarmup.ts",
   "apps/mobile/app/event/[eventId]/lobby.tsx",
   "apps/mobile/app/ready/[id].tsx",
   "apps/mobile/app/date/[id].tsx",

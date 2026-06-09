@@ -122,7 +122,7 @@ export type PeerMissingState = {
 
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
-const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
+const PREPARE_DATE_ENTRY_RETRY_DELAYS_MS = [700, 1_600] as const;
 const START_CALL_IN_FLIGHT_WAIT_TIMEOUT_MS = 60_000;
 const START_CALL_IN_FLIGHT_WAIT_POLL_MS = 250;
 const WEB_VIDEO_DATE_START_GATE_TTL_MS = 60_000;
@@ -4385,7 +4385,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       for (
         let attempt = 0;
-        attempt <= CREATE_DATE_ROOM_RETRY_DELAYS_MS.length;
+        attempt <= PREPARE_DATE_ENTRY_RETRY_DELAYS_MS.length;
         attempt += 1
       ) {
         vdbg("daily_room_before", {
@@ -4443,7 +4443,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             attempt: attempt + 1,
             attempt_count: attempt + 1,
           });
-          const delayMs = CREATE_DATE_ROOM_RETRY_DELAYS_MS[attempt];
+          const delayMs = PREPARE_DATE_ENTRY_RETRY_DELAYS_MS[attempt];
           if (delayMs == null) break;
           await sleep(delayMs);
           continue;
@@ -4570,7 +4570,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           };
         }
 
-        const delayMs = CREATE_DATE_ROOM_RETRY_DELAYS_MS[attempt];
+        const delayMs = PREPARE_DATE_ENTRY_RETRY_DELAYS_MS[attempt];
         if (delayMs == null) break;
         vdbg("daily_room_retry_scheduled", {
           action: "prepare_date_entry",

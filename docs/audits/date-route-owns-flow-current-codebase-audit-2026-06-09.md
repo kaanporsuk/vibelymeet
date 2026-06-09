@@ -2,6 +2,8 @@
 
 Generated: 2026-06-09
 
+Supersession note, 2026-06-09: the later Daily-room legacy action cleanup removes public `create_date_room` and `join_date_room` action support from the active Edge Function contract/dispatch. Current room/token entry remains `prepare_date_entry`; `enter_handshake` remains intentionally preserved.
+
 Repo root: `/Users/kaanporsuk/Documents/Vibely/Git/vibelymeet`
 
 Scope: current source, migrations, generated Supabase types, and read-only linked Supabase checks for the `/date/:sessionId owns the flow` stage. This is a documentation-only audit; no app/source behavior was changed.

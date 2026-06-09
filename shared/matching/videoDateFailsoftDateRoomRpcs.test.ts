@@ -190,7 +190,7 @@ test("native date prejoin retries retryable prepare-entry failures like web", ()
   assert.match(nativeVideoDateApi, /retryable: boolean/);
   assert.match(nativeVideoDateApi, /retryable: result\.retryable/);
   assert.match(nativeVideoDateApi, /retryAfterMs: result\.retryAfterMs/);
-  assert.match(nativeDateRoute, /NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS/);
+  assert.match(nativeDateRoute, /NATIVE_PREPARE_DATE_ENTRY_RETRY_DELAYS_MS/);
   assert.match(nativeDateRoute, /dailyRoomTokenRetryDelayMs\(\s*tokenRes/);
   assert.match(
     nativeDateRoute,
