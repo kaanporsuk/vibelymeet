@@ -1310,23 +1310,13 @@ const VideoDate = () => {
     }
   }, [remotePlayback.firstFrameRendered]);
 
-  const videoDateSurfaceClaimable =
-    phase === "date" ||
-    Boolean(dateStartedAt) ||
-    Boolean(handshakeStartedAt) ||
-    handshakeTruth?.state === "date" ||
-    handshakeTruth?.phase === "date" ||
-    Boolean(handshakeTruth?.date_started_at) ||
-    Boolean(handshakeTruth?.handshake_started_at) ||
-    serverTimeline?.phase === "date" ||
-    (serverTimeline?.phase === "handshake" &&
-      serverTimeline.phaseStartedAtMs !== null);
-  const videoDateSurfaceLeaseActive =
+  const videoDateRouteShellActive =
     videoDateAccess === "allowed" &&
-    videoDateSurfaceClaimable &&
     !showFeedback &&
     !terminalSurveyRecoveryActive &&
     phase !== "ended";
+  const videoDateSurfaceLeaseActive =
+    videoDateRouteShellActive;
   const shouldBridgeVideoDateSurfaceOnCleanup = useCallback(
     () =>
       videoDateSurfaceLeaseActive &&

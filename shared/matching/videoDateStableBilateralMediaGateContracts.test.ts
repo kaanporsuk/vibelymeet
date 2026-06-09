@@ -248,12 +248,10 @@ test("active surface ownership is continuous across web and native route churn",
   assert.match(webSurfaceGuard, /if \(waitingForClaimableTruth\) \{[\s\S]{0,180}serverClaimBackoffUntilRef\.current = 0/);
   assert.match(webSurfaceGuard, /const shouldBridge = shouldBridgeOnCleanupRef\.current\?\.\(\) \?\? true/);
   assert.match(webSurfaceGuard, /clearServerSurfaceClaimBridge\(activeKey, serverClientInstanceId\)/);
-  assert.match(webVideoDate, /const videoDateSurfaceClaimable =/);
-  assert.match(webVideoDate, /Boolean\(handshakeStartedAt\)/);
-  assert.match(webVideoDate, /Boolean\(dateStartedAt\)/);
-  assert.match(webVideoDate, /serverTimeline\?\.phase === "handshake"[\s\S]{0,120}serverTimeline\.phaseStartedAtMs !== null/);
+  assert.match(webVideoDate, /const videoDateRouteShellActive =/);
   assert.match(webVideoDate, /const videoDateSurfaceLeaseActive =/);
-  assert.match(webVideoDate, /videoDateAccess === "allowed" &&[\s\S]{0,80}videoDateSurfaceClaimable/);
+  assert.match(webVideoDate, /const videoDateSurfaceLeaseActive =\s*\n\s*videoDateRouteShellActive/);
+  assert.match(webVideoDate, /videoDateAccess === "allowed" &&[\s\S]{0,120}!showFeedback[\s\S]{0,120}!terminalSurveyRecoveryActive[\s\S]{0,120}phase !== "ended"/);
   assert.match(webVideoDate, /shouldBridgeVideoDateSurfaceOnCleanup/);
   assert.match(webVideoDate, /!manualExitInFlightRef\.current/);
   assert.match(webVideoDate, /!terminalSurveyRecoveryInFlightRef\.current/);
