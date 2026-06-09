@@ -188,6 +188,14 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(dailySingletonMatchEtaMigration, /'video_date\.daily_call_singleton_v2', false, 0/);
   assert.doesNotMatch(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
   assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
+  assert.match(
+    webVideoDate,
+    /dailyCallSingletonEligible:[\s\S]*!showFeedback[\s\S]*!terminalSurveyRecoveryActive[\s\S]*phase !== "ended"[\s\S]*videoDateAccess === "allowed"/,
+  );
+  assert.doesNotMatch(
+    webVideoDate,
+    /dailyCallSingletonEligible:\s*\n\s*videoDateAccess === "allowed"\s*\|\|/,
+  );
   assert.match(webVideoCall, /WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS: number \| null = null/);
   assert.match(webVideoCall, /parkWebDailyCallSingleton/);
   assert.match(webVideoCall, /consumeWebDailyCallSingleton/);
@@ -245,7 +253,10 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(nativeVideoDate, /idleSingletonEntry\.call\.participants\(\)/);
   assert.match(nativeVideoDate, /idleDestroyDisabled: boolean/);
   assert.match(nativeVideoDate, /sharedDailyCallEntry\.idleDestroyDisabled = idleMs == null/);
-  assert.match(nativeVideoDate, /cleanupMode === "preserve_active_handoff"[\s\S]{0,220}dateEstablishedRef\.current\s*&&\s*!showFeedback\s*&&\s*!terminalSurveyHardStopRef\.current/);
+  assert.match(nativeVideoDate, /const meetingStateBeforeCleanup = safeNativeDailyMeetingState\(call\)/);
+  assert.match(nativeVideoDate, /cleanupMode === "preserve_active_handoff"[\s\S]{0,220}!showFeedback\s*&&\s*!terminalSurveyHardStopRef\.current\s*&&\s*phaseRef\.current !== "ended"/);
+  assert.match(nativeVideoDate, /meetingStateBeforeCleanup !== "left-meeting"[\s\S]{0,80}meetingStateBeforeCleanup !== "error"/);
+  assert.doesNotMatch(nativeVideoDate, /cleanupMode === "preserve_active_handoff"[\s\S]{0,220}dateEstablishedRef\.current/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "leave_and_cleanup"/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background"/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background_timeout"/);

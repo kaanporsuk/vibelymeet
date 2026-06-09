@@ -64,6 +64,125 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Definitive Active Media Ownership, Stable Certification, And Survey Persistence
+
+Current source and linked Supabase cloud now include the definitive active-media ownership layer on top of the stable bilateral media gate work.
+
+Problem addressed:
+
+- The previous stable gate still had no persistent stable-media certification marker, so an already-started session could not distinguish certified real media from historical provider overlap.
+- The promotion gate did not require live surface ownership, leaving a path where provider overlap and heartbeat evidence could promote without continuous `/date` ownership on both sides.
+- Provider absence after a false pre-stable encounter could still send users to survey as if a real date had happened.
+- Web and native/mobile Daily start could still expose active-path `external_call_busy` under route remount/prewarm/retry races instead of coalescing or internally retrying.
+- Web surface ownership could gap during same-session hot remounts, and native/mobile surface ownership could drop before Daily/date proof was stable.
+- Post-date survey UI trusted verdict responses without proving the actor's `date_feedback` row was actually persisted.
+
+Implementation added:
+
+- Migration `20260609035833_video_date_definitive_active_media_ownership.sql` adds `video_sessions.stable_bilateral_media_at`, `stable_bilateral_media_source`, and `stable_bilateral_media_detail`.
+- New service helper `video_date_active_surface_claims_v1(...)` requires both participants to hold current unexpired `video_date` surface claims.
+- New service helper `video_date_mark_stable_bilateral_media_v1(...)` persists the first stable bilateral media certification.
+- `video_date_stable_bilateral_media_gate_v1(...)` now requires active bilateral surface claims plus either fresh heartbeat-backed stable copresence or explicit bilateral render-bound remote-seen proof. It no longer treats `state = 'date'` as sufficient unless stable certification already exists.
+- Provider-overlap, confirmed-encounter, and auto-promote wrappers now mark stable certification before delegating to their preserved base implementations.
+- `video_date_reconcile_provider_absence_v1(...)` now downgrades uncertified pre-stable terminal absence to `pre_stable_media_failed`, clears users back to retryable idle/browsing state, and returns `survey_required = false`.
+- `shared/matching/videoDateRouteDecision.ts` treats `pre_stable_media_failed` as survey-ineligible.
+- Web `useVideoCall` adds a bounded per-session/user Daily create retry loop for `external_call_busy` and `cleanup_pending`, while preserving the existing module-scope single-flight start gate.
+- Web `useVideoCall` now makes start-gate observers adopt the current hook owner after a remount. Awaiting another owner is not enough; the observing route instance must hydrate its own call/listener/heartbeat state or retry internally without creating a second Daily call.
+- Web `useVideoDateDupTabGuard` bridges same-tab server surface claims only for a short same-session hot remount window so ownership does not gap before the new owner reclaims. Terminal survey, explicit end, manual exit, and ended route cleanup release the server claim instead of keeping a stale bridge alive.
+- Devil's-advocate audit found the bridge/release decision ref was passive-effect synchronized, so cleanup from a render that flips `leaseActive` false could still observe the previous callback. The hook now layout-syncs that callback before passive cleanup, keeping terminal survey and explicit-exit cleanup on the release path.
+- Web `VideoDate` and native/mobile `/date/[id]` emit route ownership diagnostics with `routeMountId` and `routeOwnerId`.
+- Native/mobile Daily creation adds the same bounded retry behavior, and active surface ownership now remains true through eligible entry, handshake/date, joining, connecting, and local Daily room presence.
+- Web and native/mobile `PostDateSurvey` now confirm the current actor's `date_feedback` row after verdict persistence before advancing route state.
+- Late audit found one server-side survey eligibility gap: `pre_stable_media_failed` was client-route-ineligible but not yet excluded by the shared database survey helpers. Migration `20260609045533_video_date_pre_stable_survey_eligibility.sql` now excludes it in both helper generations so lifecycle payload enrichment cannot re-open survey from stale date-started/remote-seen truth.
+- Generated Supabase types and `shared/matching/videoDateStableBilateralMediaGateContracts.test.ts` were updated for the new RPCs, stable columns, ownership diagnostics, route decision, and survey feedback-row confirmation.
+
+Verification completed:
+
+- `npx tsx shared/matching/videoDateStableBilateralMediaGateContracts.test.ts`
+- `npx tsx shared/observability/videoDateClientStuckObservability.test.ts`
+- `npx tsx shared/matching/videoDateWarmupStabilityContracts.test.ts`
+- `npx tsx shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run typecheck`
+- `npm run lint`
+- `npm run test:video-date-v4`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 npm run regen:supabase-types`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date.`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0 with only legacy warning/notice output.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error` returned `No issues found`.
+- Live catalog query verified deployed markers for the stable columns, `video_date_active_surface_claims_v1(...)`, `video_date_mark_stable_bilateral_media_v1(...)`, preserved provider absence base, no raw already-date shortcut without certification, pre-stable provider absence no-survey downgrade, stable gate surface-claim enforcement, and `pre_stable_media_failed` server-side survey ineligibility.
+- Late audit verified live `date_feedback` RLS/grants support the survey confirmation guard: RLS is enabled, `authenticated` has `SELECT`, and the own-feedback policy is `auth.uid() = user_id`.
+- Late audit verified the live `mark_video_date_daily_joined(uuid,text,text,text,text,text)` wrapper is `SECURITY DEFINER`, authenticated-callable, delegates through the last-resort base, and contains the v2 exception/enrich/sanitize shell.
+- Late audit lesson: live catalog marker predicates must match deployed wrapper generations. An initial marker that looked for the older `video_date_lifecycle_exception_payload_v1` helper returned false, but direct function inspection showed the deployed wrapper correctly uses `video_date_lifecycle_exception_payload_v2(...)` plus `video_date_lifecycle_enrich_and_sanitize_payload_v2(...)`. When a marker disagrees with expected behavior, inspect `pg_get_functiondef(...)` before declaring a regression.
+- Generated-type lesson: use the repo's canonical `npm run regen:supabase-types` path rather than raw `supabase gen types` as the source of truth. The canonical script preserves the repo header and local nullability patches while pulling newly generated schema entries, including previously missing post-date reminder/certification feedback tables.
+
+Proof boundary:
+
+This is source, migration, test, and linked-cloud implementation evidence only. Video Date is still not product-accepted until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion by both users, plus short leave/rejoin and prolonged absence checks.
+
+---
+
+## 2026-06-09 Implementation Update: Stable Bilateral Media Gate And Durable Date Ownership
+
+Current source and linked Supabase now implement the recovery plan from failed production session `ec02c212-3cee-4af3-9d4d-dc0e9b846188`.
+
+Problem addressed:
+
+- The failed run showed `/date/:sessionId` route churn while the UI sat on `Opening your date`, with repeated `mark_video_date_daily_joined` 500s, many pending `mark_video_date_daily_alive`/surface/transition calls, and a return to Ready Gate/lobby despite the date route needing to own the handoff.
+- The frontend route-owner mark still waited for Daily connection evidence, which left the date route unowned during the exact opening-room window where EventLobby/Ready Gate recovery loops could compete.
+- Web duplicate Daily start protection was hook-local, so full route remounts could lose the in-flight guard and start another Daily join.
+- Native/mobile active handoff cleanup still depended on date-established state, so an early pre-date remount could tear down a live Daily handoff before the bilateral media/date proof existed.
+- Backend promotion needed one final guard: one-sided remote-seen, one-sided provider overlap, or stale pre-date evidence must not promote to a real date or survey-eligible encounter.
+
+Implementation added:
+
+- `src/pages/VideoDate.tsx` now marks `/date/:sessionId` route ownership as soon as `videoDateAccess === "allowed"` and the user/session are known, before Daily connection state exists. It also ignores stale async start results after effect cleanup.
+- `src/hooks/useVideoCall.ts` now has a module-scope web Daily start gate keyed by session/user, so route remounts share one in-flight `startCall(...)` result. Internal retries bypass only that outer gate with `skipStartGate: true`. A second audit pass confirmed web Daily singleton preservation remains disabled during feedback, terminal survey recovery, and ended states, so immediate allowed-route ownership cannot preserve Daily past terminal cleanup.
+- Devil's-advocate audit found a real web-side proof gap: `requestVideoFrameCallback` render validation could prove a remote frame but only update local playback state. The validator now routes that proof through `markRemoteFirstFrameRendered(...)`, which stamps canonical `mark_video_date_remote_seen(...)` with `request_video_frame_callback`; ready-state fallback uses the backend-accepted `first_remote_frame` evidence label.
+- `apps/mobile/app/date/[id].tsx` now marks native/mobile date route ownership before join when entry permission is eligible and preserves active Daily handoff during pre-date cleanup unless feedback/terminal/error/left-meeting truth is present.
+- Migration `20260609014410_video_date_stable_bilateral_media_gate.sql` adds `video_date_stable_bilateral_media_gate_v1(...)` and wraps `video_date_promote_provider_overlap_v1(...)`, `video_date_promote_confirmed_encounter_v1(...)`, and `video_session_handshake_auto_promote_v2(...)`.
+- Deep audit correction migration `20260609022729_video_date_auto_promote_stable_bilateral_media_gate.sql` hardens `video_session_handshake_auto_promote_v2(...)` so it checks lifecycle eligibility and stable bilateral media before delegating to the preserved legacy auto-promoter base. This closes the gap where auto-promote previously only tagged `stable_bilateral_media_gate_checked` after delegation.
+- Second devil's-advocate correction migration `20260609031421_video_date_stable_bilateral_media_one_sided_guard.sql` tightens `video_date_stable_bilateral_media_gate_v1(...)` again. The first gate blocked one-sided remote-seen only on the bilateral remote-seen branch; the owner-heartbeat branch could still pass with exactly one participant carrying render-bound remote-seen proof. The corrected gate now allows promotion only after existing date truth, fresh bilateral owner heartbeat overlap with stable copresence and no one-sided remote-seen asymmetry, or bilateral render-bound remote-seen.
+- New structured block events/results include `stable_bilateral_media_promotion_waiting`, `confirmed_encounter_stable_bilateral_media_waiting`, `stable_bilateral_media_auto_promotion_waiting`, and `promotion_blocked_by_stable_bilateral_media`.
+- Generated Supabase types were refreshed from the linked public schema so the new stable gate and short base helper RPCs are represented in `src/integrations/supabase/types.ts`.
+- Contract coverage: `shared/matching/videoDateStableBilateralMediaGateContracts.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`, with existing review/runtime contracts updated to the stronger ownership model.
+- Branch delta: `docs/branch-deltas/fix-video-date-stable-bilateral-media-gate.md`.
+
+Verification completed:
+
+- `npx tsx shared/matching/videoDateStableBilateralMediaGateContracts.test.ts`
+- `npx tsx shared/matching/videoDateStrictDailyJoinRemoteSeen.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npx tsx shared/matching/reviewComments1188_1197Followups.test.ts`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `npm run test:video-date:red-flags`
+- `git diff --check`
+- `jq empty package.json`
+- `npm run launch:preflight`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date.`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0 with only legacy warning/notice output.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error` returned `No issues found`.
+- Live catalog query verified deployed markers for `video_date_stable_bilateral_media_gate_v1`, `video_date_promote_provider_overlap_v1`, `video_date_promote_confirmed_encounter_v1`, `video_session_handshake_auto_promote_v2`, and the preserved short base functions.
+- Live catalog query verified `mark_video_date_remote_seen(...)` accepts `request_video_frame_callback` and still requires explicit render evidence before delegating.
+- Deep audit live catalog query verified `video_session_handshake_auto_promote_v2(...)` now calls `video_date_session_lifecycle_eligibility_v1(...)`, calls `video_date_stable_bilateral_media_gate_v1(p_session_id)`, emits `stable_bilateral_media_auto_promotion_waiting`, returns `promotion_blocked_by_stable_bilateral_media`, and calls `vd_auto_promote_stable_media_base(...)` only after the gate.
+- Deep audit grants query verified stable-media helper/base functions remain service-role only, while authenticated clients retain only the intended public wrapper access.
+- Second live catalog query verified the deployed `video_date_stable_bilateral_media_gate_v1(...)` heartbeat branch contains `AND NOT v_one_remote_seen`, with the service-only function comment updated accordingly.
+
+At the time of this stable-gate pass, Supabase cloud was aligned through `20260609031421_video_date_stable_bilateral_media_one_sided_guard.sql`. This is superseded by the definitive active-media ownership section above; current linked Supabase is aligned through `20260609045533_video_date_pre_stable_survey_eligibility.sql`.
+
+This is source, migration, and cloud implementation evidence. It is not product-health proof until a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> both users persist `date_feedback`, including short leave/rejoin and prolonged absence checks.
+
+---
+
 ## 2026-06-09 Implementation Update: Strict Daily Join And Remote-Seen Proof
 
 Current source adds the strict proof layer for the `Both join same Daily room` and `Remote media observed` stages.
@@ -95,10 +214,10 @@ Verification completed in this local pass:
 - `npm run lint`
 - `git diff --check`
 - `npm run test:video-date-v4`
-- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` showed pending migration `20260609003604_video_date_strict_daily_join_remote_seen.sql`.
-- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` showed linked Supabase remote aligned through `20260608224048`; `20260609003604` is local-only pending.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` showed pending migration `20260609003604_video_date_strict_daily_join_remote_seen.sql` during that local pass.
+- Superseding note: later recovery passes applied this migration; current linked Supabase is now aligned through `20260609022729_video_date_auto_promote_stable_bilateral_media_gate.sql`.
 
-The migration must be applied together with the updated web/native/mobile client deployment because the stricter public `mark_video_date_remote_seen(...)` wrapper requires the new `p_evidence_source` argument. This remains source/migration/test evidence until linked Supabase is applied, clients are deployed, and a fresh disposable two-user production run proves both users persist `date_feedback`.
+The stricter public `mark_video_date_remote_seen(...)` wrapper requires updated web/native/mobile clients that send `p_evidence_source`. This remains source/migration/test evidence until updated clients are deployed and a fresh disposable two-user production run proves both users persist `date_feedback`.
 
 ---
 
@@ -559,7 +678,7 @@ Supabase verification notes:
 
 Still not acceptance proof:
 
-- This closes the partial-ready root causes in source, but Video Date remains uncertified until the pending migration and Daily function are deployed and a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion.
+- This closed the partial-ready root causes in source/cloud at that checkpoint, but Video Date remains uncertified until a fresh disposable two-user production run completes match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion.
 
 ---
 

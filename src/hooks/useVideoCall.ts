@@ -125,6 +125,7 @@ const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
 const START_CALL_IN_FLIGHT_WAIT_TIMEOUT_MS = 60_000;
 const START_CALL_IN_FLIGHT_WAIT_POLL_MS = 250;
+const WEB_VIDEO_DATE_START_GATE_TTL_MS = 60_000;
 const DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
 const REMOTE_RENDER_VALIDATION_DELAY_MS = 650;
 const REMOTE_RENDER_FRAME_TIMEOUT_MS = 1_400;
@@ -143,6 +144,8 @@ const REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
 const WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS: number | null = null;
 const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_MS = 8_000;
 const WEB_DAILY_CALL_SINGLETON_JOIN_WAIT_POLL_MS = 150;
+const WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS = 6;
+const WEB_VIDEO_DATE_DAILY_GUARD_CREATE_RETRY_BASE_MS = 300;
 const VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS = 3_000;
 
 export type VideoDateMediaPromptIntent = "auto" | "user_retry";
@@ -150,6 +153,7 @@ export type VideoDateMediaPromptIntent = "auto" | "user_retry";
 type VideoCallStartOptions = {
   internalRetry?: boolean;
   mediaPromptIntent?: VideoDateMediaPromptIntent;
+  skipStartGate?: boolean;
 };
 
 type ActiveDailyCallIdentity = {
@@ -774,6 +778,57 @@ export type VideoCallStartResult =
       ok: false;
       failure: VideoCallStartFailure;
     };
+
+type WebVideoDateStartGateEntry = {
+  sessionId: string;
+  userId: string | null;
+  promise: Promise<VideoCallStartResult>;
+  startedAtMs: number;
+  observeCount: number;
+};
+
+const webVideoDateStartGateEntries = new Map<string, WebVideoDateStartGateEntry>();
+
+function webVideoDateStartGateKey(sessionId: string, userId: string | null | undefined) {
+  return `${sessionId}:${userId ?? "anonymous"}`;
+}
+
+function getWebVideoDateStartGateEntry(
+  sessionId: string,
+  userId: string | null | undefined,
+): WebVideoDateStartGateEntry | null {
+  const key = webVideoDateStartGateKey(sessionId, userId);
+  const entry = webVideoDateStartGateEntries.get(key) ?? null;
+  if (!entry) return null;
+  if (Date.now() - entry.startedAtMs > WEB_VIDEO_DATE_START_GATE_TTL_MS) {
+    webVideoDateStartGateEntries.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function registerWebVideoDateStartGateEntry(
+  sessionId: string,
+  userId: string | null | undefined,
+  promise: Promise<VideoCallStartResult>,
+): WebVideoDateStartGateEntry {
+  const key = webVideoDateStartGateKey(sessionId, userId);
+  const entry: WebVideoDateStartGateEntry = {
+    sessionId,
+    userId: userId ?? null,
+    promise,
+    startedAtMs: Date.now(),
+    observeCount: 1,
+  };
+  webVideoDateStartGateEntries.set(key, entry);
+  const clearEntry = () => {
+    if (webVideoDateStartGateEntries.get(key) === entry) {
+      webVideoDateStartGateEntries.delete(key);
+    }
+  };
+  void promise.then(clearEntry, clearEntry);
+  return entry;
+}
 
 export type DailyReconnectState =
   | "connected"
@@ -2563,6 +2618,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             playRejected: false,
             error: undefined,
           }));
+          markRemoteFirstFrameRendered(
+            method === "request_video_frame_callback"
+              ? "request_video_frame_callback"
+              : "first_remote_frame",
+          );
           vdbg("daily_remote_same_track_render_validated", {
             ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
             source,
@@ -2602,7 +2662,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }, effectiveFrameTimeoutMs);
       }, REMOTE_RENDER_VALIDATION_DELAY_MS);
     },
-    [clearRemoteRenderValidation, forceRemoteMediaReattach, remoteRenderDiagnostics]
+    [
+      clearRemoteRenderValidation,
+      forceRemoteMediaReattach,
+      markRemoteFirstFrameRendered,
+      remoteRenderDiagnostics,
+    ]
   );
 
   scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;
@@ -3977,7 +4042,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   );
 
   const startCall = useCallback(
-    async (roomId?: string, opts?: VideoCallStartOptions) => {
+    async (
+      roomId?: string,
+      opts?: VideoCallStartOptions,
+    ): Promise<VideoCallStartResult> => {
       const sessionId = roomId || optionsRef.current?.roomId;
       const eventId = optionsRef.current?.eventId ?? null;
       const userId = optionsRef.current?.userId ?? null;
@@ -4026,6 +4094,61 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
           return { ok: true } as VideoCallStartResult;
         }
+      }
+      if (!opts?.skipStartGate) {
+        const activeGate = getWebVideoDateStartGateEntry(sessionId, userId);
+        if (activeGate) {
+          activeGate.observeCount += 1;
+          vdbg("daily_call_start_gate_joined", {
+            sessionId,
+            eventId,
+            userId,
+            observeCount: activeGate.observeCount,
+            waitMs: Date.now() - activeGate.startedAtMs,
+          });
+          const activeGateResult = await activeGate.promise;
+          if (activeGateResult.ok !== true) {
+            return activeGateResult;
+          }
+          const meetingState = safeMeetingState(callObjectRef.current);
+          if (
+            activeCallSessionIdRef.current === sessionId &&
+            callObjectRef.current &&
+            !isTerminalDailyMeetingState(meetingState)
+          ) {
+            return activeGateResult;
+          }
+          vdbg("daily_call_start_gate_adopt_current_owner", {
+            sessionId,
+            eventId,
+            userId,
+            observeCount: activeGate.observeCount,
+            waitMs: Date.now() - activeGate.startedAtMs,
+            localMeetingState: meetingState,
+          });
+          return startCall(sessionId, {
+            ...opts,
+            internalRetry: true,
+            skipStartGate: true,
+          });
+        }
+
+        const gatedPromise: Promise<VideoCallStartResult> = startCall(sessionId, {
+          ...opts,
+          skipStartGate: true,
+        });
+        const registeredGate = registerWebVideoDateStartGateEntry(
+          sessionId,
+          userId,
+          gatedPromise,
+        );
+        vdbg("daily_call_start_gate_registered", {
+          sessionId,
+          eventId,
+          userId,
+          observeCount: registeredGate.observeCount,
+        });
+        return gatedPromise;
       }
       if (!opts?.internalRetry && startCallInFlightSessionRef.current === sessionId) {
         vdbg("daily_call_reuse_decision", {
@@ -4641,6 +4764,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         const hasAppAcquiredMediaTracks = Boolean(appAcquiredMediaForCall);
         let guardedCreateFailure: "external_call_busy" | "cleanup_pending" | null = null;
+        let guardedCreateMeetingState: string | null = null;
         const callObject = singletonCall.ok === true
           ? singletonCall.entry.call
           : prewarmedCall.ok === true
@@ -4652,94 +4776,111 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                     appAcquiredMediaForCall,
                   )
                 : dailyVideoDateCallObjectOptions(captureProfileForCall);
-              const guarded = await createDailyCallObjectGuarded(DailyIframe, factoryOptions, {
-                source: "video_date_start_call",
-                currentCallObject: callObjectRef.current,
-                waitForCleanup: true,
-                onDiagnostic: (eventName, payload) => {
-                  vdbg(eventName, {
-                    sessionId,
-                    eventId: truthRow.event_id ?? eventId,
-                    userId,
-                    roomName: roomData.room_name,
-                    source: "video_date_start_call",
-                    ...payload,
-                  });
-                },
-              });
-              if (guarded.ok === true) return guarded.call;
-              if (guarded.reason === "external_call_busy" || guarded.reason === "cleanup_pending") {
-                const recoveredPrewarm = userId
-                  ? consumeWebVideoDateDailyPrewarm({
+              for (let attempt = 1; attempt <= WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS; attempt += 1) {
+                const guarded = await createDailyCallObjectGuarded(DailyIframe, factoryOptions, {
+                  source: "video_date_start_call",
+                  currentCallObject: callObjectRef.current,
+                  waitForCleanup: true,
+                  onDiagnostic: (eventName, payload) => {
+                    vdbg(eventName, {
                       sessionId,
-                      userId,
                       eventId: truthRow.event_id ?? eventId,
+                      userId,
                       roomName: roomData.room_name,
-                      roomUrl: roomData.room_url,
-                      captureProfile: captureProfileForCall,
-                    })
-                  : { ok: false as const, reason: "missing_user" };
-                if (recoveredPrewarm.ok === true) {
-                  prewarmedCall = recoveredPrewarm;
-                  prewarmAppAcquiredMedia = recoveredPrewarm.entry.appAcquiredMedia;
-                  adoptPrewarmAppAcquiredMedia();
-                  refreshPrewarmJoinState();
-                  vdbg("daily_prewarm_reconsumed_after_guard_blocked", {
+                      source: "video_date_start_call",
+                      attempt,
+                      ...payload,
+                    });
+                  },
+                });
+                if (guarded.ok === true) return guarded.call;
+                if (guarded.reason === "external_call_busy" || guarded.reason === "cleanup_pending") {
+                  const recoveredPrewarm = userId
+                    ? consumeWebVideoDateDailyPrewarm({
+                        sessionId,
+                        userId,
+                        eventId: truthRow.event_id ?? eventId,
+                        roomName: roomData.room_name,
+                        roomUrl: roomData.room_url,
+                        captureProfile: captureProfileForCall,
+                      })
+                    : { ok: false as const, reason: "missing_user" };
+                  if (recoveredPrewarm.ok === true) {
+                    prewarmedCall = recoveredPrewarm;
+                    prewarmAppAcquiredMedia = recoveredPrewarm.entry.appAcquiredMedia;
+                    adoptPrewarmAppAcquiredMedia();
+                    refreshPrewarmJoinState();
+                    vdbg("daily_prewarm_reconsumed_after_guard_blocked", {
+                      sessionId,
+                      eventId: truthRow.event_id ?? eventId,
+                      userId,
+                      roomName: roomData.room_name,
+                      guardReason: guarded.reason,
+                      meetingState: guarded.meetingState ?? null,
+                      attempt,
+                      prewarmedAlreadyJoined,
+                      prewarmedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+                    });
+                    return recoveredPrewarm.entry.call;
+                  }
+                  guardedCreateFailure = guarded.reason;
+                  guardedCreateMeetingState = guarded.meetingState ?? null;
+                  vdbg("daily_guard_create_blocked", {
                     sessionId,
                     eventId: truthRow.event_id ?? eventId,
                     userId,
                     roomName: roomData.room_name,
-                    guardReason: guarded.reason,
+                    reason: guarded.reason,
                     meetingState: guarded.meetingState ?? null,
-                    prewarmedAlreadyJoined,
-                    prewarmedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+                    prewarmRecoveryReason: recoveredPrewarm.reason,
+                    attempt,
+                    maxAttempts: WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS,
                   });
-                  return recoveredPrewarm.entry.call;
+                  if (attempt < WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS) {
+                    void emitWebVideoDateClientStuckState({
+                      sessionId,
+                      eventName: "daily_call_busy_internal_retry",
+                      dedupe: false,
+                      payload: {
+                        source_surface: "video_date_daily",
+                        source_action: "daily_call_busy_internal_retry",
+                        reason_code: guarded.reason,
+                        room_name: roomData.room_name,
+                        meeting_state: guarded.meetingState ?? undefined,
+                        retryable: true,
+                        attempt_count: attempt,
+                      },
+                    });
+                    await sleep(
+                      Math.min(
+                        1_200,
+                        WEB_VIDEO_DATE_DAILY_GUARD_CREATE_RETRY_BASE_MS * attempt,
+                      ),
+                    );
+                    continue;
+                  }
+                  return null;
                 }
-                guardedCreateFailure = guarded.reason;
-                vdbg("daily_guard_create_blocked", {
-                  sessionId,
-                  eventId: truthRow.event_id ?? eventId,
-                  userId,
-                  roomName: roomData.room_name,
-                  reason: guarded.reason,
-                  meetingState: guarded.meetingState ?? null,
-                  prewarmRecoveryReason: recoveredPrewarm.reason,
-                });
-                return null;
+                throw guarded.error instanceof Error ? guarded.error : new Error("daily_create_failed");
               }
-              throw guarded.error instanceof Error ? guarded.error : new Error("daily_create_failed");
+              return null;
             })();
         if (!callObject) {
           releaseAppAcquiredMedia("daily_guard_create_blocked");
-          if (!opts?.internalRetry) {
-            void emitWebVideoDateClientStuckState({
-              sessionId,
-              eventName: "daily_call_busy_internal_retry",
-              dedupe: false,
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "daily_call_busy_internal_retry",
-                reason_code: guardedCreateFailure ?? "external_call_busy",
-                room_name: roomData.room_name,
-                meeting_state: guardedCreateFailure ?? undefined,
-                retryable: true,
-                attempt_count: 1,
-              },
-            });
-            vdbg("daily_call_busy_internal_retry", {
-              sessionId,
-              eventId: truthRow.event_id ?? eventId,
-              userId,
-              roomName: roomData.room_name,
-              reason: guardedCreateFailure ?? "external_call_busy",
-            });
-            await sleep(700);
-            return await startCall(sessionId, {
-              internalRetry: true,
-              mediaPromptIntent,
-            });
-          }
+          void emitWebVideoDateClientStuckState({
+            sessionId,
+            eventName: "daily_call_busy_exhausted",
+            dedupe: false,
+            payload: {
+              source_surface: "video_date_daily",
+              source_action: "daily_call_busy_exhausted",
+              reason_code: guardedCreateFailure ?? "external_call_busy",
+              room_name: roomData.room_name,
+              meeting_state: guardedCreateMeetingState ?? undefined,
+              retryable: true,
+              attempt_count: WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS,
+            },
+          });
           setIsConnecting(false);
           setDailyMeetingState(null);
           setLocalInDailyRoom(false);
@@ -6505,6 +6646,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           return await startCall(sessionId, {
             internalRetry: true,
             mediaPromptIntent,
+            skipStartGate: true,
           });
         }
         setHasPermission(false);

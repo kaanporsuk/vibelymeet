@@ -280,6 +280,33 @@ export const PostDateSurvey = ({
     [confirmVerdictWithServerNextSurface],
   );
 
+  const confirmActorFeedbackRow = useCallback(
+    async (liked: boolean, source: string): Promise<boolean> => {
+      if (!user?.id) return false;
+      for (let attempt = 1; attempt <= 6; attempt += 1) {
+        const { data, error } = await supabase
+          .from("date_feedback")
+          .select("session_id,user_id,liked,created_at")
+          .eq("session_id", sessionId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (!error && data && data.liked === liked) {
+          return true;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 250 * attempt));
+      }
+      trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        reason: "date_feedback_row_missing_after_verdict",
+        source,
+      });
+      return false;
+    },
+    [eventId, sessionId, user?.id],
+  );
+
   const applyConfirmedVerdictStep = useCallback((result: unknown) => {
     const nextStep = derivePostDateSurveyStepFromVerdict(result);
     setVerdictUiState(nextStep === "awaiting_partner" ? "awaiting_partner" : "confirmed");
@@ -980,6 +1007,23 @@ export const PostDateSurvey = ({
           }
           return;
         }
+        const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, "verdict_submitted");
+        if (!feedbackRowConfirmed) {
+          setVerdictRetryable(true);
+          setVerdictError("Couldn't confirm your answer. Tap to retry.");
+          setVerdictUiState("retryable_failed");
+          if (optimisticallyAdvanced) {
+            setStep(previousStep);
+            trackEvent("post_date_verdict_optimistic_rollback", {
+              platform: "web",
+              session_id: sessionId,
+              event_id: eventId,
+              reason: "date_feedback_row_missing_after_verdict",
+              rollback_step: previousStep,
+            });
+          }
+          return;
+        }
         const confirmedVerdict = normalizePostDateVerdictConfirmationResult(confirmedResult);
         if (optimisticallyAdvanced) {
           trackEvent("post_date_verdict_optimistic_confirmed", {
@@ -1075,6 +1119,7 @@ export const PostDateSurvey = ({
       step,
       waitForVerdictConfirmation,
       applyConfirmedVerdictStep,
+      confirmActorFeedbackRow,
     ]
   );
 
@@ -1114,6 +1159,9 @@ export const PostDateSurvey = ({
           return false;
         }
       }
+      if (!(await confirmActorFeedbackRow(false, "report_before_verdict"))) {
+        return false;
+      }
       reportPassVerdictSavedRef.current = true;
       trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
         platform: "web",
@@ -1124,7 +1172,15 @@ export const PostDateSurvey = ({
       });
       return true;
     },
-    [eventId, sessionId, submitVerdictV3.enabled, user?.id, verdictConfirmEnabled, waitForVerdictConfirmation],
+    [
+      confirmActorFeedbackRow,
+      eventId,
+      sessionId,
+      submitVerdictV3.enabled,
+      user?.id,
+      verdictConfirmEnabled,
+      waitForVerdictConfirmation,
+    ],
   );
 
   // Screen 2: Highlights (optional)

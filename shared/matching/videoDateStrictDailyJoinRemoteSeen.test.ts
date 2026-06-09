@@ -124,6 +124,10 @@ test("web remote-seen server stamps are render-bound, not participant/snapshot-b
   assert.match(webVideoCall, /p_evidence_source: attemptSource/);
   assert.match(webVideoCall, /source === "loadeddata"/);
   assert.match(webVideoCall, /source === "playing"/);
+  assert.match(
+    webVideoCall,
+    /markRemoteFirstFrameRendered\(\s*method === "request_video_frame_callback"[\s\S]{0,160}"request_video_frame_callback"[\s\S]{0,160}"first_remote_frame"/,
+  );
   assert.doesNotMatch(webVideoCall, /markRemoteSeenOnServer\("participant_joined"\)/);
   assert.doesNotMatch(webVideoCall, /markRemoteSeenOnServer\("participant_updated"\)/);
   assert.doesNotMatch(webVideoCall, /markRemoteSeenOnServer\("post_join_snapshot"\)/);

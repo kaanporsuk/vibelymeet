@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 const LEASE_MS = 15_000;
@@ -7,6 +7,7 @@ const SERVER_TTL_SECONDS = 30;
 const SERVER_CLAIM_BACKOFF_BASE_MS = 1000;
 const SERVER_CLAIM_BACKOFF_MAX_MS = 15000;
 const SERVER_CLAIM_RELEASE_GRACE_MS = 1_000;
+const SERVER_CLAIM_BRIDGE_MS = 45_000;
 
 function storageKey(sessionId: string, profileId: string) {
   return `vibely_vd_tab_lease:${profileId}:${sessionId}`;
@@ -28,6 +29,15 @@ type ActiveServerSurfaceOwner = {
 };
 
 const activeServerSurfaceOwners = new Map<string, ActiveServerSurfaceOwner>();
+const bridgedServerSurfaceOwners = new Map<
+  string,
+  {
+    serverClientInstanceId: string;
+    intervalId: number;
+    releaseTimerId: number;
+    expiresAtMs: number;
+  }
+>();
 
 function activeServerSurfaceKey(sessionId: string, profileId: string) {
   return `${profileId}:${sessionId}`;
@@ -59,6 +69,67 @@ function nextServerClaimBackoffMs(failureCount: number) {
   return Math.min(SERVER_CLAIM_BACKOFF_MAX_MS, SERVER_CLAIM_BACKOFF_BASE_MS * 2 ** Math.min(failureCount, 4));
 }
 
+function clearServerSurfaceClaimBridge(
+  activeKey: string | null,
+  serverClientInstanceId?: string,
+) {
+  if (!activeKey) return;
+  const bridge = bridgedServerSurfaceOwners.get(activeKey);
+  if (!bridge) return;
+  if (serverClientInstanceId && bridge.serverClientInstanceId !== serverClientInstanceId) {
+    return;
+  }
+  window.clearInterval(bridge.intervalId);
+  window.clearTimeout(bridge.releaseTimerId);
+  bridgedServerSurfaceOwners.delete(activeKey);
+}
+
+function startServerSurfaceClaimBridge(options: {
+  activeKey: string | null;
+  sessionId: string;
+  serverClientInstanceId: string;
+}) {
+  if (!options.activeKey || typeof window === "undefined") return;
+  clearServerSurfaceClaimBridge(options.activeKey, options.serverClientInstanceId);
+  const expiresAtMs = Date.now() + SERVER_CLAIM_BRIDGE_MS;
+  const release = () => {
+    const activeOwner = activeServerSurfaceOwners.get(options.activeKey!);
+    if (activeOwner?.serverClientInstanceId === options.serverClientInstanceId) return;
+    clearServerSurfaceClaimBridge(options.activeKey, options.serverClientInstanceId);
+    void supabase.rpc("release_video_date_surface_claim", {
+      p_session_id: options.sessionId,
+      p_client_instance_id: options.serverClientInstanceId,
+    });
+  };
+  const renew = () => {
+    const activeOwner = activeServerSurfaceOwners.get(options.activeKey!);
+    if (activeOwner?.serverClientInstanceId === options.serverClientInstanceId) {
+      clearServerSurfaceClaimBridge(options.activeKey, options.serverClientInstanceId);
+      return;
+    }
+    if (Date.now() >= expiresAtMs) {
+      release();
+      return;
+    }
+    void supabase.rpc("claim_video_date_surface", {
+      p_session_id: options.sessionId,
+      p_surface: "video_date",
+      p_client_instance_id: options.serverClientInstanceId,
+      p_takeover: false,
+      p_ttl_seconds: SERVER_TTL_SECONDS,
+    });
+  };
+  const intervalId = window.setInterval(renew, TICK_MS);
+  const releaseTimerId = window.setTimeout(release, SERVER_CLAIM_BRIDGE_MS);
+  bridgedServerSurfaceOwners.set(options.activeKey, {
+    serverClientInstanceId: options.serverClientInstanceId,
+    intervalId,
+    releaseTimerId,
+    expiresAtMs,
+  });
+  renew();
+}
+
 /**
  * Soft duplicate-tab guard for active video dates: one browser tab per participant
  * holds a short-lived localStorage lease. The local lease gives fast same-browser
@@ -68,15 +139,22 @@ export function useVideoDateDupTabGuard(
   sessionId: string | undefined,
   profileId: string | undefined,
   leaseActive: boolean,
+  shouldBridgeOnCleanup?: () => boolean,
 ) {
   const ownerRef = useRef(`vd-tab-${Math.random().toString(36).slice(2)}`);
   const serverClientInstanceRef = useRef<string | null>(null);
   const serverClaimInFlightRef = useRef(false);
   const serverClaimBackoffUntilRef = useRef(0);
   const serverClaimFailureCountRef = useRef(0);
+  const shouldBridgeOnCleanupRef = useRef(shouldBridgeOnCleanup);
   const [dupBlocked, setDupBlocked] = useState(false);
   const key = sessionId && profileId ? storageKey(sessionId, profileId) : null;
   const activeKey = sessionId && profileId ? activeServerSurfaceKey(sessionId, profileId) : null;
+
+  useLayoutEffect(() => {
+    // Passive lease cleanup must see the newest terminal/exit bridge decision.
+    shouldBridgeOnCleanupRef.current = shouldBridgeOnCleanup;
+  }, [shouldBridgeOnCleanup]);
 
   const resolveServerClientInstanceId = useCallback((): string => {
     if (!sessionId || !profileId) {
@@ -154,6 +232,7 @@ export function useVideoDateDupTabGuard(
     const storage = getLocalStorage();
     let cancelled = false;
     if (activeKey) {
+      clearServerSurfaceClaimBridge(activeKey, serverClientInstanceId);
       activeServerSurfaceOwners.set(activeKey, {
         owner,
         serverClientInstanceId,
@@ -276,6 +355,15 @@ export function useVideoDateDupTabGuard(
             latestLease?.serverClientInstanceId === serverClientInstanceId &&
             latestLease.exp > Date.now()
           ) {
+            return;
+          }
+          const shouldBridge = shouldBridgeOnCleanupRef.current?.() ?? true;
+          if (shouldBridge) {
+            startServerSurfaceClaimBridge({
+              activeKey,
+              sessionId,
+              serverClientInstanceId,
+            });
             return;
           }
           void supabase.rpc("release_video_date_surface_claim", {

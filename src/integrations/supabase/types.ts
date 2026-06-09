@@ -4656,6 +4656,99 @@ export type Database = {
           },
         ]
       }
+      post_date_zero_feedback_reminders: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          event_id: string | null
+          first_detected_at: string
+          last_seen_at: string
+          missing_user_id: string
+          participant_role: string
+          queue_status: string | null
+          registration_id: string | null
+          reminder_eligible_at: string
+          reminder_error: string | null
+          reminder_sent_at: string | null
+          session_id: string
+          stale_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          event_id?: string | null
+          first_detected_at?: string
+          last_seen_at?: string
+          missing_user_id: string
+          participant_role: string
+          queue_status?: string | null
+          registration_id?: string | null
+          reminder_eligible_at?: string
+          reminder_error?: string | null
+          reminder_sent_at?: string | null
+          session_id: string
+          stale_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          event_id?: string | null
+          first_detected_at?: string
+          last_seen_at?: string
+          missing_user_id?: string
+          participant_role?: string
+          queue_status?: string | null
+          registration_id?: string | null
+          reminder_eligible_at?: string
+          reminder_error?: string | null
+          reminder_sent_at?: string | null
+          session_id?: string
+          stale_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
       premium_history: {
         Row: {
           action: string
@@ -6976,6 +7069,93 @@ export type Database = {
           },
         ]
       }
+      video_date_certification_feedback_exceptions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_id: string | null
+          evidence: Json
+          exception_kind: string
+          expires_at: string | null
+          missing_user_id: string
+          participant_role: string
+          reason: string
+          revoked_at: string | null
+          revoked_reason: string | null
+          session_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_id?: string | null
+          evidence?: Json
+          exception_kind: string
+          expires_at?: string | null
+          missing_user_id: string
+          participant_role: string
+          reason: string
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          session_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_id?: string | null
+          evidence?: Json
+          exception_kind?: string
+          expires_at?: string | null
+          missing_user_id?: string
+          participant_role?: string
+          reason?: string
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          session_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
       video_date_credit_extension_spends: {
         Row: {
           added_seconds: number
@@ -8457,6 +8637,9 @@ export type Database = {
           session_source: string
           snooze_expires_at: string | null
           snoozed_by: string | null
+          stable_bilateral_media_at: string | null
+          stable_bilateral_media_detail: Json
+          stable_bilateral_media_source: string | null
           started_at: string
           state: Database["public"]["Enums"]["video_date_state"]
           state_updated_at: string
@@ -8522,6 +8705,9 @@ export type Database = {
           session_source?: string
           snooze_expires_at?: string | null
           snoozed_by?: string | null
+          stable_bilateral_media_at?: string | null
+          stable_bilateral_media_detail?: Json
+          stable_bilateral_media_source?: string | null
           started_at?: string
           state?: Database["public"]["Enums"]["video_date_state"]
           state_updated_at?: string
@@ -8587,6 +8773,9 @@ export type Database = {
           session_source?: string
           snooze_expires_at?: string | null
           snoozed_by?: string | null
+          stable_bilateral_media_at?: string | null
+          stable_bilateral_media_detail?: Json
+          stable_bilateral_media_source?: string | null
           started_at?: string
           state?: Database["public"]["Enums"]["video_date_state"]
           state_updated_at?: string
@@ -10842,6 +11031,17 @@ export type Database = {
           submitted_by: string
         }[]
       }
+      claim_post_date_zero_feedback_reminders_v1: {
+        Args: { p_limit?: number }
+        Returns: {
+          event_id: string
+          first_detected_at: string
+          missing_user_id: string
+          participant_role: string
+          reminder_sent_at: string
+          session_id: string
+        }[]
+      }
       claim_support_reply_delivery_jobs_v1: {
         Args: {
           p_lease_seconds?: number
@@ -11218,11 +11418,19 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
+      drain_match_queue_20260608211359_survey_feedback_base: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       drain_match_queue_v2: {
         Args: { p_event_id: string; p_idempotency_key: string }
         Returns: Json
       }
       drain_match_queue_v2_20260605232304_single_owner_base: {
+        Args: { p_event_id: string; p_idempotency_key: string }
+        Returns: Json
+      }
+      drain_match_queue_v2_20260608211359_survey_feedback_base: {
         Args: { p_event_id: string; p_idempotency_key: string }
         Returns: Json
       }
@@ -12289,6 +12497,10 @@ export type Database = {
         Args: { p_limit?: number; p_older_than?: string }
         Returns: number
       }
+      mark_post_date_zero_feedback_reminders_stale_v1: {
+        Args: { p_limit?: number; p_older_than?: string }
+        Returns: number
+      }
       mark_profile_email_verified_from_server: {
         Args: { p_user_id: string; p_verified_email: string }
         Returns: undefined
@@ -12408,8 +12620,8 @@ export type Database = {
       mark_video_date_remote_seen: {
         Args: {
           p_call_instance_id?: string
-          p_evidence_source?: string
           p_entry_attempt_id?: string
+          p_evidence_source?: string
           p_owner_id?: string
           p_owner_state?: string
           p_provider_session_id?: string
@@ -12709,6 +12921,15 @@ export type Database = {
       record_post_date_pending_verdict_reminder_result: {
         Args: { p_error?: string; p_session_id: string; p_success: boolean }
         Returns: Json
+      }
+      record_post_date_zero_feedback_reminder_result_v1: {
+        Args: {
+          p_error?: string
+          p_missing_user_id: string
+          p_session_id: string
+          p_success: boolean
+        }
+        Returns: undefined
       }
       record_public_account_deletion_request: {
         Args: { p_email_hash: string; p_ip_hash: string }
@@ -13063,6 +13284,14 @@ export type Database = {
         }
         Returns: number
       }
+      revoke_video_date_certification_feedback_exception_v1: {
+        Args: {
+          p_missing_user_id: string
+          p_revoked_reason?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       rgt_pre_ready_room_meta_base_v1: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
@@ -13232,6 +13461,10 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
+      sync_post_date_zero_feedback_reminders_v1: {
+        Args: { p_limit?: number; p_older_than?: string }
+        Returns: number
+      }
       sync_profile_photo_media: {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
         Returns: Json
@@ -13363,12 +13596,64 @@ export type Database = {
         }
         Returns: Json
       }
+      upsert_video_date_certification_feedback_exception_v1: {
+        Args: {
+          p_evidence?: Json
+          p_exception_kind: string
+          p_expires_at?: string
+          p_missing_user_id: string
+          p_reason: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       validate_video_date_registration_session_drift_v1: {
         Args: { p_event_id?: string; p_limit?: number }
         Returns: Json
       }
       vd_absence_review_1232_1242_base: {
         Args: { p_session_id: string; p_source?: string }
+        Returns: Json
+      }
+      vd_absence_stable_media_base: {
+        Args: { p_session_id: string; p_source?: string }
+        Returns: Json
+      }
+      vd_alive_strict_provider_base: {
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_auto_promote_eligible_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_auto_promote_stable_media_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_claim_surface_terminal_truth_base: {
+        Args: {
+          p_client_instance_id: string
+          p_session_id: string
+          p_surface: string
+          p_takeover?: boolean
+          p_ttl_seconds?: number
+        }
         Returns: Json
       }
       vd_daily_alive_remote_seen_base: {
@@ -13382,7 +13667,36 @@ export type Database = {
         }
         Returns: Json
       }
+      vd_daily_webhook_terminal_truth_base: {
+        Args: {
+          p_event_type: string
+          p_occurred_at?: string
+          p_payload?: Json
+          p_provider_event_id: string
+          p_provider_participant_id?: string
+          p_provider_user_id?: string
+          p_room_name?: string
+          p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
+      vd_mark_ready_both_ready_owner_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       vd_mark_ready_partial_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_mark_ready_terminal_truth_base: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string
@@ -13400,8 +13714,69 @@ export type Database = {
         }
         Returns: Json
       }
+      vd_promote_ce_stable_media_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_require_participant?: boolean
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      vd_provider_overlap_eligible_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_require_participant?: boolean
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      vd_provider_overlap_stable_media_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_require_participant?: boolean
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      vd_ready_gate_actionability_owner_eligibility_base: {
+        Args: {
+          p_actor_id?: string
+          p_allow_actor_owned_snooze?: boolean
+          p_lock_rows?: boolean
+          p_require_current_ready_gate_registration?: boolean
+          p_session_id: string
+          p_source?: string
+          p_terminalize_invalid?: boolean
+        }
+        Returns: Json
+      }
+      vd_remote_seen_render_base: {
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_start_snapshot_both_ready_owner_base: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       vd_start_snapshot_partial_base: {
         Args: { p_session_id: string }
+        Returns: Json
+      }
+      vd_transition_both_ready_owner_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
       vd_transition_partial_base: {
@@ -13427,13 +13802,38 @@ export type Database = {
         Args: { p_status: string }
         Returns: string
       }
+      video_date_active_surface_claims_v1: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      video_date_actor_pending_feedback_gate_v1: {
+        Args: { p_actor_id?: string; p_event_id: string }
+        Returns: Json
+      }
       video_date_actor_provider_presence_v1: {
         Args: { p_actor_id: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_both_ready_operator_diagnostics_v1: {
+        Args: { p_event_id?: string; p_limit?: number }
+        Returns: Json
+      }
+      video_date_both_ready_route_payload_v1: {
+        Args: {
+          p_actor_id?: string
+          p_payload?: Json
+          p_session_id: string
+          p_source?: string
+        }
         Returns: Json
       }
       video_date_broadcast_batched_v2_enabled: { Args: never; Returns: boolean }
       video_date_can_access_session_topic: {
         Args: { p_topic: string }
+        Returns: boolean
+      }
+      video_date_certification_feedback_exception_active_v1: {
+        Args: { p_missing_user_id: string; p_session_id: string }
         Returns: boolean
       }
       video_date_client_stuck_safe_bool: {
@@ -13456,9 +13856,31 @@ export type Database = {
         }
         Returns: string
       }
+      video_date_current_provider_session_proof_v1: {
+        Args: {
+          p_actor_id: string
+          p_owner_state?: string
+          p_provider_session_id: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       video_date_daily_provider_session_id_from_event_v1: {
         Args: { p_payload: Json; p_provider_participant_id: string }
         Returns: string
+      }
+      video_date_direct_json_fallback_v1: {
+        Args: {
+          p_actor_id: string
+          p_code: string
+          p_error: string
+          p_retryable?: boolean
+          p_rpc: string
+          p_session_id: string
+          p_sqlstate?: string
+        }
+        Returns: Json
       }
       video_date_enrich_lifecycle_payload_v1: {
         Args: { p_actor_id: string; p_payload: Json; p_session_id: string }
@@ -13594,6 +14016,26 @@ export type Database = {
         Args: { p_actor_id?: string; p_session_id: string }
         Returns: Json
       }
+      video_date_mark_stable_bilateral_media_v1: {
+        Args: { p_gate: Json; p_session_id: string; p_source: string }
+        Returns: Json
+      }
+      video_date_missing_feedback_operator_diagnostics_v1: {
+        Args: { p_event_id?: string; p_limit?: number; p_stale_after?: string }
+        Returns: {
+          age_seconds: number
+          ended_at: string
+          event_id: string
+          feedback_count: number
+          missing_user_id: string
+          participant_role: string
+          queue_status: string
+          release_blocker: boolean
+          reminder_sent_at: string
+          reminder_status: string
+          session_id: string
+        }[]
+      }
       video_date_orphan_safety_interlock_v1: {
         Args: { p_room_name?: string; p_session_id: string }
         Returns: Json
@@ -13629,6 +14071,21 @@ export type Database = {
       }
       video_date_partial_ready_diagnostics_v1: {
         Args: { p_event_id?: string; p_limit?: number }
+        Returns: Json
+      }
+      video_date_participant_eligibility_v1: {
+        Args: { p_profile_id: string; p_source?: string }
+        Returns: Json
+      }
+      video_date_preserve_provider_webhook_truth_v1: {
+        Args: {
+          p_event_type: string
+          p_occurred_at?: string
+          p_payload?: Json
+          p_provider_participant_id?: string
+          p_provider_user_id?: string
+          p_room_name: string
+        }
         Returns: Json
       }
       video_date_promote_confirmed_encounter_v1: {
@@ -13739,6 +14196,14 @@ export type Database = {
           p_state: string
         }
         Returns: boolean
+      }
+      video_date_session_lifecycle_eligibility_v1: {
+        Args: { p_actor_id?: string; p_session_id: string; p_source?: string }
+        Returns: Json
+      }
+      video_date_stable_bilateral_media_gate_v1: {
+        Args: { p_session_id: string }
+        Returns: Json
       }
       video_date_stable_copresence_v1: {
         Args: { p_session_id: string }

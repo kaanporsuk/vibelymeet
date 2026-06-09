@@ -115,6 +115,7 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "partial_join_peer_timeout",
   "peer_missing_timeout",
   "prepare_entry_daily_join_missing",
+  "pre_stable_media_failed",
   "blocked_pair",
   "blocked_or_reported_pair",
 ] as const;

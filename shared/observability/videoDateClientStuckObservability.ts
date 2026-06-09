@@ -13,6 +13,7 @@ export const VIDEO_DATE_CLIENT_STUCK_EVENT_NAMES = [
   "daily_call_singleton_idle_destroy",
   "daily_call_reuse",
   "daily_call_busy_internal_retry",
+  "daily_call_busy_exhausted",
   "remote_seen_canonical_repair_failed",
   "daily_owner_provider_left_unexpected",
   "native_background_recovery_started",
