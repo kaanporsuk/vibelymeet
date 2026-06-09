@@ -139,6 +139,7 @@ require_file "shared/matching/eventLobbyCanonicalActiveState.test.ts"
 require_file "shared/matching/eventLobbySwipeAuthContract.test.ts"
 require_file "shared/matching/eventLobbyDeckAuditClosure.test.ts"
 require_file "shared/matching/mysteryMatchRemovalContracts.test.ts"
+require_file "shared/matching/videoSessionSourceRemovalContracts.test.ts"
 require_file "shared/matching/eventRegistrationRlsAuthority.test.ts"
 require_file "shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts"
 require_file "shared/matching/webEventLobbyGating.test.ts"
@@ -161,6 +162,7 @@ run_step npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts
 run_step npx tsx shared/matching/eventLobbySwipeAuthContract.test.ts
 run_step npx tsx shared/matching/eventLobbyDeckAuditClosure.test.ts
 run_step npx tsx shared/matching/mysteryMatchRemovalContracts.test.ts
+run_step npx tsx shared/matching/videoSessionSourceRemovalContracts.test.ts
 run_step npx tsx shared/matching/eventRegistrationRlsAuthority.test.ts
 run_step npx tsx shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts
 run_step npx tsx shared/matching/webEventLobbyGating.test.ts

@@ -18,8 +18,6 @@ export type SwipeSessionStageResult = {
   ready_gate_status?: string;
   /** True only when this swipe recorded a new Super Vibe row. */
   super_vibe_consumed?: boolean;
-  /** Preserved creation-source payload field; reciprocal_swipe is the only supported source. */
-  session_source?: string;
   success?: boolean;
   error?: string;
   reason?: string;

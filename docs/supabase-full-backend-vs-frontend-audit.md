@@ -14,9 +14,11 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 > Current repo addendum (2026-05-26): this document is a historical/live audit snapshot. The current repo contains **71 deployable Edge Functions** with **71 matching `supabase/config.toml` entries**. Historical rows below that mention `account-pause`, `account-resume`, `email-drip`, or `unsubscribe` are superseded for current ops: those function slugs are absent from current source/config/cloud inventory unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` and `docs/external-dependency-closure-plan-2026-05-23.md` for current closure state.
 >
-> Current Event Lobby addendum (2026-06-09): Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. `find_mystery_match` is no longer in generated Supabase types, web/native `useMysteryMatch` hooks are deleted, and `video_sessions.session_source` is defaulted/constrained to `reciprocal_swipe`.
+> Current Event Lobby addendum (2026-06-09): Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. `find_mystery_match` is no longer in generated Supabase types, and web/native `useMysteryMatch` hooks are deleted.
 >
 > Current leaner-path addendum (2026-06-09): direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`, and `leave_matching_queue(uuid)` was removed by `supabase/migrations/20260609165218_remove_leave_matching_queue.sql`. Generated Supabase types no longer expose any of these deprecated RPCs. The active path remains swipe-actions, reciprocal swipe or supported queue promotion, Ready Gate, then Video Date.
+>
+> Current session-source addendum (2026-06-09): the temporary `video_sessions.session_source` marker was removed by `supabase/migrations/20260609171950_remove_video_sessions_session_source.sql`. Generated Supabase types no longer expose it, and current session creation no longer stores a source discriminator.
 
 ---
 

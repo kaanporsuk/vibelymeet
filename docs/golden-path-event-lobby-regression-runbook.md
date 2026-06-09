@@ -44,6 +44,7 @@ The default harness runs source/static contract tests for:
 - `get_event_deck` inactive rejection
 - `handle_swipe` inactive rejection with no `event_swipes`, `video_sessions`, or registration room/partner mutation
 - removed Mystery Match RPC contract
+- removed `video_sessions.session_source` schema/type/payload contract
 - queue promotion inactive rejection
 - block/report exclusion plus paused, suspended, and deleted candidate exclusion markers
 - simultaneous mutual swipes creating one session
@@ -76,9 +77,8 @@ Expected result:
 
 - no active source or generated-type hits;
 - `find_mystery_match%` absent from linked Supabase public routines;
-- zero `video_sessions.session_source = 'mystery_match'` rows;
-- `video_sessions.session_source` defaults to `'reciprocal_swipe'::text`;
-- validated reciprocal-swipe-only constraint remains present.
+- no `video_sessions.session_source` column in linked Supabase;
+- no `video_sessions_session_source_rec_swipe_only` constraint in linked Supabase.
 
 Residual-reference classification:
 
@@ -86,6 +86,29 @@ Residual-reference classification:
 - Blockers: active product source, generated Supabase types, active validation that requires `find_mystery_match` to exist, or tests preserving Mystery Match behavior as a supported product path.
 
 If running optional broader Video Date checks, note that a failure in `npm run test:video-date-v4` against the single-line regex `existing.roomName === params.roomName && existing.roomUrl === params.roomUrl` in `shared/matching/videoDateSprint3DailyHandoffContracts.test.ts` is a known unrelated source-shape issue when `src/lib/webVideoDateDailyPrewarm.ts` contains the same room-name/URL guard split across lines. Do not classify that as a Mystery Match removal blocker unless the underlying guard is missing.
+
+## Video Session Source Removal Verification
+
+The temporary `video_sessions.session_source` audit marker is removed from the active schema as of migration `20260609171950_remove_video_sessions_session_source.sql`. Current session creation no longer stores a source discriminator.
+
+Required read-only checks:
+
+```bash
+rg -n "session_source" \
+  src apps/mobile supabase/functions src/integrations/supabase/types.ts \
+  --glob '!**/*.test.ts'
+
+npx tsx shared/matching/videoSessionSourceRemovalContracts.test.ts
+npm run test:event-lobby-regression
+```
+
+Expected result:
+
+- no active source, Edge Function payload, or generated-type exposure for `session_source`;
+- linked Supabase public `video_sessions` has no `session_source` column;
+- linked Supabase has no `video_sessions_session_source_rec_swipe_only` constraint;
+- active validation asserts the column and constraint are absent;
+- `super_vibe_consumed`, `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, and Video Date state-machine behavior remain intact.
 
 ## Legacy Direct Queue/Session RPC Removal Verification
 

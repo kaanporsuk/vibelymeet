@@ -56,6 +56,10 @@ const legacyQueueCleanupRpcRemoval = readFileSync(
   join(root, "supabase/migrations/20260609165218_remove_leave_matching_queue.sql"),
   "utf8",
 );
+const sessionSourceRemoval = readFileSync(
+  join(root, "supabase/migrations/20260609171950_remove_video_sessions_session_source.sql"),
+  "utf8",
+);
 
 type EventFixture = {
   exists?: boolean;
@@ -397,6 +401,10 @@ test("legacy direct session creation RPCs are removed rather than preserved as c
   assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible/i);
   assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /ALTER TABLE[\s\S]*session_source/i);
   assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /DROP COLUMN[\s\S]*session_source/i);
+  assert.match(sessionSourceRemoval, /DROP CONSTRAINT IF EXISTS video_sessions_session_source_rec_swipe_only/);
+  assert.match(sessionSourceRemoval, /DROP COLUMN IF EXISTS session_source/);
+  assert.doesNotMatch(sessionSourceRemoval, /DROP FUNCTION IF EXISTS public\.drain_match_queue/i);
+  assert.doesNotMatch(sessionSourceRemoval, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible/i);
 });
 
 test("swipe-actions suppresses inactive-event notification side effects", () => {

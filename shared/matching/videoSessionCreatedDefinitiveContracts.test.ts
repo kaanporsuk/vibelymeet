@@ -29,6 +29,7 @@ const generatedTypes = read("src/integrations/supabase/types.ts");
 const mutualMatchHandoff = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 const finalContractsMigration = read("supabase/migrations/20260607152000_video_session_created_definitive_contracts.sql");
 const mysteryMatchRemoval = read("supabase/migrations/20260609152000_remove_mystery_match.sql");
+const sessionSourceRemoval = read("supabase/migrations/20260609171950_remove_video_sessions_session_source.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 
 function session(
@@ -105,18 +106,17 @@ test("Mystery Match payload compatibility is superseded by hard removal", () => 
   assert.match(mysteryMatchRemoval, /session_source = 'mystery_match'/);
   assert.match(mysteryMatchRemoval, /session_source = 'reciprocal_swipe'/);
   assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
+  assert.match(sessionSourceRemoval, /DROP COLUMN IF EXISTS session_source/);
   assert.doesNotMatch(generatedTypes, /find_mystery_match/);
 });
 
-test("generated Supabase video_sessions table contract includes session_source", () => {
+test("generated Supabase video_sessions table contract omits removed session_source", () => {
   const videoSessionsStart = generatedTypes.indexOf("      video_sessions: {");
   const relationshipsStart = generatedTypes.indexOf("        Relationships:", videoSessionsStart);
   assert.ok(videoSessionsStart >= 0 && relationshipsStart > videoSessionsStart);
   const videoSessionsBlock = generatedTypes.slice(videoSessionsStart, relationshipsStart);
 
-  assert.match(videoSessionsBlock, /Row:\s*\{[\s\S]*session_source: string/);
-  assert.match(videoSessionsBlock, /Insert:\s*\{[\s\S]*session_source\?: string/);
-  assert.match(videoSessionsBlock, /Update:\s*\{[\s\S]*session_source\?: string/);
+  assert.doesNotMatch(videoSessionsBlock, /session_source/);
 });
 
 test("service-only drift validation and dry-run repair cover queued and Ready Gate session linkage", () => {

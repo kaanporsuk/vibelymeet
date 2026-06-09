@@ -338,7 +338,7 @@ Answers to the attached creation questions:
 
 Legacy/conflict notes:
 
-- Several migrations evolved creation and queued-promotion logic. Current session source and definitive contracts add `session_source` and drift validation.
+- Several migrations evolved creation and queued-promotion logic. Historical session-source markers were later removed by `20260609171950_remove_video_sessions_session_source.sql`; current creation no longer stores a source discriminator. Definitive contracts still provide drift validation.
 
 Risk:
 
@@ -353,7 +353,7 @@ Proof anchors:
 - `handle_swipe_v2`
 - `event_registrations.current_room_id`
 - `event_registrations.current_partner_id`
-- `video_sessions.session_source`
+- `video_sessions.id`
 
 ### D. Ready Gate Opens
 
@@ -1008,7 +1008,7 @@ Proof anchors:
 
 Important `video_sessions` fields:
 
-- Identity: `id`, `event_id`, `participant_1_id`, `participant_2_id`, `session_source`.
+- Identity: `id`, `event_id`, `participant_1_id`, `participant_2_id`.
 - Ready Gate: `ready_gate_status`, `ready_gate_expires_at`, `ready_participant_1_at`, `ready_participant_2_at`, Ready Gate entry proof fields.
 - Daily metadata: `daily_room_name`, `daily_room_url`, provider verification fields, room expiry fields.
 - Lifecycle: `state`, `phase`, `started_at`, `handshake_started_at`, `date_started_at`, `state_updated_at`.

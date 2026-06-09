@@ -190,7 +190,27 @@ select
   and to_regprocedure('public.find_mystery_match_20260607103000_session_source_base(uuid,uuid)') is null
   as ok;
 
--- 7) Queue promotion paths return event_not_valid before promoting Ready Gate.
+-- 8) The temporary Video Date session-source discriminator is removed.
+select
+  'video_sessions_session_source_removed' as check_name,
+  not exists (
+    select 1
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = 'video_sessions'
+      and c.column_name = 'session_source'
+  )
+  and not exists (
+    select 1
+    from pg_constraint con
+    where con.conname = 'video_sessions_session_source_rec_swipe_only'
+      and con.conrelid = 'public.video_sessions'::regclass
+  )
+  and pg_get_functiondef('public.handle_swipe_20260601183000_deck_authority_base(uuid,uuid,uuid,text)'::regprocedure)
+    not like '%session_source%'
+  as ok;
+
+-- 9) Queue promotion paths return event_not_valid before promoting Ready Gate.
 select
   'queue_promotion_active_guard_present' as check_name,
   pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
@@ -221,7 +241,7 @@ select
     not like '%e.status = ''live''%'
   as ok;
 
--- 8) Deprecated direct legacy session paths are removed, not callable shims.
+-- 10) Deprecated direct legacy session paths are removed, not callable shims.
 select
   'legacy_direct_session_rpcs_removed' as check_name,
   to_regprocedure('public.find_video_date_match(uuid,uuid)') is null
@@ -229,7 +249,7 @@ select
   and to_regprocedure('public.leave_matching_queue(uuid)') is null
   as ok;
 
--- 9) Public client contracts remain callable.
+-- 11) Public client contracts remain callable.
 select
   'event_lobby_public_rpcs_client_executable' as check_name,
   has_function_privilege('authenticated', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')

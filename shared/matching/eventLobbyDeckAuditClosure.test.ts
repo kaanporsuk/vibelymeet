@@ -29,6 +29,7 @@ function sectionBetween(source: string, startNeedle: string, endNeedle: string):
 const migration = read("supabase/migrations/20260601213000_event_lobby_deck_audit_closure.sql");
 const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 const mysteryMatchRemoval = read("supabase/migrations/20260609152000_remove_mystery_match.sql");
+const sessionSourceRemoval = read("supabase/migrations/20260609171950_remove_video_sessions_session_source.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const adapters = read("supabase/functions/_shared/eventProfileAdapters.ts");
@@ -57,12 +58,14 @@ test("reservation cleanup is service-only, bounded, and scheduled when pg_cron i
   assert.match(deckV3Section, /public\.cleanup_event_deck_card_reservations\(interval '1 day', 5000\)/);
 });
 
-test("Mystery Match is removed while session_source remains reciprocal-swipe constrained", () => {
+test("Mystery Match is removed and the temporary session-source marker is later dropped", () => {
   assert.match(mutualMatchHandoffClosure, /ADD COLUMN IF NOT EXISTS session_source text/);
   assert.match(mutualMatchHandoffClosure, /session_source = 'reciprocal_swipe'/);
   assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match\(uuid, uuid\)/);
   assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260607103000_session_source_base\(uuid, uuid\)/);
   assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
+  assert.match(sessionSourceRemoval, /DROP CONSTRAINT IF EXISTS video_sessions_session_source_rec_swipe_only/);
+  assert.match(sessionSourceRemoval, /DROP COLUMN IF EXISTS session_source/);
 });
 
 test("deck v3 filters returned cards through swipe-authority eligibility and emits precise empty reasons", () => {
