@@ -265,12 +265,18 @@ export function useVideoDateDupTabGuard(
         if (cancelled) return;
         const payload = data as { success?: boolean; code?: string; retryable?: boolean } | null;
         const blocked = payload?.code === "SURFACE_CLAIM_CONFLICT" && payload.retryable !== true;
+        const waitingForClaimableTruth = payload?.code === "SURFACE_NOT_CLAIMABLE";
         if (error || payload?.success === false) {
           setDupBlocked(blocked);
           if (!blocked) {
-            serverClaimFailureCountRef.current += 1;
-            serverClaimBackoffUntilRef.current =
-              Date.now() + nextServerClaimBackoffMs(serverClaimFailureCountRef.current);
+            if (waitingForClaimableTruth) {
+              serverClaimFailureCountRef.current = 0;
+              serverClaimBackoffUntilRef.current = 0;
+            } else {
+              serverClaimFailureCountRef.current += 1;
+              serverClaimBackoffUntilRef.current =
+                Date.now() + nextServerClaimBackoffMs(serverClaimFailureCountRef.current);
+            }
           }
           return;
         }

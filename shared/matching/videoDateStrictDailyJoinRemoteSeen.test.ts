@@ -121,7 +121,9 @@ test("promotion RPCs reuse lifecycle eligibility before date promotion", () => {
 });
 
 test("web remote-seen server stamps are render-bound, not participant/snapshot-bound", () => {
-  assert.match(webVideoCall, /p_evidence_source: attemptSource/);
+  assert.match(webVideoCall, /const baseEvidenceSource = source/);
+  assert.match(webVideoCall, /p_evidence_source: baseEvidenceSource/);
+  assert.doesNotMatch(webVideoCall, /p_evidence_source: attemptSource/);
   assert.match(webVideoCall, /source === "loadeddata"/);
   assert.match(webVideoCall, /source === "playing"/);
   assert.match(
@@ -134,7 +136,9 @@ test("web remote-seen server stamps are render-bound, not participant/snapshot-b
 });
 
 test("native remote-seen server stamps are mounted-media-bound, not participant/snapshot-bound", () => {
-  assert.match(nativeDateRoute, /p_evidence_source: attemptSource/);
+  assert.match(nativeDateRoute, /const baseEvidenceSource = source/);
+  assert.match(nativeDateRoute, /p_evidence_source: baseEvidenceSource/);
+  assert.doesNotMatch(nativeDateRoute, /p_evidence_source: attemptSource/);
   assert.match(nativeDateRoute, /source === "remote_track_mounted"/);
   assert.match(nativeDateRoute, /markRemoteSeenOnServer\("remote_track_mounted"\)/);
   assert.doesNotMatch(

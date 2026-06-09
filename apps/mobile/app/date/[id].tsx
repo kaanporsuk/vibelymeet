@@ -4831,6 +4831,7 @@ export default function VideoDateScreen() {
         return;
       }
 
+      const baseEvidenceSource = source;
       const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
         const call = callRef.current;
         const providerSessionId = readNativeDailyProviderSessionId(call);
@@ -4907,7 +4908,7 @@ export default function VideoDateScreen() {
             p_provider_session_id: providerSessionId,
             p_entry_attempt_id: entryAttemptId,
             p_owner_state: "joined",
-            p_evidence_source: attemptSource,
+            p_evidence_source: baseEvidenceSource,
           },
         };
       };

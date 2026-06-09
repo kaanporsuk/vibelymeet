@@ -64,6 +64,53 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: PR #1256-#1262 Review-Comments Follow-Up
+
+Current source and linked Supabase cloud now include the follow-up pass for actionable GitHub review comments on the last seven merged PRs: `#1256`, `#1257`, `#1258`, `#1259`, `#1260`, `#1261`, and `#1262`.
+
+Review scope:
+
+- Thread-aware GitHub review-comment inspection found Codex-authored comments on the last seven PRs and no Copilot-authored review threads requiring action.
+- PR `#1260` had an already-resolved/outdated Codex thread and did not require a source change.
+- Actionable Codex threads were present on PRs `#1256`, `#1257`, `#1258`, `#1259`, `#1261`, and `#1262`.
+
+Implementation added:
+
+- Web surface claim ownership now waits for claimable date/handshake truth before activating the lease, and `SURFACE_NOT_CLAIMABLE` resets duplicate-tab claim backoff instead of growing an exponential retry delay.
+- Web and native/mobile remote-seen retry loops keep the originally accepted render/media evidence source in `p_evidence_source`; retry labels remain diagnostic metadata only.
+- Native/mobile `PostDateSurvey` queue-drain execution now reads fast-changing UI/callback state from a runtime ref, so verdict UI transitions no longer cancel the drain and strand an already-keyed queued Ready Gate.
+- Review-comment documentation was scoped to the historical verification moments that produced it: the PR #1259 audit no longer presents `20260608215911` as the current top migration, and the command center scopes the `4e9f87d` main/origin-main alignment statement to the PR #1257 verification moment.
+- Added `shared/matching/reviewComments1256_1262Followups.test.ts`, wired into both `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+- Updated older remote-seen/static contracts so they assert the preserved base evidence source instead of the retry attempt label.
+- Branch delta: `docs/branch-deltas/fix-video-date-review-comments-1256-1262-followups.md`.
+
+Verification completed:
+
+- `npx tsx shared/matching/reviewComments1256_1262Followups.test.ts`
+- `npx tsx shared/matching/reviewComments1188_1197Followups.test.ts`
+- `npx tsx shared/matching/reviewComments1242_1256Followups.test.ts`
+- `npx tsx shared/matching/videoDateStrictDailyJoinRemoteSeen.test.ts`
+- `npx tsx shared/matching/videoDateStableBilateralMediaGateContracts.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` showed local and remote aligned through `20260609045533_video_date_pre_stable_survey_eligibility.sql`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date.`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0 with only legacy warning/notice output.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error` returned `No issues found`.
+
+Cloud scope:
+
+This branch changes source, tests, and docs only. No new Supabase migration or Edge Function was introduced, so no `supabase db push --linked --yes` or function deploy was required; linked cloud verification shows the existing cloud state is already aligned.
+
+Proof boundary:
+
+This is review-comment hardening evidence only. Video Date is still not product-accepted until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion by both users, plus short leave/rejoin and prolonged absence checks.
+
+---
+
 ## 2026-06-09 Implementation Update: Definitive Active Media Ownership, Stable Certification, And Survey Persistence
 
 Current source and linked Supabase cloud now include the definitive active-media ownership layer on top of the stable bilateral media gate work.
@@ -325,7 +372,7 @@ Verification completed before merge:
 
 Publish and cloud verification completed after merge:
 
-- PR #1257 merged to `main` as `4e9f87d7107b92a3e197dc0ded41412a9de951aa`; local `main` and `origin/main` are aligned at that SHA.
+- At the PR #1257 verification moment, PR #1257 merged to `main` as `4e9f87d7107b92a3e197dc0ded41412a9de951aa`; local `main` and `origin/main` were aligned at that SHA before later PRs advanced `main`.
 - Remote branch `codex/review-comments-1242-1256-followups` was deleted; `git ls-remote --heads origin codex/review-comments-1242-1256-followups main` returned only `refs/heads/main`.
 - GitHub checks passed: Host-safe smoke, Static matrix and contracts, Quick golden-path smoke, Video-date golden-path smoke, Phase 7 no-go guardrails, Phase 8 privacy/media contracts, Phase 9 playback/captions/lifecycle contracts, Vercel, and Vercel Preview Comments. Staging native/web matrix jobs were skipped by workflow design.
 - `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes` applied `20260608224048_review_comments_1242_1256_followups.sql` to linked project `schdyxcunwcvddlcshwd`.

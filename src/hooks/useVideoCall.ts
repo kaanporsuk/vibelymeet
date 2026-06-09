@@ -1656,6 +1656,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       return;
     }
 
+    const baseEvidenceSource = source;
     const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
       const call = callObjectRef.current;
       const providerSessionId = readDailyProviderSessionId(call);
@@ -1727,7 +1728,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           p_provider_session_id: providerSessionId,
           p_entry_attempt_id: entryAttemptId,
           p_owner_state: "joined",
-          p_evidence_source: attemptSource,
+          p_evidence_source: baseEvidenceSource,
         },
       };
     };

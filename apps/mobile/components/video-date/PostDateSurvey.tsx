@@ -297,6 +297,29 @@ export function PostDateSurvey({
   const finishSurveyInFlightRef = useRef(false);
   const queuedNavigationStartedRef = useRef(false);
   const queuedDrainAttemptKeyRef = useRef<string | null>(null);
+  const queuedDrainRuntimeRef = useRef({
+    finishing,
+    onQueuedVideoSessionReady,
+    onVideoDateReady,
+    submitting,
+    verdictUiState,
+  });
+
+  useEffect(() => {
+    queuedDrainRuntimeRef.current = {
+      finishing,
+      onQueuedVideoSessionReady,
+      onVideoDateReady,
+      submitting,
+      verdictUiState,
+    };
+  }, [
+    finishing,
+    onQueuedVideoSessionReady,
+    onVideoDateReady,
+    submitting,
+    verdictUiState,
+  ]);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const shellImpressionRef = useRef(false);
   const verdictImpressionRef = useRef(false);
@@ -627,7 +650,12 @@ export function PostDateSurvey({
             next_session_id: pendingSessionId,
           });
 
-          if (pendingSessionId && pendingSessionId !== sessionId && onVideoDateReady) {
+          const runtime = queuedDrainRuntimeRef.current;
+          if (
+            pendingSessionId &&
+            pendingSessionId !== sessionId &&
+            runtime.onVideoDateReady
+          ) {
             queuedNavigationStartedRef.current = true;
             trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
               platform: 'native',
@@ -638,14 +666,14 @@ export function PostDateSurvey({
               video_session_id: pendingSessionId,
               reason_code: 'pending_post_date_feedback',
             });
-            onVideoDateReady(pendingSessionId);
+            runtime.onVideoDateReady(pendingSessionId);
           } else {
             if (
-              submitting ||
-              verdictUiState === 'submitting' ||
-              verdictUiState === 'confirmed' ||
-              verdictUiState === 'awaiting_partner' ||
-              finishing ||
+              runtime.submitting ||
+              runtime.verdictUiState === 'submitting' ||
+              runtime.verdictUiState === 'confirmed' ||
+              runtime.verdictUiState === 'awaiting_partner' ||
+              runtime.finishing ||
               finishSurveyInFlightRef.current
             ) {
               trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
@@ -657,7 +685,7 @@ export function PostDateSurvey({
                 outcome: 'no_op',
                 reason_code: 'stale_pending_post_date_feedback',
                 next_session_id: pendingSessionId,
-                verdict_ui_state: verdictUiState,
+                verdict_ui_state: runtime.verdictUiState,
               });
               return;
             }
@@ -708,7 +736,7 @@ export function PostDateSurvey({
             route: 'ready_gate',
             video_session_id: nextSessionId,
           });
-          onQueuedVideoSessionReady?.(nextSessionId);
+          queuedDrainRuntimeRef.current.onQueuedVideoSessionReady?.(nextSessionId);
         } else {
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND, {
             platform: 'native',
@@ -732,13 +760,8 @@ export function PostDateSurvey({
   }, [
     drainQueueV2.enabled,
     eventId,
-    finishing,
-    onQueuedVideoSessionReady,
-    onVideoDateReady,
     sessionId,
-    submitting,
     userId,
-    verdictUiState,
   ]);
 
   useEffect(() => {

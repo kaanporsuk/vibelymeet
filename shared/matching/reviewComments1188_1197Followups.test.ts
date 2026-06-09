@@ -55,7 +55,9 @@ test("remote-seen clients restamp render observations instead of once-per-sessio
     assert.match(source, /REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000/);
     assert.match(source, /remoteSeenInFlightSessionRef/);
     assert.match(source, /remoteSeenLastStampRef/);
-    assert.match(source, /p_evidence_source: attemptSource/, name);
+    assert.match(source, /const baseEvidenceSource = source;/, name);
+    assert.match(source, /p_evidence_source: baseEvidenceSource/, name);
+    assert.match(source, /source: attemptSource/, name);
     assert.match(source, /source === ['"]remote_track_mounted['"]/, name);
     assert.doesNotMatch(source, /source === ['"]participant_joined['"]/, name);
     assert.doesNotMatch(source, /source === ['"]post_join_snapshot['"]/, name);
