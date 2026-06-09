@@ -172,9 +172,9 @@ The following blockers were real at audit time and are retained as historical co
 
 1. Active-event enforcement gap was real in production.
    - Remote `get_event_deck` has no live/unended marker.
-   - Remote `find_mystery_match` has no live/unended marker.
+   - Remote `find_mystery_match` had no live/unended marker in this historical snapshot; current schema removes the RPC.
    - Remote `handle_swipe` has cancelled/archived and session-ended markers, but no clear event-live marker.
-   - `promote_ready_gate_if_eligible` does have live and ended-null markers, so queue promotion is stricter than deck/swipe/mystery entry.
+   - `promote_ready_gate_if_eligible` does have live and ended-null markers, so queue promotion is stricter than deck/swipe/historical mystery entry.
 
 2. `swipe-actions` production source matched local source, so any swipe retry/idempotency or notification coupling risks from the audit were production-real, not local-only.
 
@@ -198,7 +198,7 @@ supabase functions download daily-room --project-ref schdyxcunwcvddlcshwd --use-
 supabase functions download send-notification --project-ref schdyxcunwcvddlcshwd --use-api
 ```
 
-Optional SQL marker query:
+Optional SQL marker query from this historical audit. For current verification, omit `find_mystery_match` and separately assert that no `find_mystery_match%` routines exist.
 
 ```bash
 supabase db query --linked -o json "
@@ -208,7 +208,6 @@ with target(proname) as (
     ('handle_swipe'),
     ('ready_gate_transition'),
     ('drain_match_queue'),
-    ('find_mystery_match'),
     ('promote_ready_gate_if_eligible')
 ),
 f as (

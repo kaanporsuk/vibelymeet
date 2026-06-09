@@ -148,4 +148,4 @@ Deploy requirement:
 
 ## Rollback Plan
 
-Add a forward migration that restores the prior `get_event_deck`, `handle_swipe`, `find_mystery_match`, `promote_ready_gate_if_eligible`, `drain_match_queue`, `get_event_lobby_inactive_reason`, and `is_event_lobby_active` definitions from the current deployed base migrations. Do not edit or delete applied migrations.
+Historical May 1 rollback plan: add a forward migration that restores the prior `get_event_deck`, `handle_swipe`, then-supported `find_mystery_match`, `promote_ready_gate_if_eligible`, `drain_match_queue`, `get_event_lobby_inactive_reason`, and `is_event_lobby_active` definitions from the then-current deployed base migrations. Do not use this as current guidance: `find_mystery_match` is intentionally removed by `20260609152000_remove_mystery_match.sql`, and current rollback work must not restore it.
