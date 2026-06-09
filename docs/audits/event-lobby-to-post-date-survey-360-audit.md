@@ -7,6 +7,8 @@ Backend guardrail: keep the hardened backend-authoritative model. Core transitio
 
 Supersession note (2026-04-29): Ready Gate/date registration ownership was tightened after this audit. Use `docs/ready-gate-server-owned-registration-status-final-audit.md` for current status ownership. Client-writable statuses are now limited to `browsing`, `idle`, `in_survey`, and `offline`; `in_ready_gate`, `in_handshake`, and `in_date` are server-owned.
 
+Supersession note (2026-06-09): Mystery Match was removed from the active product/backend path. Historical native-only Mystery Match findings below are no longer current behavior; the supported path is reciprocal swipe plus queue promotion into Ready Gate.
+
 ## 1. Executive summary
 
 The current flow is mostly backend-authoritative for high-risk business transitions. The strongest backend-owned surfaces are:
@@ -247,12 +249,12 @@ Legend:
 
 - `apps/mobile/app/event/[eventId]/lobby.tsx`
   - Native lobby surface.
-  - Uses native `useEventDeck`, swipe helpers, `useActiveSession`, `useMatchQueue`, `useEventStatus`, and `useMysteryMatch`.
+- Historically used native `useEventDeck`, swipe helpers, `useActiveSession`, `useMatchQueue`, `useEventStatus`, and `useMysteryMatch`; the Mystery Match hook was removed on 2026-06-09.
   - Subscribes to own `event_registrations` and event-scoped `video_sessions`.
   - Calls `mark_lobby_foreground` every 30s.
   - Calls `drainMatchQueue` at mount/foreground and every 10s while queued/syncing.
   - Can show `ReadyGateOverlay` or navigate to standalone `/ready/:id`.
-  - Contains native-specific "Mystery Match" empty-deck branch and implementation-flavored copy.
+- Historically contained a native-specific "Mystery Match" empty-deck branch and implementation-flavored copy; current source removes that branch.
 
 - `apps/mobile/lib/eventsApi.ts`
   - Deck RPC `get_event_deck`.
@@ -672,7 +674,7 @@ Severity definitions: P0 blocks trust-critical flow or loses data; P1 major user
 | P1 | Web has no first-remote forced rejoin watchdog. | Native has 25s watchdog and one rejoin. | `useVideoCall.ts`, `date/[id].tsx` | Provider recovery parity drift. | Media/provider. |
 | P1 | Survey can be interrupted by Ready Gate queue promotion through `useMatchQueue`. | Survey does not drain/promo during survey. | `PostDateSurvey.tsx`, native survey | Different queue behavior during survey. | State policy. |
 | P2 | Web visual hierarchy uses richer web controls/icons and overlay polish. | Native controls use simpler symbols/text and weaker hierarchy. | native video-date components | Native-specific wrapper/polish gap. | UI only. |
-| P2 | Web lobby guidance and swipe affordances are richer. | Native has implementation-flavored empty state copy around "native" Mystery Match. | native lobby | Native-only feature/copy drift. | UI copy. |
+| P2 | Web lobby guidance and swipe affordances are richer. | Historical native copy drift around native-only Mystery Match is superseded by the 2026-06-09 removal. | native lobby | Historical native-only feature/copy drift. | Superseded. |
 | P2 | Web Ready Gate CTA hierarchy is simple Ready/Skip. | Native standalone includes Snooze/Step away. | Ready Gate files | Contract supports all, UI differs. | UI/product. |
 | P2 | Web date extension surface is present through `KeepTheVibe`. | Native extension now exists; older docs are stale. | `KeepTheVibe.tsx` both | Documentation drift. | Docs/QA. |
 | P3 | Web survey is modal. | Native survey is full-screen branch. | survey components | Platform convention difference. | Likely acceptable if recovery fixed. |
@@ -768,7 +770,7 @@ The database path for a submitted verdict and match creation is reasonably atomi
 |---|---|---|---|---:|---:|---|---|
 | Event not live | Lobby blocked or swipe rejected. | UI + RPC | Lobby files, `handle_swipe`, `promote_ready_gate_if_eligible` | Mostly | No | P2 | Keep backend canonical; reduce client live-window drift. |
 | User not registered/confirmed | Redirect or denied lobby/deck/swipe. | UI + DB/RPC | `useIsRegisteredForEvent`, native event API, `handle_swipe` | Yes | No | P2 | Align error copy across platforms. |
-| Deck empty | Empty state; native may show Mystery Match. | RPC/UI | `useEventDeck`, native lobby | Partly | No | P2 | Add deck-empty telemetry and remove implementation copy. |
+| Deck empty | Empty state; current native no longer shows Mystery Match. | RPC/UI | `useEventDeck`, native lobby | Partly | No | P2 | Keep deck-empty telemetry and current no-Mystery-Match copy. |
 | Duplicate profiles/deck refetch weirdness | Same profile repeats or disappears. | RPC/client seen set | `useEventDeck`, lobby seen-profile logic | Partly | No | P2 | Add deck result ids telemetry; verify RPC exclusions. |
 | Mutual vibe while partner busy | Queued state, delayed Ready Gate. | RPC/presence | `handle_swipe`, `promote_ready_gate_if_eligible` | Yes | Possible delay | P1 | Keep backend conflict guard; improve queue wait UI. |
 | Queue drain bug | User never sees Ready Gate. | RPC/poll/RT | `drain_match_queue`, lobbies, `useMatchQueue` | Web by foreground/RT, native by loop | Possible | P1 | Add queue-age alerting and adaptive drain. |

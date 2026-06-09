@@ -4,9 +4,11 @@ Date: 2026-05-01
 Branch: `fix/event-lobby-active-event-contract`
 Mode: remote verification first, then additive migration hardening. No production data mutation was performed during pre-audit.
 
+2026-06-09 supersession: this verification predates Mystery Match removal. Historical rows and patch-plan references to `find_mystery_match` describe the May 1 active-event hardening state only. Current schema drops that RPC via `20260609152000_remove_mystery_match.sql`.
+
 ## Scope
 
-This stream verifies and tightens the backend Event Lobby active-event contract across deck fetch, swipe, mystery match, queue promotion, and direct legacy session paths. It does not change web/native UI, Super Vibe monetization, queue design, or historical migrations.
+This stream verified and tightened the backend Event Lobby active-event contract across deck fetch, swipe, then-supported Mystery Match, queue promotion, and direct legacy session paths. It did not change web/native UI, Super Vibe monetization, queue design, or historical migrations.
 
 ## Primary Audit Source
 
@@ -53,7 +55,7 @@ Remote `pg_get_functiondef` was queried for:
 |---|---:|---|
 | `get_event_deck(uuid,uuid,integer)` | `61cfc877ed62451f73174183c44f3d6c` | Auth guard present, uses old inactive helper, silently returns zero rows when inactive. |
 | `handle_swipe(uuid,uuid,uuid,text)` | `f6a7201bf4871b5ad48f5fca44a98d4e` | Auth/registration and old active guard present before `event_swipes`, `video_sessions`, and delegated mutation. |
-| `find_mystery_match(uuid,uuid)` | `d9982a4a541d98a69e0aff5cfe5962f0` | Auth/registration and old active guard present before delegated session creation. |
+| `find_mystery_match(uuid,uuid)` | historical May 1 marker | Auth/registration and old active guard were present before delegated session creation; removed from current schema on 2026-06-09. |
 | `drain_match_queue(uuid)` | `282bd05410e55cf1dda6e7b100231434` | Auth/registration and old active guard present before delegated drain/promotion. |
 | `promote_ready_gate_if_eligible(uuid,uuid)` | `8653fbf87b9901e42159056e2df73381` | Auth/registration and old active guard present before delegated promotion. |
 | `ready_gate_transition(uuid,text,text)` | `edc877ec0657cf772259dd5ac4b89483` | `sync`/`mark_ready`/`snooze` detect inactive event through old helper after locking the session row. |
@@ -87,7 +89,7 @@ Contract gaps versus this stream's target:
 |---|---:|---|
 | `get_event_deck` | Partial | Guard exists but silently returns zero rows. |
 | `handle_swipe` | Yes | Guard runs after actor auth/registration and before target lookup, swipes, sessions, registration updates, or notification outcomes. |
-| `find_mystery_match` | Yes | Guard runs after auth/registration and before base session creation. |
+| `find_mystery_match` | Historical only | Guard ran after auth/registration and before base session creation in the May 1 state; current schema removes this RPC. |
 | `drain_match_queue` | Yes | Guard runs after auth/registration and before delegated drain. |
 | `promote_ready_gate_if_eligible` | Yes | Guard runs after auth/registration and before delegated promotion. |
 | `ready_gate_transition` | Yes for `sync`/`mark_ready`/`snooze` | Inactive cleanup runs after locked session row. `forfeit` remains cleanup and delegates to the hardened base. |
@@ -107,7 +109,7 @@ Changes:
 - Keep `get_event_lobby_inactive_reason(uuid)` and `is_event_lobby_active(uuid)` as compatibility wrappers over the canonical helper.
 - Preserve internal helper posture: `SECURITY DEFINER`, pinned `search_path`, revoked from `PUBLIC`, `anon`, and `authenticated`, granted only to `service_role`.
 - Recreate `get_event_deck` to raise `event_not_active` after auth and before base delegation.
-- Recreate `handle_swipe`, `find_mystery_match`, `promote_ready_gate_if_eligible`, and `drain_match_queue` so they use the canonical helper while preserving existing success-path delegation and return shapes.
+- Recreate `handle_swipe`, then-supported `find_mystery_match`, `promote_ready_gate_if_eligible`, and `drain_match_queue` so they use the canonical helper while preserving existing success-path delegation and return shapes. Current schema later removes `find_mystery_match`.
 - Add `outcome: "event_not_active"` to inactive `handle_swipe` JSON while preserving `result`, `error`, `reason`, `notification_suppressed`, and `dedupe_reason`.
 - Keep direct legacy queue/session surfaces documented as deprecated non-bypasses.
 
@@ -120,7 +122,7 @@ Schema/RPC contract delta:
 - Updated public RPC behavior:
   - `get_event_deck(uuid, uuid, integer)` now raises `event_not_active` instead of returning an empty deck for inactive events.
   - `handle_swipe(uuid, uuid, uuid, text)` inactive JSON now includes additive `outcome: "event_not_active"`.
-  - `find_mystery_match(uuid, uuid)`, `drain_match_queue(uuid)`, and `promote_ready_gate_if_eligible(uuid, uuid)` now use the canonical helper.
+  - Historical May 1 state: `find_mystery_match(uuid, uuid)`, `drain_match_queue(uuid)`, and `promote_ready_gate_if_eligible(uuid, uuid)` used the canonical helper. Current schema removes `find_mystery_match`.
 - Updated validation: `supabase/validation/event_lobby_active_event_contract.sql`.
 - Added source/static regression: `shared/matching/eventLobbyCanonicalActiveState.test.ts`.
 - Updated hardening test runner: `scripts/run_hardening_contract_tests.sh`.

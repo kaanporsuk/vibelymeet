@@ -11,6 +11,8 @@ Supabase project ref: `schdyxcunwcvddlcshwd`
 > For current Event Lobby launch posture, use
 > `docs/audits/event-lobby-closure-report.md` and
 > `docs/audits/event-lobby-deep-cleanup-audit-2026-05-01.md`.
+>
+> 2026-06-09 supersession: Mystery Match was later removed from active web/native/backend surfaces. Historical references below to `find_mystery_match`, `useMysteryMatch`, or Mystery Match side-effect gating are no longer current behavior.
 
 ## Scope
 
@@ -26,7 +28,7 @@ This audit reviewed the recently landed Event Lobby / Ready Gate / Video Date ha
 - Read-only catalog marker query confirmed deployed RPCs exist and contain the expected active-event / duplicate-swipe guards:
   - `get_event_deck`: deployed, uses `get_event_lobby_active_state`, contains `event_not_active`
   - `handle_swipe`: deployed, uses `get_event_lobby_active_state`, contains `event_not_active` and `already_swiped`
-  - `find_mystery_match`: deployed, uses `get_event_lobby_active_state`, contains `event_not_active`
+  - `find_mystery_match`: historical May 1 state only; it was deployed then, used `get_event_lobby_active_state`, and contained `event_not_active`. Current schema removes it.
   - `drain_match_queue`: deployed, uses `get_event_lobby_active_state`, contains `event_not_active`
   - `ready_gate_transition`: deployed, contains `event_not_active`
   - `get_event_lobby_active_state`: deployed
@@ -50,7 +52,7 @@ No production data was mutated.
 - Added `archivedAt` and `endedAt` to web `EventDetails`; the shared `getEventLobbyGateState` now blocks on backend terminal/archive markers and the server active-status allowlist used by web and native.
 - Extended the web/native Event Lobby gating regression test to assert `archived_at` / `ended_at` mapping and native side-effect gating.
 - Added native `EventRow.archived_at` and `EventRow.ended_at` fields.
-- Tightened native Event Lobby local gating so deck fetch, lobby status, foreground heartbeats, queue refresh/drain, and Mystery Match only run after route, user, event, confirmed registration, not-paused status, and local live-window truth are valid.
+- Tightened native Event Lobby local gating so deck fetch, lobby status, foreground heartbeats, queue refresh/drain, and then-supported Mystery Match only ran after route, user, event, confirmed registration, not-paused status, and local live-window truth were valid. Current source removes Mystery Match.
 - Updated native event lifecycle handling for `ended`, `completed`, `cancelled`, `archived`, `draft`, `ended_at`, and `archived_at`.
 - Made native `useEventStatus` no-op while disabled, matching the web hook posture.
 - Refreshed `docs/audits/surface-inventory-candidates-2026-04-14.md` with the current mechanical inventory and preserved the no-mass-delete interpretation.
@@ -63,7 +65,7 @@ Public backend contract surfaces changed: none.
 Client contract behavior changed:
 
 - Web Event Lobby local gate now honors `events.archived_at` and `events.ended_at` in addition to status and scheduled end time.
-- Native Event Lobby now disables deck/status/foreground/queue/Mystery Match side effects unless the user has a confirmed live seat and the event is locally live.
+- Native Event Lobby disabled deck/status/foreground/queue/Mystery Match side effects unless the user had a confirmed live seat and the event was locally live in this historical state. Current source removes Mystery Match and still gates deck/status/foreground/queue.
 
 Cloud deploy requirements:
 

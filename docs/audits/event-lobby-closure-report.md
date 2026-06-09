@@ -5,6 +5,8 @@ Branch: `audit/event-lobby-closure`
 Supabase project ref: `schdyxcunwcvddlcshwd`
 Latest local and remote migration: `20260501230000_event_lobby_deck_payload_media.sql`
 
+2026-06-09 addendum: this closure report is historical for the May 1 Event Lobby hardening stack. Mystery Match was later removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`; current source/generated types should not expose `find_mystery_match`, and the supported session creation path is reciprocal swipe plus supported queue promotion.
+
 ## Executive Verdict
 
 The Event Lobby Deck work is **launch-ready for backend/web/native contract posture**.
@@ -40,7 +42,7 @@ The original path now exists as a status pointer to this closure report.
 
 | ID | Original finding | Status | Closure evidence |
 |---|---|---|---|
-| `EVT-LOBBY-001` | Backend active-event enforcement | Closed | Deployed `get_event_lobby_active_state(uuid,timestamptz)` reason taxonomy is present. Remote marker query confirms `get_event_deck`, `handle_swipe`, `find_mystery_match`, `drain_match_queue`, and `promote_ready_gate_if_eligible` use the active helper / inactive guards. Tests: `eventLobbyCanonicalActiveState.test.ts`, `eventLobbyActiveEventContract.test.ts`. |
+| `EVT-LOBBY-001` | Backend active-event enforcement | Closed | Deployed `get_event_lobby_active_state(uuid,timestamptz)` reason taxonomy was present. The May 1 remote marker query confirmed `get_event_deck`, `handle_swipe`, then-supported `find_mystery_match`, `drain_match_queue`, and `promote_ready_gate_if_eligible` used the active helper / inactive guards. Current schema removes `find_mystery_match`. Tests: `eventLobbyCanonicalActiveState.test.ts`, `eventLobbyActiveEventContract.test.ts`. |
 | `EVT-LOBBY-002` | Web missing-event dead-end | Closed | `src/lib/eventLobbyGating.ts` and `src/pages/EventLobby.tsx` render explicit missing/unavailable states and disable deck fetch. Tests: `webEventLobbyGating.test.ts`. |
 | `EVT-LOBBY-003` | Ended-event stale lobby/stale swipes | Closed | Backend returns `event_not_active` without mutation; web/native gate ended/inactive states; native now treats backend inactive deck/swipe responses as terminal. Tests: active-event, web gating, native parity, and regression harness. |
 | `EVT-LOBBY-004` | Busy/in-session candidates swipeable | Closed | Deployed `get_event_deck` hides busy/non-swipeable states; `handle_swipe` and queue promotion return `participant_has_active_session_conflict` before mutation. Contract: `docs/contracts/event-lobby-ready-queue-contract.md`. |
@@ -80,7 +82,7 @@ Remote RPC marker query:
 | `get_event_lobby_active_state(uuid,timestamptz)` | `0eaa696dfc0efa7009a4bc74b026c8b4` | `event_not_found`, `event_not_live`, `event_draft`, `event_cancelled`, `event_archived`, `event_ended`, `event_not_started`, `event_outside_live_window` |
 | `get_event_deck(uuid,uuid,integer)` | `17c5385df896d6c4b0947a50c7d04eb0` | active helper, `event_not_active`, `availability_state`, `primary_photo_path`, `photo_verified`, `premium_badge` |
 | `handle_swipe(uuid,uuid,uuid,text)` | `b39403eafedf23104920c56b0a58c55c` | active helper, `event_not_active`, `already_swiped`, `participant_has_active_session_conflict` |
-| `find_mystery_match(uuid,uuid)` | `8f80d226d3d3ad8837c1a951b73c84d3` | active helper, `event_not_active` |
+| `find_mystery_match(uuid,uuid)` | historical May 1 marker | active helper, `event_not_active`; removed from current schema by `20260609152000_remove_mystery_match.sql` |
 | `drain_match_queue(uuid)` | `3085db275ba3c5eb9c9d439e7f81cc1a` | active helper, `event_not_active` |
 | `promote_ready_gate_if_eligible(uuid,uuid)` | `f2ece9fa3ca9285320c68ee332fcfa51` | active helper, `event_not_active`, `participant_has_active_session_conflict` |
 | `ready_gate_transition(uuid,text,text)` | `edc877ec0657cf772259dd5ac4b89483` | `event_not_active` terminal handling |
@@ -117,7 +119,7 @@ Client-owned business logic check:
 - No app calls to `supabase.rpc('handle_swipe')`.
 - Event Lobby swipes go through `swipe-actions` with explicit user `Authorization` and `apikey` headers.
 - Client reads of `event_swipes` remain count-only Super Vibe display helpers; no client inserts into `event_swipes` or `video_sessions` were found in Event Lobby paths.
-- Session creation, queue promotion, Ready Gate transitions, and notification side effects remain backend/Edge-owned.
+- Session creation, queue promotion, Ready Gate transitions, and notification side effects remain backend/Edge-owned. Current session creation is reciprocal swipe plus supported queue promotion; Mystery Match is no longer a supported path.
 
 ## Validation Results
 

@@ -4,6 +4,8 @@ Date: 2026-05-01
 Branch: `audit/event-lobby-investigation-gating-queue-lifecycle`
 Supabase project ref: `schdyxcunwcvddlcshwd / MVP_Vibe`
 
+2026-06-09 supersession: this investigation predates Mystery Match removal. Historical references to Mystery Match side-effect gating describe the pre-removal native path only; current Event Lobby no longer imports or runs `useMysteryMatch`.
+
 ## Executive Verdict
 
 PASS.
@@ -13,7 +15,7 @@ Streams 3, 3b, and 4 remain landed as intended across web, native, backend SQL, 
 The only caveats are already documented launch posture items:
 
 - Native and web now share the same gate helper contract; local booleans must remain derived from `getEventLobbyGateState` so backend active-state semantics do not drift across platforms.
-- Native keeps participant-scoped realtime listeners alive with route/user identity for backend-truth recovery. Side-effecting deck/status/foreground/queue/Mystery Match work remains gated behind local live/confirmed/not-paused truth.
+- Native keeps participant-scoped realtime listeners alive with route/user identity for backend-truth recovery. In the May 1 state, side-effecting deck/status/foreground/queue/Mystery Match work remained gated behind local live/confirmed/not-paused truth; current source removes Mystery Match entirely.
 - The surface inventory still reports 41 candidate orphan components, but the audit method remains triage-only and not a deletion manifest.
 - `npm run lint` exits 0 with the existing 208-warning backlog.
 - `npm run build` exits 0 with existing Vite chunk/dynamic import warnings.
@@ -101,7 +103,7 @@ Native implements equivalent local truth in `apps/mobile/app/event/[eventId]/lob
 | State | Native behavior |
 |---|---|
 | Missing event | Renders Event-not-found error before lobby content |
-| Scheduled/not started | `isLiveWindow` false; deck/status/foreground/queue/Mystery Match disabled |
+| Scheduled/not started | `isLiveWindow` false; deck/status/foreground/queue disabled; historical Mystery Match path removed |
 | Ended by status/completed | `isEventEndedByTruth` true; ended UI rendered; side effects disabled |
 | Ended by scheduled end | `isEventEndedByTruth` true; ended UI rendered; side effects disabled |
 | `ended_at` | `isEventEndedByTruth` true; ended UI rendered; side effects disabled |
@@ -110,8 +112,8 @@ Native implements equivalent local truth in `apps/mobile/app/event/[eventId]/lob
 | Draft | Error state and route back to event; side effects disabled |
 | Not confirmed / waitlisted | Register/waitlist error state; side effects disabled |
 | Paused account | `lobbySideEffectsEnabled` false; swipe/deck side effects disabled |
-| Live confirmed unpaused | Deck, foreground stamp, queue drain, status hook, and Mystery Match can run |
-| Backend `event_not_active` swipe/deck response | Native sets `serverInactiveEventReason`, cancels Mystery Match, invalidates event details, and disables live window truth |
+| Live confirmed unpaused | Deck, foreground stamp, queue drain, and status hook can run; historical Mystery Match path removed |
+| Backend `event_not_active` swipe/deck response | Native sets `serverInactiveEventReason`, invalidates event details, and disables live window truth; historical Mystery Match cancel path removed |
 
 Evidence:
 
@@ -119,7 +121,7 @@ Evidence:
 - Deck fetch uses `useEventDeck(id, user?.id ?? null, deckQueryEnabled)`.
 - Foreground stamp requires `lobbySideEffectsEnabled`, focused lobby, and active AppState.
 - Queue refresh/drain requires `lobbySideEffectsEnabled`.
-- Mystery Match receives `enabled: mysteryMatchEnabled`, where `mysteryMatchEnabled = lobbySideEffectsEnabled`.
+- Historical May 1 path: Mystery Match received `enabled: mysteryMatchEnabled`, where `mysteryMatchEnabled = lobbySideEffectsEnabled`. Current source deletes this hook and wiring.
 - Swipe handler exits unless `current`, not processing, and `lobbySideEffectsEnabled`.
 - Date navigation uses `ensureVideoDateStartableBeforeNavigation`; no native date navigation is based solely on local Ready Gate optimism.
 

@@ -5,6 +5,8 @@ Branch: `audit/event-lobby-production-contract-verification`
 Mode: read-only production verification. No code fixes, deploys, pushes, migration edits, or Supabase cloud mutations were performed.
 
 > Current status note, 2026-05-01: this document is a historical pre-hardening production snapshot. The blockers identified here were intentionally closed by Streams 1-11, especially PRs #613-#624. Do not use the historical readiness verdict below as current production posture; use the stream branch deltas, validation SQL, and hardening contract tests for current state.
+>
+> Current Event Lobby note, 2026-06-09: Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. Rows below mentioning `find_mystery_match` are historical production evidence, not current schema.
 
 ## Executive Summary
 
@@ -84,7 +86,7 @@ Remote current function definitions were queried with `pg_get_functiondef` and c
 |---|---|---:|---|
 | `get_event_deck` | `p_event_id uuid, p_user_id uuid, p_limit integer` | `3278f6033a3c9d44248bb5034dc7c369` | `is_profile_discoverable`; no live/unended marker |
 | `handle_swipe` | `p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text` | `9c9e811826f9d698ad78eab7ab8cc7c7` | pair advisory lock marker, cancelled/archived marker, discoverability marker |
-| `find_mystery_match` | `p_event_id uuid, p_user_id uuid` | `994ef2459537426241d0ba390598b296` | discoverability marker; no live/unended marker |
+| `find_mystery_match` | `p_event_id uuid, p_user_id uuid` | historical 2026-04-30 marker | discoverability marker; no live/unended marker; removed from current schema on 2026-06-09 |
 | `drain_match_queue` | `p_event_id uuid` | `c2328b0d89e89425fa2cb1402569cc31` | `expire_stale_video_sessions`, `promote_ready_gate_if_eligible` |
 | `promote_ready_gate_if_eligible` | `p_event_id uuid, p_uid uuid` | `e938ce5ea36109781564ed12b4437155` | promotion helper; regex check confirms live status and ended-null markers |
 | `ready_gate_transition` | `p_session_id uuid, p_action text, p_reason text` | `b01fbd799302e91d5cc4cb906e6d7f0d` | `20260501170000` wrapper and both-ready provider grace marker |
@@ -109,7 +111,7 @@ Key local migration definitions participating in the contract:
 | `swipe-actions` | Edge Function source at `supabase/functions/swipe-actions/index.ts` |
 | `ready_gate_transition` | Base hardening in `20260501090000...`, observability wrapper in `20260501135000...`, latest both-ready grace wrapper in `20260501170000...` |
 | `drain_match_queue` | Current one-arg RPC lineage through `20260420120000`, `20260421120000`, `20260423120000` |
-| `find_mystery_match` | Current definition in `20260430190000_enforce_discovery_audience_in_discovery_surfaces.sql` |
+| `find_mystery_match` | Historical definition in `20260430190000_enforce_discovery_audience_in_discovery_surfaces.sql`; removed from current schema by `20260609152000_remove_mystery_match.sql` |
 | `event_registrations` | Base table plus queue/status/presence hardening, including `20260501142000_ready_gate_client_lifecycle_overwrite_guard.sql` |
 | `event_swipes` | Base table and uniqueness/indexes from `20260212180837...` and later hardening |
 | `video_sessions` | Base table, unique pair/session constraints, active lookup indexes, RLS lockdown, Ready Gate/date lifecycle fields |

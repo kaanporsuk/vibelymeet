@@ -4,6 +4,8 @@ Date: 2026-05-01
 
 Branch: `audit/event-lobby-investigation-backend-contracts`
 
+2026-06-09 supersession: this investigation predates Mystery Match removal. Historical rows below mentioning `find_mystery_match` describe the May 1 backend contract only; current schema removes that RPC and keeps reciprocal swipe plus queue promotion as the supported path.
+
 ## 1. Executive Verdict
 
 Verdict: pass.
@@ -103,7 +105,7 @@ Remote schema column check confirmed the helper references actual `events` colum
 | --- | --- | --- | --- | --- | --- |
 | `get_event_deck(uuid,uuid,integer)` | Yes. Latest wrapper uses `get_event_lobby_active_state` and raises `event_not_active`. | Before base deck/candidate lookup. | Requires `auth.uid() = p_user_id`; service role remains trusted. | Raises `event_not_active` with canonical inactive state context. | Authenticated clients can call the RPC, but cannot bypass actor or active-event checks. |
 | `handle_swipe(uuid,uuid,uuid,text)` | Yes. Active state is checked before target lookup, swipe insertion, session mutation, registration updates, and delegated side effects. | Before natural-key mutation/delegation; also protected by event and participant locks. | Requires authenticated actor ownership or service role. | Returns `event_not_active` with duplicate/idempotency path blocked behind active check. | Authenticated clients can call the RPC, but cannot bypass actor, event active, duplicate, or active-session guards. |
-| `find_mystery_match(uuid,uuid)` | Yes. Active state check and event lock exist before base session creation. | Before candidate selection/session creation. | Requires caller ownership or service role. | Raises/returns inactive truth before matching. | Direct client call cannot create a session for inactive events. |
+| `find_mystery_match(uuid,uuid)` | Historical only. Active state check and event lock existed before base session creation in the May 1 state. | Before candidate selection/session creation. | Required caller ownership or service role. | Raised/returned inactive truth before matching. | Current schema removes this RPC. |
 | `drain_match_queue(uuid)` | Yes. Checks active helper and event validity before drain/promotion. | Before queue drain side effects. | Callable by authenticated/service role, but backend promotion guard is enforced. | Raises/returns inactive or invalid event truth. | Direct client call cannot bypass active promotion guard. |
 | `promote_ready_gate_if_eligible(uuid,uuid)` | Yes. Checks active helper, event validity, event lock, participant locks, and one-active-session conflict. | Before promotion/session activation delegation. | Requires service role or the same authenticated user. | Raises/returns inactive event truth before promotion. | Direct client call cannot promote inactive events or other users. |
 | `ready_gate_transition(uuid,text,text)` | Yes for `sync`, `mark_ready`, and `snooze`; inactive events terminalize through event inactivity truth. | Under locked session row before transition-sensitive mutation. | Uses `auth.uid()` participant ownership checks; service role remains trusted. | Returns terminal/event-inactive truth such as `event_not_active` / inactive reason. | Public RPC remains callable, but session ownership and inactive event checks prevent UI bypass. |
@@ -113,7 +115,7 @@ Remote schema column check confirmed the helper references actual `events` colum
 
 Remote catalog markers also showed:
 
-- `handle_swipe`, `get_event_deck`, `find_mystery_match`, `drain_match_queue`, `promote_ready_gate_if_eligible`, and `ready_gate_transition` include active-event helper markers.
+- May 1 state: `handle_swipe`, `get_event_deck`, then-supported `find_mystery_match`, `drain_match_queue`, `promote_ready_gate_if_eligible`, and `ready_gate_transition` included active-event helper markers. Current schema removes `find_mystery_match`.
 - Deprecated `find_video_date_match` and `join_matching_queue` include deprecated/no-session markers and no `video_sessions` insert marker.
 - `leave_matching_queue` has cleanup update markers but no session creation marker.
 

@@ -5,6 +5,8 @@ Branch: `audit/event-lobby-deep-cleanup`
 Base commit: `b6b93814e2ad3f837a3aa793c079050e738a665f`
 Supabase project ref: `schdyxcunwcvddlcshwd`
 
+2026-06-09 addendum: this audit is historical for the May 1 hardening stack. Mystery Match was later removed from active web/native/backend surfaces; current source/generated types should not expose `useMysteryMatch` or `find_mystery_match`.
+
 ## Executive Verdict
 
 The Event Lobby hardening stack is landed as intended across Git, local source, and Supabase cloud.
@@ -48,7 +50,7 @@ Remote RPC marker query confirmed:
 | `get_event_lobby_active_state(uuid,timestamptz)` | deployed canonical active-state helper |
 | `get_event_deck(uuid,uuid,integer)` | active helper, `event_not_active`, `availability_state`, `primary_photo_path`, `photo_verified`, `premium_badge` |
 | `handle_swipe(uuid,uuid,uuid,text)` | active helper, `event_not_active`, `already_swiped`, `participant_has_active_session_conflict` |
-| `find_mystery_match(uuid,uuid)` | active helper and `event_not_active` |
+| `find_mystery_match(uuid,uuid)` | historical May 1 marker: active helper and `event_not_active`; removed from current schema by `20260609152000_remove_mystery_match.sql` |
 | `drain_match_queue(uuid)` | active helper and `event_not_active` |
 | `promote_ready_gate_if_eligible(uuid,uuid)` | active helper, `event_not_active`, active-session conflict marker |
 | `ready_gate_transition(uuid,text,text)` | inactive-event terminal handling |
@@ -60,7 +62,7 @@ Remote RPC marker query confirmed:
 Backend:
 
 - Active-event checks are centralized through `get_event_lobby_active_state`.
-- Deck, swipe, mystery match, queue drain, promotion, and Ready Gate paths expose or enforce inactive-event outcomes.
+- Deck, swipe, then-supported Mystery Match, queue drain, promotion, and Ready Gate paths exposed or enforced inactive-event outcomes in the May 1 state. Current schema removes Mystery Match.
 - Swipe retry/idempotency returns duplicate/no-op semantics and suppresses notification side effects.
 - Busy/in-session users are hidden from normal deck candidates, and direct active-session collisions fail safely.
 - Deck payload additions are viewer-safe and exclude private proof/moderation/contact fields by contract and tests.

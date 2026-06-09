@@ -3,6 +3,8 @@
 Date: 2026-05-01
 Branch: `fix/event-lobby-ready-queue-contract`
 
+2026-06-09 supersession: this verification predates Mystery Match removal. The `find_mystery_match` row below is historical; current schema drops the RPC and the supported path is reciprocal swipe plus queue promotion.
+
 ## Remote Verification
 
 - Supabase project ref: `schdyxcunwcvddlcshwd`
@@ -56,7 +58,7 @@ Add migration `20260501225000_event_lobby_ready_queue_contract.sql`:
 |---|---|---|
 | `get_event_deck` | Raises `event_not_active` | Hides non-idle/browsing statuses and active Ready Gate/handshake/date session truth |
 | `handle_swipe` | Returns `event_not_active` before mutation | Returns `participant_has_active_session_conflict` before swipe/session/registration mutation |
-| `find_mystery_match` | Already guarded by Prompt 1 | Not changed in this stream |
+| `find_mystery_match` | Historical only; already guarded by Prompt 1 in May 1 state | Removed from current schema by `20260609152000_remove_mystery_match.sql` |
 | `promote_ready_gate_if_eligible` | Returns `event_not_valid` with inactive reason | Locks queued pair and blocks if either participant has another unended session |
 | `drain_match_queue` | Returns `event_not_valid` with inactive reason | Delegates promotion through the public promotion guard |
 | `ready_gate_transition` | Already terminalizes event-ended sessions | Not redesigned; date entry remains backend truth driven |
