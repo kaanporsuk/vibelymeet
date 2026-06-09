@@ -89,15 +89,15 @@ If running optional broader Video Date checks, note that a failure in `npm run t
 
 ## Legacy Direct Queue/Session RPC Removal Verification
 
-Direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` are removed from the active backend contract as of migration `20260609163130_remove_legacy_queue_session_rpcs.sql`. `leave_matching_queue(uuid)` remains intentionally retained.
+Direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` are removed from the active backend contract as of migration `20260609163130_remove_legacy_queue_session_rpcs.sql`. The remaining legacy cleanup RPC `leave_matching_queue(uuid)` is removed as of migration `20260609165218_remove_leave_matching_queue.sql`.
 
 Required read-only checks:
 
 ```bash
-rg -n "find_video_date_match|join_matching_queue|deprecated_legacy_queue_surface" \
+rg -n "find_video_date_match|join_matching_queue|leave_matching_queue|deprecated_legacy_queue_surface" \
   src apps/mobile supabase/functions shared --glob '!**/*.test.ts' --glob '!src/integrations/supabase/types.ts'
 
-rg -n "find_video_date_match|join_matching_queue" src/integrations/supabase/types.ts
+rg -n "find_video_date_match|join_matching_queue|leave_matching_queue" src/integrations/supabase/types.ts
 
 npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts
 npx tsx shared/matching/videoDateClosureIssuesContracts.test.ts
@@ -106,10 +106,10 @@ npx tsx shared/matching/videoDateClosureIssuesContracts.test.ts
 Expected result:
 
 - no active runtime callsites;
-- no generated-type entries for either removed RPC;
-- linked Supabase public routines have no `find_video_date_match` or `join_matching_queue`;
-- linked Supabase still has `leave_matching_queue`;
-- validation checks use `to_regprocedure(...) is null` for the two removed RPCs.
+- no generated-type entries for any removed RPC;
+- linked Supabase public routines have no `find_video_date_match`, `join_matching_queue`, or `leave_matching_queue`;
+- validation checks use `to_regprocedure(...) is null` for all three removed RPCs;
+- active `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, and Video Date state-machine behavior remain intact.
 
 ## Manual Staging Smoke
 

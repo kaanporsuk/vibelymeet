@@ -12391,7 +12391,6 @@ export type Database = {
         Returns: boolean
       }
       is_valid_bunny_video_uid: { Args: { p_uid: string }; Returns: boolean }
-      leave_matching_queue: { Args: { p_event_id: string }; Returns: Json }
       lock_event_lobby_scheduled_active_state: {
         Args: { p_event_id: string; p_now?: string }
         Returns: {

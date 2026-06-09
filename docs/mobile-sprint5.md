@@ -2,6 +2,8 @@
 
 Sprint 5 implements the real video date room on mobile using the same backend and Daily.co contracts as web. Cross-platform calls (mobile–web, mobile–mobile) are supported.
 
+Current 2026-06-09 note: this sprint note preserves the implementation shape at the time it was written. The legacy `leave_matching_queue(uuid)` RPC has since been removed from the active backend contract by `20260609165218_remove_leave_matching_queue.sql`; current web/native end flows rely on `video_date_transition('end')`, Daily cleanup, and the supported Event Lobby path.
+
 ## Repo contracts used
 
 ### Video provider and join flow
@@ -16,7 +18,7 @@ Sprint 5 implements the real video date room on mobile using the same backend an
 - **Room cleanup:** Edge Function `daily-room` with body `{ action: "delete_room", roomName }`. Mobile calls after leaving the call (best-effort).
 
 ### End/leave flow
-- **Web:** `endCall()` (Daily leave + destroy), then `daily-room` delete_room, then `video_date_transition` end; optionally `leave_matching_queue` if event context. Mobile mirrors: leave Daily call, delete_room, video_date_transition end, leave_matching_queue when event_id present, then navigate to event lobby or tabs.
+- **Web:** `endCall()` (Daily leave + destroy), then `daily-room` delete_room, then `video_date_transition` end. Mobile mirrors: leave Daily call, delete_room, `video_date_transition` end, then navigate to event lobby or tabs.
 
 ### Realtime
 - **Web:** Subscribes to `video_sessions` UPDATE for phase/timer and ended_at. Mobile subscribes in `useVideoDateSession`; when state becomes `ended`, mobile leaves the Daily call and cleans up, then shows "Date ended" and navigates on Continue.
@@ -24,7 +26,7 @@ Sprint 5 implements the real video date room on mobile using the same backend an
 ## Implemented in Sprint 5
 
 1. **Video date API** (`lib/videoDateApi.ts`): `useVideoDateSession(sessionId, userId)` — loads session + partner, phase, timeLeft; realtime subscription for phase/ended. Helpers: `getDailyRoomToken(sessionId)`, `enterHandshake(sessionId)`, `endVideoDate(sessionId, reason?)`, `deleteDailyRoom(roomName)`.
-2. **Video date screen** (`app/date/[id].tsx`): Loads session/partner; requests camera/mic permissions (Android runtime prompts + iOS via `expo-camera`); gets token via `daily-room` create_date_room; calls `enter_handshake` if needed; creates Daily call object, joins with url+token; renders `DailyMediaView` for local and remote; End button triggers leave, delete_room, video_date_transition end, leave_matching_queue (if event), navigate. Handles loading, error, "Date ended", and in-call UI. Realtime: when backend sets session to ended, client leaves and shows ended state.
+2. **Video date screen** (`app/date/[id].tsx`): Loads session/partner; requests camera/mic permissions (Android runtime prompts + iOS via `expo-camera`); gets token via `daily-room` create_date_room; calls `enter_handshake` if needed; creates Daily call object, joins with url+token; renders `DailyMediaView` for local and remote; End button triggers leave, delete_room, `video_date_transition` end, then navigation. Handles loading, error, "Date ended", and in-call UI. Realtime: when backend sets session to ended, client leaves and shows ended state.
 
 ## Video provider integration
 

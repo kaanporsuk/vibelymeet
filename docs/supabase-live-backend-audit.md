@@ -8,7 +8,7 @@
 >
 > Update 2026-06-09: Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. Historical references below to `find_mystery_match`, `useMysteryMatch`, or `session_source = 'mystery_match'` do not describe current schema or client behavior. Current Video Date session creation is reciprocal swipe plus supported queue promotion into Ready Gate.
 >
-> Update 2026-06-09: direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`. Historical rows below that list them as callable do not describe current schema. `leave_matching_queue(uuid)` remains intentionally retained.
+> Update 2026-06-09: direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`, and `leave_matching_queue(uuid)` was removed by `supabase/migrations/20260609165218_remove_leave_matching_queue.sql`. Historical rows below that list them as callable do not describe current schema.
 >
 > Historical note: this document preserves a March 18, 2026 live audit snapshot. For current schema truth, use the latest migrations, live DB state, and `src/integrations/supabase/types.ts`.
 
@@ -70,7 +70,7 @@ Relevant FKs (from live DB, `confdeltype`: `c` = CASCADE, `a` = NO ACTION):
 
 ### Historical live public RPCs (callable; triggers omitted)
 
-Routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premium_status`, `claim_media_delete_jobs`, `complete_media_delete_job`, `daily_drop_transition`, `deduct_credit`, `drain_match_queue`, `enqueue_media_delete`, `find_mystery_match`, `generate_recurring_events`, `get_event_deck`, `get_other_city_events`, `get_visible_events`, `handle_swipe`, `leave_matching_queue`, `promote_purgeable_assets`, `ready_gate_transition`, `release_media_reference`, `update_participant_status`, `video_date_transition`.
+Historical March 18 routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premium_status`, `claim_media_delete_jobs`, `complete_media_delete_job`, `daily_drop_transition`, `deduct_credit`, `drain_match_queue`, `enqueue_media_delete`, `find_mystery_match`, `generate_recurring_events`, `get_event_deck`, `get_other_city_events`, `get_visible_events`, `handle_swipe`, `leave_matching_queue`, `promote_purgeable_assets`, `ready_gate_transition`, `release_media_reference`, `update_participant_status`, `video_date_transition`.
 
 This March 18 snapshot included `find_mystery_match`. It is no longer callable in the current linked database after migration `20260609152000_remove_mystery_match.sql`.
 
@@ -81,7 +81,7 @@ This March 18 snapshot included `find_mystery_match`. It is no longer callable i
 | RPC | Web (src/) | Native (apps/mobile/) |
 |-----|------------|------------------------|
 | video_date_transition | VideoDate.tsx | videoDateApi.ts |
-| leave_matching_queue | VideoDate.tsx | date/[id].tsx |
+| leave_matching_queue | Historical only; removed 2026-06-09 | Historical only; removed 2026-06-09 |
 | deduct_credit | useCredits.ts | videoDateApi.ts |
 | check_premium_status | usePremium.ts | — |
 | update_participant_status | useEventStatus.ts | videoDateApi.ts |
@@ -101,7 +101,7 @@ This March 18 snapshot included `find_mystery_match`. It is no longer callable i
 
 - **RPCs called in code but not in live DB:** None.
 - **RPCs in live DB not called by code (and not by Edge Functions):**  
-  Historical snapshot list included `find_video_date_match` and `join_matching_queue`; both were removed on 2026-06-09. Remaining historical examples include `get_own_pii`, `get_user_subscription_status`, `can_view_profile_photo`, `check_gender_compatibility`, `haversine_distance`, `is_blocked`, `is_registered_for_event`, and `has_role` — verify current live state before using this March 18 list.
+  Historical snapshot list included `find_video_date_match`, `join_matching_queue`, and `leave_matching_queue`; all three were removed on 2026-06-09. Remaining historical examples include `get_own_pii`, `get_user_subscription_status`, `can_view_profile_photo`, `check_gender_compatibility`, `haversine_distance`, `is_blocked`, `is_registered_for_event`, and `has_role` — verify current live state before using this March 18 list.
 
 ### 2c. Critical RPCs: existence and signatures
 

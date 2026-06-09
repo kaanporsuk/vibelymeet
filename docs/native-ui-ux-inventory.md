@@ -397,7 +397,7 @@ Convention: **Route** = Expo Router path from `app/`. **Layout** from parent `_l
 
 - **File:** `app/date/[id].tsx`
 
-**Data:** `supabase.rpc('leave_matching_queue', …)`; session/video hooks.
+**Data:** `daily-room`, `video_date_transition`, session/video hooks. Legacy `leave_matching_queue` was removed from the active backend contract on 2026-06-09.
 
 **Visual:** Full-screen video UI; `ConnectionOverlay`, `HandshakeTimer`, `VideoDateControls`, `VibeCheckButton`, sheets.
 

@@ -56,7 +56,7 @@ Event Lobby route behavior is governed by `docs/contracts/event-lobby-native-con
 
 | Web route | Web component | Native route | Hooks / services | RPCs / Edge / Realtime | Platform adapters | Parity priority |
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|
-| `/date/:id` | `VideoDate` | `app/date/[id]` | useVideoCall, useCredits, useReconnection, useAuth, useUserProfile, useEventStatus | daily-room (EF), video_date_transition (RPC), leave_matching_queue (RPC) | Daily | P0 |
+| `/date/:id` | `VideoDate` | `app/date/[id]` | useVideoCall, useCredits, useReconnection, useAuth, useUserProfile, useEventStatus | daily-room (EF), video_date_transition (RPC) | Daily | P0 |
 | `/ready/:id` | `ReadyRedirect` (Ready Gate) | `app/ready/[id]` | useReadyGate, useUserProfile, useEventStatus | ready_gate_transition (RPC) | — | P0 |
 
 ---

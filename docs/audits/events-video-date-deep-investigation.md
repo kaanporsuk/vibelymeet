@@ -5,7 +5,7 @@
 
 **Supersession note (2026-04-29):** Ready Gate registration ownership changed after this audit. Use `docs/ready-gate-server-owned-registration-status-final-audit.md` for current status ownership. In particular, clients no longer write `in_ready_gate`, `in_handshake`, or `in_date` through presence helpers.
 
-**Supersession note (2026-06-09):** This audit's legacy queue/session RPC language is historical. `join_matching_queue(uuid,uuid)` and `find_video_date_match(uuid,uuid)` were removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`; they are no longer callable no-op compatibility surfaces. `leave_matching_queue(uuid)` remains intentionally retained.
+**Supersession note (2026-06-09):** This audit's legacy queue/session RPC language is historical. `join_matching_queue(uuid,uuid)` and `find_video_date_match(uuid,uuid)` were removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`, and `leave_matching_queue(uuid)` was removed by `20260609165218_remove_leave_matching_queue.sql`. They are no longer callable compatibility surfaces.
 
 **Scope note:** The file **`Pasted text.txt`** referenced in the brief was **not found** in the workspace. This report treats **`docs/events-hardening-phase1-release-audit.md`**, **`phase2`**, **`phase3`**, **`_cursor_context/vibely_golden_snapshot_audited.md`**, **`_cursor_context/vibely_migration_manifest.md`**, and **`docs/supabase-full-backend-vs-frontend-audit.md`** as the composite “audit narrative” under scrutiny.
 
