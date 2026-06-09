@@ -61,6 +61,14 @@ function filesWithDateFeedbackWrite(): string[] {
     .sort();
 }
 
+function blockBetween(source: string, start: string, end: string): string {
+  const startIndex = source.indexOf(start);
+  assert.notEqual(startIndex, -1, `missing start marker: ${start}`);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  assert.ok(endIndex > startIndex, `missing end marker after ${start}: ${end}`);
+  return source.slice(startIndex, endIndex);
+}
+
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const EVENT_ID = "22222222-2222-4222-8222-222222222222";
 const NOW_MS = Date.parse("2026-06-09T12:00:00.000Z");
@@ -235,6 +243,45 @@ test("surface claim, ready commit, and post-date writes keep separate owners", (
     "src/components/video-date/PostDateSurvey.tsx",
   ]);
   assert.deepEqual(filesWithDateFeedbackWrite(), []);
+});
+
+test("web date pre-date failure exits use the manual server-end path", () => {
+  const webVideoDatePage = read("src/pages/VideoDate.tsx");
+  const mediaPermissionBlock = blockBetween(
+    webVideoDatePage,
+    "const permissionBlock =",
+    "if (handshakeStartFailed)",
+  );
+  const handshakeFailureBlock = blockBetween(
+    webVideoDatePage,
+    "if (handshakeStartFailed)",
+    "if (callStartFailure?.retryable)",
+  );
+  const retryableStartFailureBlock = blockBetween(
+    webVideoDatePage,
+    "if (callStartFailure?.retryable)",
+    "showDuplicateTabConflict &&",
+  );
+
+  for (const [block, source] of [
+    [mediaPermissionBlock, "camera_permission_denied_exit"],
+    [handshakeFailureBlock, "handshake_start_failed_back"],
+    [retryableStartFailureBlock, "retryable_call_start_back"],
+  ] as const) {
+    assert.match(block, /handlePreDateExit\(/, source);
+    assert.match(block, new RegExp(`source:\\s*"${source}"`), source);
+    assert.doesNotMatch(block, /navigate\(target/, source);
+    assert.doesNotMatch(block, /clearDateEntryTransition\(id\)/, source);
+  }
+
+  const duplicateTabBlock = blockBetween(
+    webVideoDatePage,
+    "showDuplicateTabConflict &&",
+    "data-video-date-stage",
+  );
+  assert.match(duplicateTabBlock, /duplicate_tab_back/);
+  assert.match(duplicateTabBlock, /navigate\(target\)/);
+  assert.doesNotMatch(duplicateTabBlock, /handlePreDateExit\(/);
 });
 
 test("definitive ownership contract is wired into Video Date suites", () => {

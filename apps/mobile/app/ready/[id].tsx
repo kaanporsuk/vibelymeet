@@ -587,6 +587,7 @@ export default function ReadyGateScreen() {
           const prepareRecoveryInput = {
             code: prepared.code,
             errorCode: prepared.code,
+            httpStatus: prepared.httpStatus ?? null,
             reason: prepared.message ?? null,
             source: 'prepare_entry',
           };

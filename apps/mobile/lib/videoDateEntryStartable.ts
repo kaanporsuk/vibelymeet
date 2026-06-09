@@ -281,6 +281,7 @@ export async function ensureVideoDateStartableBeforeNavigation(
 
     let prepareOk = false;
     let prepareCode: string | null = null;
+    let prepareHttpStatus: number | null = null;
     try {
       const prepared = await withPrepareTimeout(
         prepareVideoDateEntry(sessionId, {
@@ -292,9 +293,11 @@ export async function ensureVideoDateStartableBeforeNavigation(
       );
       prepareOk = prepared.ok === true;
       prepareCode = prepared.ok === true ? null : prepared.code;
+      prepareHttpStatus = prepared.ok === true ? null : prepared.httpStatus ?? null;
     } catch (err) {
       prepareOk = false;
       prepareCode = err instanceof Error ? err.message : 'exception';
+      prepareHttpStatus = null;
     }
 
     if (prepareOk) {
@@ -328,6 +331,7 @@ export async function ensureVideoDateStartableBeforeNavigation(
     if (!prepareOk && isReadyGatePrepareEntryNonRetryable({
       code: prepareCode,
       errorCode: prepareCode,
+      httpStatus: prepareHttpStatus,
       source: 'prepare_entry',
     })) {
       const fallback = lobbyOrTabsHref(truth?.event_id);

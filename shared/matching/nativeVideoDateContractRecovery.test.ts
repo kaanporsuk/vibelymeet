@@ -103,12 +103,12 @@ test("native video-date lifecycle uses backend RPC surfaces", () => {
   assert.match(nativeVideoDateApi, /action:\s*'end'/);
   assert.match(nativeVideoDateApi, /action:\s*'complete_handshake'/);
   assert.match(nativeDateRoute, /markDailyJoinedWithBackoff/);
-  assert.match(nativeDateRoute, /supabase\.rpc\('mark_video_date_daily_joined'/);
+  assert.match(nativeDateRoute, /supabase\.rpc\(\s*["']mark_video_date_daily_joined["']/);
 });
 
 test("native date route handles ended and event-inactive/stale blockers without retry loops", () => {
-  assert.match(nativeDateRoute, /case 'SESSION_ENDED':/);
-  assert.match(nativeDateRoute, /case 'EVENT_NOT_ACTIVE':/);
+  assert.match(nativeDateRoute, /case ["']SESSION_ENDED["']:/);
+  assert.match(nativeDateRoute, /case ["']EVENT_NOT_ACTIVE["']:/);
   assert.match(nativeDateRoute, /truthDecision === ['"]ended['"]/);
   assert.match(nativeDateRoute, /shouldRecoverPendingPostDateSurvey/);
   assert.match(nativeDateRoute, /recoverFromNotStartableDateTruth/);
@@ -136,7 +136,7 @@ test("native date route has session-scoped duplicate join and terminal recovery 
 });
 
 test("native date route preserves AppState foreground/reconnect recovery", () => {
-  assert.match(nativeDateRoute, /AppState\.addEventListener\('change'/);
+  assert.match(nativeDateRoute, /AppState\.addEventListener\(["']change["']/);
   assert.match(nativeDateRoute, /syncVideoDateReconnect\(sessionId\)/);
   assert.match(nativeDateRoute, /VIDEO_DATE_FOREGROUND_RECONCILE_FAILED/);
   assert.match(nativeDateRoute, /VIDEO_DATE_RECONNECT_RETURNED/);

@@ -64,6 +64,52 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Prepare-Entry Terminal Blockers And Pre-Date Exit Ownership
+
+Current source now closes the concrete `/date/:sessionId owns the flow` gaps found in the June 9 assessment pass.
+
+Problem addressed:
+
+- Shared Ready Gate prepare-entry recovery only treated event-inactive truth as nonretryable. Auth, access, blocked-pair, session-ended/session-missing, room-missing, and terminal Daily auth/request failures could fall through to retry exhaustion and then be marked date-owned.
+- Web `/date/:sessionId` had direct pre-date Back exits from media-permission failure, handshake-start failure, and retryable call-start failure screens. Those bypassed the existing `handlePreDateExit(...)` path that clears route ownership, stops Daily, signals a pre-date server end, suppresses Ready Gate bounce, and routes only after server cleanup work is attempted.
+- The web Ready Gate overlay had drifted back toward top-aligned mobile presentation while existing UX contracts require the overlay to remain centered, not a bottom-sheet style handoff surface.
+
+Implementation added:
+
+- `shared/matching/readyGateTerminalRecovery.ts` now exposes `isReadyGatePrepareEntryTerminalBlocker(...)` and keeps `isReadyGatePrepareEntryNonRetryable(...)` as the compatible public alias.
+- Prepare-entry terminal blockers now include `UNAUTHORIZED`/`auth`, `ACCESS_DENIED`, `BLOCKED_PAIR`, `SESSION_ENDED`, `SESSION_NOT_FOUND`, `ROOM_NOT_FOUND`, `DAILY_AUTH_FAILED`, `DAILY_CREDENTIALS_INVALID`, `DAILY_REQUEST_REJECTED`, and status-only `401`/`403`/`404`/`410` while preserving retryable `READY_GATE_NOT_READY` races even when they carry HTTP `403`.
+- Web Ready Gate overlay, native Ready Gate overlay, native standalone Ready route, native Event Lobby, and native pre-navigation startability now pass available `httpStatus` into the shared classifier.
+- Web media-permission, handshake-start, and retryable call-start Back buttons now call `handlePreDateExit(...)` instead of direct navigation.
+- Web Ready Gate overlay mobile alignment is restored to centered alignment.
+- Static contracts now cover terminal prepare-entry classification, web pre-date exit ownership, current native/mobile date-route formatting, and the centered overlay contract.
+- Branch delta: `docs/branch-deltas/fix-video-date-prepare-entry-terminal-and-predate-exit-ownership.md`.
+
+Verification completed in this local pass:
+
+- `npx tsx shared/matching/readyGateTerminalUxObservability.test.ts`
+- `npx tsx shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`
+- `npx tsx shared/matching/nativeVideoDateContractRecovery.test.ts`
+- `npx tsx shared/matching/videoDateDefinitiveHandoffRecovery.test.ts`
+- `npx tsx shared/matching/nativeReadyGateParityContract.test.ts`
+- `npx tsx shared/matching/reviewComments1242_1256Followups.test.ts`
+- `npx tsx shared/matching/videoDateStartSnapshotContracts.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `npm run test:video-date-v4`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` showed local and remote aligned through `20260608224048`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date.`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0 with only existing warning/notice-level legacy output.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error` returned `No issues found`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 npm run verify:video-date:functions -- --require-remote` returned `42 pass, 0 warn, 0 fail`.
+
+No Supabase migration or Edge Function deployment was needed for this pass; the change is client/shared-source ownership behavior plus regression coverage.
+
+This remains source/test/cloud-alignment evidence. It does not replace the fresh disposable two-user production run through both users persisting `date_feedback`.
+
+---
+
 ## 2026-06-09 Implementation Update: Definitive Ownership Contract Guard
 
 Current source adds `shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.

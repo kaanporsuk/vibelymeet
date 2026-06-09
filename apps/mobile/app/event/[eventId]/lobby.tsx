@@ -1105,6 +1105,7 @@ export default function EventLobbyScreen() {
               isReadyGatePrepareEntryNonRetryable({
                 code: prepared.code,
                 errorCode: prepared.code,
+                httpStatus: prepared.httpStatus ?? null,
                 reason: prepared.message ?? null,
                 source: "prepare_entry",
               })
