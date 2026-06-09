@@ -110,7 +110,9 @@ type LivePrewarmMediaTracks = {
   videoTrack: MediaStreamTrack;
 };
 
-function getLivePrewarmMediaTracks(stream: MediaStream | null | undefined): LivePrewarmMediaTracks | null {
+function getLivePrewarmMediaTracks(
+  stream: MediaStream | null | undefined,
+): LivePrewarmMediaTracks | null {
   const videoTrack = firstLiveTrack(stream?.getVideoTracks() ?? []);
   if (!videoTrack) return null;
   const audioTrack = firstLiveTrack(stream?.getAudioTracks() ?? []);
@@ -129,16 +131,23 @@ function stopMediaStreamTracks(stream: MediaStream | null | undefined) {
 }
 
 function prewarmEnabled(): boolean {
-  return String(import.meta.env.VITE_VIDEO_DATE_DAILY_PREWARM ?? "true").toLowerCase() === "true";
+  return (
+    String(
+      import.meta.env.VITE_VIDEO_DATE_DAILY_PREWARM ?? "true",
+    ).toLowerCase() === "true"
+  );
 }
 
 function joinPrewarmEnabled(joinSource: WebDailyPrewarmJoinSource): boolean {
   if (!prewarmEnabled()) return false;
-  const flagName = joinSource === "solo_prejoin"
-    ? "VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN"
-    : "VITE_VIDEO_DATE_DAILY_JOIN_PREWARM";
+  const flagName =
+    joinSource === "solo_prejoin"
+      ? "VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN"
+      : "VITE_VIDEO_DATE_DAILY_JOIN_PREWARM";
   const defaultValue = joinSource === "solo_prejoin" ? "false" : "true";
-  return String(import.meta.env[flagName] ?? defaultValue).toLowerCase() === "true";
+  return (
+    String(import.meta.env[flagName] ?? defaultValue).toLowerCase() === "true"
+  );
 }
 
 function keyFor(sessionId: string, userId: string): string {
@@ -149,7 +158,9 @@ function entryStopped(entry: WebDailyPrewarmEntry): boolean {
   return entry.status === "destroyed" || entry.status === "fallback";
 }
 
-function rejectUnusablePrewarmEntry(entry: WebDailyPrewarmEntry): string | null {
+function rejectUnusablePrewarmEntry(
+  entry: WebDailyPrewarmEntry,
+): string | null {
   try {
     if (entry.call.isDestroyed()) return "destroyed";
   } catch {
@@ -158,7 +169,9 @@ function rejectUnusablePrewarmEntry(entry: WebDailyPrewarmEntry): string | null 
 
   const meetingState = readDailyMeetingState(entry.call);
   if (entry.status === "joined") {
-    return meetingState === "joined-meeting" ? null : `joined_state_${meetingState ?? "unknown"}`;
+    return meetingState === "joined-meeting"
+      ? null
+      : `joined_state_${meetingState ?? "unknown"}`;
   }
   if (entry.status === "joining") {
     return meetingState === "left-meeting" || meetingState === "error"
@@ -197,7 +210,11 @@ function checkpoint(params: {
   );
 }
 
-function destroyEntry(entry: WebDailyPrewarmEntry, reason: string, outcome: "success" | "failure" = "success") {
+function destroyEntry(
+  entry: WebDailyPrewarmEntry,
+  reason: string,
+  outcome: "success" | "failure" = "success",
+) {
   if (entry.destroyTimer) {
     window.clearTimeout(entry.destroyTimer);
     entry.destroyTimer = null;
@@ -211,7 +228,10 @@ function destroyEntry(entry: WebDailyPrewarmEntry, reason: string, outcome: "suc
     sessionId: entry.sessionId,
     userId: entry.userId,
     eventId: entry.eventId,
-    checkpoint: reason === "consumed" ? "daily_prewarm_consumed" : "daily_prewarm_destroyed",
+    checkpoint:
+      reason === "consumed"
+        ? "daily_prewarm_consumed"
+        : "daily_prewarm_destroyed",
     sourceAction: reason,
     outcome,
   });
@@ -241,7 +261,11 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
         category: "video-date",
         level: "warning",
         message: "web_daily_prewarm_destroy_failed",
-        data: { sessionId: entry.sessionId, reason, error: error instanceof Error ? error.message : String(error) },
+        data: {
+          sessionId: entry.sessionId,
+          reason,
+          error: error instanceof Error ? error.message : String(error),
+        },
       });
     } finally {
       stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
@@ -254,7 +278,11 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
   }).catch(() => undefined);
 }
 
-function fallbackEntry(entry: WebDailyPrewarmEntry, reason: string, reasonCode: string = reason) {
+function fallbackEntry(
+  entry: WebDailyPrewarmEntry,
+  reason: string,
+  reasonCode: string = reason,
+) {
   if (entry.status !== "fallback") {
     entry.status = "fallback";
     checkpoint({
@@ -270,7 +298,10 @@ function fallbackEntry(entry: WebDailyPrewarmEntry, reason: string, reasonCode: 
   destroyEntry(entry, reason, "failure");
 }
 
-function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+function waitWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T | null> {
   return new Promise((resolve) => {
     const timeout = window.setTimeout(() => resolve(null), timeoutMs);
     void promise.then(
@@ -297,12 +328,16 @@ export async function startWebVideoDateDailyPrewarm(params: {
   source: string;
 }): Promise<WebDailyPrewarmConsumeResult> {
   if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
-  if (typeof window === "undefined") return { ok: false, reason: "window_unavailable" };
+  if (typeof window === "undefined")
+    return { ok: false, reason: "window_unavailable" };
   const key = keyFor(params.sessionId, params.userId);
   const existing = prewarmEntries.get(key);
   if (existing) {
     if (existing.expiresAtMs > Date.now()) {
-      if (existing.roomName === params.roomName && existing.roomUrl === params.roomUrl) {
+      if (
+        existing.roomName === params.roomName &&
+        existing.roomUrl === params.roomUrl
+      ) {
         return { ok: true, entry: publicEntry(existing) };
       }
       fallbackEntry(existing, "daily_prewarm_room_changed");
@@ -311,22 +346,31 @@ export async function startWebVideoDateDailyPrewarm(params: {
     }
   }
 
-  const captureProfile = params.appAcquiredMedia?.captureProfile ?? params.captureProfile ?? "ideal";
+  const captureProfile =
+    params.appAcquiredMedia?.captureProfile ?? params.captureProfile ?? "ideal";
   const appAcquiredMediaTracks =
     params.appAcquiredMedia?.captureProfile === captureProfile
       ? getLivePrewarmMediaTracks(params.appAcquiredMedia.stream)
       : null;
-  const appAcquiredMedia = appAcquiredMediaTracks ? params.appAcquiredMedia ?? null : null;
+  const appAcquiredMedia = appAcquiredMediaTracks
+    ? (params.appAcquiredMedia ?? null)
+    : null;
   const guardedCall = await createDailyCallObjectGuarded(
     DailyIframe,
     appAcquiredMedia && appAcquiredMediaTracks
-      ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(captureProfile, appAcquiredMediaTracks)
+      ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(
+          captureProfile,
+          appAcquiredMediaTracks,
+        )
       : dailyVideoDateCallObjectOptions(captureProfile),
     {
       source: `web_video_date_daily_prewarm:${params.source}`,
       skipIfCleanupPending: true,
       waitForCleanup: false,
       failOnExternalCall: true,
+      adoptMatchingExternalCall: false,
+      videoDateSessionId: params.sessionId,
+      videoDateRoomName: params.roomName,
       onDiagnostic: (eventName, payload) => {
         vdbg(eventName, {
           sessionId: params.sessionId,
@@ -396,7 +440,9 @@ export async function startWebVideoDateDailyPrewarm(params: {
     appAcquiredMedia: Boolean(appAcquiredMedia),
   });
 
-  entry.cameraPromise = Promise.resolve(call.startCamera({ url: params.roomUrl })).then(
+  entry.cameraPromise = Promise.resolve(
+    call.startCamera({ url: params.roomUrl }),
+  ).then(
     () => {
       if (prewarmEntries.get(key) !== entry) return;
       entry.status = "camera_ready";
@@ -454,7 +500,9 @@ export async function preAuthWebVideoDateDailyPrewarm(params: {
   if (typeof entry.call.preAuth !== "function") {
     return false;
   }
-  entry.preAuthPromise = Promise.resolve(entry.call.preAuth({ url: params.roomUrl, token: params.token })).then(
+  entry.preAuthPromise = Promise.resolve(
+    entry.call.preAuth({ url: params.roomUrl, token: params.token }),
+  ).then(
     () => {
       if (prewarmEntries.get(entry.key) !== entry) return false;
       entry.status = "preauth_ready";
@@ -477,7 +525,12 @@ export async function preAuthWebVideoDateDailyPrewarm(params: {
       return false;
     },
   );
-  return (await waitWithTimeout(entry.preAuthPromise, params.waitMs ?? WEB_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS)) ?? true;
+  return (
+    (await waitWithTimeout(
+      entry.preAuthPromise,
+      params.waitMs ?? WEB_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS,
+    )) ?? true
+  );
 }
 
 export async function joinWebVideoDateDailyPrewarm(params: {
@@ -504,7 +557,12 @@ export async function joinWebVideoDateDailyPrewarm(params: {
   }
   if (entry.status === "joined") return true;
   if (entry.joinPromise) {
-    return (await waitWithTimeout(entry.joinPromise, params.waitMs ?? WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS)) ?? true;
+    return (
+      (await waitWithTimeout(
+        entry.joinPromise,
+        params.waitMs ?? WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS,
+      )) ?? true
+    );
   }
 
   const startedAtMs = Date.now();
@@ -512,11 +570,17 @@ export async function joinWebVideoDateDailyPrewarm(params: {
   entry.joinStartedAtMs = startedAtMs;
   entry.joinSource = params.joinSource;
   const startedCheckpoint =
-    params.joinSource === "solo_prejoin" ? "daily_prewarm_solo_join_started" : "daily_prewarm_join_started";
+    params.joinSource === "solo_prejoin"
+      ? "daily_prewarm_solo_join_started"
+      : "daily_prewarm_join_started";
   const successCheckpoint =
-    params.joinSource === "solo_prejoin" ? "daily_prewarm_solo_join_success" : "daily_prewarm_join_success";
+    params.joinSource === "solo_prejoin"
+      ? "daily_prewarm_solo_join_success"
+      : "daily_prewarm_join_success";
   const failureCheckpoint =
-    params.joinSource === "solo_prejoin" ? "daily_prewarm_solo_join_failure" : "daily_prewarm_join_failure";
+    params.joinSource === "solo_prejoin"
+      ? "daily_prewarm_solo_join_failure"
+      : "daily_prewarm_join_failure";
 
   checkpoint({
     sessionId: params.sessionId,
@@ -537,10 +601,12 @@ export async function joinWebVideoDateDailyPrewarm(params: {
     await entry.cameraPromise.catch(() => undefined);
     if (entry.preAuthPromise) {
       const preAuthOk = await entry.preAuthPromise.catch(() => false);
-      if (preAuthOk === false) throw new Error("daily_prewarm_preauth_unavailable");
+      if (preAuthOk === false)
+        throw new Error("daily_prewarm_preauth_unavailable");
     }
     if (
-      (prewarmEntries.get(entry.key) !== entry && entry.status !== "consumed") ||
+      (prewarmEntries.get(entry.key) !== entry &&
+        entry.status !== "consumed") ||
       entryStopped(entry)
     ) {
       throw new Error("daily_prewarm_not_usable");
@@ -580,7 +646,11 @@ export async function joinWebVideoDateDailyPrewarm(params: {
         outcome: "failure",
         reasonCode: error instanceof Error ? error.name : "join_failed",
       });
-      fallbackEntry(entry, failureCheckpoint, error instanceof Error ? error.name : "join_failed");
+      fallbackEntry(
+        entry,
+        failureCheckpoint,
+        error instanceof Error ? error.name : "join_failed",
+      );
     } else if (entry.status === "consumed") {
       entry.status = "join_failed";
       checkpoint({
@@ -596,7 +666,12 @@ export async function joinWebVideoDateDailyPrewarm(params: {
     return false;
   });
 
-  return (await waitWithTimeout(entry.joinPromise, params.waitMs ?? WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS)) ?? true;
+  return (
+    (await waitWithTimeout(
+      entry.joinPromise,
+      params.waitMs ?? WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS,
+    )) ?? true
+  );
 }
 
 export function consumeWebVideoDateDailyPrewarm(params: {
@@ -623,7 +698,11 @@ export function consumeWebVideoDateDailyPrewarm(params: {
     fallbackEntry(entry, "daily_prewarm_capture_profile_mismatch");
     return { ok: false, reason: "capture_profile_mismatch" };
   }
-  if (entry.status === "fallback" || entry.status === "destroyed" || entry.status === "join_failed") {
+  if (
+    entry.status === "fallback" ||
+    entry.status === "destroyed" ||
+    entry.status === "join_failed"
+  ) {
     fallbackEntry(entry, "daily_prewarm_not_usable");
     return { ok: false, reason: "not_usable" };
   }
@@ -648,7 +727,11 @@ export function consumeWebVideoDateDailyPrewarm(params: {
   return { ok: true, entry: publicEntry(entry) };
 }
 
-export function destroyWebVideoDateDailyPrewarm(sessionId: string, userId: string, reason: string): boolean {
+export function destroyWebVideoDateDailyPrewarm(
+  sessionId: string,
+  userId: string,
+  reason: string,
+): boolean {
   const entry = prewarmEntries.get(keyFor(sessionId, userId));
   if (!entry) return false;
   destroyEntry(entry, reason);

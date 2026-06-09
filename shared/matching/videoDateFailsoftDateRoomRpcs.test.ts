@@ -9,7 +9,9 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
-const failsoftMigration = read("supabase/migrations/20260604093000_video_date_failsoft_date_room_rpcs.sql");
+const failsoftMigration = read(
+  "supabase/migrations/20260604093000_video_date_failsoft_date_room_rpcs.sql",
+);
 const transitionCompatibilityMigration = read(
   "supabase/migrations/20260604094500_video_date_transition_preserve_raise_semantics.sql",
 );
@@ -19,7 +21,9 @@ const webReconnectionHook = read("src/hooks/useReconnection.ts");
 const webDupTabGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
-const handshakePersistence = read("shared/matching/videoDateHandshakePersistence.ts");
+const handshakePersistence = read(
+  "shared/matching/videoDateHandshakePersistence.ts",
+);
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
 const dailyRoomFailure = read("shared/matching/dailyRoomFailure.ts");
 
@@ -39,8 +43,14 @@ function stripSqlLineComments(sql: string): string {
 }
 
 test("date-room fail-soft migration keeps claim and Daily-joined retryable", () => {
-  const claimBody = publicFunctionBody(failsoftMigration, "claim_video_date_surface");
-  const markJoinedBody = publicFunctionBody(failsoftMigration, "mark_video_date_daily_joined");
+  const claimBody = publicFunctionBody(
+    failsoftMigration,
+    "claim_video_date_surface",
+  );
+  const markJoinedBody = publicFunctionBody(
+    failsoftMigration,
+    "mark_video_date_daily_joined",
+  );
 
   for (const body of [claimBody, markJoinedBody]) {
     assert.match(body, /EXCEPTION\s+WHEN OTHERS THEN/);
@@ -54,16 +64,25 @@ test("date-room fail-soft migration keeps claim and Daily-joined retryable", () 
 });
 
 test("video_date_transition preserves HTTP-error retry semantics for older clients", () => {
-  const transitionBody = publicFunctionBody(transitionCompatibilityMigration, "video_date_transition");
+  const transitionBody = publicFunctionBody(
+    transitionCompatibilityMigration,
+    "video_date_transition",
+  );
   const executableTransitionBody = stripSqlLineComments(transitionBody);
 
-  assert.match(executableTransitionBody, /RETURN public\.video_date_transition_20260604093000_failsoft_base\(/);
+  assert.match(
+    executableTransitionBody,
+    /RETURN public\.video_date_transition_20260604093000_failsoft_base\(/,
+  );
   assert.doesNotMatch(executableTransitionBody, /EXCEPTION\s+WHEN OTHERS/);
   assert.match(
     transitionCompatibilityMigration,
     /backend errors propagate as RPC errors so web\/native callers retry/,
   );
-  assert.match(transitionCompatibilityMigration, /NOTIFY pgrst, 'reload schema'/);
+  assert.match(
+    transitionCompatibilityMigration,
+    /NOTIFY pgrst, 'reload schema'/,
+  );
 });
 
 test("web and native clients consume retryable fail-soft payloads instead of ending the date", () => {
@@ -75,8 +94,14 @@ test("web and native clients consume retryable fail-soft payloads instead of end
     nativeVideoDateApi,
     /payload\?\.success === false && payload\.retryable === true\) return null/,
   );
-  assert.match(handshakePersistence, /const rpcRejectedRetryable = rpcRejected && lastPayload\?\.retryable === true/);
-  assert.match(handshakePersistence, /if \(rpcRejectedRetryable && attempt <= delays\.length\) continue/);
+  assert.match(
+    handshakePersistence,
+    /const rpcRejectedRetryable = rpcRejected && lastPayload\?\.retryable === true/,
+  );
+  assert.match(
+    handshakePersistence,
+    /if \(rpcRejectedRetryable && attempt <= delays\.length\) continue/,
+  );
 });
 
 test("web and native reconnect consumers treat fail-soft transition payloads as retryable uncertainty", () => {
@@ -98,7 +123,7 @@ test("web and native reconnect consumers treat fail-soft transition payloads as 
   );
   assert.match(
     webVideoDate,
-    /if \(videoDateLifecycleRpcRetryable\(reconnectPayload\) === true\) return/,
+    /if\s*\(\s*videoDateLifecycleRpcRetryable\(reconnectPayload\) === true\s*\)\s*return/,
   );
   assert.match(
     nativeVideoDateApi,
@@ -111,7 +136,10 @@ test("web and native reconnect consumers treat fail-soft transition payloads as 
 });
 
 test("web duplicate-tab surface claims ignore retryable fail-soft rejections", () => {
-  assert.match(webDupTabGuard, /payload\?\.code === "SURFACE_CLAIM_CONFLICT" && payload\.retryable !== true/);
+  assert.match(
+    webDupTabGuard,
+    /payload\?\.code === "SURFACE_CLAIM_CONFLICT" && payload\.retryable !== true/,
+  );
 });
 
 test("web and native Daily-joined confirmation both retry 200 retryable payloads", () => {
@@ -131,18 +159,30 @@ test("native surface claim does not block takeover on transient fail-soft errors
     /const blocked =\s*payload\?\.code === ['"]SURFACE_CLAIM_CONFLICT['"]\s*&&\s*payload\.retryable !== true/,
   );
   assert.match(nativeDateRoute, /setSurfaceClaimBlockedState\(blocked\)/);
-  assert.doesNotMatch(nativeDateRoute, /setSurfaceClaimBlocked\(blocked \|\| takeover\)/);
+  assert.doesNotMatch(
+    nativeDateRoute,
+    /setSurfaceClaimBlocked\(blocked \|\| takeover\)/,
+  );
   assert.match(nativeDateRoute, /retryable: payload\?\.retryable === true/);
 });
 
 test("native enter-handshake carries backend retryable through the bounded retry path", () => {
-  assert.match(nativeVideoDateApi, /\| \{ ok: false; code\?: string; message\?: string; retryable\?: boolean \}/);
+  assert.match(
+    nativeVideoDateApi,
+    /\| \{ ok: false; code\?: string; message\?: string; retryable\?: boolean \}/,
+  );
   assert.match(
     nativeVideoDateApi,
     /return \{ ok: false, code: error\.code \?\? 'RPC_ERROR', message: error\.message, retryable: true \}/,
   );
-  assert.match(nativeVideoDateApi, /retryable:\s*[\s\S]{0,160}videoDateLifecycleRpcRetryable\(payload\) === true/);
-  assert.match(nativeDateRoute, /isReadyGateRace\(hs\.code\) \|\| hs\.retryable === true/);
+  assert.match(
+    nativeVideoDateApi,
+    /retryable:\s*[\s\S]{0,160}videoDateLifecycleRpcRetryable\(payload\) === true/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /isReadyGateRace\(hs\.code\) \|\| hs\.retryable === true/,
+  );
   assert.match(nativeDateRoute, /previousRetryable: hs\.retryable === true/);
 });
 
@@ -152,17 +192,35 @@ test("native date prejoin retries retryable prepare-entry failures like web", ()
   assert.match(nativeVideoDateApi, /retryAfterMs: result\.retryAfterMs/);
   assert.match(nativeDateRoute, /NATIVE_CREATE_DATE_ROOM_RETRY_DELAYS_MS/);
   assert.match(nativeDateRoute, /dailyRoomTokenRetryDelayMs\(\s*tokenRes/);
-  assert.match(nativeDateRoute, /tokenRes\.retryable[\s\S]{0,160}tokenRes\.code !== ['"]READY_GATE_NOT_READY['"]/);
+  assert.match(
+    nativeDateRoute,
+    /tokenRes\.retryable[\s\S]{0,160}tokenRes\.code !== ['"]READY_GATE_NOT_READY['"]/,
+  );
   assert.match(nativeDateRoute, /retryable: tokenRes\.retryable/);
 });
 
 test("prepare-entry Edge failures preserve retryable payloads for shared clients", () => {
   assert.match(dailyRoomFunction, /retryable\?: boolean/);
-  assert.match(dailyRoomFunction, /typeof params\.retryable === "boolean" \? \{ retryable: params\.retryable \} : \{\}/);
-  assert.match(dailyRoomFunction, /retryable: typeof preparePayload\?\.retryable === "boolean"/);
-  assert.match(dailyRoomFailure, /const bodyRetryable = readRetryableFromBody\(input\.data\)/);
-  assert.match(dailyRoomFailure, /const contextRetryable = fromResponse\.retryable \?\? fromErrorContext\.retryable/);
-  assert.match(dailyRoomFailure, /bodyRetryable \?\? contextRetryable \?\? isRetryableDailyRoomFailure\(kind\)/);
+  assert.match(
+    dailyRoomFunction,
+    /typeof params\.retryable === "boolean" \? \{ retryable: params\.retryable \} : \{\}/,
+  );
+  assert.match(
+    dailyRoomFunction,
+    /retryable: typeof preparePayload\?\.retryable === "boolean"/,
+  );
+  assert.match(
+    dailyRoomFailure,
+    /const bodyRetryable = readRetryableFromBody\(input\.data\)/,
+  );
+  assert.match(
+    dailyRoomFailure,
+    /const contextRetryable = fromResponse\.retryable \?\? fromErrorContext\.retryable/,
+  );
+  assert.match(
+    dailyRoomFailure,
+    /bodyRetryable \?\? contextRetryable \?\? isRetryableDailyRoomFailure\(kind\)/,
+  );
 });
 
 test("daily-room leave proxy preserves retryable transition payloads", () => {
@@ -170,7 +228,10 @@ test("daily-room leave proxy preserves retryable transition payloads", () => {
     dailyRoomFunction,
     /action === "video_date_leave"[\s\S]*retryable: typeof payload\?\.retryable === "boolean" \? payload\.retryable : error \? true : undefined/,
   );
-  assert.match(dailyRoomFunction, /retryAfterSeconds: payload\?\.retry_after_seconds \?\? null/);
+  assert.match(
+    dailyRoomFunction,
+    /retryAfterSeconds: payload\?\.retry_after_seconds \?\? null/,
+  );
   assert.match(dailyRoomFunction, /retry_after_ms: payload\.retry_after_ms/);
 });
 
@@ -182,7 +243,10 @@ test("new date-room migrations avoid overlong PostgreSQL identifiers", () => {
     const functionRefs = Array.from(
       migration.matchAll(/\b(?:FUNCTION|PROCEDURE)\s+public\.([A-Za-z0-9_]+)/g),
     ).map(([, identifier]) => identifier);
-    assert.ok(functionRefs.length > 0, `${name} should contain explicit function refs`);
+    assert.ok(
+      functionRefs.length > 0,
+      `${name} should contain explicit function refs`,
+    );
     assert.deepEqual(
       functionRefs.filter((identifier) => identifier.length > 63),
       [],

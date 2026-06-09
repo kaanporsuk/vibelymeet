@@ -1,14 +1,19 @@
-import Daily from '@daily-co/react-native-daily-js';
+import Daily from "@daily-co/react-native-daily-js";
 
 export type NativeDailyCallObject = ReturnType<typeof Daily.createCallObject>;
-type NativeDailyCallOptions = NonNullable<Parameters<typeof Daily.createCallObject>[0]>;
+type NativeDailyCallOptions = NonNullable<
+  Parameters<typeof Daily.createCallObject>[0]
+>;
 
-type NativeDailyCallInstanceDiagnostic = (eventName: string, payload: Record<string, unknown>) => void;
+type NativeDailyCallInstanceDiagnostic = (
+  eventName: string,
+  payload: Record<string, unknown>,
+) => void;
 
 export type GuardedNativeDailyCreateFailureReason =
-  | 'cleanup_pending'
-  | 'external_call_busy'
-  | 'daily_create_failed';
+  | "cleanup_pending"
+  | "external_call_busy"
+  | "daily_create_failed";
 
 export type GuardedNativeDailyCreateResult =
   | {
@@ -16,6 +21,7 @@ export type GuardedNativeDailyCreateResult =
       call: NativeDailyCallObject;
       destroyedExternalCall: boolean;
       recoveredDuplicate: boolean;
+      adoptedExternalCall: boolean;
     }
   | {
       ok: false;
@@ -30,6 +36,9 @@ type GuardedNativeDailyCreateOptions = {
   skipIfCleanupPending?: boolean;
   waitForCleanup?: boolean;
   failOnExternalCall?: boolean;
+  adoptMatchingExternalCall?: boolean;
+  videoDateSessionId?: string | null;
+  videoDateRoomName?: string | null;
   onDiagnostic?: NativeDailyCallInstanceDiagnostic;
 };
 
@@ -48,36 +57,44 @@ const DUPLICATE_NATIVE_DAILY_CALL_OBJECT_ERROR_PATTERNS = [
 const nativeVideoDateDailyCleanupPromises = new Set<Promise<void>>();
 let nativeVideoDateDailyCreateQueue: Promise<void> = Promise.resolve();
 let nativeVideoDateDailyCreateQueueDepth = 0;
-let nativeVideoDateFreshCreatedCall:
-  | {
-      call: NativeDailyCallObject;
-      createdAtMs: number;
-      source: string;
-    }
-  | null = null;
+let nativeVideoDateFreshCreatedCall: {
+  call: NativeDailyCallObject;
+  createdAtMs: number;
+  source: string;
+  videoDateSessionId: string | null;
+  videoDateRoomName: string | null;
+} | null = null;
 
 export function isDuplicateNativeDailyCallObjectError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return DUPLICATE_NATIVE_DAILY_CALL_OBJECT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+  return DUPLICATE_NATIVE_DAILY_CALL_OBJECT_ERROR_PATTERNS.some((pattern) =>
+    pattern.test(message),
+  );
 }
 
 export function readNativeDailyMeetingState(
-  callObject: Pick<NativeDailyCallObject, 'meetingState'>,
+  callObject: Pick<NativeDailyCallObject, "meetingState">,
 ): string | null {
   try {
     const state = callObject.meetingState();
-    return typeof state === 'string' ? state : null;
+    return typeof state === "string" ? state : null;
   } catch {
-    return 'error';
+    return "error";
   }
 }
 
-export function isTerminalNativeDailyMeetingState(state: string | null): boolean {
-  return state === 'left-meeting' || state === 'error';
+export function isTerminalNativeDailyMeetingState(
+  state: string | null,
+): boolean {
+  return state === "left-meeting" || state === "error";
 }
 
 export function isIdleNativeDailyMeetingState(state: string | null): boolean {
-  return state === 'new' || state === 'loaded' || isTerminalNativeDailyMeetingState(state);
+  return (
+    state === "new" ||
+    state === "loaded" ||
+    isTerminalNativeDailyMeetingState(state)
+  );
 }
 
 export function isBusyNativeDailyMeetingState(state: string | null): boolean {
@@ -104,8 +121,11 @@ async function serializeNativeVideoDateDailyCreate<T>(
   });
 
   nativeVideoDateDailyCreateQueueDepth += 1;
-  nativeVideoDateDailyCreateQueue = previous.then(() => current, () => current);
-  onDiagnostic?.('native_daily_guard_create_serialized', {
+  nativeVideoDateDailyCreateQueue = previous.then(
+    () => current,
+    () => current,
+  );
+  onDiagnostic?.("native_daily_guard_create_serialized", {
     source,
     queuedCount: Math.max(0, nativeVideoDateDailyCreateQueueDepth - 1),
   });
@@ -114,27 +134,71 @@ async function serializeNativeVideoDateDailyCreate<T>(
     await previous;
     return await task();
   } finally {
-    nativeVideoDateDailyCreateQueueDepth = Math.max(0, nativeVideoDateDailyCreateQueueDepth - 1);
+    nativeVideoDateDailyCreateQueueDepth = Math.max(
+      0,
+      nativeVideoDateDailyCreateQueueDepth - 1,
+    );
     releaseCurrentCreate();
   }
 }
 
-function markFreshCreatedNativeDailyCall(call: NativeDailyCallObject, source: string) {
+function normalizeNativeDailyCallMarker(
+  value: string | null | undefined,
+): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function markFreshCreatedNativeDailyCall(
+  call: NativeDailyCallObject,
+  source: string,
+  options?: Pick<
+    GuardedNativeDailyCreateOptions,
+    "videoDateSessionId" | "videoDateRoomName"
+  >,
+) {
   nativeVideoDateFreshCreatedCall = {
     call,
     createdAtMs: Date.now(),
     source,
+    videoDateSessionId: normalizeNativeDailyCallMarker(
+      options?.videoDateSessionId,
+    ),
+    videoDateRoomName: normalizeNativeDailyCallMarker(
+      options?.videoDateRoomName,
+    ),
   };
 }
 
-function isProtectedFreshCreatedNativeDailyCall(
+function canAdoptProtectedFreshCreatedNativeDailyCall(
+  entry: NonNullable<typeof nativeVideoDateFreshCreatedCall>,
+  options: GuardedNativeDailyCreateOptions,
+): boolean {
+  if (options.adoptMatchingExternalCall !== true) return false;
+
+  const requestedSessionId = normalizeNativeDailyCallMarker(
+    options.videoDateSessionId,
+  );
+  const requestedRoomName = normalizeNativeDailyCallMarker(
+    options.videoDateRoomName,
+  );
+  if (!requestedSessionId || entry.videoDateSessionId !== requestedSessionId)
+    return false;
+
+  return (
+    !requestedRoomName ||
+    !entry.videoDateRoomName ||
+    entry.videoDateRoomName === requestedRoomName
+  );
+}
+
+function protectedFreshCreatedNativeDailyCallDecision(
   callObject: NativeDailyCallObject,
   meetingState: string | null,
-  source: string,
-  onDiagnostic?: NativeDailyCallInstanceDiagnostic,
-): boolean {
+  options: GuardedNativeDailyCreateOptions,
+): { protected: false } | { protected: true; adoptable: boolean } {
   const entry = nativeVideoDateFreshCreatedCall;
-  if (!entry || entry.call !== callObject) return false;
+  if (!entry || entry.call !== callObject) return { protected: false };
 
   let isDestroyed = false;
   try {
@@ -144,38 +208,61 @@ function isProtectedFreshCreatedNativeDailyCall(
   }
 
   const ageMs = Math.max(0, Date.now() - entry.createdAtMs);
-  if (isDestroyed || isTerminalNativeDailyMeetingState(meetingState) || ageMs > FRESH_NATIVE_DAILY_CREATE_PROTECTION_MS) {
+  if (
+    isDestroyed ||
+    isTerminalNativeDailyMeetingState(meetingState) ||
+    ageMs > FRESH_NATIVE_DAILY_CREATE_PROTECTION_MS
+  ) {
     nativeVideoDateFreshCreatedCall = null;
-    return false;
+    return { protected: false };
   }
 
-  onDiagnostic?.('native_daily_guard_external_call_protected_recent_create', {
-    source,
-    ownerSource: entry.source,
-    meetingState,
-    ageMs,
-  });
-  return true;
+  const adoptable = canAdoptProtectedFreshCreatedNativeDailyCall(
+    entry,
+    options,
+  );
+  options.onDiagnostic?.(
+    "native_daily_guard_external_call_protected_recent_create",
+    {
+      source: options.source,
+      ownerSource: entry.source,
+      meetingState,
+      ageMs,
+      adoptable,
+      requestedVideoDateSessionId: normalizeNativeDailyCallMarker(
+        options.videoDateSessionId,
+      ),
+      ownerVideoDateSessionId: entry.videoDateSessionId,
+      requestedVideoDateRoomName: normalizeNativeDailyCallMarker(
+        options.videoDateRoomName,
+      ),
+      ownerVideoDateRoomName: entry.videoDateRoomName,
+    },
+  );
+  return { protected: true, adoptable };
 }
 
 async function settleWithin<T>(
   promise: Promise<T>,
   timeoutMs: number,
 ): Promise<
-  | { status: 'fulfilled'; value: T }
-  | { status: 'rejected'; error: unknown }
-  | { status: 'timed_out' }
+  | { status: "fulfilled"; value: T }
+  | { status: "rejected"; error: unknown }
+  | { status: "timed_out" }
 > {
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve({ status: 'timed_out' }), timeoutMs);
+    const timeout = setTimeout(
+      () => resolve({ status: "timed_out" }),
+      timeoutMs,
+    );
     promise.then(
       (value) => {
         clearTimeout(timeout);
-        resolve({ status: 'fulfilled', value });
+        resolve({ status: "fulfilled", value });
       },
       (error) => {
         clearTimeout(timeout);
-        resolve({ status: 'rejected', error });
+        resolve({ status: "rejected", error });
       },
     );
   });
@@ -196,7 +283,7 @@ export function registerNativeVideoDateDailyCleanup<T>(
     )
     .finally(() => {
       nativeVideoDateDailyCleanupPromises.delete(tracked);
-      options?.onDiagnostic?.('native_video_date_daily_cleanup_cleared', {
+      options?.onDiagnostic?.("native_video_date_daily_cleanup_cleared", {
         source: options?.source ?? null,
         reason: options?.reason ?? null,
         pendingCount: nativeVideoDateDailyCleanupPromises.size,
@@ -204,7 +291,7 @@ export function registerNativeVideoDateDailyCleanup<T>(
     });
 
   nativeVideoDateDailyCleanupPromises.add(tracked);
-  options?.onDiagnostic?.('native_video_date_daily_cleanup_registered', {
+  options?.onDiagnostic?.("native_video_date_daily_cleanup_registered", {
     source: options?.source ?? null,
     reason: options?.reason ?? null,
     pendingCount: nativeVideoDateDailyCleanupPromises.size,
@@ -218,7 +305,7 @@ export async function waitForNativeVideoDateDailyCleanup(
 ): Promise<boolean> {
   if (nativeVideoDateDailyCleanupPromises.size === 0) return false;
 
-  onDiagnostic?.('native_video_date_daily_cleanup_awaited', {
+  onDiagnostic?.("native_video_date_daily_cleanup_awaited", {
     source,
     pendingCount: nativeVideoDateDailyCleanupPromises.size,
     timeoutMs: NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
@@ -229,8 +316,8 @@ export async function waitForNativeVideoDateDailyCleanup(
       Promise.all(Array.from(nativeVideoDateDailyCleanupPromises)),
       NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
     );
-    if (result.status === 'timed_out') {
-      onDiagnostic?.('native_video_date_daily_cleanup_wait_timed_out', {
+    if (result.status === "timed_out") {
+      onDiagnostic?.("native_video_date_daily_cleanup_wait_timed_out", {
         source,
         pendingCount,
         timeoutMs: NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
@@ -248,9 +335,12 @@ function readNativeSdkCallInstance(
   try {
     return Daily.getCallInstance() ?? null;
   } catch (error) {
-    onDiagnostic?.('native_daily_get_call_instance_failed', {
+    onDiagnostic?.("native_daily_get_call_instance_failed", {
       source,
-      error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : String(error),
     });
     return null;
   }
@@ -266,25 +356,30 @@ async function destroyNativeDailyCallObject(
       Promise.resolve(callObject.destroy()),
       NATIVE_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS,
     );
-    if (result.status === 'timed_out') {
-      onDiagnostic?.('native_daily_guard_destroy_external_call_timed_out', {
+    if (result.status === "timed_out") {
+      onDiagnostic?.("native_daily_guard_destroy_external_call_timed_out", {
         source,
         timeoutMs: NATIVE_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS,
       });
       return false;
     }
-    if (result.status === 'rejected') {
+    if (result.status === "rejected") {
       throw result.error;
     }
     if (nativeVideoDateFreshCreatedCall?.call === callObject) {
       nativeVideoDateFreshCreatedCall = null;
     }
-    onDiagnostic?.('native_daily_guard_destroyed_idle_external_call', { source });
+    onDiagnostic?.("native_daily_guard_destroyed_idle_external_call", {
+      source,
+    });
     return true;
   } catch (error) {
-    onDiagnostic?.('native_daily_guard_destroy_external_call_failed', {
+    onDiagnostic?.("native_daily_guard_destroy_external_call_failed", {
       source,
-      error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : String(error),
     });
     return false;
   }
@@ -292,31 +387,86 @@ async function destroyNativeDailyCallObject(
 
 async function clearNativeExternalCallIfSafe(
   options: GuardedNativeDailyCreateOptions,
-): Promise<GuardedNativeDailyCreateResult | { ok: true; destroyedExternalCall: boolean }> {
-  const sdkCallObject = readNativeSdkCallInstance(options.source, options.onDiagnostic);
+): Promise<
+  GuardedNativeDailyCreateResult | { ok: true; destroyedExternalCall: boolean }
+> {
+  const sdkCallObject = readNativeSdkCallInstance(
+    options.source,
+    options.onDiagnostic,
+  );
   if (!sdkCallObject) {
     return { ok: true, destroyedExternalCall: false };
   }
 
   const meetingState = readNativeDailyMeetingState(sdkCallObject);
-  options.onDiagnostic?.('native_daily_guard_external_call_found', {
+  options.onDiagnostic?.("native_daily_guard_external_call_found", {
     source: options.source,
     meetingState,
     isCurrentCallObject: sdkCallObject === options.currentCallObject,
     failOnExternalCall: options.failOnExternalCall === true,
+    adoptMatchingExternalCall: options.adoptMatchingExternalCall === true,
+    videoDateSessionId: normalizeNativeDailyCallMarker(
+      options.videoDateSessionId,
+    ),
+    videoDateRoomName: normalizeNativeDailyCallMarker(
+      options.videoDateRoomName,
+    ),
   });
 
   if (
-    isProtectedFreshCreatedNativeDailyCall(
-      sdkCallObject,
-      meetingState,
-      options.source,
-      options.onDiagnostic,
-    )
+    sdkCallObject === options.currentCallObject &&
+    !isTerminalNativeDailyMeetingState(meetingState)
   ) {
+    options.onDiagnostic?.("native_daily_guard_adopted_current_call_object", {
+      source: options.source,
+      meetingState,
+      videoDateSessionId: normalizeNativeDailyCallMarker(
+        options.videoDateSessionId,
+      ),
+      videoDateRoomName: normalizeNativeDailyCallMarker(
+        options.videoDateRoomName,
+      ),
+    });
+    return {
+      ok: true,
+      call: sdkCallObject,
+      destroyedExternalCall: false,
+      recoveredDuplicate: false,
+      adoptedExternalCall: true,
+    };
+  }
+
+  const protectedFreshCall = protectedFreshCreatedNativeDailyCallDecision(
+    sdkCallObject,
+    meetingState,
+    options,
+  );
+  if (protectedFreshCall.protected) {
+    if (protectedFreshCall.adoptable) {
+      options.onDiagnostic?.(
+        "native_daily_guard_adopted_same_session_external_call",
+        {
+          source: options.source,
+          meetingState,
+          videoDateSessionId: normalizeNativeDailyCallMarker(
+            options.videoDateSessionId,
+          ),
+          videoDateRoomName: normalizeNativeDailyCallMarker(
+            options.videoDateRoomName,
+          ),
+        },
+      );
+      return {
+        ok: true,
+        call: sdkCallObject,
+        destroyedExternalCall: false,
+        recoveredDuplicate: false,
+        adoptedExternalCall: true,
+      };
+    }
     return {
       ok: false,
-      reason: 'external_call_busy',
+      reason: "external_call_busy",
       meetingState,
     };
   }
@@ -324,24 +474,31 @@ async function clearNativeExternalCallIfSafe(
   if (isBusyNativeDailyMeetingState(meetingState)) {
     return {
       ok: false,
-      reason: 'external_call_busy',
+      reason: "external_call_busy",
       meetingState,
     };
   }
 
-  if (options.failOnExternalCall && !isTerminalNativeDailyMeetingState(meetingState)) {
+  if (
+    options.failOnExternalCall &&
+    !isTerminalNativeDailyMeetingState(meetingState)
+  ) {
     return {
       ok: false,
-      reason: 'external_call_busy',
+      reason: "external_call_busy",
       meetingState,
     };
   }
 
-  const destroyed = await destroyNativeDailyCallObject(sdkCallObject, options.source, options.onDiagnostic);
+  const destroyed = await destroyNativeDailyCallObject(
+    sdkCallObject,
+    options.source,
+    options.onDiagnostic,
+  );
   if (!destroyed) {
     return {
       ok: false,
-      reason: 'external_call_busy',
+      reason: "external_call_busy",
       meetingState,
     };
   }
@@ -354,57 +511,96 @@ export async function createNativeDailyCallObjectGuarded(
   options: GuardedNativeDailyCreateOptions,
 ): Promise<GuardedNativeDailyCreateResult> {
   if (options.skipIfCleanupPending && hasNativeVideoDateDailyCreatePending()) {
-    options.onDiagnostic?.('native_daily_guard_create_skipped_create_pending', { source: options.source });
-    return { ok: false, reason: 'cleanup_pending' };
+    options.onDiagnostic?.("native_daily_guard_create_skipped_create_pending", {
+      source: options.source,
+    });
+    return { ok: false, reason: "cleanup_pending" };
   }
 
-  return serializeNativeVideoDateDailyCreate(options.source, options.onDiagnostic, async () => {
-    if (options.skipIfCleanupPending && hasNativeVideoDateDailyCleanupPending()) {
-      options.onDiagnostic?.('native_daily_guard_create_skipped_cleanup_pending', { source: options.source });
-      return { ok: false, reason: 'cleanup_pending' };
-    }
-
-    if (options.waitForCleanup !== false) {
-      await waitForNativeVideoDateDailyCleanup(options.source, options.onDiagnostic);
-    }
-
-    const beforeCreate = await clearNativeExternalCallIfSafe(options);
-    if (beforeCreate.ok === false) return beforeCreate;
-
-    try {
-      const call = Daily.createCallObject(factoryOptions);
-      markFreshCreatedNativeDailyCall(call, options.source);
-      return {
-        ok: true,
-        call,
-        destroyedExternalCall: beforeCreate.destroyedExternalCall,
-        recoveredDuplicate: false,
-      };
-    } catch (error) {
-      if (!isDuplicateNativeDailyCallObjectError(error)) {
-        return { ok: false, reason: 'daily_create_failed', error };
+  return serializeNativeVideoDateDailyCreate(
+    options.source,
+    options.onDiagnostic,
+    async () => {
+      if (
+        options.skipIfCleanupPending &&
+        hasNativeVideoDateDailyCleanupPending()
+      ) {
+        options.onDiagnostic?.(
+          "native_daily_guard_create_skipped_cleanup_pending",
+          { source: options.source },
+        );
+        return { ok: false, reason: "cleanup_pending" };
       }
 
-      options.onDiagnostic?.('native_daily_guard_recovered_duplicate_create_attempt', {
-        source: options.source,
-        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-      });
+      if (options.waitForCleanup !== false) {
+        await waitForNativeVideoDateDailyCleanup(
+          options.source,
+          options.onDiagnostic,
+        );
+      }
 
-      const duplicateCleanup = await clearNativeExternalCallIfSafe(options);
-      if (duplicateCleanup.ok === false) return duplicateCleanup;
+      const beforeCreate = await clearNativeExternalCallIfSafe(options);
+      if (beforeCreate.ok === false) return beforeCreate;
+      if ("call" in beforeCreate) return beforeCreate;
 
       try {
         const call = Daily.createCallObject(factoryOptions);
-        markFreshCreatedNativeDailyCall(call, options.source);
+        markFreshCreatedNativeDailyCall(call, options.source, options);
         return {
           ok: true,
           call,
-          destroyedExternalCall: beforeCreate.destroyedExternalCall || duplicateCleanup.destroyedExternalCall,
-          recoveredDuplicate: true,
+          destroyedExternalCall: beforeCreate.destroyedExternalCall,
+          recoveredDuplicate: false,
+          adoptedExternalCall: false,
         };
-      } catch (retryError) {
-        return { ok: false, reason: 'daily_create_failed', error: retryError };
+      } catch (error) {
+        if (!isDuplicateNativeDailyCallObjectError(error)) {
+          return { ok: false, reason: "daily_create_failed", error };
+        }
+
+        options.onDiagnostic?.(
+          "native_daily_guard_recovered_duplicate_create_attempt",
+          {
+            source: options.source,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : String(error),
+          },
+        );
+
+        const duplicateCleanup = await clearNativeExternalCallIfSafe(options);
+        if (duplicateCleanup.ok === false) return duplicateCleanup;
+        if ("call" in duplicateCleanup) {
+          return {
+            ...duplicateCleanup,
+            destroyedExternalCall:
+              beforeCreate.destroyedExternalCall ||
+              duplicateCleanup.destroyedExternalCall,
+            recoveredDuplicate: true,
+          };
+        }
+
+        try {
+          const call = Daily.createCallObject(factoryOptions);
+          markFreshCreatedNativeDailyCall(call, options.source, options);
+          return {
+            ok: true,
+            call,
+            destroyedExternalCall:
+              beforeCreate.destroyedExternalCall ||
+              duplicateCleanup.destroyedExternalCall,
+            recoveredDuplicate: true,
+            adoptedExternalCall: false,
+          };
+        } catch (retryError) {
+          return {
+            ok: false,
+            reason: "daily_create_failed",
+            error: retryError,
+          };
+        }
       }
-    }
-  });
+    },
+  );
 }

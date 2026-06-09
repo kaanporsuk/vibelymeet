@@ -12,6 +12,9 @@ const migration = read(
 const joinArgRepairMigration = read(
   "supabase/migrations/20260609112843_video_date_active_entry_join_arg_name_repair.sql",
 );
+const hotPathNoThrowMigration = read(
+  "supabase/migrations/20260609130139_video_date_hot_path_no_throw_daily_adoption.sql",
+);
 const webVideoDate = read("src/pages/VideoDate.tsx");
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
 const packageJson = read("package.json");
@@ -35,9 +38,12 @@ test("web /date owns a stable surface shell before Daily joins", () => {
   );
   assert.match(
     webVideoDate,
-    /const videoDateSurfaceLeaseActive =\s*\n\s*videoDateRouteShellActive/,
+    /const videoDateSurfaceLeaseActive =\s*videoDateRouteShellActive;/,
   );
-  assert.match(webVideoDate, /useVideoDateDupTabGuard\([\s\S]{0,180}videoDateSurfaceLeaseActive/);
+  assert.match(
+    webVideoDate,
+    /useVideoDateDupTabGuard\([\s\S]{0,180}videoDateSurfaceLeaseActive/,
+  );
   assert.doesNotMatch(webVideoDate, /videoDateSurfaceClaimable/);
 });
 
@@ -90,13 +96,84 @@ test("active-entry RPCs have final no-throw fail-soft shells", () => {
 });
 
 test("Daily joined shell preserves the generated PostgREST argument name", () => {
-  const body = publicFunctionBody(joinArgRepairMigration, "mark_video_date_daily_joined");
+  const body = publicFunctionBody(
+    joinArgRepairMigration,
+    "mark_video_date_daily_joined",
+  );
   assert.match(body, /p_entry_attempt_id text DEFAULT NULL/);
   assert.doesNotMatch(body, /p_provider_participant_id/);
-  assert.match(body, /mark_video_date_daily_joined_20260609105249_active_entry_base\([\s\S]*p_entry_attempt_id[\s\S]*p_owner_state/);
-  assert.match(joinArgRepairMigration, /DROP FUNCTION IF EXISTS public\.mark_video_date_daily_joined\(uuid, text, text, text, text, text\)/);
+  assert.match(
+    body,
+    /mark_video_date_daily_joined_20260609105249_active_entry_base\([\s\S]*p_entry_attempt_id[\s\S]*p_owner_state/,
+  );
+  assert.match(
+    joinArgRepairMigration,
+    /DROP FUNCTION IF EXISTS public\.mark_video_date_daily_joined\(uuid, text, text, text, text, text\)/,
+  );
+});
+
+test("all active-entry hot-path RPCs have final direct JSON no-throw shells", () => {
+  for (const [name, baseName, code] of [
+    [
+      "claim_video_date_surface",
+      "vd_claim_surface_20260609130139_hot_base",
+      "SURFACE_CLAIM_FAILED",
+    ],
+    [
+      "mark_video_date_daily_alive",
+      "vd_daily_alive_20260609130139_hot_base",
+      "DAILY_ALIVE_FAILED",
+    ],
+    [
+      "mark_video_date_daily_joined",
+      "vd_daily_joined_20260609130139_hot_base",
+      "DAILY_JOIN_STAMP_FAILED",
+    ],
+    [
+      "video_date_transition",
+      "vd_transition_20260609130139_hot_base",
+      "VIDEO_DATE_TRANSITION_FAILED",
+    ],
+    [
+      "video_session_mark_ready_v2",
+      "vd_mark_ready_20260609130139_hot_base",
+      "MARK_READY_UNAVAILABLE",
+    ],
+    [
+      "record_video_date_launch_latency_checkpoint",
+      "vd_launch_latency_20260609130139_hot_base",
+      "LAUNCH_LATENCY_CHECKPOINT_FAILED",
+    ],
+  ] as const) {
+    assert.match(hotPathNoThrowMigration, new RegExp(`RENAME TO ${baseName}`));
+    const body = publicFunctionBody(hotPathNoThrowMigration, name);
+    assert.match(body, new RegExp(`public\\.${baseName}\\(`));
+    assert.match(body, new RegExp(`'${code}'`));
+    assert.match(body, /'retryable', true/);
+    assert.match(body, /'hot_path_no_throw_shell', true/);
+    assert.match(body, /'last_resort_payload', true/);
+    assert.match(
+      body,
+      /EXCEPTION\s+WHEN OTHERS THEN[\s\S]*RETURN jsonb_build_object\(/,
+      `${name} must end with a helper-free JSON fallback`,
+    );
+  }
+});
+
+test("web date entry retries retryable start failures while the route owner is active", () => {
+  assert.match(webVideoDate, /VIDEO_DATE_START_AUTO_RETRY_DELAYS_MS/);
+  assert.match(webVideoDate, /date_entry_start_retryable_auto_retry_scheduled/);
+  assert.match(webVideoDate, /videoDateRouteShellActive/);
+  assert.match(
+    webVideoDate,
+    /markVideoDateRouteOwned\(id, user\?\.id \?\? null\)/,
+  );
+  assert.match(webVideoDate, /date_entry_start_retryable_auto_retry_exhausted/);
 });
 
 test("active-entry fail-soft shell stays in required Video Date suites", () => {
-  assert.match(packageJson, /shared\/matching\/videoDateActiveEntryFailsoftShellContracts\.test\.ts/);
+  assert.match(
+    packageJson,
+    /shared\/matching\/videoDateActiveEntryFailsoftShellContracts\.test\.ts/,
+  );
 });

@@ -5,7 +5,10 @@ type DailyCallFactory = {
   getCallInstance: () => DailyCall | null | undefined;
 };
 
-type DailyCallInstanceDiagnostic = (eventName: string, payload: Record<string, unknown>) => void;
+type DailyCallInstanceDiagnostic = (
+  eventName: string,
+  payload: Record<string, unknown>,
+) => void;
 
 export type GuardedDailyCreateFailureReason =
   | "cleanup_pending"
@@ -18,6 +21,7 @@ export type GuardedDailyCreateResult =
       call: DailyCall;
       destroyedExternalCall: boolean;
       recoveredDuplicate: boolean;
+      adoptedExternalCall: boolean;
     }
   | {
       ok: false;
@@ -32,6 +36,9 @@ type GuardedDailyCreateOptions = {
   skipIfCleanupPending?: boolean;
   waitForCleanup?: boolean;
   failOnExternalCall?: boolean;
+  adoptMatchingExternalCall?: boolean;
+  videoDateSessionId?: string | null;
+  videoDateRoomName?: string | null;
   onDiagnostic?: DailyCallInstanceDiagnostic;
 };
 
@@ -50,20 +57,24 @@ const DUPLICATE_DAILY_CALL_OBJECT_ERROR_PATTERNS = [
 const webVideoDateDailyCleanupPromises = new Set<Promise<void>>();
 let webVideoDateDailyCreateQueue: Promise<void> = Promise.resolve();
 let webVideoDateDailyCreateQueueDepth = 0;
-let webVideoDateFreshCreatedCall:
-  | {
-      call: DailyCall;
-      createdAtMs: number;
-      source: string;
-    }
-  | null = null;
+let webVideoDateFreshCreatedCall: {
+  call: DailyCall;
+  createdAtMs: number;
+  source: string;
+  videoDateSessionId: string | null;
+  videoDateRoomName: string | null;
+} | null = null;
 
 export function isDuplicateDailyCallObjectError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return DUPLICATE_DAILY_CALL_OBJECT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+  return DUPLICATE_DAILY_CALL_OBJECT_ERROR_PATTERNS.some((pattern) =>
+    pattern.test(message),
+  );
 }
 
-export function readDailyMeetingState(callObject: Pick<DailyCall, "meetingState">): string | null {
+export function readDailyMeetingState(
+  callObject: Pick<DailyCall, "meetingState">,
+): string | null {
   try {
     const state = callObject.meetingState();
     return typeof state === "string" ? state : null;
@@ -77,7 +88,9 @@ export function isTerminalDailyMeetingState(state: string | null): boolean {
 }
 
 export function isIdleDailyMeetingState(state: string | null): boolean {
-  return state === "new" || state === "loaded" || isTerminalDailyMeetingState(state);
+  return (
+    state === "new" || state === "loaded" || isTerminalDailyMeetingState(state)
+  );
 }
 
 export function isBusyDailyMeetingState(state: string | null): boolean {
@@ -114,7 +127,10 @@ async function serializeWebVideoDateDailyCreate<T>(
   });
 
   webVideoDateDailyCreateQueueDepth += 1;
-  webVideoDateDailyCreateQueue = previous.then(() => current, () => current);
+  webVideoDateDailyCreateQueue = previous.then(
+    () => current,
+    () => current,
+  );
   onDiagnostic?.("daily_guard_create_serialized", {
     source,
     queuedCount: Math.max(0, webVideoDateDailyCreateQueueDepth - 1),
@@ -124,27 +140,65 @@ async function serializeWebVideoDateDailyCreate<T>(
     await previous;
     return await task();
   } finally {
-    webVideoDateDailyCreateQueueDepth = Math.max(0, webVideoDateDailyCreateQueueDepth - 1);
+    webVideoDateDailyCreateQueueDepth = Math.max(
+      0,
+      webVideoDateDailyCreateQueueDepth - 1,
+    );
     releaseCurrentCreate();
   }
 }
 
-function markFreshCreatedDailyCall(call: DailyCall, source: string) {
+function normalizeDailyCallMarker(
+  value: string | null | undefined,
+): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function markFreshCreatedDailyCall(
+  call: DailyCall,
+  source: string,
+  options?: Pick<
+    GuardedDailyCreateOptions,
+    "videoDateSessionId" | "videoDateRoomName"
+  >,
+) {
   webVideoDateFreshCreatedCall = {
     call,
     createdAtMs: Date.now(),
     source,
+    videoDateSessionId: normalizeDailyCallMarker(options?.videoDateSessionId),
+    videoDateRoomName: normalizeDailyCallMarker(options?.videoDateRoomName),
   };
 }
 
-function isProtectedFreshCreatedDailyCall(
+function canAdoptProtectedFreshCreatedDailyCall(
+  entry: NonNullable<typeof webVideoDateFreshCreatedCall>,
+  options: GuardedDailyCreateOptions,
+): boolean {
+  if (options.adoptMatchingExternalCall !== true) return false;
+
+  const requestedSessionId = normalizeDailyCallMarker(
+    options.videoDateSessionId,
+  );
+  const requestedRoomName = normalizeDailyCallMarker(options.videoDateRoomName);
+  if (!requestedSessionId || entry.videoDateSessionId !== requestedSessionId)
+    return false;
+
+  return (
+    !requestedRoomName ||
+    !entry.videoDateRoomName ||
+    entry.videoDateRoomName === requestedRoomName
+  );
+}
+
+function protectedFreshCreatedDailyCallDecision(
   callObject: DailyCall,
   meetingState: string | null,
-  source: string,
-  onDiagnostic?: DailyCallInstanceDiagnostic,
-): boolean {
+  options: GuardedDailyCreateOptions,
+): { protected: false } | { protected: true; adoptable: boolean } {
   const entry = webVideoDateFreshCreatedCall;
-  if (!entry || entry.call !== callObject) return false;
+  if (!entry || entry.call !== callObject) return { protected: false };
 
   let isDestroyed = false;
   try {
@@ -154,18 +208,32 @@ function isProtectedFreshCreatedDailyCall(
   }
 
   const ageMs = Math.max(0, Date.now() - entry.createdAtMs);
-  if (isDestroyed || isTerminalDailyMeetingState(meetingState) || ageMs > FRESH_DAILY_CREATE_PROTECTION_MS) {
+  if (
+    isDestroyed ||
+    isTerminalDailyMeetingState(meetingState) ||
+    ageMs > FRESH_DAILY_CREATE_PROTECTION_MS
+  ) {
     webVideoDateFreshCreatedCall = null;
-    return false;
+    return { protected: false };
   }
 
-  onDiagnostic?.("daily_guard_external_call_protected_recent_create", {
-    source,
+  const adoptable = canAdoptProtectedFreshCreatedDailyCall(entry, options);
+  options.onDiagnostic?.("daily_guard_external_call_protected_recent_create", {
+    source: options.source,
     ownerSource: entry.source,
     meetingState,
     ageMs,
+    adoptable,
+    requestedVideoDateSessionId: normalizeDailyCallMarker(
+      options.videoDateSessionId,
+    ),
+    ownerVideoDateSessionId: entry.videoDateSessionId,
+    requestedVideoDateRoomName: normalizeDailyCallMarker(
+      options.videoDateRoomName,
+    ),
+    ownerVideoDateRoomName: entry.videoDateRoomName,
   });
-  return true;
+  return { protected: true, adoptable };
 }
 
 async function settleWithin<T>(
@@ -177,7 +245,10 @@ async function settleWithin<T>(
   | { status: "timed_out" }
 > {
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve({ status: "timed_out" }), timeoutMs);
+    const timeout = setTimeout(
+      () => resolve({ status: "timed_out" }),
+      timeoutMs,
+    );
     promise.then(
       (value) => {
         clearTimeout(timeout);
@@ -261,7 +332,10 @@ function readSdkCallInstance(
   } catch (error) {
     onDiagnostic?.("daily_get_call_instance_failed", {
       source,
-      error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : String(error),
     });
     return null;
   }
@@ -295,7 +369,10 @@ async function destroyDailyCallObject(
   } catch (error) {
     onDiagnostic?.("daily_guard_destroy_external_call_failed", {
       source,
-      error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : String(error),
     });
     return false;
   }
@@ -304,8 +381,14 @@ async function destroyDailyCallObject(
 async function clearExternalCallIfSafe(
   factory: DailyCallFactory,
   options: GuardedDailyCreateOptions,
-): Promise<GuardedDailyCreateResult | { ok: true; destroyedExternalCall: boolean }> {
-  const sdkCallObject = readSdkCallInstance(factory, options.source, options.onDiagnostic);
+): Promise<
+  GuardedDailyCreateResult | { ok: true; destroyedExternalCall: boolean }
+> {
+  const sdkCallObject = readSdkCallInstance(
+    factory,
+    options.source,
+    options.onDiagnostic,
+  );
   if (!sdkCallObject) {
     return { ok: true, destroyedExternalCall: false };
   }
@@ -316,16 +399,53 @@ async function clearExternalCallIfSafe(
     meetingState,
     isCurrentCallObject: sdkCallObject === options.currentCallObject,
     failOnExternalCall: options.failOnExternalCall === true,
+    adoptMatchingExternalCall: options.adoptMatchingExternalCall === true,
+    videoDateSessionId: normalizeDailyCallMarker(options.videoDateSessionId),
+    videoDateRoomName: normalizeDailyCallMarker(options.videoDateRoomName),
   });
 
   if (
-    isProtectedFreshCreatedDailyCall(
-      sdkCallObject,
-      meetingState,
-      options.source,
-      options.onDiagnostic,
-    )
+    sdkCallObject === options.currentCallObject &&
+    !isTerminalDailyMeetingState(meetingState)
   ) {
+    options.onDiagnostic?.("daily_guard_adopted_current_call_object", {
+      source: options.source,
+      meetingState,
+      videoDateSessionId: normalizeDailyCallMarker(options.videoDateSessionId),
+      videoDateRoomName: normalizeDailyCallMarker(options.videoDateRoomName),
+    });
+    return {
+      ok: true,
+      call: sdkCallObject,
+      destroyedExternalCall: false,
+      recoveredDuplicate: false,
+      adoptedExternalCall: true,
+    };
+  }
+
+  const protectedFreshCall = protectedFreshCreatedDailyCallDecision(
+    sdkCallObject,
+    meetingState,
+    options,
+  );
+  if (protectedFreshCall.protected) {
+    if (protectedFreshCall.adoptable) {
+      options.onDiagnostic?.("daily_guard_adopted_same_session_external_call", {
+        source: options.source,
+        meetingState,
+        videoDateSessionId: normalizeDailyCallMarker(
+          options.videoDateSessionId,
+        ),
+        videoDateRoomName: normalizeDailyCallMarker(options.videoDateRoomName),
+      });
+      return {
+        ok: true,
+        call: sdkCallObject,
+        destroyedExternalCall: false,
+        recoveredDuplicate: false,
+        adoptedExternalCall: true,
+      };
+    }
     return {
       ok: false,
       reason: "external_call_busy",
@@ -341,7 +461,10 @@ async function clearExternalCallIfSafe(
     };
   }
 
-  if (options.failOnExternalCall && !isTerminalDailyMeetingState(meetingState)) {
+  if (
+    options.failOnExternalCall &&
+    !isTerminalDailyMeetingState(meetingState)
+  ) {
     return {
       ok: false,
       reason: "external_call_busy",
@@ -349,7 +472,11 @@ async function clearExternalCallIfSafe(
     };
   }
 
-  const destroyed = await destroyDailyCallObject(sdkCallObject, options.source, options.onDiagnostic);
+  const destroyed = await destroyDailyCallObject(
+    sdkCallObject,
+    options.source,
+    options.onDiagnostic,
+  );
   if (!destroyed) {
     return {
       ok: false,
@@ -367,57 +494,98 @@ export async function createDailyCallObjectGuarded(
   options: GuardedDailyCreateOptions,
 ): Promise<GuardedDailyCreateResult> {
   if (options.skipIfCleanupPending && hasWebVideoDateDailyCreatePending()) {
-    options.onDiagnostic?.("daily_guard_create_skipped_create_pending", { source: options.source });
+    options.onDiagnostic?.("daily_guard_create_skipped_create_pending", {
+      source: options.source,
+    });
     return { ok: false, reason: "cleanup_pending" };
   }
 
-  return serializeWebVideoDateDailyCreate(options.source, options.onDiagnostic, async () => {
-    if (options.skipIfCleanupPending && hasWebVideoDateDailyCleanupPending()) {
-      options.onDiagnostic?.("daily_guard_create_skipped_cleanup_pending", { source: options.source });
-      return { ok: false, reason: "cleanup_pending" };
-    }
-
-    if (options.waitForCleanup !== false) {
-      await waitForWebVideoDateDailyCleanup(options.source, options.onDiagnostic);
-    }
-
-    const beforeCreate = await clearExternalCallIfSafe(factory, options);
-    if (beforeCreate.ok === false) return beforeCreate;
-
-    try {
-      const call = factory.createCallObject(factoryOptions);
-      markFreshCreatedDailyCall(call, options.source);
-      return {
-        ok: true,
-        call,
-        destroyedExternalCall: beforeCreate.destroyedExternalCall,
-        recoveredDuplicate: false,
-      };
-    } catch (error) {
-      if (!isDuplicateDailyCallObjectError(error)) {
-        return { ok: false, reason: "daily_create_failed", error };
+  return serializeWebVideoDateDailyCreate(
+    options.source,
+    options.onDiagnostic,
+    async () => {
+      if (
+        options.skipIfCleanupPending &&
+        hasWebVideoDateDailyCleanupPending()
+      ) {
+        options.onDiagnostic?.("daily_guard_create_skipped_cleanup_pending", {
+          source: options.source,
+        });
+        return { ok: false, reason: "cleanup_pending" };
       }
 
-      options.onDiagnostic?.("daily_guard_recovered_duplicate_create_attempt", {
-        source: options.source,
-        error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-      });
+      if (options.waitForCleanup !== false) {
+        await waitForWebVideoDateDailyCleanup(
+          options.source,
+          options.onDiagnostic,
+        );
+      }
 
-      const duplicateCleanup = await clearExternalCallIfSafe(factory, options);
-      if (duplicateCleanup.ok === false) return duplicateCleanup;
+      const beforeCreate = await clearExternalCallIfSafe(factory, options);
+      if (beforeCreate.ok === false) return beforeCreate;
+      if ("call" in beforeCreate) return beforeCreate;
 
       try {
         const call = factory.createCallObject(factoryOptions);
-        markFreshCreatedDailyCall(call, options.source);
+        markFreshCreatedDailyCall(call, options.source, options);
         return {
           ok: true,
           call,
-          destroyedExternalCall: beforeCreate.destroyedExternalCall || duplicateCleanup.destroyedExternalCall,
-          recoveredDuplicate: true,
+          destroyedExternalCall: beforeCreate.destroyedExternalCall,
+          recoveredDuplicate: false,
+          adoptedExternalCall: false,
         };
-      } catch (retryError) {
-        return { ok: false, reason: "daily_create_failed", error: retryError };
+      } catch (error) {
+        if (!isDuplicateDailyCallObjectError(error)) {
+          return { ok: false, reason: "daily_create_failed", error };
+        }
+
+        options.onDiagnostic?.(
+          "daily_guard_recovered_duplicate_create_attempt",
+          {
+            source: options.source,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : String(error),
+          },
+        );
+
+        const duplicateCleanup = await clearExternalCallIfSafe(
+          factory,
+          options,
+        );
+        if (duplicateCleanup.ok === false) return duplicateCleanup;
+        if ("call" in duplicateCleanup) {
+          return {
+            ...duplicateCleanup,
+            destroyedExternalCall:
+              beforeCreate.destroyedExternalCall ||
+              duplicateCleanup.destroyedExternalCall,
+            recoveredDuplicate: true,
+          };
+        }
+
+        try {
+          const call = factory.createCallObject(factoryOptions);
+          markFreshCreatedDailyCall(call, options.source, options);
+          return {
+            ok: true,
+            call,
+            destroyedExternalCall:
+              beforeCreate.destroyedExternalCall ||
+              duplicateCleanup.destroyedExternalCall,
+            recoveredDuplicate: true,
+            adoptedExternalCall: false,
+          };
+        } catch (retryError) {
+          return {
+            ok: false,
+            reason: "daily_create_failed",
+            error: retryError,
+          };
+        }
       }
-    }
-  });
+    },
+  );
 }

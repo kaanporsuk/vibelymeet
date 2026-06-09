@@ -15,7 +15,9 @@ const webVideoDate = read("src/pages/VideoDate.tsx");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const webSurfaceGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
-const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
+const nativeSurvey = read(
+  "apps/mobile/components/video-date/PostDateSurvey.tsx",
+);
 const packageJson = read("package.json");
 
 function blockBetween(source: string, start: string, end: string): string {
@@ -102,7 +104,10 @@ test("web surface claims start with the stable route shell and do not back off b
   assert.match(webVideoDate, /!showFeedback/);
   assert.match(webVideoDate, /!terminalSurveyRecoveryActive/);
   assert.match(webVideoDate, /phase !== "ended"/);
-  assert.match(webVideoDate, /const videoDateSurfaceLeaseActive =\s*\n\s*videoDateRouteShellActive/);
+  assert.match(
+    webVideoDate,
+    /const videoDateSurfaceLeaseActive =\s*videoDateRouteShellActive;/,
+  );
 
   assert.match(webSurfaceGuard, /SURFACE_NOT_CLAIMABLE/);
   assert.match(webSurfaceGuard, /if \(waitingForClaimableTruth\) \{/);
@@ -113,12 +118,21 @@ test("web surface claims start with the stable route shell and do not back off b
 });
 
 test("review-comment documentation is scoped to the snapshot that produced it", () => {
-  assert.match(audit, /Audit-time read-only evidence topped out at `20260608215911`/);
-  assert.match(audit, /superseded by later command-center\/cloud alignment evidence/);
+  assert.match(
+    audit,
+    /Audit-time read-only evidence topped out at `20260608215911`/,
+  );
+  assert.match(
+    audit,
+    /superseded by later command-center\/cloud alignment evidence/,
+  );
   assert.match(commandCenter, /At the PR #1257 verification moment/);
   assert.match(commandCenter, /before later PRs advanced `main`/);
 });
 
 test("latest review-comments contract is wired into Video Date suites", () => {
-  assert.match(packageJson, /shared\/matching\/reviewComments1256_1262Followups\.test\.ts/);
+  assert.match(
+    packageJson,
+    /shared\/matching\/reviewComments1256_1262Followups\.test\.ts/,
+  );
 });

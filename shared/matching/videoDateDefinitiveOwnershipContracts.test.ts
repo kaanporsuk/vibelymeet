@@ -107,8 +107,14 @@ test("canonical route ownership preserves every false finish line before feedbac
   assert.equal(bothReady.target, "date");
   assert.equal(bothReady.reason, "both_ready_provider_prepare_pending");
   assert.equal(bothReady.canAttemptDaily, false);
-  assert.equal(webPathForCanonicalVideoDateRoute(bothReady), `/date/${SESSION_ID}`);
-  assert.equal(nativePathForCanonicalVideoDateRoute(bothReady), `/date/${SESSION_ID}`);
+  assert.equal(
+    webPathForCanonicalVideoDateRoute(bothReady),
+    `/date/${SESSION_ID}`,
+  );
+  assert.equal(
+    nativePathForCanonicalVideoDateRoute(bothReady),
+    `/date/${SESSION_ID}`,
+  );
 
   const dailyRoomMetadataOnly = decideCanonicalVideoDateRoute({
     sessionId: SESSION_ID,
@@ -117,7 +123,8 @@ test("canonical route ownership preserves every false finish line before feedbac
     truth: sessionTruth({
       ready_gate_status: "ready",
       daily_room_name: "date-11111111111141118111111111111111",
-      daily_room_url: "https://vibelyapp.daily.co/date-11111111111141118111111111111111",
+      daily_room_url:
+        "https://vibelyapp.daily.co/date-11111111111141118111111111111111",
     }),
   });
   assert.equal(dailyRoomMetadataOnly.target, "ready_gate");
@@ -186,8 +193,14 @@ test("canonical route ownership preserves every false finish line before feedbac
   });
   assert.equal(pendingSurvey.target, "survey");
   assert.equal(pendingSurvey.reason, "registration_pending_survey");
-  assert.equal(webPathForCanonicalVideoDateRoute(pendingSurvey), `/date/${SESSION_ID}`);
-  assert.equal(nativePathForCanonicalVideoDateRoute(pendingSurvey), `/date/${SESSION_ID}`);
+  assert.equal(
+    webPathForCanonicalVideoDateRoute(pendingSurvey),
+    `/date/${SESSION_ID}`,
+  );
+  assert.equal(
+    nativePathForCanonicalVideoDateRoute(pendingSurvey),
+    `/date/${SESSION_ID}`,
+  );
 
   const feedbackCompleted = decideCanonicalVideoDateRoute({
     sessionId: SESSION_ID,
@@ -282,6 +295,87 @@ test("web date pre-date failure exits use the manual server-end path", () => {
   assert.match(duplicateTabBlock, /duplicate_tab_back/);
   assert.match(duplicateTabBlock, /navigate\(target\)/);
   assert.doesNotMatch(duplicateTabBlock, /handlePreDateExit\(/);
+});
+
+test("web and native Daily guards adopt same-session owners before reporting busy", () => {
+  const webGuard = read("src/lib/dailyCallInstance.ts");
+  const nativeGuard = read("apps/mobile/lib/nativeDailyCallInstance.ts");
+  const webVideoCall = read("src/hooks/useVideoCall.ts");
+  const webPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
+  const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+  const nativePrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");
+
+  for (const [source, adoptEvent, currentEvent] of [
+    [
+      webGuard,
+      "daily_guard_adopted_same_session_external_call",
+      "daily_guard_adopted_current_call_object",
+    ],
+    [
+      nativeGuard,
+      "native_daily_guard_adopted_same_session_external_call",
+      "native_daily_guard_adopted_current_call_object",
+    ],
+  ] as const) {
+    assert.match(source, /adoptMatchingExternalCall\?: boolean/);
+    assert.match(source, /videoDateSessionId\?: string \| null/);
+    assert.match(source, /videoDateRoomName\?: string \| null/);
+    assert.match(source, /adoptedExternalCall: true/);
+    assert.match(source, new RegExp(adoptEvent));
+    assert.match(source, new RegExp(currentEvent));
+  }
+
+  const webStartGuard = blockBetween(
+    webVideoCall,
+    "const guarded = await createDailyCallObjectGuarded(",
+    "onDiagnostic: (eventName, payload)",
+  );
+  const webPrewarmGuard = blockBetween(
+    webPrewarm,
+    "const guardedCall = await createDailyCallObjectGuarded(",
+    "onDiagnostic: (eventName, payload)",
+  );
+  const nativeStartGuard = blockBetween(
+    nativeDateRoute,
+    "const guarded = await createVideoDateDailyCallObjectGuarded(",
+    "onDiagnostic: (eventName, payload)",
+  );
+  const nativePrewarmGuard = blockBetween(
+    nativePrewarm,
+    "const guardedCall = await createVideoDateDailyCallObjectGuarded(",
+    "onDiagnostic: (eventName, payload)",
+  );
+
+  for (const [block, adoptionPattern, sessionPattern, roomPattern] of [
+    [
+      webStartGuard,
+      /adoptMatchingExternalCall: true/,
+      /videoDateSessionId: sessionId/,
+      /videoDateRoomName: roomData\.room_name/,
+    ],
+    [
+      webPrewarmGuard,
+      /adoptMatchingExternalCall: false/,
+      /videoDateSessionId: params\.sessionId/,
+      /videoDateRoomName: params\.roomName/,
+    ],
+    [
+      nativeStartGuard,
+      /adoptMatchingExternalCall: true/,
+      /videoDateSessionId: sessionId/,
+      /videoDateRoomName: tokenResult\.room_name/,
+    ],
+    [
+      nativePrewarmGuard,
+      /adoptMatchingExternalCall: false/,
+      /videoDateSessionId: params\.sessionId/,
+      /videoDateRoomName: params\.roomName/,
+    ],
+  ] as const) {
+    assert.match(block, adoptionPattern);
+    assert.match(block, sessionPattern);
+    assert.match(block, roomPattern);
+  }
 });
 
 test("definitive ownership contract is wired into Video Date suites", () => {

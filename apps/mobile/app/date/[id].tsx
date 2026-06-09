@@ -260,8 +260,7 @@ function readNativeDailyProviderSessionId(
       | { session_id?: unknown; sessionId?: unknown }
       | undefined;
     const providerSessionId = local?.session_id ?? local?.sessionId;
-    return typeof providerSessionId === 'string' &&
-      providerSessionId.length > 0
+    return typeof providerSessionId === "string" && providerSessionId.length > 0
       ? providerSessionId
       : null;
   } catch {
@@ -332,7 +331,10 @@ const nativeVideoDateActiveSurfaceOwners = new Map<
   NativeVideoDateActiveSurfaceOwner
 >();
 
-function nativeVideoDateSurfaceStorageKey(sessionId: string, profileId: string) {
+function nativeVideoDateSurfaceStorageKey(
+  sessionId: string,
+  profileId: string,
+) {
   return `${NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX}:${profileId}:${sessionId}`;
 }
 
@@ -341,7 +343,9 @@ function nativeVideoDateActiveSurfaceKey(sessionId: string, profileId: string) {
 }
 
 function createNativeVideoDateClientInstanceId() {
-  const cryptoApi = globalThis.crypto as { randomUUID?: () => string } | undefined;
+  const cryptoApi = globalThis.crypto as
+    | { randomUUID?: () => string }
+    | undefined;
   if (typeof cryptoApi?.randomUUID === "function") {
     return `vd-native-${cryptoApi.randomUUID()}`;
   }
@@ -1888,9 +1892,8 @@ export default function VideoDateScreen() {
             return false;
           }
           const fallbackRow =
-            (registrationFallback as
-              | NativeTerminalSurveyRegistrationFallbackRow
-              | null) ?? null;
+            (registrationFallback as NativeTerminalSurveyRegistrationFallbackRow | null) ??
+            null;
           const fallbackMatchesCurrentRoute =
             fallbackRow?.current_room_id == null ||
             fallbackRow.current_room_id === sessionId;
@@ -1934,14 +1937,11 @@ export default function VideoDateScreen() {
               pendingPostDateSurveyDue: true,
               registrationFallback: true,
             });
-            return openNativePostDateSurvey(
-              `${source}_registration_recovery`,
-              {
-                eventId: fallbackRow.event_id ?? eventId ?? null,
-                roomName: roomNameRef.current ?? null,
-                pendingPostDateSurveyDue: true,
-              },
-            );
+            return openNativePostDateSurvey(`${source}_registration_recovery`, {
+              eventId: fallbackRow.event_id ?? eventId ?? null,
+              roomName: roomNameRef.current ?? null,
+              pendingPostDateSurveyDue: true,
+            });
           }
           return false;
         }
@@ -2256,7 +2256,7 @@ export default function VideoDateScreen() {
       dailyAliveHeartbeatTimerRef.current = null;
     }
     if (dailyAliveHeartbeatKeyRef.current) {
-      vdbg('mark_video_date_daily_alive_stopped', {
+      vdbg("mark_video_date_daily_alive_stopped", {
         reason,
         heartbeatKey: dailyAliveHeartbeatKeyRef.current,
       });
@@ -2279,12 +2279,11 @@ export default function VideoDateScreen() {
       const meetingState = safeNativeDailyMeetingState(call);
       const providerBackedJoined =
         meetingState === "joined-meeting" && Boolean(providerSessionId);
-      const dailyOwnerState =
-        providerBackedJoined
-          ? "joined"
-          : meetingState === "left-meeting" || meetingState === "error"
-            ? "lost"
-            : "joining";
+      const dailyOwnerState = providerBackedJoined
+        ? "joined"
+        : meetingState === "left-meeting" || meetingState === "error"
+          ? "lost"
+          : "joining";
       const entryOwner = getVideoDateEntryOwner(input.sessionId, input.userId);
       const ownerId = entryOwner?.ownerId ?? null;
       updateVideoDateDailyOwnerState({
@@ -2294,7 +2293,8 @@ export default function VideoDateScreen() {
         roomName: input.roomName,
         state: dailyOwnerState,
         source: input.source,
-        entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+        entryAttemptId:
+          input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
         videoDateTraceId:
           input.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
         callInstanceId: input.callInstanceId ?? null,
@@ -2304,10 +2304,11 @@ export default function VideoDateScreen() {
         sessionId: input.sessionId,
         userId: input.userId,
         ownerId,
-        state: providerBackedJoined ? 'joined' : 'joining',
+        state: providerBackedJoined ? "joined" : "joining",
         source: input.source,
         roomName: input.roomName,
-        entryAttemptId: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+        entryAttemptId:
+          input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
         videoDateTraceId:
           input.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
         callInstanceId: input.callInstanceId ?? null,
@@ -2315,7 +2316,7 @@ export default function VideoDateScreen() {
       });
 
       if (!providerBackedJoined) {
-        vdbg('mark_video_date_daily_alive_skipped_provider_missing', {
+        vdbg("mark_video_date_daily_alive_skipped_provider_missing", {
           sessionId: input.sessionId,
           userId: input.userId,
           roomName: input.roomName,
@@ -2325,10 +2326,10 @@ export default function VideoDateScreen() {
           providerSessionId,
           meetingState,
           ownerState: dailyOwnerState,
-          terminal: dailyOwnerState === 'lost',
+          terminal: dailyOwnerState === "lost",
         });
-        if (dailyOwnerState === 'lost') {
-          clearDailyAliveHeartbeatTimer('provider_missing_terminal_state');
+        if (dailyOwnerState === "lost") {
+          clearDailyAliveHeartbeatTimer("provider_missing_terminal_state");
         }
         return;
       }
@@ -2338,20 +2339,23 @@ export default function VideoDateScreen() {
         p_owner_id: ownerId,
         p_call_instance_id: input.callInstanceId ?? null,
         p_provider_session_id: providerSessionId,
-        p_entry_attempt_id: input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+        p_entry_attempt_id:
+          input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
         p_owner_state: dailyOwnerState,
       };
       try {
-        const { data, error } = await (supabase as unknown as {
-          rpc: (
-            name: string,
-            args: Record<string, unknown>,
-          ) => Promise<{
-            data: unknown;
-            error: { code?: string; message?: string } | null;
-          }>;
-        }).rpc('mark_video_date_daily_alive', args);
-        vdbg('mark_video_date_daily_alive_after', {
+        const { data, error } = await (
+          supabase as unknown as {
+            rpc: (
+              name: string,
+              args: Record<string, unknown>,
+            ) => Promise<{
+              data: unknown;
+              error: { code?: string; message?: string } | null;
+            }>;
+          }
+        ).rpc("mark_video_date_daily_alive", args);
+        vdbg("mark_video_date_daily_alive_after", {
           sessionId: input.sessionId,
           userId: input.userId,
           roomName: input.roomName,
@@ -2366,7 +2370,7 @@ export default function VideoDateScreen() {
           error: error ? { code: error.code, message: error.message } : null,
         });
         const payload =
-          data && typeof data === 'object' && !Array.isArray(data)
+          data && typeof data === "object" && !Array.isArray(data)
             ? (data as Record<string, unknown>)
             : null;
         const terminalSurvey =
@@ -2377,20 +2381,20 @@ export default function VideoDateScreen() {
           payload?.provider_presence_terminal === true;
         if (terminalStop) {
           clearDailyAliveHeartbeatTimer(
-            videoDateLifecycleRpcCode(payload) === 'session_ended'
-              ? 'server_session_ended'
+            videoDateLifecycleRpcCode(payload) === "session_ended"
+              ? "server_session_ended"
               : payload?.provider_presence_terminal === true
-                ? 'provider_presence_terminal'
-                : 'server_terminal_truth',
+                ? "provider_presence_terminal"
+                : "server_terminal_truth",
           );
           if (terminalSurvey) {
             void openNativePostDateSurveyFromTerminalTruth(
-              'daily_alive_terminal_survey_truth',
+              "daily_alive_terminal_survey_truth",
             );
           }
         }
       } catch (error) {
-        vdbg('mark_video_date_daily_alive_failed', {
+        vdbg("mark_video_date_daily_alive_failed", {
           sessionId: input.sessionId,
           userId: input.userId,
           roomName: input.roomName,
@@ -2421,18 +2425,18 @@ export default function VideoDateScreen() {
       callInstanceId?: string | null;
       source: string;
     }) => {
-      const heartbeatKey = `${input.sessionId}:${input.userId}:${input.roomName ?? ''}:${input.callInstanceId ?? ''}`;
+      const heartbeatKey = `${input.sessionId}:${input.userId}:${input.roomName ?? ""}:${input.callInstanceId ?? ""}`;
       if (dailyAliveHeartbeatKeyRef.current === heartbeatKey) {
         void markNativeVideoDateDailyAlive(input);
         return;
       }
-      clearDailyAliveHeartbeatTimer('heartbeat_replaced');
+      clearDailyAliveHeartbeatTimer("heartbeat_replaced");
       dailyAliveHeartbeatKeyRef.current = heartbeatKey;
       void markNativeVideoDateDailyAlive(input);
       dailyAliveHeartbeatTimerRef.current = setInterval(() => {
         void markNativeVideoDateDailyAlive({
           ...input,
-          source: 'daily_alive_heartbeat',
+          source: "daily_alive_heartbeat",
         });
       }, NATIVE_VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS);
     },
@@ -2669,7 +2673,7 @@ export default function VideoDateScreen() {
         nativeRemoteRenderScopedAttemptsRef.current.get(scopedAttemptKey)
           ?.attempts ?? 0;
       const maxScopeAttemptsForScope =
-        scopeKey === 'camera_switch_hint'
+        scopeKey === "camera_switch_hint"
           ? 1
           : NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE;
       if (
@@ -3481,7 +3485,9 @@ export default function VideoDateScreen() {
         let localParticipantSessionId: string | null = null;
         try {
           localParticipantSessionId =
-            dailyParticipantSessionId(call.participants()?.local as DailyParticipant | undefined) ?? null;
+            dailyParticipantSessionId(
+              call.participants()?.local as DailyParticipant | undefined,
+            ) ?? null;
         } catch {
           localParticipantSessionId = null;
         }
@@ -3673,9 +3679,9 @@ export default function VideoDateScreen() {
   latestDateRouteUserIdRef.current = user?.id ?? null;
   latestDateRouteEndedRef.current = Boolean(
     terminalSurveyHardStopActive ||
-      session?.ended_at ||
-      session?.state === "ended" ||
-      phase === "ended",
+    session?.ended_at ||
+    session?.state === "ended" ||
+    phase === "ended",
   );
 
   useEffect(() => {
@@ -3834,13 +3840,7 @@ export default function VideoDateScreen() {
     return () => {
       clearInterval(intervalId);
     };
-  }, [
-    dateEntryPermissionEligible,
-    phase,
-    sessionId,
-    showFeedback,
-    user?.id,
-  ]);
+  }, [dateEntryPermissionEligible, phase, sessionId, showFeedback, user?.id]);
 
   useEffect(() => {
     vdbg("date_mount", {
@@ -4950,12 +4950,14 @@ export default function VideoDateScreen() {
         if (remoteSeenInFlightSessionRef.current === sessionId) {
           remoteSeenInFlightSessionRef.current = null;
         }
-        const terminalSurvey = videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
+        const terminalSurvey =
+          videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
         const terminalStop =
           terminalSurvey ||
           videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
           payload?.provider_presence_terminal === true;
-        const retryable = videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
+        const retryable =
+          videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
         if (terminalStop) {
           if (remoteSeenRetryTimerRef.current) {
             clearTimeout(remoteSeenRetryTimerRef.current);
@@ -5147,7 +5149,7 @@ export default function VideoDateScreen() {
       session_id: sessionId ?? "",
       room_name: roomNameRef.current ?? null,
       capture_profile: captureProfile,
-      diagnostic_scope: 'sender_capture',
+      diagnostic_scope: "sender_capture",
       track_id: trackId,
       track_settings: summarizeVideoTrackSettings(videoTrack),
       frame_issue_hint:
@@ -5234,7 +5236,7 @@ export default function VideoDateScreen() {
       participant_id:
         dailyParticipantId(remoteParticipant ?? undefined) ?? "unknown",
       capture_profile: captureProfile,
-      diagnostic_scope: 'receiver_layout',
+      diagnostic_scope: "receiver_layout",
       track_id: trackId,
       track_settings: summarizeVideoTrackSettings(videoTrack),
       receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT,
@@ -5411,7 +5413,10 @@ export default function VideoDateScreen() {
           phaseRef.current !== "ended" &&
           meetingStateBeforeCleanup !== "left-meeting" &&
           meetingStateBeforeCleanup !== "error";
-        if (shouldParkSingleton && parkSharedCallForWarmHandoff(call, cleanupReason)) {
+        if (
+          shouldParkSingleton &&
+          parkSharedCallForWarmHandoff(call, cleanupReason)
+        ) {
           vdbg("daily_call_live_remount_detach_only", {
             sessionId: sessionId ?? null,
             userId: user?.id ?? null,
@@ -9605,7 +9610,8 @@ export default function VideoDateScreen() {
         if (idleSingletonEntry.userId !== user.id) {
           rejectIdleReason = "idle_owner_mismatch";
         } else if (idleSingletonEntry.sessionId !== sessionId) {
-          rejectIdleReason = "daily_call_singleton_reuse_cross_session_rejected";
+          rejectIdleReason =
+            "daily_call_singleton_reuse_cross_session_rejected";
         } else if (idleSingletonEntry.roomName !== tokenResult.room_name) {
           rejectIdleReason = "idle_room_mismatch";
         } else if (
@@ -9745,22 +9751,28 @@ export default function VideoDateScreen() {
             attempt <= NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS;
             attempt += 1
           ) {
-            const guarded = await createVideoDateDailyCallObjectGuarded(profile, {
-              source: "native_video_date_start_call",
-              currentCallObject: callRef.current,
-              waitForCleanup: true,
-              onDiagnostic: (eventName, payload) => {
-                vdbg(eventName, {
-                  sessionId,
-                  userId: user.id,
-                  eventId: eventId || null,
-                  roomName: tokenResult.room_name,
-                  source: "native_video_date_start_call",
-                  attempt,
-                  ...payload,
-                });
+            const guarded = await createVideoDateDailyCallObjectGuarded(
+              profile,
+              {
+                source: "native_video_date_start_call",
+                currentCallObject: callRef.current,
+                waitForCleanup: true,
+                adoptMatchingExternalCall: true,
+                videoDateSessionId: sessionId,
+                videoDateRoomName: tokenResult.room_name,
+                onDiagnostic: (eventName, payload) => {
+                  vdbg(eventName, {
+                    sessionId,
+                    userId: user.id,
+                    eventId: eventId || null,
+                    roomName: tokenResult.room_name,
+                    source: "native_video_date_start_call",
+                    attempt,
+                    ...payload,
+                  });
+                },
               },
-            });
+            );
             if (guarded.ok === true) {
               nextCall = guarded.call;
               break;
@@ -10479,7 +10491,8 @@ export default function VideoDateScreen() {
               p_owner_id: entryOwner?.ownerId ?? null,
               p_call_instance_id: dailyCallInstanceId,
               p_provider_session_id: providerSessionId,
-              p_entry_attempt_id: entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
+              p_entry_attempt_id:
+                entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
               p_owner_state: ownerState,
             },
           };
@@ -10535,7 +10548,9 @@ export default function VideoDateScreen() {
               joinedProof.args,
             );
             const payload =
-              joinedData && typeof joinedData === "object" && !Array.isArray(joinedData)
+              joinedData &&
+              typeof joinedData === "object" &&
+              !Array.isArray(joinedData)
                 ? (joinedData as Record<string, unknown>)
                 : null;
             const ok = !joinedError && payload?.ok === true;
@@ -12194,7 +12209,9 @@ export default function VideoDateScreen() {
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
-  const showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom &&
+  const showJoiningOverlay =
+    (joining || isConnecting) &&
+    !localInDailyRoom &&
     !showFeedback &&
     !preJoinFailed &&
     !peerMissingTerminal;
@@ -13011,7 +13028,9 @@ export default function VideoDateScreen() {
       </View>
       <View pointerEvents="none" style={styles.remoteGlassWash} />
 
-      <View style={[styles.localPip,
+      <View
+        style={[
+          styles.localPip,
           { borderColor: theme.tint, top: insets.top + 86 },
         ]}
       >
@@ -13728,7 +13747,7 @@ const styles = StyleSheet.create({
   buttonText: { color: "#fff", fontSize: 16 },
   remoteContainer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
+    backgroundColor: "#000",
   },
   remoteGlassWash: {
     ...StyleSheet.absoluteFillObject,

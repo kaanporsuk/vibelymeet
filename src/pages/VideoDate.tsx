@@ -188,6 +188,9 @@ const VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS = 2_500;
 const DUPLICATE_TAB_CONFLICT_STABLE_MS = 2_500;
 const TERMINAL_SURVEY_RECONCILE_INTERVAL_MS = 2_500;
 const TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS = [0, 350, 900, 1_600] as const;
+const VIDEO_DATE_START_AUTO_RETRY_DELAYS_MS = [
+  1_200, 2_400, 4_000, 6_000,
+] as const;
 const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Product invariant: remote date video preserves the full encoded camera frame.
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
@@ -628,7 +631,9 @@ const VideoDate = () => {
   const warmupTimerStartedTrackedRef = useRef<string | null>(null);
   const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
-  const routeMountIdRef = useRef(`vd-web-route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+  const routeMountIdRef = useRef(
+    `vd-web-route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+  );
   const eventIdRef = useRef<string | undefined>(undefined);
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
@@ -665,6 +670,10 @@ const VideoDate = () => {
   const lastForegroundReconcileAtRef = useRef(0);
   const accessLoadingWatchdogKeyRef = useRef<string | null>(null);
   const videoJoinCycleRef = useRef(0);
+  const callStartAutoRetryCountRef = useRef(0);
+  const callStartAutoRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const nextVideoDateMediaPromptIntentRef =
     useRef<VideoDateMediaPromptIntent>("auto");
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
@@ -692,8 +701,19 @@ const VideoDate = () => {
 
   const clearHandshakeGraceState = useCallback(() => {}, []);
 
+  const clearCallStartAutoRetryTimer = useCallback(() => {
+    if (!callStartAutoRetryTimerRef.current) return;
+    clearTimeout(callStartAutoRetryTimerRef.current);
+    callStartAutoRetryTimerRef.current = null;
+  }, []);
+
   const { credits, refetch: refetchCredits } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
+
+  useEffect(
+    () => () => clearCallStartAutoRetryTimer(),
+    [clearCallStartAutoRetryTimer],
+  );
 
   useEffect(() => {
     setSafetySubmitOutcome(null);
@@ -738,6 +758,8 @@ const VideoDate = () => {
         stopDailyForTerminal(reason);
       }
       clearHandshakeGraceState();
+      clearCallStartAutoRetryTimer();
+      callStartAutoRetryCountRef.current = 0;
       setPhase("ended");
       setTimeLeft(0);
       setVideoDateAccess("allowed");
@@ -752,7 +774,14 @@ const VideoDate = () => {
         reason,
       });
     },
-    [clearHandshakeGraceState, eventId, id, setStatus, user?.id],
+    [
+      clearCallStartAutoRetryTimer,
+      clearHandshakeGraceState,
+      eventId,
+      id,
+      setStatus,
+      user?.id,
+    ],
   );
 
   const openPostDateSurvey = useCallback(
@@ -815,6 +844,8 @@ const VideoDate = () => {
       setVideoDateAccess("allowed");
       setTimingReady(true);
       setCallStarted(false);
+      clearCallStartAutoRetryTimer();
+      callStartAutoRetryCountRef.current = 0;
       setCallStartFailure(null);
       vdbg("terminal_survey_context_hydrated", {
         sessionId: id ?? null,
@@ -825,7 +856,7 @@ const VideoDate = () => {
         isParticipant1: isP1,
       });
     },
-    [id, user?.id],
+    [clearCallStartAutoRetryTimer, id, user?.id],
   );
 
   const recoverTerminalPostDateSurvey = useCallback(
@@ -1315,8 +1346,7 @@ const VideoDate = () => {
     !showFeedback &&
     !terminalSurveyRecoveryActive &&
     phase !== "ended";
-  const videoDateSurfaceLeaseActive =
-    videoDateRouteShellActive;
+  const videoDateSurfaceLeaseActive = videoDateRouteShellActive;
   const shouldBridgeVideoDateSurfaceOnCleanup = useCallback(
     () =>
       videoDateSurfaceLeaseActive &&
@@ -2038,6 +2068,8 @@ const VideoDate = () => {
 
   useEffect(() => {
     videoJoinCycleRef.current = 0;
+    clearCallStartAutoRetryTimer();
+    callStartAutoRetryCountRef.current = 0;
     nextVideoDateMediaPromptIntentRef.current = "auto";
     videoJoinOutcomeByCycleRef.current = new Set();
     surveyOpenedRef.current = false;
@@ -2051,7 +2083,7 @@ const VideoDate = () => {
       clearTimeout(handshakeCompletionRetryTimerRef.current);
       handshakeCompletionRetryTimerRef.current = null;
     }
-  }, [id]);
+  }, [clearCallStartAutoRetryTimer, id]);
 
   /** Breadcrumbs for the next Sentry #310 / render crash: last stable tree checkpoint before failure. */
   useEffect(() => {
@@ -2245,12 +2277,7 @@ const VideoDate = () => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [
-    dupBlocked,
-    id,
-    user?.id,
-    videoDateAccess,
-  ]);
+  }, [dupBlocked, id, user?.id, videoDateAccess]);
 
   useEffect(() => {
     if (
@@ -3103,7 +3130,9 @@ const VideoDate = () => {
                   event_id: eventId ?? null,
                   source,
                   step: "mark_reconnect_return",
-                  code: returnError?.code ?? videoDateLifecycleRpcCode(returnPayload),
+                  code:
+                    returnError?.code ??
+                    videoDateLifecycleRpcCode(returnPayload),
                   retryable: returnError
                     ? true
                     : videoDateLifecycleRpcRetryable(returnPayload) === true,
@@ -3145,13 +3174,15 @@ const VideoDate = () => {
                 event_id: eventId ?? null,
                 source,
                 step: "sync_reconnect",
-                code: error?.code ?? videoDateLifecycleRpcCode(reconnectPayload),
+                code:
+                  error?.code ?? videoDateLifecycleRpcCode(reconnectPayload),
                 retryable: error
                   ? true
                   : videoDateLifecycleRpcRetryable(reconnectPayload) === true,
               },
             );
-            if (videoDateLifecycleRpcRetryable(reconnectPayload) === true) return;
+            if (videoDateLifecycleRpcRetryable(reconnectPayload) === true)
+              return;
           }
           if (
             !error &&
@@ -3266,6 +3297,8 @@ const VideoDate = () => {
         }
       }
       if (result.ok === true) {
+        clearCallStartAutoRetryTimer();
+        callStartAutoRetryCountRef.current = 0;
         setTimingRefreshNonce((n) => n + 1);
         clearDateEntryTransition(id);
         vdbg("date_entry_latch_cleared", {
@@ -3281,6 +3314,59 @@ const VideoDate = () => {
       const failure = result.failure;
       setCallStarted(false);
       if (failure.retryable) {
+        const retryAttempt = callStartAutoRetryCountRef.current;
+        const retryDelayMs =
+          VIDEO_DATE_START_AUTO_RETRY_DELAYS_MS[retryAttempt] ?? null;
+        if (
+          retryDelayMs != null &&
+          videoDateRouteShellActive &&
+          !manualExitInFlightRef.current &&
+          !terminalSurveyRecoveryInFlightRef.current
+        ) {
+          callStartAutoRetryCountRef.current = retryAttempt + 1;
+          clearCallStartAutoRetryTimer();
+          vdbg("date_entry_start_retryable_auto_retry_scheduled", {
+            sessionId: id,
+            userId: user?.id ?? null,
+            eventId: eventId ?? null,
+            joinCycle,
+            retryAttempt: retryAttempt + 1,
+            retryDelayMs,
+            failureKind: failure.kind,
+            serverCode: failure.serverCode ?? null,
+          });
+          callStartAutoRetryTimerRef.current = setTimeout(() => {
+            callStartAutoRetryTimerRef.current = null;
+            if (
+              manualExitInFlightRef.current ||
+              terminalSurveyRecoveryInFlightRef.current
+            ) {
+              return;
+            }
+            markVideoDateRouteOwned(id, user?.id ?? null);
+            vdbg("date_entry_start_retryable_auto_retry_fired", {
+              sessionId: id,
+              userId: user?.id ?? null,
+              eventId: eventId ?? null,
+              retryAttempt: retryAttempt + 1,
+              failureKind: failure.kind,
+              serverCode: failure.serverCode ?? null,
+            });
+            setCallStartFailure(null);
+            setCallStarted(false);
+          }, retryDelayMs);
+        } else {
+          vdbg("date_entry_start_retryable_auto_retry_exhausted", {
+            sessionId: id,
+            userId: user?.id ?? null,
+            eventId: eventId ?? null,
+            joinCycle,
+            retryAttempt,
+            failureKind: failure.kind,
+            serverCode: failure.serverCode ?? null,
+            routeShellActive: videoDateRouteShellActive,
+          });
+        }
         setCallStartFailure(failure);
         return;
       }
@@ -3352,6 +3438,8 @@ const VideoDate = () => {
     getRoomName,
     dupBlocked,
     eventId,
+    videoDateRouteShellActive,
+    clearCallStartAutoRetryTimer,
     user?.id,
     navigate,
     recoverFromEndedSessionTruth,
@@ -6140,6 +6228,8 @@ const VideoDate = () => {
                 },
               );
               nextVideoDateMediaPromptIntentRef.current = "user_retry";
+              clearCallStartAutoRetryTimer();
+              callStartAutoRetryCountRef.current = 0;
               setCallStartFailure(null);
               setHandshakeStartFailed(false);
               setCallStarted(false);
@@ -6207,6 +6297,8 @@ const VideoDate = () => {
             type="button"
             className="w-full"
             onClick={() => {
+              clearCallStartAutoRetryTimer();
+              callStartAutoRetryCountRef.current = 0;
               setCallStartFailure(null);
               setCallStarted(false);
             }}
