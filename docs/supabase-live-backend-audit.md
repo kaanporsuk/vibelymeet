@@ -10,6 +10,8 @@
 >
 > Update 2026-06-09: direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`, and `leave_matching_queue(uuid)` was removed by `supabase/migrations/20260609165218_remove_leave_matching_queue.sql`. Historical rows below that list them as callable do not describe current schema.
 >
+> Update 2026-06-09: the temporary `video_sessions.session_source` marker was removed by `supabase/migrations/20260609171950_remove_video_sessions_session_source.sql`. Historical rows below that list the column or its reciprocal-swipe-only constraint do not describe current schema.
+>
 > Historical note: this document preserves a March 18, 2026 live audit snapshot. For current schema truth, use the latest migrations, live DB state, and `src/integrations/supabase/types.ts`.
 
 ---

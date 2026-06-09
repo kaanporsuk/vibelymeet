@@ -14,6 +14,7 @@ const stream8MigrationPath = "supabase/migrations/20260501224000_event_lobby_swi
 const stream7Migration = read(stream7MigrationPath);
 const stream8Migration = read(stream8MigrationPath);
 const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
+const sessionSourceRemoval = read("supabase/migrations/20260609171950_remove_video_sessions_session_source.sql");
 const mutualSessionBase = read("supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql");
 const validation = read("supabase/validation/swipe_retry_idempotency_notification_dedupe.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
@@ -176,12 +177,13 @@ test("queued match notification payloads stay in lobby until queue promotion ope
   assert.doesNotMatch(swipeActions, /Your video date is ready/);
 });
 
-test("Super Vibe consumption and reciprocal swipe session source are returned by backend truth", () => {
+test("Super Vibe consumption remains while the session-source discriminator is removed", () => {
   assert.match(mutualMatchHandoffClosure, /ADD COLUMN IF NOT EXISTS session_source text/);
   assert.match(mutualMatchHandoffClosure, /session_source = 'reciprocal_swipe'/);
+  assert.match(sessionSourceRemoval, /DROP COLUMN IF EXISTS session_source/);
   assert.match(mutualMatchHandoffClosure, /'super_vibe_consumed', true/);
   assert.match(videoSessionFlow, /super_vibe_consumed\?: boolean/);
-  assert.match(videoSessionFlow, /session_source\?: string/);
+  assert.doesNotMatch(videoSessionFlow, /session_source\?: string/);
   assert.match(webLobby, /result\.super_vibe_consumed === true/);
   assert.match(nativeLobby, /normalizedEnvelope\.super_vibe_consumed === true/);
 });

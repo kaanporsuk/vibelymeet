@@ -8634,7 +8634,6 @@ export type Database = {
           refund_granted_at: string | null
           refund_status: string | null
           session_seq: number
-          session_source: string
           snooze_expires_at: string | null
           snoozed_by: string | null
           stable_bilateral_media_at: string | null
@@ -8702,7 +8701,6 @@ export type Database = {
           refund_granted_at?: string | null
           refund_status?: string | null
           session_seq?: number
-          session_source?: string
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           stable_bilateral_media_at?: string | null
@@ -8770,7 +8768,6 @@ export type Database = {
           refund_granted_at?: string | null
           refund_status?: string | null
           session_seq?: number
-          session_source?: string
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           stable_bilateral_media_at?: string | null

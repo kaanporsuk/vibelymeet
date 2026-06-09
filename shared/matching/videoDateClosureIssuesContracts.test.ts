@@ -44,6 +44,10 @@ const legacyQueueCleanupRpcRemovalMigration = readFileSync(
   "supabase/migrations/20260609165218_remove_leave_matching_queue.sql",
   "utf8",
 );
+const sessionSourceRemovalMigration = readFileSync(
+  "supabase/migrations/20260609171950_remove_video_sessions_session_source.sql",
+  "utf8",
+);
 const eventRegistrationDmlLockdownMigration = readFileSync(
   "supabase/migrations/20260606164737_event_registration_rpc_owned_dml_lockdown.sql",
   "utf8",
@@ -287,6 +291,9 @@ test("legacy direct queue and session RPCs are removed from the current backend 
   assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible/i);
   assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /ALTER TABLE[\s\S]*session_source/i);
   assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /DROP COLUMN[\s\S]*session_source/i);
+  assert.match(sessionSourceRemovalMigration, /DROP COLUMN IF EXISTS session_source/);
+  assert.doesNotMatch(sessionSourceRemovalMigration, /DROP FUNCTION IF EXISTS public\.drain_match_queue/i);
+  assert.doesNotMatch(sessionSourceRemovalMigration, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible/i);
 });
 
 test("web lobby treats readiness as non-blocking diagnostics for deck swipes", () => {

@@ -31,7 +31,6 @@ type HandleSwipeSessionPayload = {
   requested_swipe_type?: string;
   message?: string;
   super_vibe_consumed?: boolean;
-  session_source?: string;
 };
 
 /** Deep link + OneSignal `data` for session-stage notifications (ready gate / video date entry). */

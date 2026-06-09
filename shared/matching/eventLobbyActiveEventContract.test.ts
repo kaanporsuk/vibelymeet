@@ -10,6 +10,11 @@ const mysteryMatchRemoval = readFileSync(
   join(root, "supabase/migrations/20260609152000_remove_mystery_match.sql"),
   "utf8",
 );
+const sessionSourceRemoval = readFileSync(
+  join(root, "supabase/migrations/20260609171950_remove_video_sessions_session_source.sql"),
+  "utf8",
+);
+const validation = readFileSync(join(root, "supabase/validation/event_lobby_active_event_contract.sql"), "utf8");
 const swipeActions = readFileSync(join(root, "supabase/functions/swipe-actions/index.ts"), "utf8");
 
 const migrationSection = (startMarker: string, endMarker: string): string => {
@@ -184,6 +189,9 @@ test("Mystery Match no longer exists as an active-event session creation path", 
   assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260502083000_active_base\(uuid, uuid\)/);
   assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260607103000_session_source_base\(uuid, uuid\)/);
   assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
+  assert.match(sessionSourceRemoval, /DROP CONSTRAINT IF EXISTS video_sessions_session_source_rec_swipe_only/);
+  assert.match(sessionSourceRemoval, /DROP COLUMN IF EXISTS session_source/);
+  assert.match(validation, /video_sessions_session_source_removed/);
 });
 
 test("queue promotion and drain preserve event_not_valid reason while blocking inactive promotion", () => {
