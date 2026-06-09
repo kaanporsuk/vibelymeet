@@ -3,7 +3,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase
 import { getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
-import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
+import type { SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 import { normalizeContractError, toError } from '@/lib/contractErrors';
 import { fetchMyLocationData } from '@/lib/myLocationData';
@@ -14,15 +14,6 @@ import {
   type EventDeckFetchResult,
   type EventDeckProfile as DeckProfile,
 } from '@shared/eventProfileAdapters';
-import {
-  buildQueueDrainResultPayload,
-  EventLobbyObservabilityEvents,
-  type QueueDrainSourceSurface,
-} from '@clientShared/observability/eventLobbyObservability';
-import {
-  buildVideoDateQueueDrainIdempotencyKey,
-  createVideoDateClientRequestId,
-} from '@clientShared/matching/videoDateTransitionCommands';
 import { VIDEO_DATE_DECK_BUFFER_LIMIT } from '@clientShared/matching/videoDateInstantExperience';
 import { getVideoDateSwipeRateLimitRetryUntilMs } from '@clientShared/matching/videoDateDeckPrefetch';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
@@ -32,7 +23,6 @@ import {
   resolveEventAdmissionReadiness,
   type EventAdmissionReadinessSnapshot,
 } from '@clientShared/eventAdmissionReadiness';
-import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -727,10 +717,8 @@ export function useEventDeck(
   };
 }
 
-/** @alias SwipeSessionStageResult — `match` / `match_queued` ids are `video_sessions.id`, not `matches.id`. */
+/** @alias SwipeSessionStageResult — `match` ids are `video_sessions.id`, not `matches.id`. */
 export type SwipeResult = SwipeSessionStageResult;
-
-export type { DrainMatchQueueResult };
 
 function unauthorizedSwipeResult(): SwipeResult {
   return {
@@ -802,78 +790,6 @@ export async function swipe(
 }
 
 const SUPER_VIBE_LIMIT_PER_EVENT = 3;
-
-/** Drain match queue when user returns to browsing. Returns first ready match if any. */
-export async function drainMatchQueue(
-  eventId: string,
-  userId: string,
-  options?: { drainMatchQueueV2?: boolean; sourceAction?: string; sourceSurface?: QueueDrainSourceSurface },
-): Promise<DrainMatchQueueResult | null> {
-  const sourceAction = options?.sourceAction ?? 'drain_match_queue';
-  const sourceSurface = options?.sourceSurface ?? 'event_lobby';
-  trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
-    platform: 'native',
-    event_id: eventId,
-    source_surface: sourceSurface,
-    source_action: sourceAction,
-  });
-  try {
-    const { data, error } = options?.drainMatchQueueV2 === true
-      ? await supabase.rpc('drain_match_queue_v2' as never, {
-          p_event_id: eventId,
-          p_idempotency_key: buildVideoDateQueueDrainIdempotencyKey(
-            eventId,
-            createVideoDateClientRequestId(),
-          ),
-        } as never)
-      : await supabase.rpc('drain_match_queue', {
-          p_event_id: eventId,
-        });
-    if (error) {
-      trackEvent(
-        EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
-        buildQueueDrainResultPayload({
-          eventId,
-          platform: 'native',
-          sourceSurface,
-          error,
-          sourceAction,
-        }),
-      );
-      return null;
-    }
-    const result = data as DrainMatchQueueResult;
-    trackEvent(
-      EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
-      buildQueueDrainResultPayload({
-        eventId,
-        platform: 'native',
-        sourceSurface,
-        result,
-        sourceAction,
-      }),
-    );
-    return result;
-  } catch (error) {
-    trackEvent(
-      EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
-      buildQueueDrainResultPayload({
-        eventId,
-        platform: 'native',
-        sourceSurface,
-        error,
-        sourceAction,
-      }),
-    );
-    return null;
-  }
-}
-
-/** Count eligible queued video dates for this user using the shared server queue hint. */
-export async function getQueuedMatchCount(eventId: string, userId: string): Promise<number> {
-  const hint = await fetchVideoDateQueueHint(eventId, userId);
-  return hint.ok ? hint.userQueuedCount : 0;
-}
 
 /** Remaining Super Vibes for this event (max 3 per event). */
 export async function getSuperVibeRemaining(eventId: string, userId: string): Promise<number> {

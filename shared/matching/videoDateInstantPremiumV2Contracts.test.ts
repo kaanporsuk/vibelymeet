@@ -38,6 +38,10 @@ const publicInterfaceAliasMigration = readFileSync(
   join(root, "supabase/migrations/20260525150000_video_date_public_interface_alias_flags.sql"),
   "utf8",
 );
+const postDateAutoNextRemovalMigration = readFileSync(
+  join(root, "supabase/migrations/20260610000100_remove_post_date_instant_next.sql"),
+  "utf8",
+);
 const instantPremiumMigrations = `${instantPremiumMigration}\n${dailySingletonMatchEtaMigration}\n${publicInterfaceAliasMigration}`;
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
 
@@ -133,29 +137,15 @@ test("web and native lobbies use timeline v2 plus private active-session Broadca
   assert.match(nativeLobby, /formatEventCountdown\(eventEndTimeMs, lobbyClockMs\)/);
 });
 
-test("post-date instant next is prestaged, deck-prefetched, optimistic for normal verdicts, and server-confirmed for safety paths", () => {
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.post_date_instant_next_v2["']\s*,?\s*\)/);
-  assert.match(webVideoDate, /post_date_survey_prestaged/);
-  assert.match(webVideoDate, /preloadRouteOnIdle\("eventLobby"\)/);
-  assert.match(nativeVideoDate, /useFeatureFlag\(\s*["']video_date\.post_date_instant_next_v2["']\s*,?\s*\)/);
-  assert.match(nativeVideoDate, /postDateSurveyShellPrestaged/);
-  assert.match(nativeVideoDate, /postDateSurveyPrestageShell/);
-  assert.match(nativeVideoDate, /post_date_survey_prestaged/);
-
-  for (const source of [webSurvey, nativeSurvey]) {
-    assert.match(source, /useFeatureFlag\(\s*["']video_date\.post_date_instant_next_v2["']\s*,?\s*\)/);
-    assert.match(source, /prefetchQuery\(\{/);
-    assert.match(source, /fetchEventDeck\(/);
-    assert.match(source, /getVideoDateDeckPrefetchItems/);
-    assert.match(source, /const optimisticStep: SurveyStep = liked \? ["']awaiting_partner["'] : ["']highlights["']/);
-    assert.match(source, /const canOptimisticallyAdvanceVerdict = postDateInstantNextV2\.enabled && !verdictConfirmEnabled/);
-    assert.match(source, /setStep\(optimisticStep\)/);
-    assert.match(source, /post_date_verdict_optimistic_started/);
-    assert.match(source, /post_date_verdict_optimistic_confirmed/);
-    assert.match(source, /post_date_verdict_optimistic_rollback/);
-    assert.match(source, /submitPostDateReportWithOutbox|submitWebPostDateOutboxItem|submit_user_report/);
-    assert.doesNotMatch(source, /post_date_safety_optimistic/);
+test("post-date instant-next prestage and optimistic verdict shortcuts are removed", () => {
+  for (const source of [webVideoDate, nativeVideoDate, webSurvey, nativeSurvey]) {
+    assert.doesNotMatch(source, /video_date\.post_date_instant_next_v2/);
+    assert.doesNotMatch(source, /post_date_survey_prestaged|postDateSurveyShellPrestaged|postDateSurveyPrestageShell/);
+    assert.doesNotMatch(source, /post_date_verdict_optimistic_started|post_date_verdict_optimistic_confirmed|post_date_verdict_optimistic_rollback/);
   }
+  assert.match(webSurvey, /removed_auto_next_target_ignored/);
+  assert.match(nativeSurvey, /removed_auto_next_target_ignored/);
+  assert.match(postDateAutoNextRemovalMigration, /video_date\.post_date_instant_next_v2/);
 });
 
 test("resilience v2 improves reconnect UI and applies Daily adaptation only behind capability checks", () => {
@@ -202,7 +192,7 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(webVideoCall, /hasReusableWebDailyCallSingleton/);
   assert.match(webVideoCall, /isWebDailyCallSingletonIdleExpired/);
   assert.match(webVideoCall, /typeof entry\.idleMs === "number"/);
-  assert.match(webVideoCall, /idle_destroy_disabled: shouldParkLiveSingleton && WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null/);
+  assert.match(webVideoCall, /idle_destroy_disabled:\s*shouldParkLiveSingleton &&\s*WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null/);
   assert.match(webVideoCall, /eventName: "daily_call_singleton_idle_destroy"/);
   assert.match(webVideoCall, /expired_before_preflight/);
   assert.match(webVideoCall, /destroyed_before_preflight/);
@@ -213,10 +203,12 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_singleton/);
   assert.match(webVideoCall, /daily_call_singleton_reused/);
   assert.match(webVideoCall, /sameSessionDailyContinuity =[\s\S]+dailyCallSingletonEligible[\s\S]+hasSameSessionDailyContinuity\(sessionId\)/);
-  assert.match(webVideoCall, /sameSessionDailyContinuityLatched: hasSameSessionDailyContinuity\(sessionId\)/);
-  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "daily_call_object_attached"\)/);
+  assert.match(webVideoCall, /sameSessionDailyContinuityLatched:\s*hasSameSessionDailyContinuity\(sessionId\)/);
+  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "start_call_requested"\)/);
+  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "date_entry_truth_active"\)/);
+  assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "daily_join_started"\)/);
   assert.match(webVideoCall, /latchSameSessionDailyContinuity\(sessionId, "daily_join_success"\)/);
-  assert.match(webVideoCall, /clearSameSessionDailyContinuity\(sessionId, `daily_call_cleanup:\$\{reason\}`\)/);
+  assert.match(webVideoCall, /clearSameSessionDailyContinuity\(\s*sessionId,\s*`daily_call_cleanup:\$\{reason\}`,\s*\)/);
   assert.match(webVideoCall, /const singletonCall =\s*userId\s*\?\s*consumeWebDailyCallSingleton/);
   assert.match(webVideoCall, /const skipMediaPreflightForSingleton = userId\s*\?\s*hasReusableWebDailyCallSingleton/);
   assert.match(webVideoCall, /parkingMode: "live_same_session_remount"/);
@@ -260,18 +252,19 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "leave_and_cleanup"/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background"/);
   assert.match(nativeVideoDate, /mode: "destructive"[\s\S]{0,80}reason: "app_background_timeout"/);
-  assert.match(nativeVideoDate, /if \(shouldParkSingleton && parkSharedCallForWarmHandoff\(call, cleanupReason\)\) \{/);
+  assert.match(nativeVideoDate, /if \(\s*shouldParkSingleton &&\s*parkSharedCallForWarmHandoff\(call, cleanupReason\)\s*\) \{/);
   assert.match(nativeVideoDate, /daily_call_live_remount_detach_only/);
   assert.match(nativeVideoDate, /heartbeatPreserved: true/);
   assert.doesNotMatch(nativeVideoDate, /await call\.leave\(\);[\s\S]{0,180}parkSharedCallForWarmHandoff/);
   assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled\s*&&\s*\(\s*dateEstablishedRef\.current\s*\|\|\s*showFeedback\s*\)/);
 });
 
-test("match ETA hint is sanitized, participant-visible, and gated by post-date instant-next full rollout", () => {
+test("historical match ETA hint was gated by the removed post-date instant-next flag", () => {
   assert.match(dailySingletonMatchEtaMigration, /emit_video_date_match_eta_hint_v2/);
   assert.match(dailySingletonMatchEtaMigration, /'match_eta_hint'/);
   assert.match(dailySingletonMatchEtaMigration, /'participants'/);
   assert.match(dailySingletonMatchEtaMigration, /flag_key = 'video_date\.post_date_instant_next_v2'/);
+  assert.match(postDateAutoNextRemovalMigration, /video_date\.post_date_instant_next_v2/);
   assert.match(dailySingletonMatchEtaMigration, /rollout_bps >= 10000/);
   assert.match(dailySingletonMatchEtaMigration, /AFTER UPDATE OF ready_gate_status ON public\.video_sessions/);
 });
@@ -280,7 +273,6 @@ test("new instant premium flags are default-off", () => {
   for (const flag of [
     "video_date.deck_prefetch_polish_v2",
     "video_date.lobby_timeline_v2",
-    "video_date.post_date_instant_next_v2",
     "video_date.daily_call_singleton_v2",
     "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",

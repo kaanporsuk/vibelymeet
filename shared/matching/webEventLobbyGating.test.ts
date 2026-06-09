@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getEventLobbyGateState,
@@ -11,7 +11,6 @@ const root = process.cwd();
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const useEventDetails = readFileSync(join(root, "src/hooks/useEventDetails.ts"), "utf8");
 const useEventDeck = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
-const useMatchQueue = readFileSync(join(root, "src/hooks/useMatchQueue.ts"), "utf8");
 const useEventStatus = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
 const useEvents = readFileSync(join(root, "src/hooks/useEvents.ts"), "utf8");
 const dashboard = readFileSync(join(root, "src/pages/Dashboard.tsx"), "utf8");
@@ -199,7 +198,7 @@ test("Enter Lobby CTA scheduled-live signals match the lobby route gate", () => 
   assert.match(nativeHome, /status: nextEventStatus/);
 });
 
-test("web EventLobby wires the gate into deck, queue/status side effects, actions, and ended-state UI", () => {
+test("web EventLobby wires the gate into deck/status side effects, actions, and ended-state UI", () => {
   assert.match(webLobby, /getEventLobbyGateState/);
   assert.match(readFileSync(join(root, "src/lib/eventLobbyGating.ts"), "utf8"), /@clientShared\/eventLobbyGate/);
   assert.match(readFileSync(join(root, "src/lib/eventLobbyGating.ts"), "utf8"), /getEventLobbyInactiveReasonForEvent/);
@@ -221,7 +220,7 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(webLobby, /const deckFetchEnabled = deckEnabled && !readyGatePressureActive/);
   assert.match(webLobby, /useEventDeck\(\{[\s\S]*enabled: deckFetchEnabled/);
   assert.match(webLobby, /useEventStatus\(\{\s*eventId,\s*enabled: lobbySideEffectsEnabled,\s*\}\)/);
-  assert.match(webLobby, /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/);
+  assert.doesNotMatch(webLobby, /useMatchQueue|drainMatchQueue|fetchVideoDateQueueHint|getQueuedMatchCount/);
   assert.doesNotMatch(webLobby, /useMysteryMatch|findMysteryMatch|find_mystery_match/);
   assert.doesNotMatch(webLobby, /mysteryMatch|showMysteryMatch|MYSTERY_MATCH|Mystery Match/);
   assert.match(webLobby, /LobbyUnavailableState/);
@@ -249,14 +248,12 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
 
 test("related hooks honor disabled state instead of polling or writing stale lobby status", () => {
   assert.match(useEventDeck, /enabled: enabled && !!user\?\.id && !!eventId/);
-  assert.match(useMatchQueue, /enabled = true/);
-  assert.match(useMatchQueue, /if \(!enabled \|\| !eventId \|\| !user\?\.id\)/);
-  assert.match(useMatchQueue, /setQueuedCount\(0\)/);
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
   assert.match(useEventStatus, /enabledRef/);
   assert.match(useEventStatus, /if \(!enabledRef\.current\) return/);
 });
 
-test("native EventLobby blocks stale deck, status, foreground, and queue side effects with the same local truths", () => {
+test("native EventLobby blocks stale deck, status, and foreground side effects with the same local truths", () => {
   assert.match(nativeEventsApi, /archived_at\?: string \| null/);
   assert.match(nativeEventsApi, /ended_at\?: string \| null/);
   assert.match(nativeLobby, /getEventLobbyGateState/);
@@ -274,7 +271,7 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
     nativeLobby,
     /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled,\s*\{[\s\S]*refetchIntervalMs: deckAdaptiveRefetchIntervalMs[\s\S]*\}\s*\)/,
   );
-  assert.match(nativeLobby, /const queueHintEnabled =\s*deckQueryEnabled/);
+  assert.doesNotMatch(nativeLobby, /queueHintEnabled|fetchVideoDateQueueHint|getQueuedMatchCount|drainMatchQueue/);
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
   assert.match(nativeLobby, /resolveEventLifecycle/);

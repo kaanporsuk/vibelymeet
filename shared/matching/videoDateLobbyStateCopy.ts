@@ -5,7 +5,6 @@ export type VideoDateLobbyFocusedReason =
   | "safety_limited"
   | "geo_or_eligibility_mismatch"
   | "media_unavailable"
-  | "queue_waiting"
   | "recoverable_fetch_error"
   | "terminal_event_state";
 
@@ -74,18 +73,6 @@ export function resolveVideoDateLobbyStateCopy(input: {
         retryable: true,
         terminal: false,
         observabilityReason: "rpc_error",
-      };
-    case "queue_waiting":
-      return {
-        reason: input.reason,
-        badge: "In queue",
-        title: "Holding your place",
-        message: "You are still in the matching queue. Keep browsing while we hold your spot.",
-        actionLabel: null,
-        actionTarget: "none",
-        retryable: false,
-        terminal: false,
-        observabilityReason: "all_candidates_busy_or_unavailable",
       };
     case "recoverable_fetch_error":
       return {

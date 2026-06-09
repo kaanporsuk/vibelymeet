@@ -4,7 +4,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildLobbySwipeResultPayload,
-  buildQueueDrainResultPayload,
   DECK_EMPTY_REASONS,
   EventLobbyObservabilityEvents,
   FORBIDDEN_EVENT_LOBBY_OBSERVABILITY_KEYS,
@@ -39,8 +38,6 @@ test("Event Lobby observability event names are canonical", () => {
     "lobby_swipe_submitted",
     "notification_sent",
     "notification_suppressed",
-    "queue_drain_attempted",
-    "queue_drain_result",
     "ready_gate_shown",
     "ready_gate_transition",
   ].sort());
@@ -71,11 +68,10 @@ test("deck empty reason taxonomy stays coarse and safe", () => {
     "event_not_active",
   );
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, totalProfiles: 3, visibleProfiles: 0 }), "all_candidates_seen_locally");
-  assert.equal(resolveDeckEmptyReason({ deckEnabled: true, queuedCount: 1 }), "all_candidates_busy_or_unavailable");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "safety_limited" }), "user_not_eligible");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "media_unavailable" }), "rpc_error");
   assert.equal(
-    resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "queue_waiting" }),
+    resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "all_candidates_busy_or_unavailable" }),
     "all_candidates_busy_or_unavailable",
   );
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "terminal_event_state" }), "event_not_active");
@@ -116,30 +112,11 @@ test("swipe result payload treats rate limits as notification-suppressed", () =>
   assertNoForbiddenKeys(payload);
 });
 
-test("queue drain payload is low-cardinality and session-presence only", () => {
-  const payload = buildQueueDrainResultPayload({
-    eventId: "event-1",
-    platform: "native",
-    result: {
-      found: true,
-      reason: "promoted",
-      video_session_id: "session-1",
-    },
-  });
-
-  assert.equal(payload.outcome, "promoted");
-  assert.equal(payload.reason, "promoted");
-  assert.equal(payload.session_id_present, true);
-  assertNoForbiddenKeys(payload);
-});
-
 test("web, native, and edge surfaces emit the new taxonomy", () => {
   const webLobby = read("src/pages/EventLobby.tsx");
   const webSwipe = read("src/hooks/useSwipeAction.ts");
-  const webQueue = read("src/hooks/useMatchQueue.ts");
   const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
-  const nativeQueue = read("apps/mobile/lib/eventsApi.ts");
   const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
   const edgeSwipeActions = read("supabase/functions/swipe-actions/index.ts");
 
@@ -151,10 +128,8 @@ test("web, native, and edge surfaces emit the new taxonomy", () => {
     assert.match(webSwipe, new RegExp(token));
     assert.match(nativeLobby, new RegExp(token));
   }
-  for (const token of ["QUEUE_DRAIN_ATTEMPTED", "QUEUE_DRAIN_RESULT"]) {
-    assert.match(webQueue, new RegExp(token));
-    assert.match(nativeQueue, new RegExp(token));
-  }
+  assert.doesNotMatch(webLobby, /QUEUE_DRAIN_|queue_drain_/);
+  assert.doesNotMatch(nativeLobby, /QUEUE_DRAIN_|queue_drain_/);
   assert.match(webReadyGate, /READY_GATE_SHOWN/);
   assert.match(nativeReadyGate, /READY_GATE_SHOWN/);
   assert.match(read("src/hooks/useReadyGate.ts"), /READY_GATE_TRANSITION/);

@@ -48,7 +48,6 @@ test("native lobby covers backend swipe outcome taxonomy without client side eff
     "vibe_recorded",
     "super_vibe_sent",
     "match",
-    "match_queued",
     "already_matched",
     "already_swiped",
     "swipe_already_recorded",
@@ -72,6 +71,7 @@ test("native lobby covers backend swipe outcome taxonomy without client side eff
     assert.match(nativeLobby, new RegExp(`['"]${outcome}['"]`), `native lobby should handle ${outcome}`);
   }
 
+  assert.doesNotMatch(nativeLobby, /match_queued/);
   assert.match(nativeLobby, /LOBBY_SWIPE_DUPLICATE_SUPPRESSED/);
   assert.doesNotMatch(nativeLobby, /sendPushNotification|sendNotification|OneSignal\.postNotification/);
 });

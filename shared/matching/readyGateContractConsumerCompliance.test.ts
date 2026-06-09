@@ -25,7 +25,6 @@ const webConsumerFiles = [
   "src/pages/EventLobby.tsx",
   "src/pages/ReadyRedirect.tsx",
   "src/lib/videoDatePrepareEntry.ts",
-  "src/hooks/useMatchQueue.ts",
   "src/hooks/useActiveSession.ts",
   "src/hooks/useEventStatus.ts",
   "src/hooks/useVideoCall.ts",

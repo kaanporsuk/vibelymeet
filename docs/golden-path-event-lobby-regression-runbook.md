@@ -2,7 +2,7 @@
 
 Date: 2026-05-01
 
-Scope: Event Lobby active-event enforcement, swipe idempotency, queueing, Ready Gate entry, block/report exclusion, Super Vibe limits, empty-state diagnostics, and stale direct-call rejection.
+Scope: Event Lobby active-event enforcement, swipe idempotency, queued auto-promotion removed, Ready Gate entry, block/report exclusion, Super Vibe limits, empty-state diagnostics, and stale direct-call rejection.
 
 ## Safety Posture
 
@@ -45,13 +45,13 @@ The default harness runs source/static contract tests for:
 - `handle_swipe` inactive rejection with no `event_swipes`, `video_sessions`, or registration room/partner mutation
 - removed Mystery Match RPC contract
 - removed `video_sessions.session_source` schema/type/payload contract
-- queue promotion inactive rejection
+- removed queue-promotion inactive rejection
 - block/report exclusion plus paused, suspended, and deleted candidate exclusion markers
 - simultaneous mutual swipes creating one session
 - web, mobile web, and native swipe submissions sending an explicit user JWT to `swipe-actions`
 - duplicate swipes creating one row and suppressing duplicate notification side effects
 - Super Vibe per-event limit and retry behavior
-- active-session collision during queue promotion
+- active-session collision during direct match
 - `swipe-actions` duplicate notification suppression and inactive-event normalization
 - web missing/ended/invalid-registration deck gating and Ready Gate open dedupe by session id
 - native deck payload and swipe outcome parsing
@@ -108,7 +108,7 @@ Expected result:
 - linked Supabase public `video_sessions` has no `session_source` column;
 - linked Supabase has no `video_sessions_session_source_rec_swipe_only` constraint;
 - active validation asserts the column and constraint are absent;
-- `super_vibe_consumed`, `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, and Video Date state-machine behavior remain intact.
+- `super_vibe_consumed`, direct mutual match, Ready Gate, and Video Date state-machine behavior remain intact.
 
 ## Legacy Direct Queue/Session RPC Removal Verification
 
@@ -132,7 +132,7 @@ Expected result:
 - no generated-type entries for any removed RPC;
 - linked Supabase public routines have no `find_video_date_match`, `join_matching_queue`, or `leave_matching_queue`;
 - validation checks use `to_regprocedure(...) is null` for all three removed RPCs;
-- active `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, and Video Date state-machine behavior remain intact.
+- Ready Gate and Video Date state-machine behavior remain intact; queue drain and queued promotion are removed by `20260610000100_remove_post_date_instant_next.sql`.
 
 ## Manual Staging Smoke
 
@@ -180,18 +180,18 @@ Expected result:
 - `swipe-actions` returns `200` with a normal swipe envelope, or a handled `success: false` envelope
 - signed-out or expired-session smoke returns the coarse `unauthorized` envelope and does not issue a public-key fallback request
 
-### Three-User Queued Match
+### Three-User Non-Promotable Match
 
 1. Use a live confirmed event with three eligible users A, B, and C.
-2. Create a scenario where A and B can match immediately while C remains eligible for queue behavior.
-3. Confirm queued match behavior uses backend-owned `match_queued` or queue state, not client-created sessions.
-4. Trigger queue drain through normal foreground/lobby refresh behavior.
-5. Expect queue drain to promote only when both users are eligible and not already in Ready Gate, handshake, or date.
+2. Create a scenario where A and B can match immediately while C is busy, offline, or otherwise not currently promotable.
+3. Confirm the direct mutual match opens exactly one Ready Gate for A/B.
+4. Confirm the C path does not create `match_queued`, poll queued counts, drain a queue, or open a later automatic Ready Gate.
+5. Return C to normal lobby eligibility only through ordinary backend registration/session truth.
 
 Expected observability:
 
-- `queue_drain_attempted`
-- `queue_drain_result`
+- no `queue_drain_attempted`
+- no `queue_drain_result`
 - no second active session for any participant
 
 ### Super-Vibe Limit And Retry
@@ -258,7 +258,7 @@ Expected observability:
 ### Direct Stale RPC Rejection
 
 1. Use a fixture event that is missing, scheduled/not-started, ended, cancelled, archived, or draft.
-2. Attempt direct calls for deck fetch, swipe, queue drain, and Ready Gate/date-entry transition where a fixture session allows it.
+2. Attempt direct calls for deck fetch, swipe, removed queue drain RPCs, and Ready Gate/date-entry transition where a fixture session allows it.
 3. Expect backend rejection before state mutation.
 
 Expected result:
@@ -266,7 +266,7 @@ Expected result:
 - `get_event_deck` rejects inactive events instead of silently returning an empty deck
 - `handle_swipe` returns `success: false`, `outcome: event_not_active`, and a safe `reason`
 - `find_mystery_match` is not present as a callable RPC
-- queue promotion does not promote inactive events
+- removed queue-promotion RPCs do not promote inactive events
 - Ready Gate/date-entry does not advance new date-entry state after event inactivity
 
 ## Pass/Fail Template

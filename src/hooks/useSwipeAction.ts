@@ -22,7 +22,6 @@ import {
   type SwipeSessionStageResult,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
   shouldOpenReadyGateFromSwipePayload,
-  shouldTrackQueuedSwipeSession,
   videoSessionIdFromSwipePayload,
 } from "@shared/matching/videoSessionFlow";
 import {
@@ -193,17 +192,11 @@ interface UseSwipeActionOptions {
   onMatch?: (videoSessionId: string) => void;
   /** Same as `onMatch`; honest name for session-stage id. */
   onVideoSessionReady?: (videoSessionId: string) => void;
-  /**
-   * Queued session created (`video_sessions.id`); partner will enter lobby when free.
-   * @deprecated Prefer `onVideoSessionQueued`
-   */
-  onMatchQueued?: (videoSessionId: string) => void;
-  onVideoSessionQueued?: (videoSessionId: string) => void;
 }
 
 /**
  * Event deck swipes via `swipe-actions` → `handle_swipe_v2`.
- * Expected `result` values include match, match_queued, vibe_recorded, super_vibe_sent,
+ * Expected `result` values include match, vibe_recorded, super_vibe_sent,
  * limit_reached, already_super_vibed_recently, already_matched, already_swiped, blocked, reported, pass_recorded, etc.
  * Legacy `no_credits` is not returned by current swipe RPCs (super vibe uses per-event limits only).
  */
@@ -211,8 +204,6 @@ export const useSwipeAction = ({
   eventId,
   onMatch,
   onVideoSessionReady,
-  onMatchQueued,
-  onVideoSessionQueued,
 }: UseSwipeActionOptions) => {
   const { user } = useUserProfile();
   const { session } = useAuth();
@@ -420,17 +411,6 @@ export const useSwipeAction = ({
             }
             return raw;
 
-          case "match_queued":
-            toast.success(
-              "You're matched! We'll bring you to Ready Gate when your partner is free — keep browsing.",
-              { duration: 4000 }
-            );
-            if (shouldTrackQueuedSwipeSession(raw) && sessionId) {
-              onVideoSessionQueued?.(sessionId);
-              onMatchQueued?.(sessionId);
-            }
-            return raw;
-
           case "super_vibe_sent":
             toast("Super Vibe sent! ✨", { duration: 2000 });
             return raw;
@@ -517,8 +497,6 @@ export const useSwipeAction = ({
       session,
       onMatch,
       onVideoSessionReady,
-      onMatchQueued,
-      onVideoSessionQueued,
     ]
   );
 

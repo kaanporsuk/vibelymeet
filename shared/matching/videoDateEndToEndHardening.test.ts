@@ -16,7 +16,6 @@ import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
   secondsUntilPostDateEventEnd,
-  shouldEnablePostDateSurveyQueueDrain,
 } from "./postDateContinuity";
 import {
   normalizeVideoDateIceBreakerQuestions,
@@ -230,8 +229,8 @@ const launchLatencyBaselineSql = readFileSync(
   join(process.cwd(), "supabase/validation/video_date_launch_latency_baseline.sql"),
   "utf8",
 );
-const readyGateRouteLabelCleanupMigration = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260522162000_video_date_ready_gate_route_label_cleanup.sql"),
+const postDateAutoNextRemovalMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260610000100_remove_post_date_instant_next.sql"),
   "utf8",
 );
 const readyGateOverlay = readFileSync(
@@ -623,25 +622,22 @@ test("post-date continuity uses event timing for nearly-over state", () => {
   assert.equal(isPostDateEventNearlyOver(seconds), true);
 });
 
-test("post-date survey continuity prioritizes real queued sessions over deck copy", () => {
+test("post-date survey continuity no longer branches on queued sessions", () => {
   assert.deepEqual(
     getPostDateSurveyContinuityDecision({
-      isDrainingQueue: false,
-      queuedCount: 1,
       isSubmittingSurvey: false,
       eventActive: true,
+      eventLifecycleResolved: true,
       secondsUntilEventEnd: 600,
       hasEventId: true,
     }).action,
-    "ready_gate",
+    "empty_deck",
   );
 });
 
-test("post-date survey queue drain waits for resolved live event lifecycle", () => {
+test("post-date survey continuity waits for resolved event lifecycle", () => {
   assert.equal(
     getPostDateSurveyContinuityDecision({
-      isDrainingQueue: false,
-      queuedCount: 0,
       isSubmittingSurvey: false,
       eventActive: false,
       eventLifecycleResolved: false,
@@ -650,33 +646,6 @@ test("post-date survey queue drain waits for resolved live event lifecycle", () 
     }).tone,
     "checking",
   );
-  assert.equal(
-    shouldEnablePostDateSurveyQueueDrain({
-      hasEventId: true,
-      eventLifecycleResolved: false,
-      eventActive: false,
-      secondsUntilEventEnd: null,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldEnablePostDateSurveyQueueDrain({
-      hasEventId: true,
-      eventLifecycleResolved: true,
-      eventActive: false,
-      secondsUntilEventEnd: 0,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldEnablePostDateSurveyQueueDrain({
-      hasEventId: true,
-      eventLifecycleResolved: true,
-      eventActive: true,
-      secondsUntilEventEnd: 600,
-    }),
-    true,
-  );
 });
 
 test("post-date lobby continuity distinguishes fresh cards from calm empty state", () => {
@@ -684,7 +653,6 @@ test("post-date lobby continuity distinguishes fresh cards from calm empty state
     getPostDateLobbyContinuityDecision({
       yieldingToVideoDate: false,
       yieldingToReadyGate: false,
-      hasQueuedSession: false,
       deckLoading: false,
       deckHasCandidate: true,
       deckError: false,
@@ -697,7 +665,6 @@ test("post-date lobby continuity distinguishes fresh cards from calm empty state
     getPostDateLobbyContinuityDecision({
       yieldingToVideoDate: false,
       yieldingToReadyGate: false,
-      hasQueuedSession: false,
       deckLoading: false,
       deckHasCandidate: false,
       deckError: false,
@@ -2587,51 +2554,32 @@ test("post-date survey retries verdicts and exposes half-verdict pending state o
   assert.match(nativePostDateSurvey, /Awaiting your match&apos;s verdict/);
 });
 
-test("native post-date survey drains queued ready gates across the whole survey lifecycle", () => {
-  assert.match(nativePostDateSurvey, /queuedNavigationStartedRef/);
-  assert.match(nativePostDateSurvey, /queuedDrainAttemptKeyRef/);
-  assert.match(nativePostDateSurvey, /const drainKey = `\$\{sessionId\}:\$\{eventId\}:\$\{userId\}:\$\{drainQueueV2\.enabled \? ['"]v2['"] : ['"]legacy['"]\}`/);
-  assert.match(nativePostDateSurvey, /const result = await drainMatchQueue\(eventId, userId, \{/);
-  assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
-  assert.match(nativePostDateSurvey, /isPendingPostDateFeedbackDrainResult\(result \?\? undefined\)/);
-  assert.match(nativePostDateSurvey, /const queuedDrainRuntimeRef = useRef/);
-  assert.match(nativePostDateSurvey, /runtime\.onVideoDateReady\(pendingSessionId\)/);
-  assert.match(nativePostDateSurvey, /queuedDrainRuntimeRef\.current\.onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
-  assert.match(
-    nativePostDateSurvey,
-    /\}, \[\s*drainQueueV2\.enabled,\s*eventId,\s*sessionId,\s*userId,\s*\]\);/,
-  );
-  assert.doesNotMatch(
-    nativePostDateSurvey,
-    /\}, \[\s*drainQueueV2\.enabled,\s*eventId,\s*finishing,\s*onQueuedVideoSessionReady,\s*onVideoDateReady,\s*sessionId,\s*submitting,\s*userId,\s*verdictUiState,\s*\]\);/,
-  );
-  assert.match(nativePostDateSurvey, /stale_pending_post_date_feedback/);
-  assert.doesNotMatch(nativePostDateSurvey, /step !== ['"]safety['"]/);
-  assert.doesNotMatch(nativePostDateSurvey, /drainMatchQueue\(eventId, userId\)[\s\S]{0,900}\[eventId, onQueuedVideoSessionReady, step, userId\]/);
+test("native post-date survey does not drain queued ready gates after auto-next removal", () => {
+  assert.doesNotMatch(nativePostDateSurvey, /queuedNavigationStartedRef|queuedDrainAttemptKeyRef/);
+  assert.doesNotMatch(nativePostDateSurvey, /drainMatchQueue|drainQueueV2|isPendingPostDateFeedbackDrainResult/);
+  assert.doesNotMatch(nativePostDateSurvey, /onQueuedVideoSessionReady|onVideoDateReady|stale_pending_post_date_feedback/);
+  assert.match(nativePostDateSurvey, /removed_auto_next_target_ignored/);
 });
 
-test("post-date queued matches route directly to standalone Ready Gate on web and native", () => {
-  assert.match(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
-  assert.match(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(nextSessionId\)\}`/);
-  assert.match(webPostDateSurvey, /canonicalNextRoute\.target === "ready_gate" && nextSessionId/);
+test("post-date queued matches no longer route directly to standalone Ready Gate on web and native", () => {
+  assert.doesNotMatch(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
+  assert.doesNotMatch(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(nextSessionId\)\}`/);
   assert.doesNotMatch(webPostDateSurvey, /serverNext\.action === "ready_gate" && nextSessionId/);
-  assert.match(webPostDateSurvey, /navigate\(target, \{ replace: true \}\)/);
-  assert.match(webPostDateSurvey, /route: "ready_gate"/);
   assert.doesNotMatch(webPostDateSurvey, /buildEventLobbyPendingSessionUrl|event_lobby_pending_ready_gate/);
+  assert.match(webPostDateSurvey, /removed_auto_next_target_ignored/);
 
-  assert.match(nativePostDateSurvey, /route: ['"]ready_gate['"]/);
+  assert.doesNotMatch(nativePostDateSurvey, /route: ['"]ready_gate['"]/);
   assert.doesNotMatch(nativePostDateSurvey, /event_lobby_pending_ready_gate/);
-  assert.match(nativeVideoDateRoute, /const target = readyGateHref\(videoSessionId\)/);
-  assert.doesNotMatch(nativeVideoDateRoute, /eventLobbyHrefPendingVideoSession/);
+  assert.match(nativePostDateSurvey, /removed_auto_next_target_ignored/);
 });
 
-test("backend post-date router returns the standalone Ready Gate route label", () => {
-  assert.match(readyGateRouteLabelCleanupMigration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
-  assert.match(readyGateRouteLabelCleanupMigration, /'action', 'ready_gate'[\s\S]*'route', 'ready_gate'/);
-  assert.doesNotMatch(readyGateRouteLabelCleanupMigration, /event_lobby_pending_ready_gate/);
-  assert.match(readyGateRouteLabelCleanupMigration, /REVOKE ALL ON FUNCTION public\.resolve_post_date_next_surface\(uuid\) FROM PUBLIC, anon/);
-  assert.match(readyGateRouteLabelCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.resolve_post_date_next_surface\(uuid\) TO authenticated, service_role/);
+test("backend post-date router no longer returns Ready Gate or Video Date auto-next", () => {
+  assert.match(postDateAutoNextRemovalMigration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
+  assert.doesNotMatch(postDateAutoNextRemovalMigration, /'action', 'ready_gate'[\s\S]*'route', 'ready_gate'/);
+  assert.doesNotMatch(postDateAutoNextRemovalMigration, /'action', 'video_date'/);
+  assert.match(postDateAutoNextRemovalMigration, /Returns survey, lobby, chat, wrap_up, or home/);
+  assert.match(postDateAutoNextRemovalMigration, /REVOKE ALL ON FUNCTION public\.resolve_post_date_next_surface\(uuid\) FROM PUBLIC, anon/);
+  assert.match(postDateAutoNextRemovalMigration, /GRANT EXECUTE ON FUNCTION public\.resolve_post_date_next_surface\(uuid\) TO authenticated, service_role/);
 });
 
 test("web standalone Ready Gate hosts the overlay instead of bouncing through lobby", () => {

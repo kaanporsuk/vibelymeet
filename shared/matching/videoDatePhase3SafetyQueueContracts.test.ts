@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -27,7 +27,6 @@ const transitionCommands = readFileSync(
 const safetyRpc = readFileSync(join(root, "shared/safety/submitUserReportRpc.ts"), "utf8");
 const webSafetyModal = readFileSync(join(root, "src/components/video-date/InCallSafetyModal.tsx"), "utf8");
 const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
-const webMatchQueue = readFileSync(join(root, "src/hooks/useMatchQueue.ts"), "utf8");
 const nativeSafetySheet = readFileSync(
   join(root, "apps/mobile/components/video-date/InCallSafetySheet.tsx"),
   "utf8",
@@ -151,10 +150,10 @@ test("PR 3.9 queue drain v2 revalidates hot eligibility before promotion", () =>
   assert.doesNotMatch(drain, /meeting[_-]?token|daily_token|DAILY_API_KEY|createMeetingToken/i);
 });
 
-test("web and native adapters route safety and queue drain behind default-off flags", () => {
+test("web and native adapters route safety behind default-off flags and omit queue drain", () => {
   assert.match(transitionCommands, /buildVideoDateSafetyIdempotencyKey/);
-  assert.match(transitionCommands, /buildVideoDateQueueDrainIdempotencyKey/);
   assert.match(transitionCommands, /createVideoDateClientRequestId/);
+  assert.doesNotMatch(transitionCommands, /buildVideoDateQueueDrainIdempotencyKey/);
 
   assert.match(safetyRpc, /submitVideoDateSafetyReportRpc/);
   assert.match(safetyRpc, /submit_video_date_safety_report_v2/);
@@ -177,28 +176,12 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(nativeSafetySheet, /catch \(error\)/);
   assert.match(nativeSafetySheet, /safetyV2 && sessionId/);
 
-  assert.match(webMatchQueue, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
-  assert.match(webMatchQueue, /drain_match_queue_v2/);
-  assert.match(webMatchQueue, /buildVideoDateQueueDrainIdempotencyKey/);
-  assert.match(webMatchQueue, /if \(error\)/);
-  assert.match(eventLobbyObservability, /type QueueDrainSourceSurface/);
-  assert.match(eventLobbyObservability, /source_surface: input\.sourceSurface \?\? "event_lobby"/);
-  assert.match(nativeEventsApi, /drainMatchQueueV2\?: boolean/);
-  assert.match(nativeEventsApi, /sourceSurface\?: QueueDrainSourceSurface/);
-  assert.match(nativeEventsApi, /drain_match_queue_v2/);
-  assert.match(nativeEventsApi, /buildVideoDateQueueDrainIdempotencyKey/);
-  assert.match(nativeEventsApi, /catch \(error\)/);
-  assert.match(nativeLobby, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
-  assert.match(nativeLobby, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativePostDateSurvey, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
-  assert.match(nativePostDateSurvey, /drainQueueV2\.enabled \? ['"]v2['"] : ['"]legacy['"]/);
-  assert.match(nativePostDateSurvey, /sourceAction: ['"]survey_queue_drain['"]/);
-  assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
-  assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
-  assert.match(nativeNotificationDeepLink, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.drain_match_queue["'],?\s*\)/);
-  assert.match(nativeNotificationDeepLink, /sourceAction: ['"]notification_queued_session_rescue['"]/);
-  assert.match(nativeNotificationDeepLink, /sourceSurface: ['"]notification_deep_link['"]/);
-  assert.match(nativeNotificationDeepLink, /drainMatchQueueV2: drainQueueV2\.enabled/);
+  assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
+  assert.doesNotMatch(eventLobbyObservability, /QueueDrainSourceSurface|queue_drain|drain_match_queue/);
+  assert.doesNotMatch(nativeEventsApi, /drainMatchQueueV2|QueueDrainSourceSurface|drain_match_queue_v2|buildVideoDateQueueDrainIdempotencyKey/);
+  assert.doesNotMatch(nativeLobby, /video_date\.outbox_v2\.drain_match_queue|drainMatchQueueV2/);
+  assert.doesNotMatch(nativePostDateSurvey, /video_date\.outbox_v2\.drain_match_queue|survey_queue_drain|drainMatchQueueV2/);
+  assert.doesNotMatch(nativeNotificationDeepLink, /video_date\.outbox_v2\.drain_match_queue|notification_queued_session_rescue|drainMatchQueueV2/);
 });
 
 test("Phase 3.8-3.10 contracts are included in the v4 verification script", () => {

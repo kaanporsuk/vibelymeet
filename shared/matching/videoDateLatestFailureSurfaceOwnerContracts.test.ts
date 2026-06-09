@@ -41,6 +41,9 @@ const outerFailsoftMigration = read(
 const singleOwnerRuntimeMigration = read(
   "supabase/migrations/20260605232304_video_date_single_owner_runtime_hardening.sql",
 );
+const autoNextRemovalMigration = read(
+  "supabase/migrations/20260610000100_remove_post_date_instant_next.sql",
+);
 const vibeQuestionBaseNameRepairMigration = read(
   "supabase/migrations/20260605174703_video_date_vibe_question_outer_base_name_repair.sql",
 );
@@ -332,16 +335,6 @@ test("single-owner runtime migration makes remaining public hot RPCs fail-soft a
       "VIDEO_DATE_TRANSITION_FAILED",
     ],
     [
-      "get_video_date_queue_hint_v1",
-      "get_video_date_queue_hint_v1_20260605232304_single_owner_base",
-      "VIDEO_DATE_QUEUE_HINT_FAILED",
-    ],
-    [
-      "drain_match_queue_v2",
-      "drain_match_queue_v2_20260605232304_single_owner_base",
-      "DRAIN_MATCH_QUEUE_FAILED",
-    ],
-    [
       "claim_video_date_surface",
       "claim_video_date_surface_20260605232304_single_owner_base",
       "SURFACE_CLAIM_FAILED",
@@ -359,6 +352,9 @@ test("single-owner runtime migration makes remaining public hot RPCs fail-soft a
     assert.match(body, /'sqlstate', SQLSTATE/);
     assert.match(body, /'retry_after_ms', 1500/);
   }
+
+  assert.match(autoNextRemovalMigration, /DROP FUNCTION IF EXISTS public\.get_video_date_queue_hint_v1\(uuid, uuid\)/);
+  assert.match(autoNextRemovalMigration, /DROP FUNCTION IF EXISTS public\.drain_match_queue_v2\(uuid, text\)/);
 
   assert.match(
     singleOwnerRuntimeMigration,

@@ -59,6 +59,12 @@ function assertDenied(result: RuntimeResult, label: string): void {
   assert.match(String(payload?.error ?? payload?.reason ?? ""), /not_authenticated|not_participant|forbidden|access denied|session_not_active|room_not_ready/i);
 }
 
+function assertUnavailable(result: RuntimeResult, label: string): void {
+  assert.ok(result.error, `${label} should fail because the RPC is removed`);
+  const text = `${result.error?.code ?? ""} ${result.error?.status ?? ""} ${result.error?.name ?? ""} ${result.error?.message ?? ""}`;
+  assert.match(text, /404|42883|not found|not exist|could not find|schema cache/i, `${label} should fail as unavailable`);
+}
+
 function payloadRecord(result: RuntimeResult): Record<string, unknown> {
   return result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {};
 }
@@ -100,12 +106,12 @@ test(
       }),
       "cross-user deck v3",
     );
-    assertDenied(
+    assertUnavailable(
       await participant.rpc("get_video_date_queue_hint_v1", {
         p_event_id: runtimeEnv.eventId,
         p_user_id: runtimeEnv.otherUserId,
       }),
-      "cross-user queue hint",
+      "removed queue hint",
     );
     assertDenied(
       await anon.rpc("get_event_ticket_payment_status_v1", { p_event_id: runtimeEnv.eventId }),

@@ -1,4 +1,3 @@
-import type { VideoDateQueueHint } from "./videoDatePublicApi";
 import {
   resolveVideoDateLobbyStateCopy,
   type VideoDateLobbyFocusedReason,
@@ -41,17 +40,6 @@ export type EventDeckPhase4UiState = {
   showRefresh: boolean;
   retryable: boolean;
   terminal: boolean;
-};
-
-export type VideoDateQueueCopy = {
-  compactLabel: string;
-  title: string;
-  message: string;
-  positionLabel: string | null;
-  etaLabel: string | null;
-  reliefLabel: string | null;
-  isNext: boolean;
-  detailParts: string[];
 };
 
 type ResolveEventDeckPhase4UiStateInput = {
@@ -107,92 +95,6 @@ export function shouldShowVideoDateIceBreaker(input: {
   localHasDecided: boolean;
 }): boolean {
   return input.baseVisible && !(input.phase === "handshake" && input.localHasDecided);
-}
-
-export function formatVideoDateQueueEtaLabel(seconds: number | null | undefined): string | null {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
-  if (seconds <= 5) return "now";
-  if (seconds < 60) return `~${Math.ceil(seconds / 5) * 5}s`;
-  return `~${Math.ceil(seconds / 60)}m`;
-}
-
-function safeQueueCount(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-}
-
-function safeQueuePosition(value: number | null | undefined): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
-  return Math.max(1, Math.floor(value));
-}
-
-export function formatVideoDateQueueHintLabel(
-  hint: VideoDateQueueHint | null | undefined,
-  fallbackCount: number,
-): string {
-  if (hint?.queued) {
-    const eta = formatVideoDateQueueEtaLabel(hint.estimatedWaitSeconds);
-    const position = safeQueuePosition(hint.position);
-    const count = Math.max(
-      safeQueueCount(fallbackCount),
-      safeQueueCount(hint.eventQueuedCount),
-      safeQueueCount(hint.userQueuedCount),
-    );
-    const parts =
-      position != null
-        ? [`Position ${position}`]
-        : [count === 1 ? "1 waiting in queue" : `${count} waiting in queue`];
-    if (eta) parts.push(eta);
-    if (hint.reliefActive) parts.push("priority boost");
-    return parts.join(" · ");
-  }
-  const count = Math.max(safeQueueCount(fallbackCount), safeQueueCount(hint?.eventQueuedCount));
-  return count === 1 ? "1 waiting in queue" : `${count} waiting in queue`;
-}
-
-export function resolveVideoDateQueueCopy(
-  hint: VideoDateQueueHint | null | undefined,
-  fallbackCount: number,
-): VideoDateQueueCopy {
-  const compactLabel = formatVideoDateQueueHintLabel(hint, fallbackCount);
-  const etaLabel = hint?.queued ? formatVideoDateQueueEtaLabel(hint.estimatedWaitSeconds) : null;
-  const position = hint?.queued ? safeQueuePosition(hint.position) : null;
-  const isNext = position === 1;
-  const positionLabel = position == null ? null : isNext ? "You're next" : `Position ${position}`;
-  const reliefLabel = hint?.queued && hint.reliefActive ? "priority boost" : null;
-  const detailParts = [positionLabel, etaLabel, reliefLabel].filter((part): part is string => Boolean(part));
-
-  if (hint?.queued) {
-    return {
-      compactLabel,
-      title: isNext ? "You're next" : "Holding your place",
-      message: isNext
-        ? "Keep this lobby open so we can confirm presence. Ready Gate opens when your match is ready."
-        : "You are in the matching queue. Keep the lobby open while we hold your spot.",
-      positionLabel,
-      etaLabel,
-      reliefLabel,
-      isNext,
-      detailParts,
-    };
-  }
-
-  return {
-    compactLabel,
-    title: "Holding your place",
-    message: "Keep browsing with the lobby open. Ready Gate opens automatically when a match is available.",
-    positionLabel: null,
-    etaLabel: null,
-    reliefLabel: null,
-    isNext: false,
-    detailParts: [compactLabel],
-  };
-}
-
-export function resolveQueueHintCopy(
-  hint: VideoDateQueueHint | null | undefined,
-  fallbackCount: number,
-): VideoDateQueueCopy {
-  return resolveVideoDateQueueCopy(hint, fallbackCount);
 }
 
 function normalizeReason(value: unknown): string {
@@ -311,16 +213,14 @@ export function resolveEventDeckPhase4UiState(
     });
   }
 
-  if (
-    deckStateReason === "queue_waiting" ||
-    deckStateReason === "queued" ||
-    deckStateReason === "match_queued" ||
-    deckStateReason === "all_candidates_busy_or_unavailable"
-  ) {
-    return focusedLobbyState({
-      kind: "empty",
-      focusedReason: "queue_waiting",
+  if (deckStateReason === "all_candidates_busy_or_unavailable") {
+    return emptyState({
+      platform: input.platform,
       reason: deckStateReason,
+      badge: "Deck clear",
+      title: "No available profiles right now",
+      message: "Your deck refreshes automatically. You can refresh again in a moment.",
+      retryable: true,
     });
   }
 

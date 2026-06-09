@@ -121,7 +121,7 @@ test("automated coverage maps to the fixed backend/client contracts", () => {
   assert.match(activeEventTest, /get_event_deck/);
   assert.match(activeEventTest, /handle_swipe/);
   assert.match(activeEventTest, /Mystery Match no longer exists as an active-event session creation path/);
-  assert.match(activeEventTest, /drain_match_queue/);
+  assert.match(activeEventTest, /queued promotion and drain are now removed/);
   assert.match(activeEventTest, /event_not_active/);
   assert.match(readyQueueMigration, /event_swipes/);
   assert.match(readyQueueMigration, /video_sessions/);
@@ -132,13 +132,12 @@ test("automated coverage maps to the fixed backend/client contracts", () => {
   assert.match(swipeRetryTest, /already_swiped/);
   assert.match(swipeRetryTest, /duplicate/);
   assert.match(swipeRetryTest, /notification_suppressed/);
-  assert.match(swipeRetryTest, /super-vibe duplicate cannot reach cap/);
-  assert.match(swipeRetryTest, /simultaneous mutual swipes/);
+  assert.match(swipeRetryTest, /duplicate existing-swipe detection/);
+  assert.match(swipeRetryTest, /first-time direct mutual outcomes/);
 
-  assert.match(readyQueueTest, /busy (?:in-session candidates|queue statuses)/);
-  assert.match(readyQueueTest, /active-session conflicts/);
-  assert.match(readyQueueTest, /one-active-session/);
-  assert.match(readyQueueTest, /queue promotion blocks inactive events/);
+  assert.match(readyQueueTest, /auto-next removal migration/);
+  assert.match(readyQueueTest, /foreground heartbeats no longer promote queued sessions/);
+  assert.match(readyQueueTest, /direct mutual match to Ready Gate remains/);
 
   assert.match(webGatingTest, /missing event/);
   assert.match(webGatingTest, /ended-state UI/);
@@ -181,8 +180,7 @@ test("runbook covers the manual staging golden paths that should not mutate prod
       "two-user mutual vibe",
       "Ready Gate",
       "date entry",
-      "three-user queued match",
-      "queue drain",
+      "queued auto-promotion removed",
       "super-vibe limit",
       "retry",
       "block/report exclusion",

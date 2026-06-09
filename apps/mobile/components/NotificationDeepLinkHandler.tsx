@@ -18,7 +18,6 @@ import {
   tabsRootHref,
   videoDateHref,
 } from '@/lib/activeSessionRoutes';
-import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
@@ -33,11 +32,6 @@ import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
 } from '@clientShared/matching/videoDateRouteDecision';
-import {
-  isPendingPostDateFeedbackDrainResult,
-  pendingPostDateFeedbackSessionIdFromDrainPayload,
-  type DrainMatchQueueResult,
-} from '@shared/matching/videoSessionFlow';
 import {
   clearDateEntryTransition,
   markVideoDateEntryPipelineStarted,
@@ -389,19 +383,16 @@ function resolveNotificationHref(
   return base;
 }
 
-const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
-
 /**
  * If payload targets /date/:id, align with backend truth:
  * ended session → event lobby (or home); still in_ready_gate → /ready/:id;
- * queued session + registration still browsing/idle → stamp foreground, drain, re-check, then /ready, /date, or lobby;
  * otherwise fail closed to lobby/tabs. Date notifications must not bypass
  * provider-prepared truth.
  */
 async function reconcileHrefWithRegistration(
   href: string,
   userId: string,
-  options?: { drainMatchQueueV2?: boolean; snapshotRecoveryV2?: boolean; allowOneShotSideEffects?: boolean },
+  options?: { snapshotRecoveryV2?: boolean; allowOneShotSideEffects?: boolean },
 ): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
   if (!m) return href as Href;
@@ -517,17 +508,17 @@ async function reconcileHrefWithRegistration(
     return reg;
   };
 
-  let reg = await fetchReg();
-  let truth = await fetchVideoSessionDateEntryTruth(sid);
-  let recovery = adviseVideoSessionTruthRecovery({
+  const reg = await fetchReg();
+  const truth = await fetchVideoSessionDateEntryTruth(sid);
+  const recovery = adviseVideoSessionTruthRecovery({
     sessionId: sid,
     eventId: String(vs.event_id),
     truth,
     platform: 'native',
     surface: 'notification_deep_link',
   });
-  let truthDecision = recovery.routeDecision;
-  let canAttemptDaily = recovery.canAttemptDaily === true;
+  const truthDecision = recovery.routeDecision;
+  const canAttemptDaily = recovery.canAttemptDaily === true;
 
   const canonicalDecisionLog = (sourceAction: string) =>
     canonicalVideoDateRouteLogDetail(
@@ -570,54 +561,6 @@ async function reconcileHrefWithRegistration(
     });
   };
 
-  const needsQueuedRescue =
-    vs.ready_gate_status === 'queued' &&
-    reg != null &&
-    LOBBY_IDLE_STATUSES.has(String(reg.queue_status));
-
-  if (needsQueuedRescue && truthDecision === 'stay_lobby' && options?.allowOneShotSideEffects !== false) {
-    rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_start', {
-      session_id: sid,
-      event_id: String(vs.event_id),
-    });
-    try {
-      await supabase.rpc('mark_lobby_foreground', { p_event_id: vs.event_id as string });
-    } catch {
-      /* best-effort — drain still runs */
-    }
-    const drainResult = await drainMatchQueue(vs.event_id as string, userId, {
-      drainMatchQueueV2: options?.drainMatchQueueV2 === true,
-      sourceAction: 'notification_queued_session_rescue',
-      sourceSurface: 'notification_deep_link',
-    });
-    if (isPendingPostDateFeedbackDrainResult(drainResult as DrainMatchQueueResult | null | undefined)) {
-      const pendingSessionId = pendingPostDateFeedbackSessionIdFromDrainPayload(
-        drainResult as DrainMatchQueueResult | null | undefined,
-      );
-      if (pendingSessionId) {
-        markVideoDateEntryPipelineStarted(pendingSessionId);
-        markVideoDateRouteOwned(pendingSessionId, userId);
-        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_pending_feedback', {
-          session_id: sid,
-          pending_session_id: pendingSessionId,
-          event_id: String(vs.event_id),
-        });
-        return videoDateHref(pendingSessionId);
-      }
-    }
-    reg = await fetchReg();
-    truth = await fetchVideoSessionDateEntryTruth(sid);
-    recovery = adviseVideoSessionTruthRecovery({
-      sessionId: sid,
-      eventId: String(vs.event_id),
-      truth,
-      platform: 'native',
-      surface: 'notification_deep_link',
-    });
-    truthDecision = recovery.routeDecision;
-    canAttemptDaily = recovery.canAttemptDaily === true;
-  }
-
   if (recovery.action === 'show_terminal') {
     // Stale latch from a previous attempt would otherwise block `/date` route guards on
     // re-entry; clear here so the lobby/tabs landing is clean.
@@ -645,7 +588,7 @@ async function reconcileHrefWithRegistration(
   if (recovery.action === 'go_lobby') {
     clearDateEntryTransition(sid);
     emitDecision('stay_lobby', 'video_truth_not_startable', 'lobby');
-    rcBreadcrumb(RC_CATEGORY.notifDeepLink, needsQueuedRescue ? 'queued_session_rescue_fallback_lobby' : 'date_link_fallback_lobby', {
+    rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_link_fallback_lobby', {
       session_id: sid,
       queue_status: reg?.queue_status ?? null,
       ready_gate_status_after: truth?.ready_gate_status ?? null,
@@ -669,7 +612,6 @@ export function NotificationRouteTracker() {
 
 export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
-  const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
   const multiDeviceDedupV2 = useFeatureFlag('video_date.multi_device_dedup_v2');
   const pushOpenDedupeAliasV1 = useFeatureFlag('video_date.push_open_dedupe_v1');
@@ -702,7 +644,6 @@ export function NotificationDeepLinkHandler() {
       let href: Href = pending.path as Href;
       try {
         href = await reconcileHrefWithRegistration(pending.path, user.id, {
-          drainMatchQueueV2: drainQueueV2.enabled,
           snapshotRecoveryV2: snapshotV2.enabled,
           allowOneShotSideEffects: pending.allowOneShotSideEffects,
         });
@@ -720,7 +661,7 @@ export function NotificationDeepLinkHandler() {
         console.warn('[Vibely][push][deeplink] pending navigation failed', e);
       }
     });
-  }, [drainQueueV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
+  }, [snapshotV2.enabled, user?.id, entryReady]);
 
   useEffect(() => {
     const onClick = (event: unknown) => {
@@ -811,7 +752,6 @@ export function NotificationDeepLinkHandler() {
         let nextHref: Href = pathStr as Href;
         try {
           nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
-            drainMatchQueueV2: drainQueueV2.enabled,
             snapshotRecoveryV2: snapshotV2.enabled,
             allowOneShotSideEffects,
           });
@@ -910,7 +850,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [drainQueueV2.enabled, multiDeviceDedupEnabled, snapshotV2.enabled, user?.id, entryReady]);
+  }, [multiDeviceDedupEnabled, snapshotV2.enabled, user?.id, entryReady]);
 
   return null;
 }

@@ -109,7 +109,7 @@ test("Sprint 6 Daily route and media checkpoints remain present on web and nativ
   }
 });
 
-test("Sprint 6 deck and post-survey prewarm remain active on web and native", () => {
+test("Sprint 6 deck/date prewarm remains active while post-survey instant-next prewarm is removed", () => {
   for (const source of [read("src/pages/EventLobby.tsx"), nativeLobby]) {
     assert.match(
       source,
@@ -123,11 +123,8 @@ test("Sprint 6 deck and post-survey prewarm remain active on web and native", ()
   assert.match(nativeReadyGate, /router\.prefetch\(`\/date\/\$\{sessionId\}`/);
 
   for (const source of [webSurvey, nativeSurvey]) {
-    assert.match(source, /post_date_instant_next_prewarm_started/);
-    assert.match(source, /prefetchQuery\(\{/);
-    assert.match(source, /fetchEventDeck\(/);
-    assert.match(source, /getVideoDateDeckPrefetchItems/);
-    assert.match(source, /prefetch|Image\.prefetch/);
+    assert.doesNotMatch(source, /post_date_instant_next_prewarm_started/);
+    assert.doesNotMatch(source, /prefetchQuery\(\{|fetchEventDeck\(|getVideoDateDeckPrefetchItems/);
   }
 });
 

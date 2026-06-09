@@ -66,7 +66,6 @@ export type EventState = (typeof EventState)[keyof typeof EventState];
 export const MatchStatus = {
   Pending: "pending",
   Active: "active",
-  Queued: "match_queued",
   Completed: "completed",
   Unmatched: "unmatched",
 } as const;

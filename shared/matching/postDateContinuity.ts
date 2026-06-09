@@ -86,24 +86,7 @@ export function isPostDateEventNearlyOver(secondsRemaining: number | null | unde
   return secondsRemaining != null && secondsRemaining > 0 && secondsRemaining <= POST_DATE_EVENT_NEARLY_OVER_SECONDS;
 }
 
-export function shouldEnablePostDateSurveyQueueDrain(input: {
-  hasEventId: boolean;
-  eventLifecycleResolved: boolean;
-  eventActive: boolean;
-  secondsUntilEventEnd?: number | null;
-}): boolean {
-  return Boolean(
-    input.hasEventId &&
-      input.eventLifecycleResolved &&
-      input.eventActive &&
-      input.secondsUntilEventEnd != null &&
-      input.secondsUntilEventEnd > 0,
-  );
-}
-
 export function getPostDateSurveyContinuityDecision(input: {
-  isDrainingQueue: boolean;
-  queuedCount?: number | null;
   isSubmittingSurvey: boolean;
   eventActive: boolean;
   eventLifecycleResolved?: boolean;
@@ -137,15 +120,6 @@ export function getPostDateSurveyContinuityDecision(input: {
     };
   }
 
-  if (input.isDrainingQueue || (input.queuedCount ?? 0) > 0) {
-    return {
-      action: "ready_gate",
-      title: "Next date syncing",
-      message: "If your queued match is still eligible, Ready Gate opens from the lobby.",
-      tone: "checking",
-    };
-  }
-
   if (input.isSubmittingSurvey) {
     return {
       action: "refreshing_deck",
@@ -175,7 +149,6 @@ export function getPostDateSurveyContinuityDecision(input: {
 export function getPostDateLobbyContinuityDecision(input: {
   yieldingToVideoDate: boolean;
   yieldingToReadyGate: boolean;
-  hasQueuedSession: boolean;
   deckLoading: boolean;
   deckHasCandidate: boolean;
   deckError: boolean;
@@ -191,11 +164,11 @@ export function getPostDateLobbyContinuityDecision(input: {
     };
   }
 
-  if (input.yieldingToReadyGate || input.hasQueuedSession) {
+  if (input.yieldingToReadyGate) {
     return {
       action: "ready_gate",
       title: "Ready Gate warming up",
-      message: "We are syncing the eligible match from the live queue.",
+      message: "We are syncing the eligible match from the live lobby.",
       tone: "checking",
     };
   }

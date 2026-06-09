@@ -35,14 +35,15 @@ with checks(check_name, ok) as (
   -- 3) Operator health covers the Sprint 7 dashboard dimensions.
   select
     'video_date_sprint7_ops_health_dashboard_dimensions',
-    pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%stuck_ready_gate_count%'
-    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%prepare_entry_failure_count%'
-    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%daily_join_failure_count%'
-    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%pending_survey_recovery_count%'
+    pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%stuck_ready_gate_count%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%prepare_entry_failure_count%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%daily_join_failure_count%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%pending_survey_recovery_count%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%webhook_dlq_count%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%orphan_room_cleanup_rows%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health_20260610000100_auto_next_base(uuid)'::regprocedure) like '%report_with_block_count%'
     and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%queue_drain_miss_count%'
-    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%webhook_dlq_count%'
-    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%orphan_room_cleanup_rows%'
-    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%report_with_block_count%'
+    and pg_get_functiondef('public.get_video_date_sprint7_ops_health(uuid)'::regprocedure) like '%queue_drain_failure_count%'
 
   union all
 
@@ -100,8 +101,7 @@ with checks(check_name, ok) as (
     and pg_get_functiondef('public.get_video_date_snapshot_core(uuid)'::regprocedure) like '%v_uid uuid := auth.uid()%'
     and pg_get_functiondef('public.get_video_date_snapshot_core(uuid)'::regprocedure) like '%not_participant%'
     and pg_get_functiondef('public.get_video_date_snapshot_core(uuid)'::regprocedure) not ilike '%meeting_token%'
-    and not has_function_privilege('anon', 'public.get_video_date_queue_hint_v1(uuid,uuid)', 'EXECUTE')
-    and has_function_privilege('authenticated', 'public.get_video_date_queue_hint_v1(uuid,uuid)', 'EXECUTE')
+    and to_regprocedure('public.get_video_date_queue_hint_v1(uuid,uuid)') is null
     and not has_function_privilege('anon', 'public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)', 'EXECUTE')
     and has_function_privilege('authenticated', 'public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)', 'EXECUTE')
     and not has_function_privilege('anon', 'public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)', 'EXECUTE')

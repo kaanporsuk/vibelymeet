@@ -48,16 +48,13 @@ test("safety submit surfaces keep duplicate-submit guards and durable success ro
   assert.match(nativeDate, /suppressPartnerControlsAfterSafety/);
 });
 
-test("queue and lobby state surfaces render rich queue details and honor retry versus terminal actions", () => {
+test("lobby state surfaces avoid removed queue details and honor retry versus terminal actions", () => {
   const webLobby = read("src/pages/EventLobby.tsx");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 
   for (const source of [webLobby, nativeLobby]) {
     assert.match(source, /resolveEventDeckPhase4UiState/);
-    assert.match(source, /resolveVideoDateQueueCopy/);
-    assert.match(source, /queueHintCopy\.title/);
-    assert.match(source, /queueHintCopy\.message/);
-    assert.match(source, /queueHintDetailParts\.map/);
+    assert.doesNotMatch(source, /resolveVideoDateQueueCopy|queueHintCopy|queueHintDetailParts|queuedMatchCount/);
     assert.match(source, /deckErrorUiState\.actionTarget === ['"]matches['"]/);
     assert.match(source, /deckErrorUiState\.actionTarget === ['"]event['"]/);
     assert.match(source, /deckErrorUiState\.actionTarget === ['"]end_break['"]/);

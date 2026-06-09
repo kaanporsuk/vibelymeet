@@ -12,7 +12,6 @@
  * | State (`ActiveSession.kind`) | Route | Notes |
  * |------------------------------|-------|-------|
  * | *(null)* | — | No session CTA; deep links use async server reconcile. |
- * | `syncing` | `/event/[eventId]/lobby` | Queued mutual — lobby convergence; **not** a live Daily call. |
  * | `ready_gate` | `/ready/[sessionId]` | Ready Gate surface. |
  * | `video` | `/date/[sessionId]` | Handshake, `in_date`, or terminal `in_survey` recovery — Date stack owns Daily and survey. |
  *
@@ -50,8 +49,6 @@ export function tabsRootHref(): Href {
 /** Home reminder tap, schedule join, ActiveCallBanner rejoin — single policy for non-null session. */
 export function hrefForActiveSession(session: ActiveSession): Href {
   switch (session.kind) {
-    case 'syncing':
-      return eventLobbyHref(session.eventId);
     case 'ready_gate':
       return readyGateHref(session.sessionId);
     case 'video':

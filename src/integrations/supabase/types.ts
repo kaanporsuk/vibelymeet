@@ -11315,31 +11315,6 @@ export type Database = {
         Args: { notification_id: string }
         Returns: boolean
       }
-      drain_match_queue: { Args: { p_event_id: string }; Returns: Json }
-      drain_match_queue_20260501180000_active_base: {
-        Args: { p_event_id: string }
-        Returns: Json
-      }
-      drain_match_queue_20260502083000_active_base: {
-        Args: { p_event_id: string }
-        Returns: Json
-      }
-      drain_match_queue_20260608211359_survey_feedback_base: {
-        Args: { p_event_id: string }
-        Returns: Json
-      }
-      drain_match_queue_v2: {
-        Args: { p_event_id: string; p_idempotency_key: string }
-        Returns: Json
-      }
-      drain_match_queue_v2_20260605232304_single_owner_base: {
-        Args: { p_event_id: string; p_idempotency_key: string }
-        Returns: Json
-      }
-      drain_match_queue_v2_20260608211359_survey_feedback_base: {
-        Args: { p_event_id: string; p_idempotency_key: string }
-        Returns: Json
-      }
       end_unconfirmed_video_date_start: {
         Args: {
           p_actor?: string
@@ -12069,14 +12044,6 @@ export type Database = {
           starved_slots_300s: number
         }[]
       }
-      get_video_date_queue_hint_v1: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
-      get_video_date_queue_hint_v1_20260605232304_single_owner_base: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
       get_video_date_session_timeline: {
         Args: { p_session_id: string }
         Returns: {
@@ -12097,6 +12064,10 @@ export type Database = {
         Returns: Json
       }
       get_video_date_sprint7_ops_health: {
+        Args: { p_event_id?: string }
+        Returns: Json
+      }
+      get_video_date_sprint7_ops_health_20260610000100_auto_next_base: {
         Args: { p_event_id?: string }
         Returns: Json
       }
@@ -12234,6 +12205,15 @@ export type Database = {
         Returns: Json
       }
       handle_swipe_20260607103000_mutual_match_source_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260610000100_auto_next_base: {
         Args: {
           p_actor_id: string
           p_event_id: string
@@ -12635,30 +12615,6 @@ export type Database = {
       promote_purgeable_assets: {
         Args: { p_family_filter?: string; p_limit?: number }
         Returns: number
-      }
-      promote_ready_gate_202605030900_base: {
-        Args: { p_event_id: string; p_uid: string }
-        Returns: Json
-      }
-      promote_ready_gate_20260505220000_queued_browse_base: {
-        Args: { p_event_id: string; p_uid: string }
-        Returns: Json
-      }
-      promote_ready_gate_if_eligible: {
-        Args: { p_event_id: string; p_uid: string }
-        Returns: Json
-      }
-      promote_ready_gate_if_eligible_20260501180000_active_base: {
-        Args: { p_event_id: string; p_uid: string }
-        Returns: Json
-      }
-      promote_ready_gate_if_eligible_20260502083000_ready_queue_base: {
-        Args: { p_event_id: string; p_uid: string }
-        Returns: Json
-      }
-      promote_ready_gate_if_eligible_20260505223000_lock_order_base: {
-        Args: { p_event_id: string; p_uid: string }
-        Returns: Json
       }
       promote_waitlist_for_event: {
         Args: { p_event_id: string }
@@ -13724,6 +13680,10 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      vd_transition_20260609202707_enter_hs_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
       vd_transition_both_ready_owner_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
@@ -13753,10 +13713,6 @@ export type Database = {
       }
       video_date_active_surface_claims_v1: {
         Args: { p_session_id: string }
-        Returns: Json
-      }
-      video_date_actor_pending_feedback_gate_v1: {
-        Args: { p_actor_id?: string; p_event_id: string }
         Returns: Json
       }
       video_date_actor_provider_presence_v1: {

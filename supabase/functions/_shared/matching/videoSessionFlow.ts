@@ -3,12 +3,12 @@
  * Persistent chat uses `matches.id`. Legacy APIs still expose `match_id` for the session id — treat as deprecated.
  */
 
-/** RPC + swipe-actions body for mutual vibe / queue outcomes (session stage only). */
+/** RPC + swipe-actions body for mutual vibe outcomes (session stage only). */
 export type SwipeSessionStageResult = {
   result?: string;
   /** Additive canonical outcome, when present. Mirrors `result` for new SQL/Edge paths. */
   outcome?: string;
-  /** @deprecated Same as `video_session_id` when result is `match` or `match_queued` — not `matches.id`. */
+  /** @deprecated Same as `video_session_id` when result is `match` — not `matches.id`. */
   match_id?: string;
   /** Canonical: `video_sessions.id` for ready gate / video date. */
   video_session_id?: string;
@@ -34,35 +34,7 @@ export type SwipeSessionStageResult = {
   requested_swipe_type?: string;
 };
 
-/** `drain_match_queue` RPC JSON (session activation, not persistent match). */
-export type DrainMatchQueueResult = {
-  found: boolean;
-  /** @deprecated Same as `video_session_id` when found — not `matches.id`. */
-  match_id?: string;
-  video_session_id?: string;
-  session_id?: string;
-  event_id?: string;
-  partner_id?: string;
-  queued?: boolean;
-  blocked?: boolean;
-  reason?: string;
-  code?: string;
-  error_code?: string;
-  route?: string;
-  path?: string;
-  next_surface?: {
-    action?: string;
-    route?: string;
-    path?: string;
-    session_id?: string;
-    event_id?: string;
-    reason?: string;
-  } | null;
-};
-
-/**
- * Prefer canonical `video_session_id`, fall back to legacy `match_id` (still a session id in swipe/drain flows).
- */
+/** Prefer canonical `video_session_id`, fall back to legacy `match_id` (still a session id in swipe flows). */
 export function videoSessionIdFromSwipePayload(
   payload: Pick<SwipeSessionStageResult, "video_session_id" | "match_id"> | null | undefined,
 ): string | undefined {
@@ -87,46 +59,6 @@ export function shouldOpenReadyGateFromSwipePayload(
     Boolean(videoSessionIdFromSwipePayload(payload)) &&
     payload?.immediate !== false
   );
-}
-
-export function shouldTrackQueuedSwipeSession(
-  payload: SwipeSessionStageResult | null | undefined,
-): boolean {
-  return (
-    normalizedSwipeSessionStageResult(payload?.result ?? payload?.outcome) === "match_queued" &&
-    Boolean(videoSessionIdFromSwipePayload(payload))
-  );
-}
-
-export function videoSessionIdFromDrainPayload(
-  payload: Pick<DrainMatchQueueResult, "video_session_id" | "match_id" | "session_id"> | null | undefined,
-): string | undefined {
-  if (!payload) return undefined;
-  const v = payload.video_session_id ?? payload.session_id ?? payload.match_id;
-  return typeof v === "string" && v.length > 0 ? v : undefined;
-}
-
-export function isPendingPostDateFeedbackDrainResult(
-  payload: DrainMatchQueueResult | null | undefined,
-): boolean {
-  if (!payload) return false;
-  return (
-    payload.reason === "pending_post_date_feedback" ||
-    payload.code === "PENDING_POST_DATE_FEEDBACK" ||
-    payload.error_code === "PENDING_POST_DATE_FEEDBACK" ||
-    payload.next_surface?.reason === "pending_post_date_feedback"
-  );
-}
-
-export function pendingPostDateFeedbackSessionIdFromDrainPayload(
-  payload: DrainMatchQueueResult | null | undefined,
-): string | undefined {
-  if (!isPendingPostDateFeedbackDrainResult(payload)) return undefined;
-  const nextSurfaceSessionId = payload?.next_surface?.session_id;
-  if (typeof nextSurfaceSessionId === "string" && nextSurfaceSessionId.length > 0) {
-    return nextSurfaceSessionId;
-  }
-  return videoSessionIdFromDrainPayload(payload);
 }
 
 /**
@@ -155,10 +87,6 @@ export const SWIPE_GENERIC_FAILURE_USER_MESSAGE =
 export const SWIPE_RATE_LIMITED_USER_MESSAGE =
   "Catch your breath before swiping again.";
 
-/** Shown when a queued mutual session hits server TTL (`expire_stale_video_sessions` → `queued_ttl_expired`). */
-export const QUEUED_MATCH_TIMED_OUT_USER_MESSAGE =
-  "A queued match ran out of time before Ready Gate opened. You can keep browsing and matching in this event.";
-
 /** Web `/ready/:id` + native `/ready/[id]` when the session row ended or registration left Ready Gate. */
 export const READY_GATE_STALE_OR_ENDED_USER_MESSAGE =
   "This Ready Gate is no longer active. We're taking you back to the event.";
@@ -166,25 +94,6 @@ export const READY_GATE_STALE_OR_ENDED_USER_MESSAGE =
 /** Deep link invalid: missing session, wrong account, or broken id — safe fallback to events home. */
 export const READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE =
   "This Ready Gate link isn't valid. We're taking you to your events.";
-
-/**
- * True when Realtime `video_sessions` UPDATE reflects queued → expired TTL cleanup for this user.
- * `ended_reason` may be omitted from payloads; we still trust queued→expired as the lobby-visible TTL path.
- */
-export function isVideoSessionQueuedTtlExpiryTransition(
-  oldRow: Record<string, unknown> | null | undefined,
-  newRow: Record<string, unknown>,
-  userId: string,
-): boolean {
-  const p1 = newRow.participant_1_id;
-  const p2 = newRow.participant_2_id;
-  if (p1 !== userId && p2 !== userId) return false;
-  if ((oldRow?.ready_gate_status as string | undefined) !== "queued") return false;
-  if ((newRow.ready_gate_status as string | undefined) !== "expired") return false;
-  const er = newRow.ended_reason as string | undefined;
-  if (er != null && er !== "" && er !== "queued_ttl_expired") return false;
-  return true;
-}
 
 export function getSwipeFailureUserMessage(
   payload: SwipeSessionStageResult | null | undefined,

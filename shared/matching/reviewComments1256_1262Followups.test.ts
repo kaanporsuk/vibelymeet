@@ -53,29 +53,12 @@ test("certification exceptions suppress all missing-feedback invariant warnings"
   }
 });
 
-test("native survey one-shot queue drain is not cancelled by verdict UI state changes", () => {
-  assert.match(nativeSurvey, /const queuedDrainRuntimeRef = useRef/);
-  assert.match(nativeSurvey, /queuedDrainRuntimeRef\.current = \{/);
-  assert.match(nativeSurvey, /runtime\.verdictUiState === 'submitting'/);
-  assert.match(nativeSurvey, /runtime\.verdictUiState === 'confirmed'/);
-  assert.match(nativeSurvey, /runtime\.verdictUiState === 'awaiting_partner'/);
-  assert.match(nativeSurvey, /runtime\.onVideoDateReady\(pendingSessionId\)/);
-  assert.match(
-    nativeSurvey,
-    /queuedDrainRuntimeRef\.current\.onQueuedVideoSessionReady\?\.\(nextSessionId\)/,
-  );
-
-  const drainEffect = blockBetween(
-    nativeSurvey,
-    "useEffect(() => {\n    if (!eventId || !userId || queuedNavigationStartedRef.current) return;",
-    "useEffect(() => {\n    if (step !== 'celebration'",
-  );
-  const deps = drainEffect.slice(drainEffect.lastIndexOf("}, ["));
-  assert.doesNotMatch(deps, /finishing/);
-  assert.doesNotMatch(deps, /submitting/);
-  assert.doesNotMatch(deps, /verdictUiState/);
-  assert.doesNotMatch(deps, /onVideoDateReady/);
-  assert.doesNotMatch(deps, /onQueuedVideoSessionReady/);
+test("native survey no longer has one-shot queue drain callbacks after auto-next removal", () => {
+  assert.doesNotMatch(nativeSurvey, /queuedDrainRuntimeRef/);
+  assert.doesNotMatch(nativeSurvey, /queuedNavigationStartedRef/);
+  assert.doesNotMatch(nativeSurvey, /onVideoDateReady|onQueuedVideoSessionReady/);
+  assert.doesNotMatch(nativeSurvey, /drainMatchQueue|getQueuedMatchCount|survey_queue_drain/);
+  assert.match(nativeSurvey, /removed_auto_next_target_ignored/);
 });
 
 test("remote-seen retries keep the accepted render evidence source", () => {

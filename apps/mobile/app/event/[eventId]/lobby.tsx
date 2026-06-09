@@ -40,8 +40,6 @@ import {
   useIsRegisteredForEvent,
   useEventDeck,
   swipe,
-  drainMatchQueue,
-  getQueuedMatchCount,
   getSuperVibeRemaining,
   type DeckProfile,
   type EventDeckFetchResult,
@@ -74,10 +72,9 @@ import {
 } from "@clientShared/observability/videoDateOperatorMetrics";
 import { LiveSurfaceOfflineStrip } from "@/components/connectivity/LiveSurfaceOfflineStrip";
 import { useVibelyDialog } from "@/components/VibelyDialog";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAccountPauseStatus } from "@/hooks/useAccountPauseStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { fetchVideoDateQueueHint } from "@/lib/videoDateQueueHint";
 import { useActiveSession } from "@/lib/useActiveSession";
 import { RC_CATEGORY, rcBreadcrumb } from "@/lib/nativeRcDiagnostics";
 import { endAccountBreakForUser } from "@/lib/endAccountBreak";
@@ -108,7 +105,6 @@ import {
   isVideoDateReadyGateActiveStatus,
 } from "@clientShared/matching/videoDateRouteDecision";
 import { isReadyGatePrepareEntryNonRetryable } from "@clientShared/matching/readyGateTerminalRecovery";
-import { getMatchQueueDrainReasonCopy } from "@clientShared/matching/matchQueueDrainReasonCopy";
 import {
   getPostDateLobbyContinuityDecision,
   secondsUntilPostDateEventEnd,
@@ -132,22 +128,13 @@ import {
 import { isFeatureFlagEnabledWithAlias } from "@clientShared/featureFlags/featureFlagAliasResolution";
 import {
   getSwipeFailureUserMessage,
-  isPendingPostDateFeedbackDrainResult,
   videoSessionIdFromSwipePayload,
-  videoSessionIdFromDrainPayload,
-  pendingPostDateFeedbackSessionIdFromDrainPayload,
   shouldOpenReadyGateFromSwipePayload,
   shouldAdvanceLobbyDeckAfterSwipe,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
-  QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
-  isVideoSessionQueuedTtlExpiryTransition,
-  type DrainMatchQueueResult,
 } from "@shared/matching/videoSessionFlow";
 import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
-import {
-  resolveEventDeckPhase4UiState,
-  resolveVideoDateQueueCopy,
-} from "@clientShared/matching/videoDatePhase4Ux";
+import { resolveEventDeckPhase4UiState } from "@clientShared/matching/videoDatePhase4Ux";
 import {
   createVideoDateSessionChannel,
   resolveVideoDateSessionSeqDecision,
@@ -157,7 +144,6 @@ import {
   resolveVideoDateTimelineCountdown,
   type VideoDateTimelineState,
 } from "@clientShared/matching/videoDateTimeline";
-import { nextConvergenceDelayMs } from "@clientShared/matching/convergenceScheduling";
 import { resolveEventLifecycle } from "@clientShared/eventLifecycle";
 import {
   eventLobbyGateFromServerInactiveReason,
@@ -493,7 +479,6 @@ export default function EventLobbyScreen() {
 
   const lobbyGateSideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
-  const drainQueueV2 = useFeatureFlag("video_date.outbox_v2.drain_match_queue");
   const deckPrefetchPolishV2 = useFeatureFlag(
     "video_date.deck_prefetch_polish_v2",
   );
@@ -585,7 +570,6 @@ export default function EventLobbyScreen() {
       !readyGatePressureActive,
   );
   const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({
-    queuedCount: 0,
     visibleCount: 0,
   });
   const deckAdaptiveRefetchIntervalMs = useMemo(
@@ -594,13 +578,11 @@ export default function EventLobbyScreen() {
         enabled: deckQueryEnabled,
         eventEndAtMs: eventEndTimeMs,
         nowMs: lobbyClockMs,
-        queuedCount: deckAdaptiveInputs.queuedCount,
         visibleCount: deckAdaptiveInputs.visibleCount,
         hidden: appState !== "active",
       }),
     [
       appState,
-      deckAdaptiveInputs.queuedCount,
       deckAdaptiveInputs.visibleCount,
       deckQueryEnabled,
       eventEndTimeMs,
@@ -811,7 +793,6 @@ export default function EventLobbyScreen() {
   const [activeSessionPartnerImage, setActiveSessionPartnerImage] = useState<
     string | null
   >(null);
-  const [queuedMatchCount, setQueuedMatchCount] = useState(0);
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const pendingSwipeTargetIdsRef = useRef<Set<string>>(new Set());
 
@@ -838,15 +819,13 @@ export default function EventLobbyScreen() {
   useEffect(() => {
     setDeckAdaptiveInputs((current) => {
       const next = {
-        queuedCount: queuedMatchCount,
         visibleCount: sortedProfiles.length,
       };
-      return current.queuedCount === next.queuedCount &&
-        current.visibleCount === next.visibleCount
+      return current.visibleCount === next.visibleCount
         ? current
         : next;
     });
-  }, [queuedMatchCount, sortedProfiles.length]);
+  }, [sortedProfiles.length]);
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
   const [endingBreak, setEndingBreak] = useState(false);
   const [userVibes, setUserVibes] = useState<string[]>([]);
@@ -906,18 +885,14 @@ export default function EventLobbyScreen() {
   > | null>(null);
   const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
   const lobbyBroadcastSessionSeqSessionRef = useRef<string | null>(null);
-  /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
-  const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
-  /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
-  const drainReasonNotifiedKeysRef = useRef<Set<string>>(new Set());
   const isActiveLobbyContextRef = useRef(false);
-  const queueRefreshSeqRef = useRef(0);
-  const queueRefreshScopeRef = useRef({
+  const lobbyRefreshSeqRef = useRef(0);
+  const lobbyRefreshScopeRef = useRef({
     eventId: id ?? null,
     userId: user?.id ?? null,
     sideEffectsEnabled: lobbySideEffectsEnabled,
   });
-  queueRefreshScopeRef.current = {
+  lobbyRefreshScopeRef.current = {
     eventId: id ?? null,
     userId: user?.id ?? null,
     sideEffectsEnabled: lobbySideEffectsEnabled,
@@ -1307,32 +1282,6 @@ export default function EventLobbyScreen() {
     [id, pathname, refetchActiveSession, user?.id],
   );
 
-  const queueHintEnabled =
-    deckQueryEnabled &&
-    Boolean(id && user?.id) &&
-    (queuedMatchCount > 0 || sameEventActiveSession?.kind === "syncing");
-  const { data: queueHint = null } = useQuery({
-    queryKey: ["video-date-queue-hint", id, user?.id],
-    queryFn: () => fetchVideoDateQueueHint(id, user?.id ?? ""),
-    enabled: queueHintEnabled,
-    refetchInterval: queueHintEnabled ? 5_000 : false,
-    refetchIntervalInBackground: false,
-    staleTime: 3_000,
-  });
-  const queueFallbackCount =
-    sameEventActiveSession?.kind === "syncing"
-      ? Math.max(queuedMatchCount, 1)
-      : queuedMatchCount;
-  const queueHintCopy = resolveVideoDateQueueCopy(
-    queueHint,
-    queueFallbackCount,
-  );
-  const queueHintLabel = queueHintCopy.compactLabel;
-  const queueHintDetailParts =
-    queueHintCopy.detailParts.length > 0
-      ? queueHintCopy.detailParts
-      : [queueHintLabel];
-
   /** Full-screen yield: server truth says handshake/date — do not show deck-empty underneath. */
   const yieldingToVideoDateUi = useMemo(
     () => Boolean(sameEventActiveSession?.kind === "video"),
@@ -1347,26 +1296,6 @@ export default function EventLobbyScreen() {
         activeSessionId !== sameEventActiveSession.sessionId,
       ),
     [sameEventActiveSession, activeSessionId],
-  );
-
-  /**
-   * Queued match (or native `syncing` session) — replace plain deck-empty with sync messaging.
-   */
-  const showQueuedStyleConvergenceUi = useMemo(
-    () =>
-      Boolean(
-        (queuedMatchCount > 0 || sameEventActiveSession?.kind === "syncing") &&
-        !activeSessionId &&
-        !yieldingToVideoDateUi &&
-        !yieldingToReadyGateUi,
-      ),
-    [
-      queuedMatchCount,
-      sameEventActiveSession?.kind,
-      activeSessionId,
-      yieldingToVideoDateUi,
-      yieldingToReadyGateUi,
-    ],
   );
 
   /** Latest server vs overlay session ids for stall-fallback timeout (avoids stale closures). */
@@ -1465,42 +1394,6 @@ export default function EventLobbyScreen() {
     isActiveLobbyContextRef.current =
       lobbySideEffectsEnabled && isLobbyFocused && appState === "active";
   }, [appState, isLobbyFocused, lobbySideEffectsEnabled]);
-
-  useEffect(() => {
-    queuedTtlExpiryNotifiedIdsRef.current.clear();
-    drainReasonNotifiedKeysRef.current.clear();
-  }, [id, user?.id]);
-
-  const showDrainReasonInfoOnce = useCallback(
-    (payload: unknown) => {
-      if (!id || !user?.id) return;
-      if (!isActiveLobbyContextRef.current) return;
-      const copy = getMatchQueueDrainReasonCopy(payload);
-      if (!copy) return;
-      const key = `${user.id}:${id}:${copy.reason}`;
-      if (drainReasonNotifiedKeysRef.current.has(key)) return;
-      drainReasonNotifiedKeysRef.current.add(key);
-      setReadyGateLobbyToast({ text: copy.message, variant: "info" });
-    },
-    [id, user?.id],
-  );
-
-  const handlePendingPostDateFeedbackDrain = useCallback(
-    (payload: unknown, sourceAction: string): boolean => {
-      const result = payload as DrainMatchQueueResult | null | undefined;
-      if (!isPendingPostDateFeedbackDrainResult(result)) return false;
-      const pendingSessionId = pendingPostDateFeedbackSessionIdFromDrainPayload(result);
-      if (!pendingSessionId) return true;
-      navigateToDateSession(
-        pendingSessionId,
-        sourceAction,
-        "replace",
-        { force: true, forceSurvey: true },
-      );
-      return true;
-    },
-    [navigateToDateSession],
-  );
 
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -2098,23 +1991,19 @@ export default function EventLobbyScreen() {
     [readinessV2.enabled],
   );
 
-  const refreshQueueAndSuperVibe = useCallback(async () => {
+  const refreshSuperVibeRemaining = useCallback(async () => {
     if (!id || !user?.id || !lobbySideEffectsEnabled) {
-      queueRefreshSeqRef.current += 1;
-      setQueuedMatchCount(0);
+      lobbyRefreshSeqRef.current += 1;
       return;
     }
-    const requestSeq = queueRefreshSeqRef.current + 1;
-    queueRefreshSeqRef.current = requestSeq;
+    const requestSeq = lobbyRefreshSeqRef.current + 1;
+    lobbyRefreshSeqRef.current = requestSeq;
     const requestEventId = id;
     const requestUserId = user.id;
-    const [count, remaining] = await Promise.all([
-      getQueuedMatchCount(requestEventId, requestUserId),
-      getSuperVibeRemaining(requestEventId, requestUserId),
-    ]);
-    const scope = queueRefreshScopeRef.current;
+    const remaining = await getSuperVibeRemaining(requestEventId, requestUserId);
+    const scope = lobbyRefreshScopeRef.current;
     if (
-      queueRefreshSeqRef.current !== requestSeq ||
+      lobbyRefreshSeqRef.current !== requestSeq ||
       scope.eventId !== requestEventId ||
       scope.userId !== requestUserId ||
       !scope.sideEffectsEnabled ||
@@ -2122,7 +2011,6 @@ export default function EventLobbyScreen() {
     ) {
       return;
     }
-    setQueuedMatchCount(count);
     setSuperVibeRemaining(remaining);
     void refetchActiveSession();
   }, [id, user?.id, lobbySideEffectsEnabled, refetchActiveSession]);
@@ -2136,10 +2024,10 @@ export default function EventLobbyScreen() {
       lobbyRefreshBurstTimerRef.current = setTimeout(() => {
         lobbyRefreshBurstTimerRef.current = null;
         void refetchDeck();
-        void refreshQueueAndSuperVibe();
+        void refreshSuperVibeRemaining();
       }, delayMs);
     },
-    [id, refetchDeck, refreshQueueAndSuperVibe],
+    [id, refetchDeck, refreshSuperVibeRemaining],
   );
 
   useEffect(() => {
@@ -2151,14 +2039,14 @@ export default function EventLobbyScreen() {
       appState !== "active"
     )
       return;
-    void refreshQueueAndSuperVibe();
+    void refreshSuperVibeRemaining();
   }, [
     id,
     user?.id,
     lobbySideEffectsEnabled,
     isLobbyFocused,
     appState,
-    refreshQueueAndSuperVibe,
+    refreshSuperVibeRemaining,
   ]);
 
   useEffect(() => {
@@ -2208,114 +2096,6 @@ export default function EventLobbyScreen() {
     sameEventActiveSessionQueueStatus,
     openReadyGateWithSession,
     navigateToDateSession,
-  ]);
-
-  /**
-   * Queued mutual match: promotion may lag realtime. Re-run `drain_match_queue` with adaptive backoff
-   * (same curve as reconnect sync) while queued/syncing and not already routing to date/Ready Gate.
-   * Realtime on `event_registrations` / `video_sessions` + `queue_drain_initial` still drive fast paths.
-   */
-  useEffect(() => {
-    if (!id || !user?.id) return;
-    if (!lobbySideEffectsEnabled || !isLobbyFocused || appState !== "active")
-      return;
-    if (queuedMatchCount <= 0 && sameEventActiveSession?.kind !== "syncing")
-      return;
-    if (activeSessionId) return;
-    if (sameEventActiveSession?.kind === "video") return;
-
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const startedAt = Date.now();
-
-    const tick = async () => {
-      if (cancelled) return;
-      const result = await drainMatchQueue(id, user.id, {
-        drainMatchQueueV2: drainQueueV2.enabled,
-        sourceAction: "queue_drain_interval",
-      });
-      const promotedSessionId = videoSessionIdFromDrainPayload(
-        result ?? undefined,
-      );
-      if (!cancelled && handlePendingPostDateFeedbackDrain(
-        result,
-        "queue_drain_interval_pending_post_date_feedback",
-      )) {
-        return;
-      }
-      if (result?.found && promotedSessionId) {
-        openReadyGateWithSession(promotedSessionId, "queue_drain_interval");
-      } else {
-        if (cancelled) return;
-        showDrainReasonInfoOnce(result);
-      }
-      scheduleLobbyRefreshBurst("queue_drain_interval");
-      if (cancelled) return;
-      const elapsed = Date.now() - startedAt;
-      const delay = nextConvergenceDelayMs(elapsed);
-      timeoutId = setTimeout(() => {
-        void tick();
-      }, delay);
-    };
-
-    void tick();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [
-    id,
-    user?.id,
-    isLobbyFocused,
-    appState,
-    lobbySideEffectsEnabled,
-    queuedMatchCount,
-    activeSessionId,
-    sameEventActiveSession?.kind,
-    openReadyGateWithSession,
-    scheduleLobbyRefreshBurst,
-    showDrainReasonInfoOnce,
-    handlePendingPostDateFeedbackDrain,
-    drainQueueV2.enabled,
-  ]);
-
-  useEffect(() => {
-    if (!id || !user?.id || !lobbySideEffectsEnabled) return;
-    let cancelled = false;
-    const run = async () => {
-      const result = await drainMatchQueue(id, user.id, {
-        drainMatchQueueV2: drainQueueV2.enabled,
-        sourceAction: "queue_drain_initial",
-      });
-      const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
-      if (!cancelled && handlePendingPostDateFeedbackDrain(
-        result,
-        "queue_drain_initial_pending_post_date_feedback",
-      )) {
-        return;
-      }
-      if (result?.found && sessionId) {
-        openReadyGateWithSession(sessionId, "queue_drain_initial");
-      } else {
-        if (cancelled) return;
-        showDrainReasonInfoOnce(result);
-      }
-      scheduleLobbyRefreshBurst("queue_drain_initial");
-    };
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    id,
-    user?.id,
-    lobbySideEffectsEnabled,
-    openReadyGateWithSession,
-    scheduleLobbyRefreshBurst,
-    showDrainReasonInfoOnce,
-    handlePendingPostDateFeedbackDrain,
-    drainQueueV2.enabled,
   ]);
 
   useEffect(() => {
@@ -2504,19 +2284,6 @@ export default function EventLobbyScreen() {
       if (deckPrefetchPolishEnabled) {
         scheduleDeckRefresh("video_session_update_deck_invalidation", 0);
       }
-      if (
-        user.id &&
-        isVideoSessionQueuedTtlExpiryTransition(old, session, user.id) &&
-        !queuedTtlExpiryNotifiedIdsRef.current.has(sid)
-      ) {
-        queuedTtlExpiryNotifiedIdsRef.current.add(sid);
-        show({
-          title: "Match window ended",
-          message: QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
-          variant: "info",
-          primaryAction: { label: "OK", onPress: () => {} },
-        });
-      }
       scheduleLobbyRefreshBurst("video_session_update");
       const routeDecision = decideCanonicalVideoDateRoute({
         sessionId: sid,
@@ -2575,7 +2342,6 @@ export default function EventLobbyScreen() {
         scheduleDeckRefresh("video_session_insert_deck_invalidation", 0);
       }
       scheduleLobbyRefreshBurst("video_session_insert");
-      const status = session.ready_gate_status as string;
       const sid = session.id as string;
       const routeDecision = decideCanonicalVideoDateRoute({
         sessionId: sid,
@@ -2608,31 +2374,6 @@ export default function EventLobbyScreen() {
             skipPrepare: true,
           },
         );
-        return;
-      }
-      if (status === "queued") {
-        const drainResult = await drainMatchQueue(id, user.id, {
-          drainMatchQueueV2: drainQueueV2.enabled,
-          sourceAction: "video_session_insert_queue_drain",
-        });
-        const promotedId = videoSessionIdFromDrainPayload(
-          drainResult ?? undefined,
-        );
-        if (handlePendingPostDateFeedbackDrain(
-          drainResult,
-          "video_session_insert_queue_drain_pending_post_date_feedback",
-        )) {
-          return;
-        }
-        if (drainResult?.found && promotedId) {
-          openReadyGateWithSession(
-            promotedId,
-            "video_session_insert_queue_drain",
-          );
-        } else {
-          showDrainReasonInfoOnce(drainResult);
-        }
-        scheduleLobbyRefreshBurst("video_session_insert_queue_drain");
         return;
       }
       if (routeDecision.target === "ready_gate") {
@@ -2680,10 +2421,7 @@ export default function EventLobbyScreen() {
     openReadyGateWithSession,
     scheduleLobbyRefreshBurst,
     show,
-    showDrainReasonInfoOnce,
     navigateToDateSession,
-    handlePendingPostDateFeedbackDrain,
-    drainQueueV2.enabled,
     deckPrefetchPolishEnabled,
     lobbyBroadcastSessionId,
     lobbyTimelineV2.enabled,
@@ -2905,15 +2643,6 @@ export default function EventLobbyScreen() {
             primaryAction: { label: "OK", onPress: () => {} },
           });
           break;
-        case "match_queued":
-          show({
-            title: "You're matched!",
-            message:
-              "We'll bring you to Ready Gate when your partner is free — keep browsing.",
-            variant: "success",
-            primaryAction: { label: "Got it", onPress: () => {} },
-          });
-          break;
         case "super_vibe_sent":
           show({
             title: "Super Vibe sent! ✨",
@@ -3078,8 +2807,7 @@ export default function EventLobbyScreen() {
     if (
       !isLobbyFocused ||
       appState !== "active" ||
-      showConvergenceYieldUi ||
-      showQueuedStyleConvergenceUi
+      showConvergenceYieldUi
     )
       return;
 
@@ -3212,7 +2940,6 @@ export default function EventLobbyScreen() {
     pauseStatus.isPaused,
     removeDeckProfileAfterTerminalVisibleMark,
     showConvergenceYieldUi,
-    showQueuedStyleConvergenceUi,
     user?.id,
   ]);
 
@@ -3220,8 +2947,7 @@ export default function EventLobbyScreen() {
     deckQueryEnabled &&
     !deckLoading &&
     !deckError &&
-    !showConvergenceYieldUi &&
-    !showQueuedStyleConvergenceUi;
+    !showConvergenceYieldUi;
   const deckGateKind = useMemo(() => {
     if (isEventInactiveByServer) return "event_not_active";
     return nativeDeckGateKind(lobbyGate.kind);
@@ -3236,7 +2962,6 @@ export default function EventLobbyScreen() {
         totalProfiles: profiles.length,
         visibleProfiles: sortedProfiles.length,
         deckEverLoaded: deckLoadedTrackedRef.current,
-        queuedCount: queuedMatchCount,
         yieldingToReadyGate: yieldingToReadyGateUi,
         yieldingToVideoDate: yieldingToVideoDateUi,
         userPaused: pauseStatus.isPaused,
@@ -3250,7 +2975,6 @@ export default function EventLobbyScreen() {
       deckQueryEnabled,
       pauseStatus.isPaused,
       profiles.length,
-      queuedMatchCount,
       sortedProfiles.length,
       yieldingToReadyGateUi,
       yieldingToVideoDateUi,
@@ -3262,7 +2986,6 @@ export default function EventLobbyScreen() {
       getPostDateLobbyContinuityDecision({
         yieldingToVideoDate: yieldingToVideoDateUi,
         yieldingToReadyGate: yieldingToReadyGateUi,
-        hasQueuedSession: showQueuedStyleConvergenceUi || queuedMatchCount > 0,
         deckLoading,
         deckHasCandidate: hasCards,
         deckError,
@@ -3274,9 +2997,7 @@ export default function EventLobbyScreen() {
       deckLoading,
       hasCards,
       isLiveWindow,
-      queuedMatchCount,
       secondsUntilEventEnd,
-      showQueuedStyleConvergenceUi,
       yieldingToReadyGateUi,
       yieldingToVideoDateUi,
     ],
@@ -3489,7 +3210,6 @@ export default function EventLobbyScreen() {
       event_id: id,
       action: postSurveyContinuityDecision.action,
       source: "lobby_post_survey_return",
-      queued_count: queuedMatchCount,
       deck_count: sortedProfiles.length,
       seconds_until_event_end: secondsUntilEventEnd,
     });
@@ -3498,7 +3218,6 @@ export default function EventLobbyScreen() {
       event_id: id,
       action: postSurveyContinuityDecision.action,
       route,
-      queued_count: queuedMatchCount,
       deck_count: sortedProfiles.length,
       seconds_until_event_end: secondsUntilEventEnd,
     });
@@ -3508,7 +3227,6 @@ export default function EventLobbyScreen() {
     postSurveyBridgeVisible,
     postSurveyContinuityDecision.action,
     postSurveyReturnContext,
-    queuedMatchCount,
     secondsUntilEventEnd,
     sortedProfiles.length,
   ]);
@@ -3927,15 +3645,13 @@ export default function EventLobbyScreen() {
       if (
         normalizedEnvelope.super_vibe_consumed === true ||
         outcome === "super_vibe_sent" ||
-        outcome === "limit_reached" ||
-        outcome === "match_queued"
+        outcome === "limit_reached"
       ) {
         scheduleLobbyRefreshBurst("swipe_result_counts");
       }
       if (
         outcome === "match" ||
-        outcome === "already_matched" ||
-        outcome === "match_queued"
+        outcome === "already_matched"
       ) {
         queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
       }
@@ -4052,34 +3768,6 @@ export default function EventLobbyScreen() {
                       Live now
                     </Text>
                   </View>
-                  {(queuedMatchCount > 0 ||
-                    sameEventActiveSession?.kind === "syncing") &&
-                  !activeSessionId ? (
-                    <View
-                      style={[
-                        styles.queuedBadge,
-                        {
-                          backgroundColor: withAlpha(theme.neonPink, 0.14),
-                          borderColor: withAlpha(theme.neonPink, 0.35),
-                        },
-                      ]}
-                      accessibilityLabel={`${queueHintLabel} before Ready Gate`}
-                    >
-                      <Ionicons
-                        name="sparkles"
-                        size={11}
-                        color={theme.neonPink}
-                      />
-                      <Text
-                        style={[
-                          styles.queuedBadgeText,
-                          { color: theme.neonPink },
-                        ]}
-                      >
-                        {queueHintLabel}
-                      </Text>
-                    </View>
-                  ) : null}
                 </View>
               </View>
               <View style={styles.headerRightCol}>
@@ -4287,90 +3975,6 @@ export default function EventLobbyScreen() {
                       </View>
                     </View>
                   </>
-                ) : showQueuedStyleConvergenceUi ? (
-                  <View style={styles.emptyStateVerticalCenter}>
-                    {discoverSectionIntro}
-                    <Card
-                      variant="glass"
-                      style={[
-                        styles.emptyCard,
-                        { borderColor: theme.glassBorder },
-                      ]}
-                    >
-                      <>
-                        <View
-                          style={[
-                            styles.emptyIconWrap,
-                            {
-                              backgroundColor: withAlpha(theme.neonPink, 0.16),
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name="sparkles"
-                            size={40}
-                            color={theme.neonPink}
-                          />
-                        </View>
-                        <Text
-                          style={[styles.emptyTitle, { color: theme.text }]}
-                        >
-                          {postSurveyReturnContext
-                            ? postSurveyContinuityDecision.title
-                            : queueHintCopy.title}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.emptyMessage,
-                            { color: theme.textSecondary },
-                          ]}
-                        >
-                          {postSurveyReturnContext
-                            ? postSurveyContinuityDecision.message
-                            : queueHintCopy.message}
-                        </Text>
-                        {!postSurveyReturnContext ? (
-                          <View style={styles.queueDetailRow}>
-                            {queueHintDetailParts.map((part) => (
-                              <View
-                                key={part}
-                                style={[
-                                  styles.queueDetailChip,
-                                  {
-                                    backgroundColor: withAlpha(
-                                      theme.text,
-                                      0.06,
-                                    ),
-                                    borderColor: theme.glassBorder,
-                                  },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.queueDetailText,
-                                    { color: theme.text },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {part}
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-                        ) : null}
-                        <View style={styles.emptyCheckingRow}>
-                          <Ionicons name="sync" size={14} color={theme.tint} />
-                          <Text
-                            style={[styles.emptySubline, { color: theme.tint }]}
-                          >
-                            {postSurveyReturnContext
-                              ? "Preparing Ready Gate..."
-                              : "Looking for your video date..."}
-                          </Text>
-                        </View>
-                      </>
-                    </Card>
-                  </View>
                 ) : !hasCards || isEmpty ? (
                   <View style={styles.emptyStateVerticalCenter}>
                     {discoverSectionIntro}
@@ -5196,16 +4800,6 @@ const styles = StyleSheet.create({
     minWidth: 56,
     alignItems: "flex-end",
   },
-  queuedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  queuedBadgeText: { fontSize: 10, fontWeight: "700" },
   countdownPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -5339,21 +4933,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     paddingHorizontal: spacing.sm,
   },
-  queueDetailRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  queueDetailChip: {
-    maxWidth: 132,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-  },
-  queueDetailText: { fontSize: 11, fontWeight: "700" },
   emptySubline: { fontSize: 12, textAlign: "center", marginBottom: spacing.lg },
   emptyPrimaryBtn: {
     flexDirection: "row",
