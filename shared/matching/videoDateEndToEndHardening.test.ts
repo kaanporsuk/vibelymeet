@@ -893,11 +893,11 @@ test("daily-room prepare_date_entry creates deterministic rooms and scoped token
   assert.match(dailyRoomFunction, /videoDateRoomNameForSession/);
   assert.match(dailyRoomContracts, /function videoDateRoomNameForSession\(sessionId: string\): string/);
   assert.match(dailyRoomContracts, /function buildMeetingTokenProperties/);
-  assert.match(dailyRoomFunction, /max_participants: 2/);
-  assert.match(dailyRoomFunction, /enable_chat: false/);
-  assert.match(dailyRoomFunction, /enable_screenshare: false/);
-  assert.match(dailyRoomFunction, /enable_knocking: false/);
-  assert.match(dailyRoomFunction, /enforce_unique_user_ids: true/);
+  assert.match(dailyRoomContracts, /max_participants: DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS/);
+  assert.match(dailyRoomContracts, /enable_chat: false/);
+  assert.match(dailyRoomContracts, /enable_screenshare: false/);
+  assert.match(dailyRoomContracts, /enable_knocking: false/);
+  assert.match(dailyRoomContracts, /enforce_unique_user_ids: true/);
   assert.match(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject);
   assert.match(dailyRoomFunction, /provider_verify_skipped/);
   assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
@@ -1017,7 +1017,8 @@ test("daily-room prepare_date_entry preserves auth, participant, and delete-room
   assert.match(dailyRoomFunction, /service_role_post_prepare_block_check/);
   assert.doesNotMatch(dailyRoomFunction, /token[^;\n]*\.from\("video_sessions"\)/);
   assert.match(dailyRoomFunction, /if \(action === "delete_room"\)/);
-  assert.match(dailyRoomFunction, /roomType === "video_date"[\s\S]*classifyDeleteRoomSafety/s);
+  assert.match(dailyRoomFunction, /roomType = "video_date"/);
+  assert.match(dailyRoomFunction, /classifyDeleteRoomSafety\(\{\s*roomType: "video_date"/);
   assert.match(dailyRoomContracts, /VIDEO_DATE_CLEANUP_OWNED_BY_CRON/);
 });
 
@@ -2696,15 +2697,15 @@ test("duplicate active-session conflicts use the canonical audit event on web an
   assert.match(nativeEventLobby, /outcome === ['"]participant_has_active_session_conflict['"]/);
 });
 
-test("video-date Daily room and token TTL use explicit finite phase-bounded constants separate from match calls", () => {
+test("video-date Daily room and token TTL use explicit finite phase-bounded constants after match-call removal", () => {
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 \* 60 \* 1000/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180/);
-  assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 30 \* 60/);
-  assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 \* 60/);
-  assert.match(dailyRoomFunction, /enable_recording: false/);
-  assert.match(dailyRoomFunction, /eject_at_room_exp: true/);
+  assert.doesNotMatch(dailyRoomFunction, /DAILY_MATCH_CALL_TOKEN_TTL_SECONDS/);
+  assert.doesNotMatch(dailyRoomFunction, /DAILY_MATCH_CALL_ROOM_TTL_SECONDS/);
+  assert.match(dailyRoomContracts, /enable_recording: false/);
+  assert.match(dailyRoomContracts, /eject_at_room_exp: true/);
   assert.match(dailyRoomFunction, /function resolveVideoDateMeetingTokenWindow/);
   assert.match(dailyRoomFunction, /phaseDeadlineAtMs \+ DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS/);
   assert.match(dailyRoomFunction, /targetExpiresAtMs = Math\.min\(targetExpiresAtMs, params\.nowMs \+ maxTtlMs\)/);
