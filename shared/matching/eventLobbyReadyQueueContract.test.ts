@@ -10,6 +10,7 @@ function read(path: string): string {
 }
 
 const removalMigration = read("supabase/migrations/20260610000100_remove_post_date_instant_next.sql");
+const reviewFollowupMigration = read("supabase/migrations/20260610022531_review_comments_1262_1280_followups.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
@@ -18,7 +19,7 @@ const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
 
-test("post-date auto-next removal migration is the latest ready-queue authority", () => {
+test("post-date auto-next removal migrations define the latest ready-queue authority", () => {
   assert.match(removalMigration, /DELETE FROM public\.client_feature_flags[\s\S]*video_date\.post_date_instant_next_v2/);
   assert.match(removalMigration, /DELETE FROM public\.client_feature_flags[\s\S]*video_date\.outbox_v2\.drain_match_queue/);
   assert.match(removalMigration, /DROP FUNCTION IF EXISTS public\.drain_match_queue\(uuid\)/);
@@ -26,6 +27,7 @@ test("post-date auto-next removal migration is the latest ready-queue authority"
   assert.match(removalMigration, /DROP FUNCTION IF EXISTS public\.get_video_date_queue_hint_v1\(uuid, uuid\)/);
   assert.match(removalMigration, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible\(uuid, uuid\)/);
   assert.match(removalMigration, /DROP FUNCTION IF EXISTS public\.video_date_actor_pending_feedback_gate_v1\(uuid, uuid\)/);
+  assert.match(reviewFollowupMigration, /match_queued_promoted_to_ready_gate/);
 });
 
 test("foreground heartbeats no longer promote queued sessions", () => {
@@ -40,19 +42,20 @@ test("foreground heartbeats no longer promote queued sessions", () => {
   assert.doesNotMatch(markForeground, /drain_match_queue/);
 });
 
-test("legacy match_queued SQL responses are expired and converted to recorded swipes", () => {
-  const wrapper = removalMigration.slice(
-    removalMigration.indexOf("CREATE OR REPLACE FUNCTION public.handle_swipe_20260601183000_deck_authority_base"),
-    removalMigration.indexOf("COMMENT ON FUNCTION public.handle_swipe_20260601183000_deck_authority_base"),
+test("legacy match_queued SQL responses are promoted to Ready Gate after queue removal", () => {
+  const wrapper = reviewFollowupMigration.slice(
+    reviewFollowupMigration.indexOf("CREATE OR REPLACE FUNCTION public.handle_swipe_20260601183000_deck_authority_base"),
+    reviewFollowupMigration.indexOf("COMMENT ON FUNCTION public.handle_swipe_20260601183000_deck_authority_base"),
   );
 
   assert.match(wrapper, /v_outcome IS DISTINCT FROM 'match_queued'[\s\S]*RETURN v_result/);
-  assert.match(wrapper, /ready_gate_status = 'expired'/);
-  assert.match(wrapper, /ended_reason = COALESCE\(vs\.ended_reason, 'queued_auto_promotion_removed'\)/);
-  assert.match(wrapper, /WHEN p_swipe_type = 'super_vibe' THEN 'super_vibe_sent'/);
-  assert.match(wrapper, /ELSE 'vibe_recorded'/);
-  assert.match(wrapper, /notification_suppressed_reason', 'queued_auto_promotion_removed'/);
-  assert.doesNotMatch(wrapper, /'video_session_id', v_session_id/);
+  assert.match(wrapper, /ready_gate_status = 'ready'/);
+  assert.match(wrapper, /queue_status = 'in_ready_gate'/);
+  assert.match(wrapper, /'result', 'match'/);
+  assert.match(wrapper, /'video_session_id', v_session_id/);
+  assert.match(wrapper, /'queue_removed_conversion', 'match_queued_promoted_to_ready_gate'/);
+  assert.doesNotMatch(wrapper, /queued_auto_promotion_removed/);
+  assert.doesNotMatch(wrapper, /ready_gate_status = 'expired'/);
 });
 
 test("direct mutual match to Ready Gate remains the only client-opening swipe path", () => {

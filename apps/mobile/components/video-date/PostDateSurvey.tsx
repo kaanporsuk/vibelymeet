@@ -297,11 +297,16 @@ export function PostDateSurvey({
     pending.resolve(confirmedResult);
   }, [clearVerdictConfirmTimeout]);
 
-  const confirmVerdictWithServerNextSurface = useCallback(async (result: unknown) => {
+  const fetchPostDateNextSessionTruth = useCallback(async () => {
     const { data, error } = await supabase.rpc('resolve_post_date_next_surface', {
       p_session_id: sessionId,
     });
-    const nextSurface = !error ? normalizeServerPostDateNextSurface(data) : null;
+    if (error) return null;
+    return normalizeServerPostDateNextSurface(data);
+  }, [sessionId]);
+
+  const confirmVerdictWithServerNextSurface = useCallback(async (result: unknown) => {
+    const nextSurface = await fetchPostDateNextSessionTruth();
     if (!nextSurface || nextSurface.action === 'survey') return null;
     const base = result && typeof result === 'object' && !Array.isArray(result)
       ? result as Record<string, unknown>
@@ -312,7 +317,7 @@ export function PostDateSurvey({
       committed: true,
       next_surface: nextSurface,
     };
-  }, [sessionId]);
+  }, [fetchPostDateNextSessionTruth]);
 
   const waitForVerdictConfirmation = useCallback(
     async (result: unknown): Promise<unknown | null> => {
@@ -574,11 +579,8 @@ export function PostDateSurvey({
         event_id: eventId,
         destination: eventId ? 'lobby' : 'home',
       });
-      const { data: nextData, error: nextError } = await supabase.rpc('resolve_post_date_next_surface', {
-        p_session_id: sessionId,
-      });
-      const serverNext = normalizeServerPostDateNextSurface(nextData);
-      if (!nextError && serverNext) {
+      const serverNext = await fetchPostDateNextSessionTruth();
+      if (serverNext) {
         if (serverNext.action === 'ready_gate' || serverNext.action === 'video_date') {
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
             platform: 'native',
@@ -764,10 +766,11 @@ export function PostDateSurvey({
   }, [
     eventId,
     onDone,
-    onMutualMatch,
-    onStartChatting,
-    logJourney,
-    partnerId,
+	    onMutualMatch,
+	    onStartChatting,
+	    fetchPostDateNextSessionTruth,
+	    logJourney,
+	    partnerId,
     sessionId,
     continuityDecision.action,
     secondsUntilEventEnd,

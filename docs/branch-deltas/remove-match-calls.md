@@ -51,6 +51,7 @@ Linked Supabase verification after apply:
 - Removal coverage updated in `shared/matching/dailyRoomLegacyActionRemovalContracts.test.ts`, `shared/matching/dailyProviderOperationalQa.test.ts`, `shared/chat/chatOverflowActionsContracts.test.ts`, permission surface contracts, profile privacy contracts, and `supabase/functions/daily-room/dailyRoomContracts.test.ts`.
 - Edge Functions `daily-room` and `send-notification` were deployed to linked Supabase project `schdyxcunwcvddlcshwd`.
 - The obsolete deployed Edge Function `match-call-room-cleanup` was deleted from linked Supabase project `schdyxcunwcvddlcshwd`.
+- Review follow-up, 2026-06-10: a later Codex review correctly noted that terminal `match_calls` rows with undeleted Daily rooms should have been exported/deleted before dropping the table. Because the table and deployed cleanup function were already removed from linked cloud by this pass, a forward migration cannot reconstruct the lost room-name inventory. Current verification must instead prove the Match Calls surface remains absent and use the golden Video Date room cleanup functions for `video_sessions` room drift.
 
 ## Proof Boundary
 

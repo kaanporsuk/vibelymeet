@@ -13,6 +13,7 @@ const stream8Migration = read("supabase/migrations/20260501224000_event_lobby_sw
 const mutualSessionBase = read("supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql");
 const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 const autoNextRemoval = read("supabase/migrations/20260610000100_remove_post_date_instant_next.sql");
+const reviewFollowupMigration = read("supabase/migrations/20260610022531_review_comments_1262_1280_followups.sql");
 const sessionSourceRemoval = read("supabase/migrations/20260609171950_remove_video_sessions_session_source.sql");
 const validation = read("supabase/validation/swipe_retry_idempotency_notification_dedupe.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
@@ -73,12 +74,14 @@ test("queued match side-effect paths are removed from current swipe actions", ()
   assert.doesNotMatch(swipeActions, /open_event_lobby[\s\S]{0,500}ready_gate_status: "queued"/);
 });
 
-test("queued SQL outcomes are converted to recorded swipes by the latest wrapper", () => {
+test("queued SQL outcomes are promoted to Ready Gate by the latest wrapper", () => {
   assert.match(autoNextRemoval, /v_outcome IS DISTINCT FROM 'match_queued'[\s\S]*RETURN v_result/);
-  assert.match(autoNextRemoval, /ready_gate_status = 'expired'/);
-  assert.match(autoNextRemoval, /queued_auto_promotion_removed/);
-  assert.match(autoNextRemoval, /WHEN p_swipe_type = 'super_vibe' THEN 'super_vibe_sent'/);
-  assert.match(autoNextRemoval, /ELSE 'vibe_recorded'/);
+  assert.match(reviewFollowupMigration, /v_outcome IS DISTINCT FROM 'match_queued'[\s\S]*RETURN v_result/);
+  assert.match(reviewFollowupMigration, /ready_gate_status = 'ready'/);
+  assert.match(reviewFollowupMigration, /queue_status = 'in_ready_gate'/);
+  assert.match(reviewFollowupMigration, /'result', 'match'/);
+  assert.match(reviewFollowupMigration, /match_queued_promoted_to_ready_gate/);
+  assert.doesNotMatch(reviewFollowupMigration, /queued_auto_promotion_removed/);
 });
 
 test("Super Vibe consumption remains while the session-source discriminator is removed", () => {

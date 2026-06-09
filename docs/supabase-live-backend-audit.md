@@ -91,8 +91,7 @@ This March 18 snapshot included `find_mystery_match`. It is no longer callable i
 | get_visible_events | useVisibleEvents.ts | — |
 | get_other_city_events | useVisibleEvents.ts | — |
 | get_event_deck | useEventDeck.ts | eventsApi.ts |
-| drain_match_queue | useMatchQueue.ts | eventsApi.ts |
-| find_mystery_match | historical `useMysteryMatch.ts` (deleted 2026-06-09) | historical `useMysteryMatch.ts` (deleted 2026-06-09) |
+| drain_match_queue | Historical only; removed 2026-06-10 | Historical only; removed 2026-06-10 |
 | generate_recurring_events | AdminEventFormModal, AdminEventsPanel | — |
 | check_mutual_vibe_and_match | PostDateSurvey.tsx | videoDateApi.ts |
 | ready_gate_transition | useReadyGate.ts | readyGateApi.ts |
@@ -110,13 +109,11 @@ This March 18 snapshot included `find_mystery_match`. It is no longer callable i
 | RPC | In live DB | Signature (args → result) |
 |-----|------------|---------------------------|
 | check_mutual_vibe_and_match | Yes | p_session_id uuid → jsonb |
-| drain_match_queue | Yes | p_event_id uuid, p_user_id uuid → jsonb |
-| find_mystery_match | Historical only; removed 2026-06-09 | p_event_id uuid, p_user_id uuid → jsonb |
 | get_event_deck | Yes | p_event_id uuid, p_user_id uuid, p_limit int DEFAULT 50 → TABLE(...) |
 | handle_swipe | Yes | p_event_id, p_actor_id, p_target_id uuid, p_swipe_type text → jsonb |
 | deduct_credit | Yes | p_user_id uuid, p_credit_type text → boolean |
 
-All critical RPCs exist with the expected signatures.
+All currently critical RPCs in this table exist with the expected signatures. Historical rows for removed surfaces such as `find_mystery_match` and `drain_match_queue` are intentionally excluded from the current critical-existence claim.
 
 ---
 

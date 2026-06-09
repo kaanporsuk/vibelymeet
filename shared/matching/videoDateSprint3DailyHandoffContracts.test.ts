@@ -9,6 +9,15 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
+function readDailyRoomActionBlock(action: string): string {
+  const marker = `// ── ACTION: ${action} ──`;
+  const markerIndex = dailyRoom.indexOf(marker);
+  assert.notEqual(markerIndex, -1, `${action} marker missing`);
+  const rest = dailyRoom.slice(markerIndex);
+  const nextMarkerIndex = rest.indexOf("\n    // ── ACTION:", marker.length);
+  return nextMarkerIndex === -1 ? rest : rest.slice(0, nextMarkerIndex);
+}
+
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const tokenRefresh = read("supabase/functions/video-date-token-refresh/index.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
@@ -25,7 +34,7 @@ const phase8Certification = read("shared/matching/videoDatePhase8Certification.t
 const phase8Script = read("scripts/phase8-certification.ts");
 
 test("Sprint 3 server entry path route-confirms before provider work and verifies provider room before token minting", () => {
-  const prepareBlock = dailyRoom.match(/if \(action === "prepare_date_entry"\) \{[\s\S]+?\/\/ ── ACTION:/)?.[0] ?? "";
+  const prepareBlock = readDailyRoomActionBlock("prepare_date_entry");
   assert.match(prepareBlock, /const roomProof = await ensureVideoDateProviderRoomForToken/);
   assert.match(prepareBlock, /const token = await createMeetingToken/);
   assert.match(prepareBlock, /confirmVideoDateEntryPrepared/);
@@ -118,7 +127,7 @@ test("Sprint 3 prepared-entry cache only accepts startable verified room/token p
 
 test("Sprint 3 web and native prewarm reuse is bound to both canonical room name and URL", () => {
   for (const source of [webPrewarm, nativePrewarm]) {
-    assert.match(source, /existing\.roomName === params\.roomName && existing\.roomUrl === params\.roomUrl/);
+    assert.match(source, /existing\.roomName === params\.roomName\s*&&\s*existing\.roomUrl === params\.roomUrl/);
     assert.match(source, /entry\.roomName !== params\.roomName/);
     assert.match(source, /entry\.roomUrl !== params\.roomUrl/);
     assert.match(source, /daily_prewarm_room_mismatch/);
@@ -133,14 +142,17 @@ test("Sprint 3 web and native prewarm reuse is bound to both canonical room name
 });
 
 test("Sprint 3 native date route keeps prepare_date_entry as the route-confirming handoff owner", () => {
-  assert.match(nativeDate, /const serverPrepareOwnsHandshake = true/);
-  assert.match(nativeDate, /willCallEnterHandshake: false/);
-  assert.match(nativeDate, /prepare_date_entry_owns_handshake/);
+  assert.match(nativeDate, /setPrejoinStep\("prepare_entry_routeable"\)/);
+  assert.match(nativeDate, /const preparedEntryRouteable = truthRecovery0\.action === "go_date"/);
+  assert.match(nativeDate, /recoverFromNotStartableDateTruth\("prepare_date_entry"\)/);
+  assert.match(nativeDate, /prejoinMark\("prepare_entry_routeable"\)/);
+  assert.match(nativeDate, /rcBreadcrumb\(RC_CATEGORY\.videoDateEntry, "prepare_date_entry_start"/);
   assert.match(nativeDate, /const handoff = consumePreparedVideoDateEntry\(sessionId, user\.id\)/);
   assert.match(
     nativeDate,
     /getDailyRoomTokenWithTimeout\(\s*sessionId,\s*PREJOIN_STEP_TIMEOUT_MS,\s*user\.id,\s*\)/,
   );
+  assert.doesNotMatch(nativeDate, /enterHandshakeWithTimeout|enterHandshake\(/);
 });
 
 test("Sprint 3 certification blocks launch without explicit Daily production config, webhook, and cleanup secret", () => {

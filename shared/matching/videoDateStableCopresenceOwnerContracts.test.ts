@@ -241,7 +241,7 @@ test("lobbies recover terminal in_survey registrations even after current_room_i
     webLobby,
     /queueStatus === "in_survey"[\s\S]{0,220}pending survey detected without current room from registration realtime/,
   );
-  assert.match(webLobby, /setCheckingNextDateAfterSurvey\(true\)/);
+  assert.doesNotMatch(webLobby, /setCheckingNextDateAfterSurvey/);
   assert.match(webLobby, /setPostSurveyReturnContext\(true\)/);
   assert.match(webLobby, /clearReadyGateSession\("registration_realtime_pending_survey"\)/);
   assert.match(webLobby, /void refetchScopedSession\(\)/);
