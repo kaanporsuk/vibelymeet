@@ -48,6 +48,10 @@ const mysteryMatchRemoval = readFileSync(
   join(root, "supabase/migrations/20260609152000_remove_mystery_match.sql"),
   "utf8",
 );
+const legacyQueueSessionRpcRemoval = readFileSync(
+  join(root, "supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql"),
+  "utf8",
+);
 
 type EventFixture = {
   exists?: boolean;
@@ -361,7 +365,7 @@ test("queue promotion and drain block inactive events before promotion delegatio
   assert.match(drainBase, /'found', false,[\s\S]*'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);
 });
 
-test("legacy direct session creation surfaces are deprecated rather than bypasses", () => {
+test("legacy direct session creation RPCs are removed rather than preserved as callable shims", () => {
   const legacyMigration = readFileSync(
     join(root, "supabase/migrations/20260412143000_phase3_legacy_queue_contract_cleanup.sql"),
     "utf8",
@@ -381,6 +385,9 @@ test("legacy direct session creation surfaces are deprecated rather than bypasse
   assert.match(findMatch, /deprecated_legacy_queue_surface/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(joinQueue), /INSERT\s+INTO\s+public\.video_sessions/i);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(findMatch), /INSERT\s+INTO\s+public\.video_sessions/i);
+  assert.match(legacyQueueSessionRpcRemoval, /DROP FUNCTION IF EXISTS public\.find_video_date_match\(uuid, uuid\)/);
+  assert.match(legacyQueueSessionRpcRemoval, /DROP FUNCTION IF EXISTS public\.join_matching_queue\(uuid, uuid\)/);
+  assert.doesNotMatch(legacyQueueSessionRpcRemoval, /DROP FUNCTION IF EXISTS public\.leave_matching_queue/i);
 });
 
 test("swipe-actions suppresses inactive-event notification side effects", () => {
@@ -408,6 +415,9 @@ test("production validation is read-only and checks canonical active-state marke
   assert.match(validation, /promote_ready_gate_if_eligible_20260505223000_lock_order_base/);
   assert.match(validation, /drain_match_queue_v2_20260605232304_single_owner_base/);
   assert.match(validation, /mystery_match_rpc_removed/);
-  assert.match(validation, /legacy_direct_session_paths_deprecated/);
+  assert.match(validation, /legacy_direct_session_rpcs_removed/);
+  assert.match(validation, /to_regprocedure\('public\.find_video_date_match\(uuid,uuid\)'\) is null/);
+  assert.match(validation, /to_regprocedure\('public\.join_matching_queue\(uuid,uuid\)'\) is null/);
+  assert.match(validation, /to_regprocedure\('public\.leave_matching_queue\(uuid\)'\) is not null/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(validation), /\b(insert|update|delete|truncate|alter|drop|create|grant|revoke)\b/i);
 });

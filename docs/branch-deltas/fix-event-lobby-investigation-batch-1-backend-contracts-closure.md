@@ -2,6 +2,8 @@
 
 Branch: `fix/event-lobby-investigation-batch-1-backend-contracts-closure`
 
+Superseded 2026-06-09: the note below saying deprecated legacy queue/date RPCs remain callable is historical. `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were later removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`.
+
 ## Investigation Source
 
 - `docs/audits/event-lobby-investigation-batch-1-backend-contracts.md`

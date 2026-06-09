@@ -11728,10 +11728,6 @@ export type Database = {
         Args: { p_deadline_id: number; p_worker_id: string }
         Returns: Json
       }
-      find_video_date_match: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
       finish_video_date_worker_run_v1: {
         Args: { p_metadata?: Json; p_worker_id: string; p_worker_kind: string }
         Returns: Json
@@ -12395,10 +12391,6 @@ export type Database = {
         Returns: boolean
       }
       is_valid_bunny_video_uid: { Args: { p_uid: string }; Returns: boolean }
-      join_matching_queue: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
       leave_matching_queue: { Args: { p_event_id: string }; Returns: Json }
       lock_event_lobby_scheduled_active_state: {
         Args: { p_event_id: string; p_now?: string }

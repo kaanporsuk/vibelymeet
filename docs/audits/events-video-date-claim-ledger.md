@@ -5,6 +5,8 @@
 
 **Note on “the attached audit”:** `Pasted text.txt` was **not present** in the workspace. Claims below are taken from **`docs/events-hardening-phase1-release-audit.md`**, **`docs/events-hardening-phase2-release-audit.md`**, **`docs/events-hardening-phase3-release-audit.md`**, **`_cursor_context/vibely_golden_snapshot_audited.md`**, **`_cursor_context/vibely_migration_manifest.md`**, and **`docs/supabase-full-backend-vs-frontend-audit.md`**, which together form the narrative this pass challenges.
 
+**Supersession note (2026-06-09):** The row below saying `join_matching_queue` / `find_video_date_match` are deprecated no-ops is historical. Both RPCs are now removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`; `leave_matching_queue` remains intentionally retained.
+
 **Label key:** `VERIFIED IN CODE` · `VERIFIED IN MIGRATION` · `PRESENT IN HEAD, NOT IN FROZEN ZIP BASELINE` · `DOC ONLY / STALE DOC` · `INFERRED / UNPROVEN` · `CONTRADICTED`
 
 | Audit claim (paraphrase) | Exact source | Evidence | Frozen baseline (pre–2026-03-11 zip) | Current HEAD | Confidence | Why it matters |

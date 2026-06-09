@@ -3,7 +3,7 @@
 Date: 2026-05-01
 Branch: `fix/event-lobby-ready-queue-contract`
 
-2026-06-09 supersession: this verification predates Mystery Match removal. The `find_mystery_match` row below is historical; current schema drops the RPC and the supported path is reciprocal swipe plus queue promotion.
+2026-06-09 supersession: this verification predates Mystery Match removal and the later direct legacy queue/session RPC removal. The `find_mystery_match`, `find_video_date_match`, and `join_matching_queue` rows below are historical; current schema drops those deprecated surfaces and the supported path is reciprocal swipe plus queue promotion.
 
 ## Remote Verification
 

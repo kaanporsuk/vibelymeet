@@ -5,6 +5,8 @@
 
 **Supersession note (2026-04-29):** Ready Gate registration ownership changed after this audit. Use `docs/ready-gate-server-owned-registration-status-final-audit.md` for current status ownership. In particular, clients no longer write `in_ready_gate`, `in_handshake`, or `in_date` through presence helpers.
 
+**Supersession note (2026-06-09):** This audit's legacy queue/session RPC language is historical. `join_matching_queue(uuid,uuid)` and `find_video_date_match(uuid,uuid)` were removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`; they are no longer callable no-op compatibility surfaces. `leave_matching_queue(uuid)` remains intentionally retained.
+
 **Scope note:** The file **`Pasted text.txt`** referenced in the brief was **not found** in the workspace. This report treats **`docs/events-hardening-phase1-release-audit.md`**, **`phase2`**, **`phase3`**, **`_cursor_context/vibely_golden_snapshot_audited.md`**, **`_cursor_context/vibely_migration_manifest.md`**, and **`docs/supabase-full-backend-vs-frontend-audit.md`** as the composite “audit narrative” under scrutiny.
 
 ---
@@ -19,7 +21,7 @@
 
 4. **Ready Gate + video date** are **mostly robust** at the database layer: **`FOR UPDATE`** on `video_sessions` in transition RPCs, **terminal-state short-circuit**, **idempotent `mark_ready`**, **`expire_stale_video_sessions`** before drain/ready paths, **`SKIP LOCKED`** on queued row selection. **Gaps:** Phase 2 documents a **`sync`** action on `ready_gate_transition`, but **web `useReadyGate` does not invoke it** — polling uses **`select` on `video_sessions`** instead. **Participant presence** still uses **client-driven** `update_participant_status` and **direct `last_active_at` updates** in `useEventStatus`, so “all lifecycle server-owned” is **overstated** for presence/heartbeat.
 
-5. **Queue story (current HEAD)** is **largely accurate** in the Phase 2/3 audits **for the swipe-first path**: queued rows get **`queued_expires_at`**, promotion is **`drain_match_queue`** with **FIFO `started_at ASC`**, **both partners must pass 60s foreground** + browsing/idle, cleanup runs **`expire_stale_video_sessions`**. **Legacy** `join_matching_queue` / `find_video_date_match` are **deprecated no-ops** (Phase 3). **Client triggers drain** when status is **`browsing`/`idle`** (`useMatchQueue`) — not “server-only” promotion.
+5. **Queue story (historical HEAD at audit time)** was **largely accurate** in the Phase 2/3 audits **for the swipe-first path**: queued rows get **`queued_expires_at`**, promotion is **`drain_match_queue`** with **FIFO `started_at ASC`**, **both partners must pass 60s foreground** + browsing/idle, cleanup runs **`expire_stale_video_sessions`**. The then-legacy `join_matching_queue` / `find_video_date_match` no-op posture was superseded on 2026-06-09 when both RPCs were removed. **Client triggers drain** when status is **`browsing`/`idle`** (`useMatchQueue`) — not “server-only” promotion.
 
 6. **Critical discrepancy for trusting any single audit as source-of-truth:** **`vibely_golden_snapshot_audited.md` §6–7** under-enumerates Edge Functions and omits **`ready_gate_transition` / `video_date_transition`** from the RPC bullet list while the migration manifest correctly places those **after** the frozen cutoff. **Use migrations + current code over narrative tables.**
 
@@ -161,7 +163,7 @@ Terminal for overlay: [both_ready] --> client navigates to /date/:sessionId
 4. **`expire_stale_video_sessions`** expires queued rows past TTL (and other stale gate states) — invoked from **`drain_match_queue`** and **`ready_gate_transition`** (Phase 2+) and optionally **cron**.
 5. **`useMatchQueue`** runs **`drain_match_queue`** when **`currentStatus`** is **`browsing` or `idle`** — **client-triggered** drain on those transitions.
 6. Realtime on **`video_sessions`** also fires when **`queued` → `ready`** for same event.
-7. Legacy **`join_matching_queue` / `find_video_date_match`**: **deprecated no-op** responses (Phase 3) — **do not** use for active flow verification.
+7. Legacy **`join_matching_queue` / `find_video_date_match`**: **removed** from the current linked schema as of 2026-06-09 — **do not** use for active flow verification.
 
 ### 3.2 Truth table (audit vs repo)
 

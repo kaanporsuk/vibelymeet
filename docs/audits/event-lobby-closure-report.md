@@ -5,7 +5,7 @@ Branch: `audit/event-lobby-closure`
 Supabase project ref: `schdyxcunwcvddlcshwd`
 Latest local and remote migration: `20260501230000_event_lobby_deck_payload_media.sql`
 
-2026-06-09 addendum: this closure report is historical for the May 1 Event Lobby hardening stack. Mystery Match was later removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`; current source/generated types should not expose `find_mystery_match`, and the supported session creation path is reciprocal swipe plus supported queue promotion.
+2026-06-09 addendum: this closure report is historical for the May 1 Event Lobby hardening stack. Mystery Match was later removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`; direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were later removed by `20260609163130_remove_legacy_queue_session_rpcs.sql`. Current source/generated types should not expose those removed RPCs, and the supported session creation path is reciprocal swipe plus supported queue promotion.
 
 ## Executive Verdict
 

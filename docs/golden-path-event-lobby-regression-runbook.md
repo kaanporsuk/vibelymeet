@@ -87,6 +87,30 @@ Residual-reference classification:
 
 If running optional broader Video Date checks, note that a failure in `npm run test:video-date-v4` against the single-line regex `existing.roomName === params.roomName && existing.roomUrl === params.roomUrl` in `shared/matching/videoDateSprint3DailyHandoffContracts.test.ts` is a known unrelated source-shape issue when `src/lib/webVideoDateDailyPrewarm.ts` contains the same room-name/URL guard split across lines. Do not classify that as a Mystery Match removal blocker unless the underlying guard is missing.
 
+## Legacy Direct Queue/Session RPC Removal Verification
+
+Direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` are removed from the active backend contract as of migration `20260609163130_remove_legacy_queue_session_rpcs.sql`. `leave_matching_queue(uuid)` remains intentionally retained.
+
+Required read-only checks:
+
+```bash
+rg -n "find_video_date_match|join_matching_queue|deprecated_legacy_queue_surface" \
+  src apps/mobile supabase/functions shared --glob '!**/*.test.ts' --glob '!src/integrations/supabase/types.ts'
+
+rg -n "find_video_date_match|join_matching_queue" src/integrations/supabase/types.ts
+
+npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts
+npx tsx shared/matching/videoDateClosureIssuesContracts.test.ts
+```
+
+Expected result:
+
+- no active runtime callsites;
+- no generated-type entries for either removed RPC;
+- linked Supabase public routines have no `find_video_date_match` or `join_matching_queue`;
+- linked Supabase still has `leave_matching_queue`;
+- validation checks use `to_regprocedure(...) is null` for the two removed RPCs.
+
 ## Manual Staging Smoke
 
 Use seeded staging users and events only. Do not create hardcoded production test users in migrations. Keep any fixture cleanup outside production or inside an explicitly rollback-safe transaction.

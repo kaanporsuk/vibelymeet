@@ -2,6 +2,8 @@
 
 Maps major mechanics to **file-level** evidence. **Baseline** = `_cursor_context/vibely_golden_snapshot_audited.md` + migration manifest frozen zip cutoff (`20260310124838`). **Later handoff** = `docs/events-hardening-phase*-release-audit.md`, `docs/repo-hardening-closure-2026-04-11.md`. **Current HEAD** = files as of investigation.
 
+**Supersession note (2026-06-09):** The legacy `join_matching_queue` / `find_video_date_match` no-op row below is historical. Both RPCs were removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`; current Event Lobby creation uses swipe-actions, reciprocal swipe or supported queue promotion, Ready Gate, then Video Date.
+
 ---
 
 ## Edge: deck swipe → match / queue
@@ -31,7 +33,7 @@ Maps major mechanics to **file-level** evidence. **Baseline** = `_cursor_context
 | Queued session creation | `handle_swipe` mutual path | Phase 2 TTL column | `handle_swipe` in `20260412143000_*` sets `ready_gate_status` `queued`, `queued_expires_at` +10m |
 | Expiry / cleanup | — | Phase 2 `expire_stale_video_sessions` + cron | `20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql` |
 | Drain / promote | `drain_match_queue` in types | Phase 3 “cleanup-first” | `20260412143000_*` `drain_match_queue`; `src/hooks/useMatchQueue.ts` (calls RPC when `currentStatus` in `browsing`/`idle`) |
-| Legacy `join_matching_queue` / `find_video_date_match` | Listed in golden §7 | Phase 3 deprecated | No-ops in `20260412143000_*` |
+| Legacy `join_matching_queue` / `find_video_date_match` | Listed in golden §7 | Phase 3 deprecated | Historical no-ops in `20260412143000_*`; removed by `20260609163130_remove_legacy_queue_session_rpcs.sql` |
 
 ---
 

@@ -5,7 +5,7 @@ Branch: `audit/event-lobby-deep-cleanup`
 Base commit: `b6b93814e2ad3f837a3aa793c079050e738a665f`
 Supabase project ref: `schdyxcunwcvddlcshwd`
 
-2026-06-09 addendum: this audit is historical for the May 1 hardening stack. Mystery Match was later removed from active web/native/backend surfaces; current source/generated types should not expose `useMysteryMatch` or `find_mystery_match`.
+2026-06-09 addendum: this audit is historical for the May 1 hardening stack. Mystery Match was later removed from active web/native/backend surfaces, and direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` plus `join_matching_queue(uuid,uuid)` were later removed from the active linked schema. Current source/generated types should not expose `useMysteryMatch`, `find_mystery_match`, `find_video_date_match`, or `join_matching_queue`.
 
 ## Executive Verdict
 
