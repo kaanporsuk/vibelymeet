@@ -3380,6 +3380,7 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /p_provider_session_id: providerSessionId/);
   assert.match(webVideoCallHook, /p_call_instance_id: callInstanceId/);
   assert.match(webVideoCallHook, /p_owner_state: "joined"/);
+  assert.match(webVideoCallHook, /p_evidence_source: attemptSource/);
   assert.match(webVideoCallHook, /mark_video_date_remote_seen_skipped_provider_missing/);
   assert.match(webVideoCallHook, /provider_presence_terminal/);
   assert.match(webVideoCallHook, /videoDateLifecycleRpcRetryable\(payload\)/);
@@ -3389,7 +3390,11 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /if \(!currentUserId\) return/);
   assert.match(webVideoCallHook, /const userId = currentUserId/);
   assert.match(webVideoCallHook, /REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000/);
-  assert.match(webVideoCallHook, /const forceRestamp = source === "participant_joined" \|\| source === "post_join_snapshot"/);
+  assert.match(webVideoCallHook, /source === "loadeddata"/);
+  assert.match(webVideoCallHook, /source === "playing"/);
+  assert.match(webVideoCallHook, /source === "remote_track_mounted"/);
+  assert.match(webVideoCallHook, /source === "first_remote_frame"/);
+  assert.match(webVideoCallHook, /source === "request_video_frame_callback"/);
   assert.match(webVideoCallHook, /remoteSeenInFlightSessionRef\.current = null/);
   assert.match(webVideoCallHook, /remoteSeenLastStampRef\.current = \{ sessionId: activeSessionId, stampedAtMs: Date\.now\(\) \}/);
   assert.doesNotMatch(webVideoCallHook, /remoteSeenStampedSessionRef/);
@@ -3404,9 +3409,9 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /if \(hasRemoteVideo\) \{[\s\S]*markRemoteFirstFrameRendered\("loadeddata"\)[\s\S]*markRemoteFirstFrameRendered\("playing"\)/);
   assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)[\s\S]*if \(remoteFirstFrameTrackedRef\.current\) return/);
   assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)/);
-  assert.match(webVideoCallHook, /markRemoteSeenOnServer\("participant_joined"\)/);
-  assert.match(webVideoCallHook, /markRemoteSeenOnServer\("participant_updated"\)/);
-  assert.match(webVideoCallHook, /markRemoteSeenOnServer\("post_join_snapshot"\)/);
+  assert.doesNotMatch(webVideoCallHook, /markRemoteSeenOnServer\("participant_joined"\)/);
+  assert.doesNotMatch(webVideoCallHook, /markRemoteSeenOnServer\("participant_updated"\)/);
+  assert.doesNotMatch(webVideoCallHook, /markRemoteSeenOnServer\("post_join_snapshot"\)/);
   assert.match(webVideoCallHook, /daily_remote_first_frame_rendered/);
   assert.match(webVideoDatePage, /MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS = 15_000/);
   assert.match(webVideoDatePage, /firstRemoteFrameAtMsRef = useRef<number \| null>\(null\)/);
@@ -3434,6 +3439,7 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(nativeVideoDateRoute, /p_provider_session_id: providerSessionId/);
   assert.match(nativeVideoDateRoute, /p_call_instance_id: callInstanceId/);
   assert.match(nativeVideoDateRoute, /p_owner_state: "joined"/);
+  assert.match(nativeVideoDateRoute, /p_evidence_source: attemptSource/);
   assert.match(nativeVideoDateRoute, /mark_video_date_remote_seen_skipped_provider_missing/);
   assert.match(nativeVideoDateRoute, /provider_presence_terminal/);
   assert.match(nativeVideoDateRoute, /videoDateLifecycleRpcRetryable\(payload\)/);
@@ -3442,10 +3448,9 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
     /\.rpc\(\s*["']mark_video_date_remote_seen["'],\s*\{[\s\S]{0,80}p_session_id: sessionId/,
   );
   assert.match(nativeVideoDateRoute, /REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000/);
-  assert.match(
-    nativeVideoDateRoute,
-    /source === ["']participant_joined["'][\s\S]{0,80}\|\|[\s\S]{0,80}source === ["']post_join_snapshot["'][\s\S]{0,80}\|\|[\s\S]{0,80}source === ["']shared_call_snapshot["']/,
-  );
+  assert.match(nativeVideoDateRoute, /source === "remote_track_mounted"/);
+  assert.match(nativeVideoDateRoute, /source === "first_remote_frame"/);
+  assert.match(nativeVideoDateRoute, /source === "request_video_frame_callback"/);
   assert.match(nativeVideoDateRoute, /remoteSeenInFlightSessionRef\.current = null/);
   assert.match(
     nativeVideoDateRoute,
@@ -3464,9 +3469,10 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
     nativeVideoDateRoute,
     /const markRemoteSeenOnServerRef = useRef<\(\(source: string\) => void\) \| null>\(\s*null,?\s*\)/,
   );
-  assert.match(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']participant_joined["']\)/);
-  assert.match(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']participant_updated["']\)/);
-  assert.match(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']shared_call_snapshot["']\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']participant_joined["']\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']participant_updated["']\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']shared_call_snapshot["']\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']post_join_snapshot["']\)/);
   assert.match(nativeVideoDateRoute, /markRemoteSeenOnServer\(["']remote_track_mounted["']\)/);
   assert.match(nativeVideoDateRoute, /void refetchVideoSession\(\)/);
 });

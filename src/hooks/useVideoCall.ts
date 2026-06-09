@@ -1587,7 +1587,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     if (remoteSeenInFlightSessionRef.current === sessionId) return;
     const nowMs = Date.now();
     const lastStamp = remoteSeenLastStampRef.current;
-    const forceRestamp = source === "participant_joined" || source === "post_join_snapshot";
+    const forceRestamp =
+      source === "loadeddata" ||
+      source === "playing" ||
+      source === "remote_track_mounted" ||
+      source === "first_remote_frame" ||
+      source === "request_video_frame_callback";
     if (
       !forceRestamp &&
       lastStamp?.sessionId === sessionId &&
@@ -1667,6 +1672,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           p_provider_session_id: providerSessionId,
           p_entry_attempt_id: entryAttemptId,
           p_owner_state: "joined",
+          p_evidence_source: attemptSource,
         },
       };
     };
@@ -5258,7 +5264,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 latency_bucket: latencyPayload.latency_bucket,
               });
             }
-            markRemoteSeenOnServer("participant_joined");
             setIsConnected(true);
             setIsConnecting(false);
             setPeerMissing({ terminal: false });
@@ -5340,7 +5345,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 latency_bucket: latencyPayload.latency_bucket,
               });
             }
-            markRemoteSeenOnServer("participant_updated");
             const remoteKey = getTrackIdsKey(event.participant, true);
             const remoteKeyChanged = remoteKey !== lastRemoteTrackIdsRef.current;
             let remoteRenderValidationSource = remoteKeyChanged
@@ -6291,7 +6295,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setIsConnected(true);
           setIsConnecting(false);
           setPeerMissing({ terminal: false });
-          markRemoteSeenOnServer("post_join_snapshot");
           toast.success("You're both here. Starting gently.");
           optionsRef.current?.onPartnerJoined?.();
           attachTracks(remoteParticipants[0], remoteVideoRef.current, false);
@@ -6530,7 +6533,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       fetchVideoDateTruth,
       latchSameSessionDailyContinuity,
       logTrackMounted,
-      markRemoteSeenOnServer,
       needsTrackReattach,
       preflightMediaPermission,
       releaseAppAcquiredMedia,

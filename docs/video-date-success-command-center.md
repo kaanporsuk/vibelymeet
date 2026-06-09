@@ -64,6 +64,44 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Strict Daily Join And Remote-Seen Proof
+
+Current source adds the strict proof layer for the `Both join same Daily room` and `Remote media observed` stages.
+
+Problem addressed:
+
+- `mark_video_date_daily_alive(...)` still had an older provider-lag bridge where missing Daily webhook evidence could be treated as current joined proof.
+- Web and native/mobile could call canonical `mark_video_date_remote_seen(...)` from Daily participant/snapshot hydration events, before rendered remote media evidence existed.
+- Promotion RPCs could be reached from hot paths without reusing the full session lifecycle eligibility now used by Ready Gate.
+
+Implementation added:
+
+- Migration `20260609003604_video_date_strict_daily_join_remote_seen.sql` adds service-only lifecycle eligibility and current provider-session proof helpers.
+- Public `mark_video_date_daily_alive(...)` is wrapped so joined stamps require a matching Daily `participant.joined` webhook for the same provider session and no newer same-provider-session `participant.left`.
+- Public `mark_video_date_remote_seen(...)` is wrapped with `p_evidence_source`; accepted evidence is render/media-bound (`loadeddata`, `playing`, `remote_track_mounted`, `first_remote_frame`, or `request_video_frame_callback`) before delegating to the existing provider/current-call guard.
+- Provider-overlap and client auto-promote RPCs now check the same lifecycle eligibility before they can promote to date.
+- Web `/date/:sessionId` and native/mobile `/date/[id]` no longer stamp server remote-seen from `participant_joined`, `participant_updated`, post-join snapshots, or shared-call snapshots.
+- Generated Supabase RPC types now include `p_evidence_source`.
+- Contract coverage: `shared/matching/videoDateStrictDailyJoinRemoteSeen.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+- Branch delta: `docs/branch-deltas/fix-video-date-strict-daily-join-remote-seen.md`.
+
+Verification completed in this local pass:
+
+- `npx tsx shared/matching/videoDateStrictDailyJoinRemoteSeen.test.ts`
+- `npx tsx shared/matching/videoDateEndToEndHardening.test.ts`
+- `npx tsx shared/matching/reviewComments1188_1197Followups.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `npm run test:video-date-v4`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` showed pending migration `20260609003604_video_date_strict_daily_join_remote_seen.sql`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` showed linked Supabase remote aligned through `20260608224048`; `20260609003604` is local-only pending.
+
+The migration must be applied together with the updated web/native/mobile client deployment because the stricter public `mark_video_date_remote_seen(...)` wrapper requires the new `p_evidence_source` argument. This remains source/migration/test evidence until linked Supabase is applied, clients are deployed, and a fresh disposable two-user production run proves both users persist `date_feedback`.
+
+---
+
 ## 2026-06-09 Implementation Update: Prepare-Entry Terminal Blockers And Pre-Date Exit Ownership
 
 Current source now closes the concrete `/date/:sessionId owns the flow` gaps found in the June 9 assessment pass.
