@@ -31,8 +31,8 @@ No database migration is required for this pass because the cleanup is Edge Func
 - `shared/matching/readyGatePartialReadyDefinitiveClosure.test.ts` proves provider/token work is actionability-gated through `prepare_date_entry` and that solo prejoin is removed, not disabled.
 - `shared/matching/nativeReadyGateParityContract.test.ts` and related warmup contracts now assert standalone/native Ready Gate surfaces do not call the removed room-warmup path.
 - Active readiness checks no longer create Daily diagnostic rooms; they record local camera/mic capability only.
-- Supabase Edge Function deployment succeeded with `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy daily-room --project-ref schdyxcunwcvddlcshwd --use-api`.
-- Remote verification showed `daily-room` ACTIVE version 864 updated at `2026-06-09 19:08:53 UTC`.
+- Supabase Edge Function deployment succeeded from merged `main` with `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy daily-room --project-ref schdyxcunwcvddlcshwd --use-api` and `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy admin-video-date-ops --project-ref schdyxcunwcvddlcshwd --use-api`.
+- Remote verification showed `daily-room` ACTIVE version 865 updated at `2026-06-09 19:17:45 UTC` and `admin-video-date-ops` ACTIVE version 349 updated at `2026-06-09 19:17:54 UTC`.
 
 ## Proof Boundary
 

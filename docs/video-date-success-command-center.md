@@ -158,7 +158,7 @@ Implementation added:
 - Active observability no longer exposes `room_warmup_*` or `daily_prewarm_solo_*` checkpoints/fields; historical migrations can still mention them as past schema/checkpoint history.
 - Added/updated removal coverage in `shared/matching/dailyRoomLegacyActionRemovalContracts.test.ts`, `shared/matching/readyGatePartialReadyDefinitiveClosure.test.ts`, `shared/matching/nativeReadyGateParityContract.test.ts`, and related static contracts.
 - Branch delta: `docs/branch-deltas/remove-daily-room-non-golden-actions.md`.
-- Supabase deployment proof: `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy daily-room --project-ref schdyxcunwcvddlcshwd --use-api` succeeded on 2026-06-09; `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions list --project-ref schdyxcunwcvddlcshwd` showed `daily-room` ACTIVE version 864 updated at `2026-06-09 19:08:53 UTC`.
+- GitHub/Supabase deployment proof: implementation PR #1275 merged on 2026-06-09 as squash commit `7a20720ff4dd4a2e3071649398bf9697d6cc960a`; after the merge, `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy daily-room --project-ref schdyxcunwcvddlcshwd --use-api` and `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions deploy admin-video-date-ops --project-ref schdyxcunwcvddlcshwd --use-api` succeeded from `main`; `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions list --project-ref schdyxcunwcvddlcshwd` showed `daily-room` ACTIVE version 865 updated at `2026-06-09 19:17:45 UTC` and `admin-video-date-ops` ACTIVE version 349 updated at `2026-06-09 19:17:54 UTC`.
 
 Preserved:
 
