@@ -388,7 +388,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 - **Route:** `/date/:id`
 - **Auth required:** Yes
 
-**Visual:** Full-screen video; HandshakeTimer, VideoDateControls, VibeCheckButton, ConnectionOverlay, PartnerProfileSheet, PostDateSurvey, KeepTheVibe, ReconnectionOverlay, MutualVibeToast; SelfViewPIP.
+**Visual:** Full-screen video; EntryPhaseTimer, VideoDateControls, VibeCheckButton, ConnectionOverlay, PartnerProfileSheet, PostDateSurvey, KeepTheVibe, ReconnectionOverlay, MutualVibeToast; SelfViewPIP.
 
 ---
 

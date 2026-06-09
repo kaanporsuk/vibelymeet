@@ -87,7 +87,7 @@ No code changes. Native already has "New Vibes" title and "{n} new connection(s)
 4. **Lobby cards:** Confirm 3:4 aspect ratio and name/age overlay position vs web.
 5. **Ready Gate:** Native has no countdown ring or "Waiting for [Name]..." state; web has 30s ring and waiting state. Consider adding if product parity required.
 6. **Daily Drop:** All states (no drop, unopened, viewed, opener sent, etc.) — compare copy and layout per state.
-7. **Video Date screen:** HandshakeTimer, VibeCheckButton, IceBreakerCard, ConnectionOverlay, PostDateSurvey, KeepTheVibe, controls bar — compare stroke widths, colors, and animation intensity.
+7. **Video Date screen:** EntryPhaseTimer, VibeCheckButton, IceBreakerCard, ConnectionOverlay, PostDateSurvey, KeepTheVibe, controls bar — compare stroke widths, colors, and animation intensity.
 
 ---
 

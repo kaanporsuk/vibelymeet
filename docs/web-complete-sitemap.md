@@ -251,7 +251,7 @@
 
 **Phases:** Handshake (60s default) → Date (300s) → ended.
 
-**UI blocks:** `HandshakeTimer`, `IceBreakerCard`, Daily.co iframe via `useVideoCall` (`daily-room` edge function), `SelfViewPIP`, `ConnectionOverlay`, `PartnerProfileSheet`, `PostDateSurvey`, extensions (`KeepTheVibe`, credits), `ReconnectionOverlay`, `MutualVibeToast`, etc.
+**UI blocks:** `EntryPhaseTimer`, `IceBreakerCard`, Daily.co iframe via `useVideoCall` (`daily-room` edge function), `SelfViewPIP`, `ConnectionOverlay`, `PartnerProfileSheet`, `PostDateSurvey`, extensions (`KeepTheVibe`, credits), `ReconnectionOverlay`, `MutualVibeToast`, etc.
 
 **Toasts:** Permissions, reconnection, partner left, credit usage.
 

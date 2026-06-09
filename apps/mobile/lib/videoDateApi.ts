@@ -57,6 +57,7 @@ import {
   type VideoDateTimelineState,
 } from '@clientShared/matching/videoDateTimeline';
 import { resolveVideoDatePhaseCountdown } from '@clientShared/matching/videoDateCountdown';
+import { videoDateEntryStartedAtIso } from '@clientShared/matching/videoDateEntryTiming';
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
   handshakeTruthLogPayload,
@@ -315,15 +316,16 @@ export function useVideoDateSession(
         return { phase: 'ended', timeLeft: 0 };
       }
 
-      // Authoritative date evidence always wins over handshake fields.
+      // Authoritative date evidence always wins over entry-start aliases.
       if (state === 'date' || !!row.date_started_at) {
         const dateStarted =
           typeof row.date_started_at === 'string' ? row.date_started_at : null;
+        const entryStarted = videoDateEntryStartedAtIso(row);
         const countdown = resolveVideoDatePhaseCountdown({
           phase: 'date',
-          handshakeStartedAtIso: row.handshake_started_at,
+          entryStartedAtIso: entryStarted,
           dateStartedAtIso: dateStarted,
-          handshakeDurationSeconds: HANDSHAKE_SECONDS,
+          entryDurationSeconds: HANDSHAKE_SECONDS,
           dateDurationSeconds: DATE_SECONDS,
           dateExtraSeconds: row.date_extra_seconds,
         });
@@ -339,12 +341,13 @@ export function useVideoDateSession(
           handshake_started_at: row.handshake_started_at,
         })
       ) {
-        if (row.handshake_started_at) {
+        const entryStarted = videoDateEntryStartedAtIso(row);
+        if (entryStarted) {
           const countdown = resolveVideoDatePhaseCountdown({
             phase: 'handshake',
-            handshakeStartedAtIso: row.handshake_started_at,
+            entryStartedAtIso: entryStarted,
             dateStartedAtIso: row.date_started_at,
-            handshakeDurationSeconds: HANDSHAKE_SECONDS,
+            entryDurationSeconds: HANDSHAKE_SECONDS,
             dateDurationSeconds: DATE_SECONDS,
             dateExtraSeconds: row.date_extra_seconds,
           });

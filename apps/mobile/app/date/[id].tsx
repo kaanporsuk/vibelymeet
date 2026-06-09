@@ -80,6 +80,7 @@ import {
   resolveVideoDatePhaseCountdown,
   startedAtCountdownDeadlineMs,
 } from "@clientShared/matching/videoDateCountdown";
+import { videoDateEntryStartedAtIso } from "@clientShared/matching/videoDateEntryTiming";
 import { resolveVideoDateTimelineCountdown } from "@clientShared/matching/videoDateTimeline";
 import { nextConvergenceDelayMs } from "@clientShared/matching/convergenceScheduling";
 import {
@@ -117,7 +118,7 @@ import {
 import { resolveNativeCameraSwitchCommit } from "@clientShared/chat/nativeCameraSwitchCommit";
 import { VibeCheckButton } from "@/components/video-date/VibeCheckButton";
 import { IceBreakerCard } from "@/components/video-date/IceBreakerCard";
-import { HandshakeTimer } from "@/components/video-date/HandshakeTimer";
+import { EntryPhaseTimer } from "@/components/video-date/EntryPhaseTimer";
 import { ConnectionOverlay } from "@/components/video-date/ConnectionOverlay";
 import { VideoDateControls } from "@/components/video-date/VideoDateControls";
 import { PartnerProfileSheet } from "@/components/video-date/PartnerProfileSheet";
@@ -1389,6 +1390,7 @@ export default function VideoDateScreen() {
   } = useVideoDateSession(sessionId ?? null, user?.id ?? null, {
     onBroadcastEvent: handleSessionBroadcastEvent,
   });
+  const entryStartedAtIso = videoDateEntryStartedAtIso(session);
 
   const callRef = useRef<DailyCallObject | null>(null);
   const captureProfileRef = useRef<NativeVideoDateCaptureProfile>("ideal");
@@ -4283,7 +4285,7 @@ export default function VideoDateScreen() {
         currentRoomId: reg?.current_room_id ?? null,
         vsState: vs?.state ?? null,
         vsPhase: vs?.phase ?? null,
-        handshakeStartedAt: vs?.handshake_started_at ?? null,
+          entryStartedAt: videoDateEntryStartedAtIso(vs),
         readyGateStatus: vs?.ready_gate_status ?? null,
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
       });
@@ -6172,7 +6174,7 @@ export default function VideoDateScreen() {
           mode,
           skip: "server_truth_not_handshake_or_date",
           serverState: session?.state ?? null,
-          handshakeStartedAt: session?.handshake_started_at ?? null,
+          entryStartedAt: entryStartedAtIso,
         });
         return;
       }
@@ -6313,7 +6315,7 @@ export default function VideoDateScreen() {
     sessionId,
     phase,
     session?.state,
-    session?.handshake_started_at,
+    entryStartedAtIso,
     eventId,
     clearReconnectSyncTimer,
     cleanupForAbortWithoutServerEnd,
@@ -8173,7 +8175,7 @@ export default function VideoDateScreen() {
       }
 
       currentStep = setPrejoinStep("prepare_entry_routeable");
-      const hasHandshakeStarted = Boolean(truth0.handshake_started_at);
+      const hasEntryStarted = Boolean(videoDateEntryStartedAtIso(truth0));
       const alreadyInHandshakeOrDate =
         videoSessionRowIndicatesHandshakeOrDate(truth0);
       const preparedEntryRouteable = truthRecovery0.action === "go_date";
@@ -8185,12 +8187,12 @@ export default function VideoDateScreen() {
         vs_phase: truth0.phase,
         routeable: preparedEntryRouteable,
         already_handshake_or_date: alreadyInHandshakeOrDate,
-        handshake_started_at: hasHandshakeStarted,
+        entry_started_at: hasEntryStarted,
       });
       vdbg("prejoin_step_prejoin_prepare_entry_routeable", {
         sessionId,
         userId: user.id,
-        hasHandshakeStarted,
+        hasEntryStarted,
         alreadyInHandshakeOrDate,
         truthDecision: truthDecision0,
         preparedEntryRouteable,
@@ -10987,20 +10989,19 @@ export default function VideoDateScreen() {
     }
 
     const candidateTimeline = serverTimeline;
-    const timelineForHandshake =
+    const timelineForEntry =
       timelineV2.enabled &&
       candidateTimeline !== null &&
       candidateTimeline.sessionId === sessionId &&
       candidateTimeline.phase === "handshake"
         ? candidateTimeline
         : null;
-    const timelineDeadlineMs = timelineForHandshake
-      ? timelineForHandshake.phaseDeadlineAtMs
+    const timelineDeadlineMs = timelineForEntry
+      ? timelineForEntry.phaseDeadlineAtMs
       : null;
-    const handshakeStartedAt = session?.handshake_started_at ?? null;
-    const legacyDeadlineMs = handshakeStartedAt
+    const legacyDeadlineMs = entryStartedAtIso
       ? startedAtCountdownDeadlineMs({
-          startedAtIso: handshakeStartedAt,
+          startedAtIso: entryStartedAtIso,
           durationSeconds: HANDSHAKE_SECONDS,
         })
       : null;
@@ -11009,14 +11010,14 @@ export default function VideoDateScreen() {
     const deadlineKey = `${sessionId}:${deadlineMs}`;
     const localNowMs = Date.now();
     const serverNowEstimateMs =
-      timelineDeadlineMs !== null && timelineForHandshake
-        ? localNowMs + timelineForHandshake.clockSkewMs
+      timelineDeadlineMs !== null && timelineForEntry
+        ? localNowMs + timelineForEntry.clockSkewMs
         : localNowMs;
     const delayMs = Math.max(0, deadlineMs - serverNowEstimateMs);
     const fire = () => {
       if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
       handshakeCompletionDeadlineKeyRef.current = deadlineKey;
-      void completeHandshakeFromServerDeadline("handshake_server_deadline");
+      void completeHandshakeFromServerDeadline("entry_server_deadline");
     };
 
     const timer = setTimeout(fire, delayMs);
@@ -11025,7 +11026,7 @@ export default function VideoDateScreen() {
     completeHandshakeFromServerDeadline,
     phase,
     session?.ended_at,
-    session?.handshake_started_at,
+    entryStartedAtIso,
     sessionId,
     serverTimeline,
     showFeedback,
@@ -11054,7 +11055,7 @@ export default function VideoDateScreen() {
     const hasAuthoritativeStart = timelineForCountdown
       ? true
       : phase === "handshake"
-        ? Boolean(session?.handshake_started_at)
+        ? Boolean(entryStartedAtIso)
         : phase === "date"
           ? Boolean(session?.date_started_at)
           : false;
@@ -11066,9 +11067,9 @@ export default function VideoDateScreen() {
         ? resolveVideoDateTimelineCountdown(timelineForCountdown)
         : resolveVideoDatePhaseCountdown({
             phase,
-            handshakeStartedAtIso: session?.handshake_started_at,
+            entryStartedAtIso,
             dateStartedAtIso: session?.date_started_at,
-            handshakeDurationSeconds: HANDSHAKE_SECONDS,
+            entryDurationSeconds: HANDSHAKE_SECONDS,
             dateDurationSeconds: DATE_SECONDS,
             dateExtraSeconds: session?.date_extra_seconds,
           });
@@ -11084,12 +11085,12 @@ export default function VideoDateScreen() {
       if (phaseRef.current === "date") {
         void handleCallEnd("local_end", "date_timeout");
       } else if (phaseRef.current === "handshake") {
-        vdbg("handshake_visible_countdown_elapsed", {
+        vdbg("entry_visible_countdown_elapsed", {
           sessionId: sessionId ?? null,
           trigger: "complete_handshake",
         });
         void completeHandshakeFromServerDeadline(
-          "handshake_visible_countdown_elapsed",
+          "entry_visible_countdown_elapsed",
         );
       }
     };
@@ -11106,7 +11107,7 @@ export default function VideoDateScreen() {
     serverTimeline,
     session?.date_extra_seconds,
     session?.date_started_at,
-    session?.handshake_started_at,
+    entryStartedAtIso,
     timelineV2.enabled,
   ]);
 
@@ -11474,10 +11475,10 @@ export default function VideoDateScreen() {
       ? HANDSHAKE_SECONDS
       : effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds);
   const displayTimeLeft = localTimeLeft ?? totalTime;
-  const handshakeTimerStarted =
-    phase !== "handshake" || Boolean(session?.handshake_started_at);
-  const handshakeDeadlineUrgent =
-    phase === "handshake" && handshakeTimerStarted && displayTimeLeft <= 10;
+  const entryTimerStarted =
+    phase !== "handshake" || Boolean(entryStartedAtIso);
+  const entryDeadlineUrgent =
+    phase === "handshake" && entryTimerStarted && displayTimeLeft <= 10;
 
   useEffect(() => {
     if (
@@ -11626,7 +11627,7 @@ export default function VideoDateScreen() {
   ]);
 
   useEffect(() => {
-    if (!sessionId || !handshakeTimerStarted || phase !== "handshake") return;
+    if (!sessionId || !entryTimerStarted || phase !== "handshake") return;
     const key = `${sessionId}:warmup_timer_started`;
     if (warmupTimerStartedTrackedRef.current === key) return;
     warmupTimerStartedTrackedRef.current = key;
@@ -11642,7 +11643,7 @@ export default function VideoDateScreen() {
       buildReadyGateToDateLatencyPayload({
         context: latencyContext,
         checkpoint: "warmup_timer_started",
-        sourceAction: "server_handshake_started_at",
+        sourceAction: "server_entry_started_at",
         outcome: "success",
       }),
     );
@@ -11651,19 +11652,20 @@ export default function VideoDateScreen() {
       session_id: sessionId,
       event_id: eventId || null,
       source_surface: "video_date_route",
-      source_action: "server_handshake_started_at",
-      handshake_started_at: session?.handshake_started_at ?? null,
+      source_action: "server_entry_started_at",
+      entry_started_at: entryStartedAtIso,
+      handshake_started_at: entryStartedAtIso,
     });
   }, [
     eventId,
-    handshakeTimerStarted,
+    entryTimerStarted,
     phase,
-    session?.handshake_started_at,
+    entryStartedAtIso,
     sessionId,
   ]);
 
   useEffect(() => {
-    if (!handshakeDeadlineUrgent) {
+    if (!entryDeadlineUrgent) {
       lastChanceBlinkOpacity.setValue(1);
       return;
     }
@@ -11686,7 +11688,7 @@ export default function VideoDateScreen() {
       loop.stop();
       lastChanceBlinkOpacity.setValue(1);
     };
-  }, [handshakeDeadlineUrgent, lastChanceBlinkOpacity]);
+  }, [entryDeadlineUrgent, lastChanceBlinkOpacity]);
 
   /** Local user is in Daily but server has no join stamp for the peer yet — distinct from reconnect / ambiguous absence. */
   const peerNotOpenedVideoDateYet = useMemo(
@@ -11869,7 +11871,7 @@ export default function VideoDateScreen() {
   const showHandshakeChrome =
     !showFeedback &&
     phase === "handshake" &&
-    handshakeTimerStarted &&
+    entryTimerStarted &&
     hasHandshakePeerEvidence &&
     !peerMissingTerminal;
   const showDatePhaseChrome =
@@ -11893,10 +11895,10 @@ export default function VideoDateScreen() {
   const partnerHandshakeHasDecided = handshakeUiState.partnerHasDecided;
 
   useEffect(() => {
-    const key = `${sessionId ?? "none"}:${session?.handshake_started_at ?? "no-start"}`;
+    const key = `${sessionId ?? "none"}:${entryStartedAtIso ?? "no-start"}`;
     if (
       !showHandshakeChrome ||
-      !handshakeDeadlineUrgent ||
+      !entryDeadlineUrgent ||
       localHandshakeDecision !== null ||
       handshakeFinalTenNudgeKeyRef.current === key
     ) {
@@ -11918,9 +11920,9 @@ export default function VideoDateScreen() {
     });
   }, [
     displayTimeLeft,
-    handshakeDeadlineUrgent,
+    entryDeadlineUrgent,
     localHandshakeDecision,
-    session?.handshake_started_at,
+    entryStartedAtIso,
     sessionId,
     showHandshakeChrome,
   ]);
@@ -11967,7 +11969,7 @@ export default function VideoDateScreen() {
       local_decision: localDecisionLabel,
     };
 
-    const key = `${sessionId ?? "none"}:${session?.handshake_started_at ?? "no-start"}`;
+    const key = `${sessionId ?? "none"}:${entryStartedAtIso ?? "no-start"}`;
     const logHidden = (
       reason: string,
       impression: {
@@ -12068,7 +12070,7 @@ export default function VideoDateScreen() {
     phase,
     remoteAudioTrack,
     remoteVideoTrack,
-    session?.handshake_started_at,
+    entryStartedAtIso,
     sessionId,
     showFeedback,
     showHandshakeChrome,
@@ -13019,7 +13021,7 @@ export default function VideoDateScreen() {
                     style={[styles.partnerStatusText, { color: theme.success }]}
                   >
                     {phase === "handshake"
-                      ? handshakeTimerStarted
+                      ? entryTimerStarted
                         ? "Warm up"
                         : "Settling in"
                       : "Live"}
@@ -13059,24 +13061,24 @@ export default function VideoDateScreen() {
                     style={[
                       styles.stagePillText,
                       {
-                        color: handshakeDeadlineUrgent
+                        color: entryDeadlineUrgent
                           ? theme.neonPink
                           : theme.tint,
-                        opacity: handshakeDeadlineUrgent
+                        opacity: entryDeadlineUrgent
                           ? lastChanceBlinkOpacity
                           : 1,
                       },
                     ]}
                   >
                     {phase === "handshake"
-                      ? handshakeTimerStarted
+                      ? entryTimerStarted
                         ? "Warm up"
                         : "Settling in"
                       : "Live"}
                   </Animated.Text>
                 </View>
-                {handshakeTimerStarted ? (
-                  <HandshakeTimer
+                {entryTimerStarted ? (
+                  <EntryPhaseTimer
                     timeLeft={Math.max(0, displayTimeLeft)}
                     totalTime={totalTime}
                     phase={phase}

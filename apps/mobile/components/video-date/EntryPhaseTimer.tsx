@@ -1,5 +1,5 @@
 /**
- * Circular countdown timer for handshake/date phase.
+ * Circular countdown timer for entry/date phases.
  * Colors: violet → soft pink urgency.
  * Pulses in the final 10 seconds of warm-up only.
  */
@@ -38,7 +38,7 @@ function formatTime(seconds: number): string {
   return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `0:${String(s).padStart(2, '0')}`;
 }
 
-export function HandshakeTimer({ timeLeft, totalTime, phase }: Props) {
+export function EntryPhaseTimer({ timeLeft, totalTime, phase }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const progress = totalTime > 0 ? Math.max(0, Math.min(1, timeLeft / totalTime)) : 0;

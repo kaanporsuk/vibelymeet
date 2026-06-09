@@ -126,7 +126,7 @@
 2. **What it did:** Small circular **SVG countdown** (mm:ss), color by urgency (critical / urgent / normal).
 3. **Reachable?** **No** external imports.
 4. **Dependencies:** `framer-motion` only.
-5. **Feature overlap:** **`HandshakeTimer`** and timing in **`VideoDate.tsx`** / session phase — live timers exist elsewhere.
+5. **Feature overlap:** **`EntryPhaseTimer`** and timing in **`VideoDate.tsx`** / session phase — live timers exist elsewhere.
 6. **Product value:** Compact ring design variant.
 7. **Deletion safety:** **Safe delete.**
 8. **Why:** Unused duplicate timer widget.

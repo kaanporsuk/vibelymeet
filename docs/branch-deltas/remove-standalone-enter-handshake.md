@@ -49,6 +49,7 @@ All other lifecycle actions delegate through the preserved hot-path no-throw bas
 - `video_date_transition('end')` remains active.
 - Provider-side Daily room creation, verification, reuse, and token minting remain inside `prepare_date_entry`.
 - `handshake_started_at` and `handshake_grace_expires_at` remain DB timer fields. The timing concept is not removed; standalone public entry into it is removed.
+- Superseded terminology follow-up: `docs/branch-deltas/neutral-entry-timer-aliases.md` aliases those DB fields as neutral entry/date timer names in active product countdown code.
 
 ## Validation
 

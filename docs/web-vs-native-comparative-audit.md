@@ -211,7 +211,7 @@
 | Aspect | Web | Native | Gap |
 |--------|-----|--------|-----|
 | Hooks | useVideoCall, useCredits, useReconnection, useEventStatus | useVideoDateSession, getDailyRoomToken, enterHandshake, endVideoDate, deleteDailyRoom | Native: no useCredits in screen; no useReconnection (reconnection overlay) |
-| Components | HandshakeTimer, IceBreakerCard, VideoDateControls, SelfViewPIP, ConnectionOverlay, PartnerProfileSheet, PostDateSurvey, UrgentBorderEffect, VibeCheckButton, MutualVibeToast, KeepTheVibe, ReconnectionOverlay | Daily.createCallObject, DailyMediaView, avatarUrl, minimal UI | Native: no HandshakeTimer, IceBreakerCard, PartnerProfileSheet, PostDateSurvey, UrgentBorderEffect, VibeCheckButton, MutualVibeToast, KeepTheVibe, ReconnectionOverlay; core Daily join/leave works |
+| Components | EntryPhaseTimer, IceBreakerCard, VideoDateControls, SelfViewPIP, ConnectionOverlay, PartnerProfileSheet, PostDateSurvey, UrgentBorderEffect, VibeCheckButton, MutualVibeToast, KeepTheVibe, ReconnectionOverlay | Daily.createCallObject, DailyMediaView, avatarUrl, minimal UI | Native: no EntryPhaseTimer, IceBreakerCard, PartnerProfileSheet, PostDateSurvey, UrgentBorderEffect, VibeCheckButton, MutualVibeToast, KeepTheVibe, ReconnectionOverlay; core Daily join/leave works |
 | Interactions | Join, leave, handshake timer, vibe check, post-date survey, reconnection | Join, leave, permissions | Native: minimal UX; no post-date survey, no reconnection overlay, no vibe check |
 
 ### Ready gate (Web: ReadyRedirect.tsx | Native: ready/[id].tsx)
@@ -368,7 +368,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | verification/* | — | MISSING (link to web) |
 | vibe-video/VibePlayer | VibeVideoPlayer (expo-video HLS) | EXISTS |
 | vibe-video/VibeStudioModal | Vibe studio route orchestration | EXISTS via `app/vibe-studio.tsx` + `app/vibe-video-record.tsx` handoff |
-| video-date/* (HandshakeTimer, IceBreakerCard, etc.) | — | MISSING (minimal date screen) |
+| video-date/* (EntryPhaseTimer, IceBreakerCard, etc.) | — | MISSING (minimal date screen) |
 | wizard/* (ProfileWizard, etc.) | — | MISSING / PARTIAL (onboarding) |
 
 ---

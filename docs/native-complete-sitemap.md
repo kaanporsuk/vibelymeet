@@ -480,7 +480,7 @@ Settings → link to **`https://www.vibelymeet.com/how-it-works`** OR in-app `/h
 | Lobby | ReadyGateOverlay |
 | Match | ReportFlowModal, MatchActionsSheet, ProfileDetailSheet, UnmatchSnackbar |
 | Profile | PromptEditSheet, ProfilePreviewModal, LifestyleDetailsSection, RelationshipIntentSelector, VerificationBadgesRow, PROMPT_CONSTANTS |
-| Video date | HandshakeTimer, IceBreakerCard, VideoDateControls, PartnerProfileSheet, PostDateSurvey, ConnectionOverlay, ReconnectionOverlay, KeepTheVibe, MutualVibeToast, VibeCheckButton |
+| Video date | EntryPhaseTimer, IceBreakerCard, VideoDateControls, PartnerProfileSheet, PostDateSurvey, ConnectionOverlay, ReconnectionOverlay, KeepTheVibe, MutualVibeToast, VibeCheckButton |
 | Settings | DeletionRecoveryBanner (Support flows live under `app/settings/support*.tsx`) |
 | Verification | EmailVerificationFlow, PhoneVerificationFlow |
 | Notifications | NotificationPermissionFlow |

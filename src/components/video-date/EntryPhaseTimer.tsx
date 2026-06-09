@@ -1,12 +1,12 @@
 import { motion } from "framer-motion";
 
-interface HandshakeTimerProps {
+interface EntryPhaseTimerProps {
   timeLeft: number;
   totalTime: number;
   phase: "handshake" | "date" | "ended";
 }
 
-export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerProps) => {
+export const EntryPhaseTimer = ({ timeLeft, totalTime, phase }: EntryPhaseTimerProps) => {
   const progress = Math.max(0, Math.min(1, timeLeft / totalTime));
   const isUrgent = timeLeft <= 10;
   const shouldHeartbeat = phase === "handshake" && isUrgent;

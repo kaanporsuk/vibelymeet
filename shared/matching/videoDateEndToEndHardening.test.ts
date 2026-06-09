@@ -400,8 +400,8 @@ const webVibeCheckButton = readFileSync(
   join(process.cwd(), "src/components/video-date/VibeCheckButton.tsx"),
   "utf8",
 );
-const webHandshakeTimer = readFileSync(
-  join(process.cwd(), "src/components/video-date/HandshakeTimer.tsx"),
+const webEntryPhaseTimer = readFileSync(
+  join(process.cwd(), "src/components/video-date/EntryPhaseTimer.tsx"),
   "utf8",
 );
 const nativeVideoDateRoute = readFileSync(
@@ -1953,7 +1953,7 @@ test("Daily join stamping is routeable-only so solo prejoin cannot start handsha
   assert.match(soloPrejoinJoinGuardMigration, /UPDATE public\.event_registrations/);
 });
 
-test("prepared-but-never-joined video dates are repaired without starting the handshake timer", () => {
+test("prepared-but-never-joined video dates are repaired without starting the entry timer", () => {
   assert.match(
     handshakeJoinStartMigration,
     /state = 'handshake'::public\.video_date_state[\s\S]*handshake_started_at IS NULL[\s\S]*daily_room_name IS NOT NULL[\s\S]*daily_room_url IS NOT NULL[\s\S]*participant_1_joined_at IS NULL[\s\S]*participant_2_joined_at IS NULL/s,
@@ -2821,20 +2821,20 @@ test("handshake deadline cleanup polish removes accidental identifier truncation
 });
 
 test("web and native countdown-zero paths complete handshake and last-10s urgency is bounded to handshake", () => {
-  assert.match(webVideoDatePage, /handshake_visible_countdown_elapsed[\s\S]{0,220}trigger: "complete_handshake"/);
-  assert.match(webVideoDatePage, /checkMutualVibeRef\.current\?\.\(\s*["']handshake_visible_countdown_elapsed["']/);
+  assert.match(webVideoDatePage, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: "complete_handshake"/);
+  assert.match(webVideoDatePage, /checkMutualVibeRef\.current\?\.\(\s*["']entry_visible_countdown_elapsed["']/);
   assert.match(webVideoDatePage, /countdownCompletionKeyRef/);
   assert.doesNotMatch(webVideoDatePage, /handshake_grace_expiry/);
-  assert.match(nativeVideoDateRoute, /handshake_visible_countdown_elapsed[\s\S]{0,220}trigger: ["']complete_handshake["']/);
-  assert.match(nativeVideoDateRoute, /completeHandshakeFromServerDeadline\(\s*["']handshake_visible_countdown_elapsed["']/);
+  assert.match(nativeVideoDateRoute, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: ["']complete_handshake["']/);
+  assert.match(nativeVideoDateRoute, /completeHandshakeFromServerDeadline\(\s*["']entry_visible_countdown_elapsed["']/);
   assert.match(nativeVideoDateRoute, /countdownCompletionKeyRef/);
   assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
   assert.match(webVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
   assert.match(webVibeCheckButton, /Continue when ready/);
   assert.doesNotMatch(webVibeCheckButton, /Soft nudge/);
   assert.doesNotMatch(webVibeCheckButton, /Choose from the feeling/);
-  assert.match(webHandshakeTimer, /const isUrgent = timeLeft <= 10/);
-  assert.match(nativeVideoDateRoute, /phase === ['"]handshake['"] && handshakeTimerStarted && displayTimeLeft <= 10/);
+  assert.match(webEntryPhaseTimer, /const isUrgent = timeLeft <= 10/);
+  assert.match(nativeVideoDateRoute, /phase === ['"]handshake['"] && entryTimerStarted && displayTimeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /Continue when ready/);
   assert.doesNotMatch(nativeVibeCheckButton, /Your choice only continues after it saves/);

@@ -1030,7 +1030,7 @@ export default function EventLobbyScreen() {
           currentRoomId: reg?.current_room_id ?? null,
           vsState: vs?.state ?? null,
           vsPhase: vs?.phase ?? null,
-          handshakeStartedAt: vs?.handshake_started_at ?? null,
+          entryStartedAt: vs?.handshake_started_at ?? null,
           readyGateStatus: vs?.ready_gate_status ?? null,
           readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
           dateRouteOwned: routeOwned,
