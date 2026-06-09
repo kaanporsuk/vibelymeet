@@ -152,10 +152,6 @@ export type GetDailyRoomTokenResult =
       video_date_trace_id?: string | null;
     };
 
-export type EnterHandshakeResult =
-  | { ok: true }
-  | { ok: false; code?: string; message?: string; retryable?: boolean };
-
 export type CompleteHandshakeResult = {
   success?: boolean;
   state: 'date' | 'ended' | 'handshake';
@@ -201,7 +197,7 @@ type SpendVideoDateCreditExtensionOptions = {
 };
 
 export class VideoDateRequestTimeoutError extends Error {
-  constructor(public readonly operation: 'getDailyRoomToken' | 'enterHandshake') {
+  constructor(public readonly operation: 'getDailyRoomToken') {
     super(`${operation} timed out`);
     this.name = 'VideoDateRequestTimeoutError';
   }
@@ -211,7 +207,7 @@ const HANDSHAKE_SECONDS = 60;
 const DATE_SECONDS = 300;
 
 function withTimeout<T>(
-  operation: 'getDailyRoomToken' | 'enterHandshake',
+  operation: 'getDailyRoomToken',
   promise: Promise<T>,
   timeoutMs: number
 ): Promise<T> {
@@ -790,64 +786,6 @@ export async function getDailyRoomTokenWithTimeout(
   userId?: string | null,
 ): Promise<GetDailyRoomTokenResult> {
   return withTimeout('getDailyRoomToken', getDailyRoomToken(sessionId, userId), timeoutMs);
-}
-
-/** Server-owned: enter handshake (start timer). Idempotent; surfaces RPC JSON errors. */
-export async function enterHandshake(sessionId: string): Promise<EnterHandshakeResult> {
-  const args = {
-    p_session_id: sessionId,
-    p_action: 'enter_handshake',
-  };
-  vdbg('video_date_transition_before', { action: 'enter_handshake', args });
-  const rpcStarted = Date.now();
-  const { data, error } = await supabase.rpc('video_date_transition', args);
-  Sentry.addBreadcrumb({
-    category: 'video-date-launch',
-    message: 'enter_handshake_rpc',
-    level: 'info',
-    data: {
-      session_id: sessionId,
-      duration_ms: Date.now() - rpcStarted,
-      ok: !error && (data as { success?: boolean } | null)?.success !== false,
-    },
-  });
-  vdbg('video_date_transition_after', {
-    action: 'enter_handshake',
-    ok: !error && (data as { success?: boolean } | null)?.success !== false,
-    payload: data ?? null,
-    error: error ? { code: error.code, message: error.message } : null,
-  });
-
-  if (error) {
-    return { ok: false, code: error.code ?? 'RPC_ERROR', message: error.message, retryable: true };
-  }
-
-  const payload =
-    data && typeof data === 'object' && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : null;
-  if (payload && payload.success === false) {
-    const code = videoDateLifecycleRpcCode(payload) ?? undefined;
-    return {
-      ok: false,
-      code,
-      message: typeof payload.error === 'string' ? payload.error : code,
-      retryable:
-        videoDateLifecycleRpcIndicatesTerminalSurvey(payload) ||
-        videoDateLifecycleRpcIndicatesTerminalStop(payload)
-          ? false
-          : videoDateLifecycleRpcRetryable(payload) === true,
-    };
-  }
-
-  return { ok: true };
-}
-
-export async function enterHandshakeWithTimeout(
-  sessionId: string,
-  timeoutMs: number
-): Promise<EnterHandshakeResult> {
-  return withTimeout('enterHandshake', enterHandshake(sessionId), timeoutMs);
 }
 
 /** Minimal `video_sessions` row for native route guards (stale ER vs backend truth). */

@@ -166,24 +166,23 @@ test("native surface claim does not block takeover on transient fail-soft errors
   assert.match(nativeDateRoute, /retryable: payload\?\.retryable === true/);
 });
 
-test("native enter-handshake carries backend retryable through the bounded retry path", () => {
-  assert.match(
+test("native prejoin no longer exposes a standalone enter-handshake retry path", () => {
+  assert.doesNotMatch(
     nativeVideoDateApi,
-    /\| \{ ok: false; code\?: string; message\?: string; retryable\?: boolean \}/,
+    /EnterHandshakeResult|enterHandshakeWithTimeout|export async function enterHandshake|p_action:\s*['"]enter_handshake['"]/,
   );
-  assert.match(
-    nativeVideoDateApi,
-    /return \{ ok: false, code: error\.code \?\? 'RPC_ERROR', message: error\.message, retryable: true \}/,
-  );
-  assert.match(
-    nativeVideoDateApi,
-    /retryable:\s*[\s\S]{0,160}videoDateLifecycleRpcRetryable\(payload\) === true/,
+  assert.doesNotMatch(
+    nativeDateRoute,
+    /enterHandshakeWithTimeout|isReadyGateRace\(hs\.code\)|previousRetryable: hs\.retryable|enter_handshake_fail/,
   );
   assert.match(
     nativeDateRoute,
-    /isReadyGateRace\(hs\.code\) \|\| hs\.retryable === true/,
+    /currentStep = setPrejoinStep\("prepare_entry_routeable"\)/,
   );
-  assert.match(nativeDateRoute, /previousRetryable: hs\.retryable === true/);
+  assert.match(
+    nativeDateRoute,
+    /await recoverFromNotStartableDateTruth\("prepare_date_entry"\)/,
+  );
 });
 
 test("native date prejoin retries retryable prepare-entry failures like web", () => {

@@ -30,6 +30,7 @@ const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const webChat = read("src/pages/Chat.tsx");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
 const generatedTypes = read("src/integrations/supabase/types.ts");
+const standaloneEnterHandshakeMigration = read("supabase/migrations/20260609202707_remove_standalone_enter_handshake.sql");
 
 const removedVideoDateEntryActions = [
   "create_date_room",
@@ -90,11 +91,34 @@ test("current web and native date entry calls daily-room prepare_date_entry only
   }
 });
 
-test("enter_handshake remains intentionally preserved while prepare-entry owns room/token acquisition", () => {
-  assert.match(nativeVideoDateApi, /action:\s*'enter_handshake'/);
-  assert.match(nativeDateRoute, /prepare_date_entry_owns_handshake/);
-  assert.match(webPrepareEntry, /enter_handshake_started/);
-  assert.match(nativePrepareEntry, /enter_handshake_started/);
+test("standalone enter_handshake is removed while prepare-entry owns room/token acquisition", () => {
+  for (const [path, source] of activeClientSources) {
+    assert.doesNotMatch(source, /p_action:\s*["']enter_handshake["']/, `${path} must not send standalone enter_handshake`);
+    assert.doesNotMatch(source, /action:\s*["']enter_handshake["']/, `${path} must not send standalone enter_handshake`);
+  }
+
+  assert.doesNotMatch(nativeVideoDateApi, /export async function enterHandshake/);
+  assert.doesNotMatch(nativeVideoDateApi, /enterHandshakeWithTimeout/);
+  assert.doesNotMatch(nativeDateRoute, /enterHandshakeWithTimeout/);
+  assert.doesNotMatch(webPrepareEntry, /enter_handshake_(started|success|failure)/);
+  assert.doesNotMatch(nativePrepareEntry, /enter_handshake_(started|success|failure)/);
+  assert.match(dailyRoomFunction, /p_action:\s*"prepare_entry"/);
+  assert.match(webPrepareEntry, /prepare_entry_started/);
+  assert.match(nativePrepareEntry, /prepare_entry_started/);
+});
+
+test("video_date_transition rejects public enter_handshake and preserves prepare_entry delegation", () => {
+  assert.match(standaloneEnterHandshakeMigration, /v_action = 'enter_handshake'/);
+  assert.match(standaloneEnterHandshakeMigration, /'code', 'ENTER_HANDSHAKE_REMOVED'/);
+  assert.match(standaloneEnterHandshakeMigration, /'retryable', false/);
+  assert.match(standaloneEnterHandshakeMigration, /'supported_action', 'prepare_entry'/);
+  assert.match(standaloneEnterHandshakeMigration, /'entry_command', 'prepare_date_entry'/);
+  assert.match(standaloneEnterHandshakeMigration, /vd_transition_20260609202707_enter_hs_base/);
+  assert.match(standaloneEnterHandshakeMigration, /p_action/);
+  assert.match(standaloneEnterHandshakeMigration, /COMMENT ON FUNCTION public\.video_date_transition/);
+  assert.match(dailyRoomFunction, /p_action:\s*"prepare_entry"/);
+  assert.match(nativeVideoDateApi, /p_action:\s*'end'/);
+  assert.match(nativeVideoDateApi, /p_action:\s*'complete_handshake'/);
 });
 
 test("shared provider-room lifecycle internals remain available to prepare_date_entry", () => {

@@ -53,7 +53,7 @@ export type EnsureStartableOk = {
   reason:
     | 'already_startable'
     | 'fresh_prepared_handoff'
-    | 'startable_after_handshake'
+    | 'startable_after_prepare_entry'
     | 'startable_after_retry';
   truth: VideoSessionDateEntryTruth | null;
 };
@@ -107,8 +107,8 @@ function emit(
   message:
     | 'ensure_video_date_startable_before'
     | 'ensure_video_date_startable_after'
-    | 'enter_handshake_pre_nav_attempt'
-    | 'enter_handshake_pre_nav_recovered_by_truth'
+    | 'prepare_entry_pre_nav_attempt'
+    | 'prepare_entry_pre_nav_recovered_by_truth'
     | 'ready_gate_not_ready_retry_start'
     | 'ready_gate_not_ready_retry_success'
     | 'ready_gate_not_ready_retry_exhausted',
@@ -270,7 +270,7 @@ export async function ensureVideoDateStartableBeforeNavigation(
       }
     }
 
-    emit('enter_handshake_pre_nav_attempt', {
+    emit('prepare_entry_pre_nav_attempt', {
       session_id: sessionId,
       user_id: userId,
       source,
@@ -308,7 +308,7 @@ export async function ensureVideoDateStartableBeforeNavigation(
       decision = decideVideoSessionRouteFromTruth(truth);
       canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
       if (canAttemptDaily || decision === 'navigate_date') {
-        emit('enter_handshake_pre_nav_recovered_by_truth', {
+        emit('prepare_entry_pre_nav_recovered_by_truth', {
           session_id: sessionId,
           user_id: userId,
           source,
@@ -321,10 +321,10 @@ export async function ensureVideoDateStartableBeforeNavigation(
           user_id: userId,
           source,
           ok: true,
-          reason: 'startable_after_handshake',
+          reason: 'startable_after_prepare_entry',
           ...snapshotTruth(truth),
         });
-        return { ok: true, reason: 'startable_after_handshake', truth };
+        return { ok: true, reason: 'startable_after_prepare_entry', truth };
       }
     }
 
@@ -362,7 +362,7 @@ export async function ensureVideoDateStartableBeforeNavigation(
         session_id: sessionId,
         user_id: userId,
         source,
-        handshake_code: prepareCode,
+        prepare_code: prepareCode,
       });
       for (let i = 0; i < READY_GATE_RACE_RETRY_BACKOFFS_MS.length; i++) {
         const delay = READY_GATE_RACE_RETRY_BACKOFFS_MS[i];

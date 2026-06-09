@@ -145,7 +145,31 @@ Proof boundary:
 
 ---
 
-## 2026-06-09 Implementation Update: Daily-room Non-Golden Video Date Actions Removed
+## 2026-06-09 Implementation Update: Standalone Enter Handshake Removed
+
+Current source now removes standalone/client-visible `video_date_transition('enter_handshake')` from the active Video Date entry path. The golden entry command is `prepare_date_entry`, which continues to call `video_date_transition('prepare_entry')` inside `daily-room`.
+
+Implementation added:
+
+- Native no longer exports `enterHandshake(...)` or `enterHandshakeWithTimeout(...)` from `apps/mobile/lib/videoDateApi.ts`.
+- Native `/date/[id]` no longer has an explicit prejoin `enter_handshake` branch; it checks that `prepare_date_entry`/`prepare_entry` left the session routeable/startable before Daily token and join work.
+- Web/native prepare-entry telemetry no longer emits active `enter_handshake_*` checkpoint names. Active checkpoints remain `prepare_entry_started`, `prepare_entry_success`, and `prepare_entry_failure`.
+- Migration `supabase/migrations/20260609202707_remove_standalone_enter_handshake.sql` wraps `public.video_date_transition(uuid,text,text)` so `p_action = 'enter_handshake'` returns structured nonretryable JSON with code `ENTER_HANDSHAKE_REMOVED` and points callers to `prepare_entry` / `prepare_date_entry`.
+- `prepare_entry`, `end`, reconnect, vibe/complete-handshake, and other lifecycle actions continue delegating through the existing hot-path no-throw transition stack.
+- Branch delta: `docs/branch-deltas/remove-standalone-enter-handshake.md`.
+
+Preserved:
+
+- `prepare_date_entry` remains the only golden web/native room and token entry command.
+- `video_date_transition('prepare_entry')` remains active and owns routeable entry/timing setup.
+- `video_date_transition('end')` remains active.
+- `handshake_started_at` and `handshake_grace_expires_at` remain server timing columns for handshake/date timer semantics.
+
+Proof boundary:
+
+- This is a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
 
 ## 2026-06-09 Implementation Update: Match Calls Removed
 
@@ -200,7 +224,7 @@ Implementation added:
 Preserved:
 
 - `prepare_date_entry` remains the web/native room and token entry path.
-- `video_date_transition('enter_handshake')` remains intentionally preserved.
+- Superseded follow-up: standalone `video_date_transition('enter_handshake')` is removed by `supabase/migrations/20260609202707_remove_standalone_enter_handshake.sql`; clients must use `prepare_date_entry` / `prepare_entry`.
 - `video_date_leave` and `delete_room` remain cleanup/end actions required after successful Video Date flows.
 - Superseded follow-up: `docs/branch-deltas/remove-match-calls.md` removes Match Calls entirely. `create_match_call`, `answer_match_call`, and `join_match_call` are no longer active after migration `20260609224646_remove_match_calls.sql`.
 - Provider-side Daily room creation/reuse/verification remains inside `prepare_date_entry`.

@@ -133,7 +133,7 @@ Owner stream: Native v1
   - /date/[id]
 - Contracts:
   - daily-room edge function
-  - video_date_transition RPC (enter_handshake, vibe, complete_handshake, end, reconnect actions)
+  - video_date_transition RPC (prepare_entry through prepare_date_entry, vibe, complete_handshake, end, reconnect actions; standalone enter_handshake removed)
   - update_participant_status RPC for in_survey/browsing handoff
 
 ### Post-date survey
