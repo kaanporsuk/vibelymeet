@@ -3212,94 +3212,6 @@ export type Database = {
           },
         ]
       }
-      match_calls: {
-        Row: {
-          call_type: string
-          callee_id: string
-          callee_joined_at: string | null
-          callee_last_seen_at: string | null
-          caller_id: string
-          caller_joined_at: string | null
-          caller_last_seen_at: string | null
-          created_at: string
-          daily_room_name: string
-          daily_room_url: string
-          duration_seconds: number | null
-          ended_at: string | null
-          ended_by_user_id: string | null
-          ended_reason: string | null
-          id: string
-          match_id: string
-          provider_deleted_at: string | null
-          started_at: string | null
-          status: string
-        }
-        Insert: {
-          call_type: string
-          callee_id: string
-          callee_joined_at?: string | null
-          callee_last_seen_at?: string | null
-          caller_id: string
-          caller_joined_at?: string | null
-          caller_last_seen_at?: string | null
-          created_at?: string
-          daily_room_name: string
-          daily_room_url: string
-          duration_seconds?: number | null
-          ended_at?: string | null
-          ended_by_user_id?: string | null
-          ended_reason?: string | null
-          id?: string
-          match_id: string
-          provider_deleted_at?: string | null
-          started_at?: string | null
-          status?: string
-        }
-        Update: {
-          call_type?: string
-          callee_id?: string
-          callee_joined_at?: string | null
-          callee_last_seen_at?: string | null
-          caller_id?: string
-          caller_joined_at?: string | null
-          caller_last_seen_at?: string | null
-          created_at?: string
-          daily_room_name?: string
-          daily_room_url?: string
-          duration_seconds?: number | null
-          ended_at?: string | null
-          ended_by_user_id?: string | null
-          ended_reason?: string | null
-          id?: string
-          match_id?: string
-          provider_deleted_at?: string | null
-          started_at?: string | null
-          status?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "match_calls_callee_id_fkey"
-            columns: ["callee_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "match_calls_caller_id_fkey"
-            columns: ["caller_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "match_calls_match_id_fkey"
-            columns: ["match_id"]
-            isOneToOne: false
-            referencedRelation: "matches"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       match_notification_mutes: {
         Row: {
           created_at: string | null
@@ -4259,7 +4171,6 @@ export type Database = {
           notify_date_reminder: boolean | null
           notify_event_live: boolean | null
           notify_event_reminder: boolean | null
-          notify_match_calls: boolean
           notify_messages: boolean | null
           notify_new_match: boolean | null
           notify_product_updates: boolean | null
@@ -4289,7 +4200,6 @@ export type Database = {
           notify_date_reminder?: boolean | null
           notify_event_live?: boolean | null
           notify_event_reminder?: boolean | null
-          notify_match_calls?: boolean
           notify_messages?: boolean | null
           notify_new_match?: boolean | null
           notify_product_updates?: boolean | null
@@ -4319,7 +4229,6 @@ export type Database = {
           notify_date_reminder?: boolean | null
           notify_event_live?: boolean | null
           notify_event_reminder?: boolean | null
-          notify_match_calls?: boolean
           notify_messages?: boolean | null
           notify_new_match?: boolean | null
           notify_product_updates?: boolean | null
@@ -11608,7 +11517,6 @@ export type Database = {
         Returns: Json
       }
       expire_pending_daily_drops: { Args: never; Returns: Json }
-      expire_stale_match_calls: { Args: never; Returns: number }
       expire_stale_video_date_partial_joins_bounded: {
         Args: { p_limit?: number }
         Returns: Json
@@ -12630,10 +12538,6 @@ export type Database = {
       }
       mark_video_date_remote_seen_20260608120000_provider_base: {
         Args: { p_session_id: string }
-        Returns: Json
-      }
-      match_call_transition: {
-        Args: { p_action: string; p_call_id: string; p_reason?: string }
         Returns: Json
       }
       media_asset_can_access_user_topic: {

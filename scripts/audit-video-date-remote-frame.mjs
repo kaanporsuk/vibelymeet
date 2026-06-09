@@ -555,24 +555,6 @@ assert(
   `${webDatePath}: remote video must keep a full-frame primary video with a decorative blurred cover backdrop and receiver diagnostics`
 );
 
-const webMatchCallPath = "src/components/chat/ActiveCallOverlay.tsx";
-const webMatchCall = read(webMatchCallPath);
-assert(
-  webMatchCall.includes("Match/chat calls are intentionally full-bleed today"),
-  `${webMatchCallPath}: match/chat full-bleed crop behavior must stay documented`
-);
-
-const nativeMatchCallPath = "apps/mobile/components/chat/ActiveCallOverlay.tsx";
-const nativeMatchCall = read(nativeMatchCallPath);
-assert(
-  nativeMatchCall.includes("Match/chat calls are intentionally full-bleed today"),
-  `${nativeMatchCallPath}: native match/chat full-bleed crop behavior must stay documented`
-);
-assert(
-  /<DailyMediaView[\s\S]*?mirror=\{false\}[\s\S]*?objectFit="cover"[\s\S]*?zOrder=\{0\}/.test(nativeMatchCall),
-  `${nativeMatchCallPath}: native match/chat remote full-bleed crop must be explicit if it remains intentional`
-);
-
 if (failures.length > 0) {
   console.error("Video date remote frame audit failed:");
   for (const failure of failures) console.error(`- ${failure}`);

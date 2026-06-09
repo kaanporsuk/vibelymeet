@@ -147,6 +147,43 @@ Proof boundary:
 
 ## 2026-06-09 Implementation Update: Daily-room Non-Golden Video Date Actions Removed
 
+## 2026-06-09 Implementation Update: Match Calls Removed
+
+Current source and linked Supabase cloud now remove the non-golden Chat Match Calls product surface. This is the follow-up to the earlier Daily-room non-golden action cleanup.
+
+Implementation added:
+
+- Web/native Chat no longer mounts `MatchCallProvider`, no longer imports `useMatchCall`, and no longer renders voice/video call buttons or incoming/active call overlays.
+- Deleted Match Call client/API/helper source: `src/hooks/useMatchCall.tsx`, `apps/mobile/lib/useMatchCall.tsx`, `apps/mobile/lib/matchCallApi.ts`, web/native call overlays, `shared/chat/matchCallDiag.ts`, and `shared/chat/matchCallEdgeCodes.ts`.
+- `supabase/functions/daily-room/index.ts` no longer accepts or dispatches `create_match_call`, `answer_match_call`, or `join_match_call`, and `delete_room` is Video Date participant-gated only.
+- `supabase/functions/send-notification/index.ts` no longer has a `match_call` category or `notify_match_calls` mapping.
+- `supabase/functions/match-call-room-cleanup/index.ts` and its `supabase/config.toml` entry were removed, and the stale deployed `match-call-room-cleanup` Edge Function was deleted from project `schdyxcunwcvddlcshwd`.
+- Migration `supabase/migrations/20260609224646_remove_match_calls.sql` drops `public.match_calls`, `public.match_call_transition(...)`, `public.expire_stale_match_calls()`, `notification_preferences.notify_match_calls`, realtime publication membership, and match-call cron jobs, and rewrites active cleanup/admin RPCs away from `match_calls`.
+- `src/integrations/supabase/types.ts` was regenerated after applying the linked migration.
+- Branch delta: `docs/branch-deltas/remove-match-calls.md`.
+
+Preserved:
+
+- Chat itself remains active, including text/image/video/voice messages.
+- `matches`, `match_id`, date suggestions, unmatch/block/archive/mute flows, and golden Video Date remain active.
+- `prepare_date_entry`, `video_date_leave`, and Video Date `delete_room` cleanup semantics remain active.
+
+Cloud proof:
+
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --yes` applied `20260609224646_remove_match_calls.sql`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` returned `Remote database is up to date`.
+- Direct linked catalog checks returned true for absence of `match_calls`, both `match_call_transition` overloads, `expire_stale_match_calls`, `notify_match_calls`, realtime publication membership, and match-call cron jobs.
+- `daily-room` and `send-notification` were deployed to linked project `schdyxcunwcvddlcshwd`.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase functions delete match-call-room-cleanup --project-ref schdyxcunwcvddlcshwd` deleted the obsolete deployed cleanup function; a follow-up function list showed `daily-room` and `send-notification` active and no `match-call-room-cleanup` row.
+
+Proof boundary:
+
+- This is Match Call removal and backend simplification evidence only. It is not Video Date product acceptance. Video Date remains unaccepted until a fresh disposable two-user production run reaches match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> both users persist `date_feedback`, including leave/rejoin and prolonged absence checks.
+
+---
+
+## 2026-06-09 Implementation Update: Daily-room Non-Golden Video Date Actions Removed
+
 Current source now removes the legacy/non-golden public/client-facing `daily-room` Video Date entry action support for `create_date_room`, `join_date_room`, `ensure_date_room`, `prepare_diagnostic_entry`, and `prepare_solo_entry`.
 
 Implementation added:
@@ -165,7 +202,7 @@ Preserved:
 - `prepare_date_entry` remains the web/native room and token entry path.
 - `video_date_transition('enter_handshake')` remains intentionally preserved.
 - `video_date_leave` and `delete_room` remain cleanup/end actions required after successful Video Date flows.
-- Match-call actions `create_match_call`, `answer_match_call`, and `join_match_call` remain active for the separate Chat call product and are deferred to a separate extraction/removal PR.
+- Superseded follow-up: `docs/branch-deltas/remove-match-calls.md` removes Match Calls entirely. `create_match_call`, `answer_match_call`, and `join_match_call` are no longer active after migration `20260609224646_remove_match_calls.sql`.
 - Provider-side Daily room creation/reuse/verification remains inside `prepare_date_entry`.
 - Existing `create_date_room_*` provider observability operation labels remain intact as shared Daily provider lifecycle internals used by `prepare_date_entry`.
 

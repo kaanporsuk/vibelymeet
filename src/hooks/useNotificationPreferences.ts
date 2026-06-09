@@ -8,8 +8,6 @@ export interface NotificationPreferences {
   paused_until: string | null;
   notify_new_match: boolean;
   notify_messages: boolean;
-  /** Incoming voice/video calls from matches (separate from DM push bucket). */
-  notify_match_calls: boolean;
   notify_someone_vibed_you: boolean;
   notify_ready_gate: boolean;
   notify_event_live: boolean;
@@ -32,7 +30,6 @@ const DEFAULTS: NotificationPreferences = {
   paused_until: null,
   notify_new_match: true,
   notify_messages: true,
-  notify_match_calls: true,
   notify_someone_vibed_you: true,
   notify_ready_gate: true,
   notify_event_live: true,
@@ -51,7 +48,7 @@ const DEFAULTS: NotificationPreferences = {
 };
 
 const NOTIFICATION_PREFERENCES_SELECT =
-  "push_enabled, paused_until, notify_new_match, notify_messages, notify_match_calls, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled";
+  "push_enabled, paused_until, notify_new_match, notify_messages, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled";
 
 type NotificationPreferencesRow = Partial<Record<keyof NotificationPreferences, unknown>>;
 
@@ -64,8 +61,6 @@ function normalizeNotificationPreferencesRow(row: NotificationPreferencesRow | n
     paused_until: (row.paused_until as string | null | undefined) ?? null,
     notify_new_match: bool("notify_new_match", true),
     notify_messages: bool("notify_messages", true),
-    notify_match_calls:
-      typeof row.notify_match_calls === "boolean" ? row.notify_match_calls : bool("notify_messages", true),
     notify_someone_vibed_you: bool("notify_someone_vibed_you", true),
     notify_ready_gate: bool("notify_ready_gate", true),
     notify_event_live: bool("notify_event_live", true),

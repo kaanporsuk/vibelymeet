@@ -57,7 +57,6 @@ import { pruneDuplicateRealtimeChannels } from '@/lib/realtimeLifecycle';
 import { ChatOutboxProvider, useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner';
-import { MatchCallProvider } from '@/lib/useMatchCall';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import {
   selectPrimaryRecoveryAttentionTarget,
@@ -1103,7 +1102,6 @@ function RootLayoutNav() {
         <AuthProvider>
           <EntitlementsProvider>
           <SessionHydrationProvider>
-          <MatchCallProvider>
             <ChatOutboxProvider>
             <SupabaseManagedAuthRefreshAppStateBridge />
             <NativeMediaSdkReconcileAppStateBridge />
@@ -1138,7 +1136,6 @@ function RootLayoutNav() {
               <NativeUploadRecoveryGlobalBanner theme={theme} />
             </View>
             </ChatOutboxProvider>
-          </MatchCallProvider>
           </SessionHydrationProvider>
           </EntitlementsProvider>
         </AuthProvider>

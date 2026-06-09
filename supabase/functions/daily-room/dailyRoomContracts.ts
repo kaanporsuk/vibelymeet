@@ -2,26 +2,6 @@ export type DateRoomAction =
   | "prepare_date_entry"
   | "video_date_leave";
 
-export type MatchCallStatus = "ringing" | "active" | "ended" | "missed" | "declined" | string | null;
-
-export type OpenMatchCallForRetry = {
-  id: string;
-  match_id: string | null;
-  caller_id: string;
-  callee_id: string;
-  call_type: string | null;
-  daily_room_name: string | null;
-  daily_room_url: string | null;
-  status: MatchCallStatus;
-};
-
-export type MatchCallRetryRequest = {
-  matchId: string;
-  callerId: string;
-  calleeId: string;
-  callType: "voice" | "video";
-};
-
 export function videoDateRoomNameForSession(sessionId: string): string {
   return `date-${sessionId.replace(/-/g, "")}`;
 }
@@ -278,92 +258,12 @@ export function planDailyProviderRoomRecovery(state: DailyProviderRoomState): Da
   };
 }
 
-export function isOpenMatchCallStatus(status: MatchCallStatus): boolean {
-  return status === "ringing" || status === "active";
-}
-
-export function isTerminalMatchCallStatus(status: MatchCallStatus): boolean {
-  return status === "ended" || status === "missed" || status === "declined";
-}
-
-export function canReuseOpenMatchCallForCreateRetry(
-  call: OpenMatchCallForRetry | null | undefined,
-  request: MatchCallRetryRequest,
-): call is OpenMatchCallForRetry & {
-  match_id: string;
-  call_type: "voice" | "video";
-  daily_room_name: string;
-} {
-  return Boolean(
-    call &&
-      call.match_id === request.matchId &&
-      call.caller_id === request.callerId &&
-      call.callee_id === request.calleeId &&
-      call.call_type === request.callType &&
-      isOpenMatchCallStatus(call.status) &&
-      call.daily_room_name,
-  );
-}
-
-/**
- * Looser variant of canReuseOpenMatchCallForCreateRetry that allows the caller to rejoin an
- * existing open call when the requested call_type differs from the existing call's call_type.
- * Used by the rejoin contract: rather than returning 409, the edge function returns the existing
- * room + fresh token plus an `existing_call_type` flag so the client can adapt its UI.
- */
-export function canReuseOpenMatchCallSameParticipants(
-  call: OpenMatchCallForRetry | null | undefined,
-  request: MatchCallRetryRequest,
-): call is OpenMatchCallForRetry & {
-  match_id: string;
-  call_type: "voice" | "video";
-  daily_room_name: string;
-} {
-  return Boolean(
-    call &&
-      call.match_id === request.matchId &&
-      call.caller_id === request.callerId &&
-      call.callee_id === request.calleeId &&
-      isOpenMatchCallStatus(call.status) &&
-      call.daily_room_name,
-  );
-}
-
-/**
- * True when the open call exists for this match but the requesting user is the CALLEE of that
- * open call (i.e. an incoming call from the partner). The client should call `answer_match_call`
- * with the returned `call_id` rather than create a new call.
- */
-export function isIncomingMatchCallForRequester(
-  call: OpenMatchCallForRetry | null | undefined,
-  request: MatchCallRetryRequest,
-): boolean {
-  return Boolean(
-    call &&
-      call.match_id === request.matchId &&
-      call.caller_id === request.calleeId &&
-      call.callee_id === request.callerId &&
-      isOpenMatchCallStatus(call.status),
-  );
-}
-
-export function canIssueAnswerTokenForMatchCallStatus(status: MatchCallStatus): boolean {
-  return status === "ringing" || status === "active";
-}
-
-export type DeleteRoomSafetyInput =
-  | {
-      roomType: "video_date";
-      endedAt?: string | null;
-      state?: string | null;
-      phase?: string | null;
-    }
-  | {
-      roomType: "match_call";
-      status?: MatchCallStatus;
-      endedAt?: string | null;
-      providerDeletedAt?: string | null;
-    };
+export type DeleteRoomSafetyInput = {
+  roomType: "video_date";
+  endedAt?: string | null;
+  state?: string | null;
+  phase?: string | null;
+};
 
 export type DeleteRoomSafetyDecision =
   | {
@@ -373,53 +273,14 @@ export type DeleteRoomSafetyDecision =
     }
   | {
       shouldDelete: false;
-      code:
-        | "VIDEO_DATE_CLEANUP_OWNED_BY_CRON"
-        | "MATCH_CALL_ACTIVE_ROOM_DELETE_SKIPPED"
-        | "MATCH_CALL_ROOM_ALREADY_CLEANED"
-        | "MATCH_CALL_NOT_TERMINAL";
-      outcome:
-        | "skipped_active_session"
-        | "skipped_peer_joining"
-        | "not_found_idempotent";
+      code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON";
+      outcome: "skipped_active_session" | "skipped_peer_joining";
     };
 
 export function classifyDeleteRoomSafety(input: DeleteRoomSafetyInput): DeleteRoomSafetyDecision {
-  if (input.roomType === "video_date") {
-    return {
-      shouldDelete: false,
-      code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON",
-      outcome: input.endedAt ? "skipped_active_session" : "skipped_peer_joining",
-    };
-  }
-
-  if (input.providerDeletedAt) {
-    return {
-      shouldDelete: false,
-      code: "MATCH_CALL_ROOM_ALREADY_CLEANED",
-      outcome: "not_found_idempotent",
-    };
-  }
-
-  if (isOpenMatchCallStatus(input.status ?? null)) {
-    return {
-      shouldDelete: false,
-      code: "MATCH_CALL_ACTIVE_ROOM_DELETE_SKIPPED",
-      outcome: input.status === "ringing" ? "skipped_peer_joining" : "skipped_active_session",
-    };
-  }
-
-  if (!isTerminalMatchCallStatus(input.status ?? null) || !input.endedAt) {
-    return {
-      shouldDelete: false,
-      code: "MATCH_CALL_NOT_TERMINAL",
-      outcome: "skipped_active_session",
-    };
-  }
-
   return {
-    shouldDelete: true,
-    code: "SAFE_TO_DELETE",
-    outcome: "delete_allowed",
+    shouldDelete: false,
+    code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON",
+    outcome: input.endedAt ? "skipped_active_session" : "skipped_peer_joining",
   };
 }

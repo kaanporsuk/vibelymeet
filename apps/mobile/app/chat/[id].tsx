@@ -111,7 +111,6 @@ import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartS
 import { GamesPickerSheet, type GamesPickerGameId } from '@/components/chat/games/GamesPickerSheet';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import { useMatchCall } from '@/lib/useMatchCall';
 import { useConnectivity } from '@/lib/useConnectivity';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
@@ -3286,24 +3285,6 @@ export default function ChatThreadScreen() {
     };
   }, [scheduleMarkThreadRead]);
 
-  const {
-    startCall,
-  } = useMatchCall({
-    matchId: data?.matchId ?? matchRowEarly?.matchId ?? null,
-    currentUserId: user?.id ?? null,
-    partnerUserId: otherUserId ?? null,
-    partnerName: data?.otherUser?.name ?? matchRowEarly?.name ?? 'Chat',
-    partnerAvatarUri: (() => {
-      const primaryPhotoPath = resolvePrimaryProfilePhotoPath({
-        photos: data?.otherUser?.photos,
-        avatar_url: data?.otherUser?.avatar_url,
-      });
-      if (primaryPhotoPath) return avatarUrl(primaryPhotoPath);
-      if (matchRowEarly?.image) return avatarUrl(matchRowEarly.image);
-      return null;
-    })(),
-  });
-
   const isOffline = useConnectivity() === 'offline';
 
   const handleInputChange = useCallback((text: string) => {
@@ -4986,50 +4967,6 @@ export default function ChatThreadScreen() {
               </View>
             </Pressable>
             <View style={styles.headerRightRow}>
-              <Pressable
-                onPress={() => {
-                  if (isOffline) {
-                    showAppDialog({
-                      title: 'Can’t start a call',
-                      message: 'Check your connection and try again.',
-                      variant: 'warning',
-                      primaryAction: { label: 'OK', onPress: () => {} },
-                    });
-                    return;
-                  }
-                  if (data?.matchId ?? matchRowEarly?.matchId) startCall('voice');
-                }}
-                style={({ pressed }) => [
-                  styles.headerIconBtn,
-                  { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, borderWidth: StyleSheet.hairlineWidth },
-                  pressed && { opacity: 0.8 },
-                ]}
-                accessibilityLabel="Voice call"
-              >
-                <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  if (isOffline) {
-                    showAppDialog({
-                      title: 'Can’t start a call',
-                      message: 'Check your connection and try again.',
-                      variant: 'warning',
-                      primaryAction: { label: 'OK', onPress: () => {} },
-                    });
-                    return;
-                  }
-                  if (data?.matchId ?? matchRowEarly?.matchId) startCall('video');
-                }}
-                style={({ pressed }) => [
-                  styles.headerIconBtn,
-                  { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, borderWidth: StyleSheet.hairlineWidth },
-                  pressed && { opacity: 0.8 },
-                ]}
-                accessibilityLabel="Video call"
-              >
-                <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
-              </Pressable>
               <Pressable
                 onPress={() => setShowActions(true)}
                 style={({ pressed }) => [

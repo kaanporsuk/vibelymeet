@@ -111,7 +111,6 @@ function normalizePushDeepLinkPath(raw: unknown): string | null {
  *
  * Known callers (repo audit) — every push category used in code should appear here or in CATEGORY_PREFERENCE_BYPASS:
  * - send-message, send-game-event → messages
- * - daily-room create_match_call → match_call
  * - swipe-actions → ready_gate, someone_vibed_you
  * - useEventVibes → mutual_vibe, someone_vibed_you
  * - post-date-verdict, daily-drop-actions (reply) → new_match
@@ -140,8 +139,6 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   date_proposal_accepted: 'notify_messages',
   date_proposal_declined: 'notify_messages',
   messages: 'notify_messages',
-  /** Incoming voice/video chat calls — separate bucket so users can silence DM pushes but keep call alerts (or vice versa). */
-  match_call: 'notify_match_calls',
   date_suggestion_proposed: 'notify_messages',
   date_suggestion_countered: 'notify_messages',
   date_suggestion_accepted: 'notify_messages',
@@ -237,7 +234,7 @@ function normalizeChannels(value: unknown): NotificationChannel[] {
 }
 
 function normalizeInboxCategory(category: string): string {
-  if (category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call') {
+  if (category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction') {
     return 'message'
   }
   if (category === 'mutual_vibe' || category === 'new_match' || category === 'who_liked_you') return 'new_match'
@@ -308,7 +305,7 @@ async function clientOwnedProviderIdempotencyKey(
 
 function priorityForInbox(category: string, requested: unknown): NotificationPriority {
   if (requested === 'low' || requested === 'normal' || requested === 'high' || requested === 'urgent') return requested
-  if (category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection' || category === 'match_call') return 'urgent'
+  if (category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection') return 'urgent'
   if (category === 'event_live' || category === 'new_match' || category === 'mutual_vibe' || category === 'daily_drop' || category === 'drop_expiring' || category === 'super_vibe') return 'high'
   if (category === 'safety' || category === 'safety_alerts') return 'high'
   return 'normal'
@@ -326,7 +323,7 @@ function normalizeActionFromRequest(value: unknown): Record<string, unknown> | n
 }
 
 function deriveNotificationAction(category: string, data: any, webPath?: string | null): Record<string, unknown> {
-  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call' || category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) && (data?.match_id || data?.sender_id || data?.other_user_id)) {
+  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) && (data?.match_id || data?.sender_id || data?.other_user_id)) {
     return actionObject('open_chat', {
       matchId: data?.match_id,
       userId: data?.sender_id ?? data?.other_user_id,
@@ -417,7 +414,7 @@ function pathFromAction(action: Record<string, unknown>): string | null {
 }
 
 function defaultInboxDedupeKey(category: string, data: any): string | null {
-  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call' || category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) && data?.match_id) {
+  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) && data?.match_id) {
     return `message:${data.match_id}`
   }
   if ((category === 'new_match' || category === 'mutual_vibe') && data?.match_id) return `new_match:${data.match_id}`
@@ -440,7 +437,7 @@ function defaultInboxDedupeKey(category: string, data: any): string | null {
 }
 
 function defaultInboxGroupKey(category: string, data: any): string | null {
-  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call') && data?.match_id) {
+  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction') && data?.match_id) {
     return `message:${data.match_id}`
   }
   if (isEventLifecycleCategory(category) && getEventId(data)) return `event:${getEventId(data)}`
@@ -457,7 +454,6 @@ const BYPASS_QUIET_HOURS = [
   'safety_alerts',
   'safety',
   'support_reply',
-  'match_call',
 ]
 
 type AdmissionStatus = 'confirmed' | 'waitlisted' | string | undefined
@@ -880,7 +876,6 @@ async function resolveActorId(recipientId: string, category: string, data: any):
   if (
     matchId &&
     (category === 'messages' ||
-      category === 'match_call' ||
       category === 'new_match' ||
       category === 'date_reminder' ||
       category.startsWith('date_suggestion_'))
@@ -1186,7 +1181,7 @@ function diagnosticDeepLinkCandidate(category: string, data: any): unknown {
   const isDateSuggestionCategory = typeof category === 'string' && category.startsWith('date_suggestion_')
   const senderId = safeNotificationRouteSegment(data?.sender_id)
   if (
-    (category === 'match_call' || category === 'messages' || isDateSuggestionCategory) &&
+    (category === 'messages' || isDateSuggestionCategory) &&
     data?.match_id &&
     senderId
   ) {
@@ -1400,7 +1395,6 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
     title: 'Your video date is waiting for your feedback.',
     body: () => 'Share your post-date vibe to finish the flow.',
   },
-  match_call: { title: 'Incoming call', body: () => 'Open the app to answer' },
   welcome: { title: 'Welcome to Vibely! 💜', body: () => 'Complete your profile to start matching' },
   profile_incomplete: { title: 'Almost there! 📸', body: () => 'Add photos to get 3x more matches' },
 }
@@ -1930,7 +1924,7 @@ Deno.serve(async (req) => {
       typeof category === 'string' && category.startsWith('date_suggestion_')
 
     // 8. Check per-match mute (messages, new_match, and date suggestion categories)
-    if ((category === 'messages' || category === 'match_call' || category === 'new_match' || isDateSuggestionCategory) && data?.match_id) {
+    if ((category === 'messages' || category === 'new_match' || isDateSuggestionCategory) && data?.match_id) {
       // Canonical per-match mute table.
       const { data: notifMute } = await supabase
         .from('match_notification_mutes')
@@ -2051,21 +2045,6 @@ Deno.serve(async (req) => {
     osData.action = baseAction
     const safeSenderId = safeNotificationRouteSegment(data?.sender_id)
     if (
-      category === 'match_call' &&
-      data?.match_id &&
-      safeSenderId
-    ) {
-      const senderId = safeSenderId
-      const chatPath = `/chat/${senderId}`
-      osData.match_id = data.match_id
-      osData.other_user_id = senderId
-      osData.sender_id = senderId
-      if (typeof data.call_id === 'string' && data.call_id.trim()) osData.call_id = data.call_id.trim()
-      if (typeof data.call_type === 'string' && data.call_type.trim()) osData.call_type = data.call_type.trim()
-      osData.url = chatPath
-      osData.deep_link = chatPath
-      webPath = chatPath
-    } else if (
       (category === 'messages' || isDateSuggestionCategory) &&
       data?.match_id &&
       safeSenderId
@@ -2117,10 +2096,6 @@ Deno.serve(async (req) => {
       contents: { en: finalBody },
       data: osData,
       url: webPath !== '/' ? `${APP_URL}${webPath}` : APP_URL,
-    }
-
-    if (category === 'match_call') {
-      osPayload.priority = 10
     }
 
     if (collapseId) {

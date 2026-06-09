@@ -230,7 +230,7 @@ test("daily-room has one actionability-gated Video Date provider/token entry pat
   const prepareBlock = blockBetween(
     dailyRoom,
     'if (action === "prepare_date_entry")',
-    'if (action === "create_match_call")',
+    'return new Response(JSON.stringify({ error: "Unknown action" })',
   );
   assert.match(prepareBlock, /source: "daily_room\.prepare_date_entry"/);
   assert.ok(prepareBlock.indexOf("requireVideoDateReadyGateActionability") < prepareBlock.indexOf('p_action: "prepare_entry"'));

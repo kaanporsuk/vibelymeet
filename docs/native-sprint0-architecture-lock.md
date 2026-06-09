@@ -13,7 +13,7 @@
 | Provider | Role in native | Primary touchpoints |
 |----------|----------------|---------------------|
 | **Supabase** | Auth (PKCE + AsyncStorage), Postgres reads/writes, RPCs, Realtime, Edge Function invokes | `apps/mobile/lib/supabase.ts`, domain `lib/*Api.ts` |
-| **Daily.co** | Video date + match-call WebRTC rooms | `@daily-co/react-native-daily-js`, Edge `daily-room` (`prepare_date_entry`, `delete_room`) |
+| **Daily.co** | Golden Video Date WebRTC rooms | `@daily-co/react-native-daily-js`, Edge `daily-room` (`prepare_date_entry`, `video_date_leave`, `delete_room`) |
 | **Bunny** | Vibe video TUS upload + Stream CDN playback hostnames | `create-video-upload` / playback URL helpers, `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` for photos |
 | **OneSignal** | Push registration + notification routing | `react-native-onesignal`, `apps/mobile/lib/onesignal.ts`, prefs mirror web columns |
 | **RevenueCat** | IAP + entitlement gate | `react-native-purchases`, `lib/revenuecat.ts`, webhook-synced backend |

@@ -7,7 +7,7 @@ const exists = (path: string) => existsSync(new URL(`../../${path}`, import.meta
 
 test("chat overflow actions use server-owned archive, mute, and unmatch contracts", () => {
   const migration = read("supabase/migrations/20260509235500_chat_overflow_actions_server_contract.sql");
-  const unmatchActorMigration = read("supabase/migrations/20260511153000_match_call_unmatch_actor.sql");
+  const matchCallRemovalMigration = read("supabase/migrations/20260609224646_remove_match_calls.sql");
   const webArchive = read("src/hooks/useArchiveMatch.ts");
   const webMute = read("src/hooks/useMuteMatch.ts");
   const webUnmatch = read("src/hooks/useUnmatch.ts");
@@ -16,7 +16,6 @@ test("chat overflow actions use server-owned archive, mute, and unmatch contract
   const nativeMute = read("apps/mobile/lib/useMuteMatch.ts");
   const nativeUnmatch = read("apps/mobile/lib/useUnmatch.ts");
   const nativeBlock = read("apps/mobile/lib/useBlockUser.ts");
-  const blockMigration = read("supabase/migrations/20260430211000_blocked_users_server_owned_safety.sql");
   const lockdownMigration = read(
     "supabase/migrations/20260510001000_chat_overflow_rls_write_lockdown_followup.sql",
   );
@@ -29,9 +28,9 @@ test("chat overflow actions use server-owned archive, mute, and unmatch contract
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.set_match_notification_mute/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.clear_match_notification_mute/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.unmatch_match/);
-  assert.match(unmatchActorMigration, /CREATE OR REPLACE FUNCTION public\.unmatch_match/);
-  assert.match(unmatchActorMigration, /ended_reason = COALESCE\(ended_reason, 'unmatched_pair'\)/);
-  assert.match(unmatchActorMigration, /ended_by_user_id = COALESCE\(ended_by_user_id, v_uid\)/);
+  assert.match(matchCallRemovalMigration, /CREATE OR REPLACE FUNCTION public\.unmatch_match/);
+  assert.doesNotMatch(matchCallRemovalMigration, /UPDATE public\.match_calls/);
+  assert.doesNotMatch(matchCallRemovalMigration, /match_calls_closed/);
   assert.match(migration, /DROP POLICY IF EXISTS "Users can archive own matches"/);
   assert.match(migration, /DROP POLICY IF EXISTS "Users can manage own match mutes"/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.set_match_archive_state\(uuid, boolean\) TO authenticated/);
@@ -76,7 +75,8 @@ test("chat overflow actions use server-owned archive, mute, and unmatch contract
     assert.doesNotMatch(source, /\.from\(["']matches["']\)\s*[\s\S]*\.delete\(\)/);
   }
 
-  assert.match(blockMigration, /CREATE OR REPLACE FUNCTION public\.block_user_with_cleanup/);
+  assert.match(matchCallRemovalMigration, /CREATE OR REPLACE FUNCTION public\.block_user_with_cleanup/);
+  assert.doesNotMatch(matchCallRemovalMigration, /status = CASE WHEN status = 'ringing'/);
   for (const source of [webBlock, nativeBlock]) {
     assert.match(source, /block_user_with_cleanup/);
     assert.match(source, /get_my_blocked_users/);
@@ -119,7 +119,7 @@ test("web and native chat action surfaces stay wired to shared UI contracts", ()
   assert.match(nativeReportModal, /alsoBlock/);
 });
 
-test("archiving is private organization state and does not globally block match calls", () => {
+test("archiving is private organization state and does not affect Daily-room ownership", () => {
   const dailyRoom = read("supabase/functions/daily-room/index.ts");
   const migration = read("supabase/migrations/20260509235500_chat_overflow_actions_server_contract.sql");
 
@@ -129,179 +129,45 @@ test("archiving is private organization state and does not globally block match 
   assert.doesNotMatch(dailyRoom, /archived_at/);
 });
 
-test("match-call provider rate limits are surfaced through shared UI codes", () => {
+test("chat match-call files, actions, table, cron, and notification preference are removed", () => {
   const dailyRoom = read("supabase/functions/daily-room/index.ts");
-  const sharedCodes = read("shared/chat/matchCallEdgeCodes.ts");
-  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
-  const nativeMatchCallHook = read("apps/mobile/lib/useMatchCall.tsx");
+  const migration = read("supabase/migrations/20260609224646_remove_match_calls.sql");
+  const sendNotification = read("supabase/functions/send-notification/index.ts");
+  const webChat = read("src/pages/Chat.tsx");
+  const nativeChat = read("apps/mobile/app/chat/[id].tsx");
+  const webHeader = read("src/components/chat/ChatHeader.tsx");
+  const webSettings = read("src/hooks/useNotificationPreferences.ts");
+  const nativeSettings = read("apps/mobile/lib/useNotificationPreferences.ts");
+  const generatedTypes = read("src/integrations/supabase/types.ts");
 
-  assert.match(dailyRoom, /DAILY_RATE_LIMIT/);
-  assert.match(sharedCodes, /DAILY_RATE_LIMIT: "DAILY_RATE_LIMIT"/);
-  assert.match(sharedCodes, /\[MATCH_CALL_EDGE_CODES\.DAILY_RATE_LIMIT\]/);
-  assert.match(webMatchCallHook, /messageForMatchCallEdgeCode\(answerEdgeCode\)/);
-  assert.match(nativeMatchCallHook, /messageForMatchCallEdgeCode\(result\.code\)/);
-});
-
-test("match-call end reason migrations preserve archive and block terminal reasons", () => {
-  const endReasonMigration = read("supabase/migrations/20260511120000_match_call_end_reasons.sql");
-  const repairMigration = read("supabase/migrations/20260511133000_match_call_blocked_pair_reason_repair.sql");
-  const cloudRepairMigration = read(
-    "supabase/migrations/20260511143000_match_call_unmatched_pair_reason_cloud_repair.sql",
-  );
-  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
-  const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
-  const nativeMatchCallApi = read("apps/mobile/lib/matchCallApi.ts");
-
-  assert.match(endReasonMigration, /ended_reason IN \([\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
-  assert.match(endReasonMigration, /v_allowed\s+text\[\]\s*:= ARRAY\[[\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
-  assert.match(repairMigration, /ended_reason IN \([\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
-  assert.match(cloudRepairMigration, /ended_reason IN \([\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
-  assert.match(cloudRepairMigration, /v_transition_fn\s+regprocedure/);
-  assert.match(cloudRepairMigration, /to_regprocedure\('public\.match_call_transition\(uuid,text,text\)'\)/);
-  assert.match(cloudRepairMigration, /pg_get_functiondef\(v_transition_fn\)/);
-  assert.doesNotMatch(cloudRepairMigration, /pg_get_functiondef\('public\.match_call_transition\(uuid,text,text\)'::regprocedure\)/);
-  assert.match(cloudRepairMigration, /''provider_error'',\s*''blocked_pair'',\s*''unmatched_pair'',\s*''busy''/);
-  assert.match(cloudRepairMigration, /''blocked_pair'',\s*''unmatched_pair'',\s*''busy''/);
-
-  for (const source of [webMatchCallHook, webActiveCallOverlay, nativeMatchCallApi]) {
-    assert.match(source, /unmatched_pair/);
+  for (const path of [
+    "src/hooks/useMatchCall.tsx",
+    "src/components/chat/IncomingCallOverlay.tsx",
+    "src/components/chat/ActiveCallOverlay.tsx",
+    "apps/mobile/lib/useMatchCall.tsx",
+    "apps/mobile/lib/matchCallApi.ts",
+    "apps/mobile/components/chat/IncomingCallOverlay.tsx",
+    "apps/mobile/components/chat/ActiveCallOverlay.tsx",
+    "shared/chat/matchCallDiag.ts",
+    "shared/chat/matchCallEdgeCodes.ts",
+    "supabase/functions/match-call-room-cleanup/index.ts",
+  ]) {
+    assert.equal(exists(path), false, `${path} should be removed`);
   }
-  assert.match(webActiveCallOverlay, /case "unmatched_pair":/);
-});
 
-test("match-call camera switching stays wired on web and native chat calls", () => {
-  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
-  const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
-  const webSelfViewPip = read("src/components/video-date/SelfViewPIP.tsx");
-  const nativeMatchCallHook = read("apps/mobile/lib/useMatchCall.tsx");
-  const nativeSwitchCommit = read("shared/chat/nativeCameraSwitchCommit.ts");
-  const nativeActiveCallOverlay = read("apps/mobile/components/chat/ActiveCallOverlay.tsx");
+  for (const source of [dailyRoom, sendNotification, webChat, nativeChat, webHeader, webSettings, nativeSettings]) {
+    assert.doesNotMatch(source, /match_call|match_calls|create_match_call|answer_match_call|join_match_call|notify_match_calls/);
+  }
 
-  assert.match(webMatchCallHook, /navigator\.mediaDevices[\s\S]*enumerateDevices/);
-  assert.match(webMatchCallHook, /canFlipCamera/);
-  assert.match(webMatchCallHook, /isFlippingCamera/);
-  assert.match(webMatchCallHook, /const flipCamera = useCallback/);
-  assert.match(webMatchCallHook, /waitForWebCameraSwitchCommit/);
-  assert.match(webMatchCallHook, /chooseWebVideoDevice/);
-  assert.match(webMatchCallHook, /const currentDeviceId = before\.deviceId/);
-  assert.match(webMatchCallHook, /return currentDeviceId \? candidates\[0\] \?\? null : null/);
-  assert.match(webMatchCallHook, /localCamera\.readyState !== "live"/);
-  assert.match(webMatchCallHook, /before\.readyState !== "live"/);
-  assert.match(
-    webMatchCallHook,
-    /if \(live && \(trackChanged \|\| deviceChanged \|\| facingChanged \|\| expectedDeviceMatched \|\| expectedFacingMatched\)\)/,
-  );
-  assert.match(webMatchCallHook, /setInputDevicesAsync/);
-  assert.match(webMatchCallHook, /cycleCamera/);
-  assert.match(webMatchCallHook, /has_cycle_camera/);
-  assert.match(webMatchCallHook, /flip_camera_committed/);
-  assert.match(webActiveCallOverlay, /canFlipCamera=\{canFlipCamera\}/);
-  assert.match(webActiveCallOverlay, /isFlippingCamera=\{isFlippingCamera\}/);
-  assert.match(webActiveCallOverlay, /onFlipCamera=\{canFlipCamera \? onFlipCamera : undefined\}/);
-  assert.match(webSelfViewPip, /aria-label="Switch camera"/);
-  assert.match(webSelfViewPip, /<SwitchCamera/);
-
-  assert.match(nativeMatchCallHook, /const \[canFlipCamera, setCanFlipCamera\] = useState\(false\)/);
-  assert.match(nativeMatchCallHook, /enumerateDevices/);
-  assert.match(nativeMatchCallHook, /setCamera/);
-  assert.match(nativeMatchCallHook, /cycleCamera/);
-  assert.match(nativeMatchCallHook, /waitForNativeCameraSwitchCommit/);
-  assert.match(nativeMatchCallHook, /type NativeCameraState/);
-  assert.match(nativeMatchCallHook, /const nativeCameraStateRef = useRef<NativeCameraState>\(emptyNativeCameraState\(\)\)/);
-  assert.match(nativeMatchCallHook, /resolveNativeCameraState/);
-  assert.match(nativeMatchCallHook, /nativeCameraStateFromCommit/);
-  assert.match(nativeMatchCallHook, /fallbackDeviceMatchesCommittedFacing/);
-  assert.match(nativeMatchCallHook, /fallbackState\.facingMode === commit\.facingMode/);
-  assert.match(nativeMatchCallHook, /nativeCameraDeviceFacingMode/);
-  assert.match(nativeMatchCallHook, /const desiredFacingMatches = usable\.filter/);
-  assert.match(nativeMatchCallHook, /desiredFacingMatches\.find\(\(device\) => nativeCameraDeviceKey\(device\) !== currentDeviceKey\)/);
-  assert.match(nativeMatchCallHook, /localCamera\.readyState === 'live'/);
-  assert.match(nativeMatchCallHook, /before\.readyState !== 'live'/);
-  assert.match(nativeMatchCallHook, /expectedDeviceKey/);
-  assert.match(nativeSwitchCommit, /expectedDeviceMatched/);
-  assert.match(nativeSwitchCommit, /controlsExpectedFacingMatched/);
-  assert.match(nativeSwitchCommit, /snapshotExpectedFacingMatched/);
-  assert.match(nativeSwitchCommit, /controlsFacingChangedFromBefore/);
-  assert.match(nativeSwitchCommit, /controlsFacingChangedFromPrevious/);
-  assert.match(nativeSwitchCommit, /snapshotFacingChangedFromBefore/);
-  assert.match(nativeSwitchCommit, /cameraIdentityChanged/);
-  assert.match(nativeMatchCallHook, /previousControlsFacing/);
-  assert.match(nativeMatchCallHook, /const beforeControlsFacing = await readNativeCameraFacingMode\(controls\)/);
-  assert.match(nativeMatchCallHook, /currentCamera\.source === 'controls' \? currentCamera\.facingMode : beforeControlsFacing/);
-  assert.match(nativeMatchCallHook, /committedFacingConflictsWithObserved/);
-  assert.match(nativeMatchCallHook, /mergeNativeCameraState\(observedState, committedState, observedState\.source\)/);
-  assert.match(nativeMatchCallHook, /beforeDeviceKey/);
-  assert.match(nativeSwitchCommit, /expectedFacing !== baselineFacingMode/);
-  assert.match(nativeSwitchCommit, /controlsFacing === expectedFacing/);
-  assert.match(nativeSwitchCommit, /controlsFacingChangedFromBefore \|\| controlsFacingChangedFromPrevious \|\| cameraIdentityChanged/);
-  assert.match(nativeSwitchCommit, /snapshotFacingChangedFromBefore \|\| cameraIdentityChanged/);
-  assert.match(nativeSwitchCommit, /expectedDeviceKey !== beforeDeviceKey/);
-  assert.match(nativeSwitchCommit, /trackChangedToExpectedTarget/);
-  assert.match(nativeSwitchCommit, /trackChangedWithoutIdentity/);
-  assert.doesNotMatch(nativeSwitchCommit, /NativeMatchCallCamera|resolveNativeMatchCallCamera/);
-  assert.match(nativeMatchCallHook, /targetCanImproveFacing/);
-  assert.match(nativeMatchCallHook, /controlsFacingConflictsWithTrack/);
-  assert.match(nativeMatchCallHook, /facingMode: controlsFacingConflictsWithTrack \? controlsFacing : trackState\.facingMode \?\? controlsFacing/);
-  assert.match(nativeMatchCallHook, /source: controlsFacingConflictsWithTrack \|\| !trackState\.facingMode \? 'controls' : 'track'/);
-  assert.match(nativeMatchCallHook, /flip_camera_start/);
-  assert.match(nativeMatchCallHook, /flip_camera_set_camera_target/);
-  assert.match(nativeMatchCallHook, /current_facing_mode/);
-  assert.match(nativeMatchCallHook, /target_facing_mode/);
-  assert.match(nativeMatchCallHook, /nativeCameraStateRef\.current = committedState/);
-  assert.match(nativeMatchCallHook, /has_cycle_camera/);
-  assert.match(nativeMatchCallHook, /flip_camera_committed/);
-  assert.match(nativeMatchCallHook, /canFlipCamera=\{canFlipCamera\}/);
-  assert.match(nativeMatchCallHook, /isFlippingCamera=\{isFlippingCamera\}/);
-  assert.match(nativeMatchCallHook, /onFlipCamera=\{flipCamera\}/);
-  assert.match(nativeActiveCallOverlay, /canFlipCamera && !isVideoOff && localVideoTrack/);
-  assert.match(nativeActiveCallOverlay, /accessibilityLabel="Switch camera"/);
-  assert.match(nativeActiveCallOverlay, /disabled=\{isFlippingCamera\}/);
-  assert.match(nativeActiveCallOverlay, /name="camera-reverse"/);
-});
-
-test("match-call media toggles recover from blocked camera and microphone permissions", () => {
-  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
-  const nativeMatchCallHook = read("apps/mobile/lib/useMatchCall.tsx");
-
-  assert.match(webMatchCallHook, /audioState === "blocked"/);
-  assert.match(webMatchCallHook, /toast\.error\("Microphone access needed"/);
-  assert.match(webMatchCallHook, /Allow microphone access in your browser settings, then try again\./);
-  assert.match(webMatchCallHook, /label: "I updated settings"/);
-  assert.match(webMatchCallHook, /toggle_mute_settings_retry_failed/);
-  assert.match(webMatchCallHook, /videoState === "blocked"/);
-  assert.match(webMatchCallHook, /toast\.error\("Camera access needed"/);
-  assert.match(webMatchCallHook, /Allow camera access in your browser settings, then try again\./);
-  assert.match(webMatchCallHook, /toggle_video_settings_retry_failed/);
-  assert.doesNotMatch(webMatchCallHook, /Microphone is blocked\. Allow it in your browser settings to unmute\./);
-  assert.doesNotMatch(webMatchCallHook, /Camera is blocked\. Allow it in your browser settings to turn it on\./);
-
-  assert.match(nativeMatchCallHook, /local\?\.tracks\?\.audio\?\.state === 'blocked'/);
-  assert.match(nativeMatchCallHook, /Alert\.alert\(\s*'Microphone access needed'/);
-  assert.match(nativeMatchCallHook, /Re-enable it in Settings, then return to the call\./);
-  assert.match(nativeMatchCallHook, /\{ text: 'Open Settings', onPress: \(\) => void Linking\.openSettings\(\) \}/);
-  assert.match(nativeMatchCallHook, /Promise\.resolve\(\)[\s\S]{0,80}\.then\(\(\) => callObject\.setLocalAudio\(!nextMuted\)\)/);
-  assert.match(nativeMatchCallHook, /local\?\.tracks\?\.video\?\.state === 'blocked'/);
-  assert.match(nativeMatchCallHook, /Alert\.alert\(\s*'Camera access needed'/);
-  assert.match(nativeMatchCallHook, /Promise\.resolve\(\)[\s\S]{0,80}\.then\(\(\) => callObject\.setLocalVideo\(!nextVideoOff\)\)/);
-});
-
-test("match-call active voice controls stay vertically aligned on native and web", () => {
-  const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
-  const nativeActiveCallOverlay = read("apps/mobile/components/chat/ActiveCallOverlay.tsx");
-
-  assert.match(nativeActiveCallOverlay, /<Pressable onPress=\{onEndCall\} style=\{\[styles\.ringingEndBtn,/);
-  assert.match(nativeActiveCallOverlay, /<Pressable onPress=\{onEndCall\} style=\{\[styles\.voiceEndBtn,/);
-  assert.match(nativeActiveCallOverlay, /controlsRow: \{ flexDirection: 'row', alignItems: 'center'/);
-  assert.match(
-    nativeActiveCallOverlay,
-    /ringingEndBtn: \{ width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginTop: spacing\.xl \}/,
-  );
-  assert.match(
-    nativeActiveCallOverlay,
-    /voiceEndBtn: \{ width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' \}/,
-  );
-  assert.doesNotMatch(nativeActiveCallOverlay, /voiceEndBtn:[^\n]*marginTop/);
-
-  assert.match(webActiveCallOverlay, /<div className="flex items-center gap-6">/);
-  assert.match(webActiveCallOverlay, /className="w-14 h-14 rounded-full bg-destructive flex items-center justify-center"/);
+  assert.match(migration, /DROP TABLE IF EXISTS public\.match_calls CASCADE/);
+  assert.match(migration, /DROP FUNCTION IF EXISTS public\.match_call_transition\(uuid, text, text\)/);
+  assert.match(migration, /DROP FUNCTION IF EXISTS public\.match_call_transition\(uuid, text\)/);
+  assert.match(migration, /DROP FUNCTION IF EXISTS public\.expire_stale_match_calls\(\)/);
+  assert.match(migration, /DROP COLUMN IF EXISTS notify_match_calls/);
+  assert.match(migration, /match-call-room-cleanup/);
+  assert.doesNotMatch(generatedTypes, /\bmatch_calls\b/);
+  assert.doesNotMatch(generatedTypes, /\bmatch_call_transition\b/);
+  assert.doesNotMatch(generatedTypes, /\bnotify_match_calls\b/);
+  assert.match(webChat, /useMessages|handleSend/);
+  assert.match(nativeChat, /useMessages|handleSend/);
 });

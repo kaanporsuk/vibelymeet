@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -185,7 +185,6 @@ test("native saved-video Vibe Clip picker has a real file fallback", () => {
 
 test("native permission settings recovery is centralized and refreshes on app return", () => {
   const helper = readRepo("apps/mobile/lib/permissionSettings.ts");
-  const matchCall = readRepo("apps/mobile/lib/useMatchCall.tsx");
   const dashboardPrompt = readRepo("apps/mobile/components/notifications/PushPermissionPrompt.tsx");
   const notificationStep = readRepo("apps/mobile/components/onboarding/steps/NotificationStep.tsx");
   const directOpenSettingsHits = findRepoFilesContaining(/Linking\.openSettings\(/, "apps/mobile")
@@ -196,11 +195,6 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.match(helper, /Linking\.openURL\('app-settings:'\)/);
   assert.match(helper, /export function useSettingsReturnRefresh/);
   assert.match(helper, /AppState\.addEventListener\('change'/);
-  assert.match(matchCall, /matchCallPermissionSettingsTargetRef/);
-  assert.match(matchCall, /retryMatchCallMediaAfterSettingsReturn/);
-  assert.match(matchCall, /next === 'active'[\s\S]*retryMatchCallMediaAfterSettingsReturn/);
-  assert.match(matchCall, /setLocalAudio\(true\)/);
-  assert.match(matchCall, /setLocalVideo\(true\)/);
   assert.match(notificationStep, /settingsRecoveryActiveRef/);
   assert.match(notificationStep, /setupRecoveryMessage/);
   assert.match(notificationStep, /syncBackendAfterPushGrant\(promptUserId\)\.then\(\(sync\) => \{/);
@@ -213,26 +207,16 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.deepEqual(directOpenSettingsHits, []);
 });
 
-test("native match calls preflight local media before Daily room work", () => {
-  const source = readRepo("apps/mobile/lib/useMatchCall.tsx");
-  const answer = /const acceptCall = useCallback\(async \(\) => \{([\s\S]*?)let answeredRoomName/.exec(source)?.[1] ?? "";
-  const start = /const startCall = useCallback\(\s*async \(\{ matchId, type, partnerUserId, partnerName, partnerAvatarUri \}: StartCallParams\) => \{([\s\S]*?)logMatchCallDiag\('start_call_invoked'/.exec(source)?.[1] ?? "";
+test("native match-call permission surface is removed", () => {
+  assert.equal(existsSync(join(repoRoot, "apps/mobile/lib/useMatchCall.tsx")), false);
+  assert.equal(existsSync(join(repoRoot, "apps/mobile/lib/matchCallApi.ts")), false);
+  assert.equal(existsSync(join(repoRoot, "apps/mobile/components/chat/IncomingCallOverlay.tsx")), false);
+  assert.equal(existsSync(join(repoRoot, "apps/mobile/components/chat/ActiveCallOverlay.tsx")), false);
 
-  assert.match(source, /requestNativeMatchCallMediaPermission/);
-  assert.match(source, /match_call_voice/);
-  assert.match(source, /match_call_video/);
-  assert.match(source, /requestNativeCameraMicrophonePermissions/);
-  assert.match(answer, /requestNativeMatchCallMediaPermission\(pendingIncoming\.callType\)/);
-  assert.match(answer, /answer_call_media_preflight_blocked/);
-  assert.match(start, /requestNativeMatchCallMediaPermission\(type\)/);
-  assert.match(start, /start_call_media_preflight_blocked/);
-  const startCallIndex = source.indexOf("const startCall = useCallback");
-  const preflightIndex = source.indexOf("requestNativeMatchCallMediaPermission(type)", startCallIndex);
-  const createIndex = source.indexOf("createMatchCall(matchId, type)", startCallIndex);
-  assert.ok(
-    startCallIndex >= 0 && preflightIndex > startCallIndex && createIndex > preflightIndex,
-    "start call should preflight before creating or joining a Daily room",
-  );
+  const chat = readRepo("apps/mobile/app/chat/[id].tsx");
+  const permissionUx = readRepo("shared/permissions/permissionUx.ts");
+  assert.doesNotMatch(chat, /useMatchCall|startCall|create_match_call|answer_match_call|join_match_call/);
+  assert.doesNotMatch(permissionUx, /match_call_voice|match_call_video/);
 });
 
 test("native photo verification refreshes permission state after Settings without auto-launching camera", () => {

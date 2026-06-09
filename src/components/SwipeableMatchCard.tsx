@@ -6,7 +6,6 @@ import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
-import { toast } from "sonner";
 import type { ConversationPreview } from "../../shared/chat/conversationListPreview";
 import { ConversationListPreviewLabel } from "./ConversationListPreviewLabel";
 
@@ -149,7 +148,6 @@ export const SwipeableMatchCard = ({
             </div>
           }
           onMessage={onClick}
-          onVideoCall={() => toast.info("Video call feature coming soon!")}
         />
 
         {/* Content - clickable area for chat */}

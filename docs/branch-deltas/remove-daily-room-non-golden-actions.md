@@ -22,7 +22,7 @@ No database migration is required for this pass because the cleanup is Edge Func
 - `prepare_date_entry` remains the web/native Video Date room and token entry path.
 - `video_date_leave` and `delete_room` remain supported cleanup/end actions.
 - `video_date_transition('enter_handshake')` remains intentionally available; current web/native date-entry state still references handshake/timer transition ownership, so removing it is a separate audit/removal target.
-- Match-call actions `create_match_call`, `answer_match_call`, and `join_match_call` remain active for the separate Chat call product and should be extracted or removed in a separate product-scoped PR.
+- Superseded follow-up: `docs/branch-deltas/remove-match-calls.md` removes Match Calls entirely. `create_match_call`, `answer_match_call`, and `join_match_call` are no longer active after migration `20260609224646_remove_match_calls.sql`.
 - Existing `create_date_room_*` provider observability operation labels remain because they are shared provider-room lifecycle labels used internally by `prepare_date_entry`, not public action names.
 
 ## Validation

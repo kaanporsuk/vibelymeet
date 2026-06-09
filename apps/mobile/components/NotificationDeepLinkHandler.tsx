@@ -857,7 +857,6 @@ export function NotificationDeepLinkHandler() {
           path === `/chat/${chatPeerProfileId}` &&
           (cat === 'messages' ||
             cat === 'new_match' ||
-            cat === 'match_call' ||
             isDateSuggestionCat),
         );
         shouldControlDisplay = hasDispatchGroup || shouldSuppressSameThread;

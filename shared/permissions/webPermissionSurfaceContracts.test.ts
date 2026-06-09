@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import {
@@ -156,43 +156,19 @@ test("web voice messages keep persistent microphone recovery beyond toast feedba
   assert.match(source, /I updated settings/);
 });
 
-test("web match call blocked media controls keep persistent in-call recovery", () => {
-  const hook = read("src/hooks/useMatchCall.tsx");
-  const overlay = read("src/components/chat/ActiveCallOverlay.tsx");
+test("web match-call media permission surface is removed", () => {
+  assert.equal(existsSync(join(root, "src/hooks/useMatchCall.tsx")), false);
+  assert.equal(existsSync(join(root, "src/components/chat/IncomingCallOverlay.tsx")), false);
+  assert.equal(existsSync(join(root, "src/components/chat/ActiveCallOverlay.tsx")), false);
 
-  assert.match(hook, /requestWebMatchCallMediaPermission/);
-  assert.match(hook, /navigator\.mediaDevices\.getUserMedia/);
-  assert.match(hook, /start_call_media_preflight_blocked/);
-  assert.match(hook, /answer_call_media_preflight_blocked/);
-  assert.match(hook, /active_rejoin_media_preflight_blocked/);
-  assert.match(hook, /kind: "active_rejoin"/);
-  assert.match(hook, /data-testid="match-call-preflight-permission-recovery"/);
-  const startCallIndex = hook.indexOf("const startCall = useCallback");
-  const preflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(type)", startCallIndex);
-  const createIndex = hook.indexOf('supabase.functions.invoke("daily-room"', startCallIndex);
-  assert.ok(
-    startCallIndex >= 0 && preflightIndex > startCallIndex && createIndex > preflightIndex,
-    "start call should preflight browser media before creating a Daily room",
-  );
-  const rejoinIndex = hook.indexOf("const joinActiveCall = useCallback");
-  const rejoinPreflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(nextCallType)", rejoinIndex);
-  const rejoinDailyIndex = hook.indexOf('supabase.functions.invoke("daily-room"', rejoinIndex);
-  assert.ok(
-    rejoinIndex >= 0 && rejoinPreflightIndex > rejoinIndex && rejoinDailyIndex > rejoinPreflightIndex,
-    "active web rejoin should preflight browser media before requesting a Daily token",
-  );
-  assert.match(hook, /audioState === "blocked"[\s\S]*setLocalAudio\(true\)/);
-  assert.match(hook, /videoState === "blocked"[\s\S]*setLocalVideo\(true\)/);
-  assert.match(overlay, /data-testid="match-call-media-permission-recovery"/);
-  assert.match(overlay, /Retry microphone/);
-  assert.match(overlay, /Retry camera/);
-  assert.match(overlay, /audioStatus === "blocked"/);
-  assert.match(overlay, /videoStatus === "blocked"/);
+  const chat = read("src/pages/Chat.tsx");
+  const permissionUx = read("shared/permissions/permissionUx.ts");
+  assert.doesNotMatch(chat, /useMatchCall|startMatchCall|create_match_call|answer_match_call|join_match_call/);
+  assert.doesNotMatch(permissionUx, /match_call_voice|match_call_video/);
 });
 
 test("web media surfaces classify denials with browser permission state", () => {
   const surfaces = [
-    "src/hooks/useMatchCall.tsx",
     "src/components/vibe-video/VibeStudioModal.tsx",
     "src/components/chat/VideoMessageRecorder.tsx",
     "src/components/chat/VoiceRecorder.tsx",

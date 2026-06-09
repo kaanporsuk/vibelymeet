@@ -11476,7 +11476,7 @@ export default function VideoDateScreen() {
     const call = callRef.current;
     if (!call) return;
     const nextMuted = !isMuted;
-    // Daily: setLocalAudio(true) = mic on, false = mic off (same semantics as web useVideoCall / useMatchCall).
+    // Daily: setLocalAudio(true) = mic on, false = mic off.
     call.setLocalAudio(!nextMuted);
     setIsMuted(nextMuted);
   }, [isMuted]);
