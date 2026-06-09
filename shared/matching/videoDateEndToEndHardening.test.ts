@@ -2604,9 +2604,14 @@ test("native post-date survey drains queued ready gates across the whole survey 
   assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
   assert.match(nativePostDateSurvey, /sourceSurface: ['"]post_date_survey['"]/);
   assert.match(nativePostDateSurvey, /isPendingPostDateFeedbackDrainResult\(result \?\? undefined\)/);
-  assert.match(nativePostDateSurvey, /onVideoDateReady\(pendingSessionId\)/);
-  assert.match(nativePostDateSurvey, /onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
+  assert.match(nativePostDateSurvey, /const queuedDrainRuntimeRef = useRef/);
+  assert.match(nativePostDateSurvey, /runtime\.onVideoDateReady\(pendingSessionId\)/);
+  assert.match(nativePostDateSurvey, /queuedDrainRuntimeRef\.current\.onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
   assert.match(
+    nativePostDateSurvey,
+    /\}, \[\s*drainQueueV2\.enabled,\s*eventId,\s*sessionId,\s*userId,\s*\]\);/,
+  );
+  assert.doesNotMatch(
     nativePostDateSurvey,
     /\}, \[\s*drainQueueV2\.enabled,\s*eventId,\s*finishing,\s*onQueuedVideoSessionReady,\s*onVideoDateReady,\s*sessionId,\s*submitting,\s*userId,\s*verdictUiState,\s*\]\);/,
   );
@@ -3380,7 +3385,9 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /p_provider_session_id: providerSessionId/);
   assert.match(webVideoCallHook, /p_call_instance_id: callInstanceId/);
   assert.match(webVideoCallHook, /p_owner_state: "joined"/);
-  assert.match(webVideoCallHook, /p_evidence_source: attemptSource/);
+  assert.match(webVideoCallHook, /const baseEvidenceSource = source/);
+  assert.match(webVideoCallHook, /p_evidence_source: baseEvidenceSource/);
+  assert.doesNotMatch(webVideoCallHook, /p_evidence_source: attemptSource/);
   assert.match(webVideoCallHook, /mark_video_date_remote_seen_skipped_provider_missing/);
   assert.match(webVideoCallHook, /provider_presence_terminal/);
   assert.match(webVideoCallHook, /videoDateLifecycleRpcRetryable\(payload\)/);
@@ -3443,7 +3450,9 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(nativeVideoDateRoute, /p_provider_session_id: providerSessionId/);
   assert.match(nativeVideoDateRoute, /p_call_instance_id: callInstanceId/);
   assert.match(nativeVideoDateRoute, /p_owner_state: "joined"/);
-  assert.match(nativeVideoDateRoute, /p_evidence_source: attemptSource/);
+  assert.match(nativeVideoDateRoute, /const baseEvidenceSource = source/);
+  assert.match(nativeVideoDateRoute, /p_evidence_source: baseEvidenceSource/);
+  assert.doesNotMatch(nativeVideoDateRoute, /p_evidence_source: attemptSource/);
   assert.match(nativeVideoDateRoute, /mark_video_date_remote_seen_skipped_provider_missing/);
   assert.match(nativeVideoDateRoute, /provider_presence_terminal/);
   assert.match(nativeVideoDateRoute, /videoDateLifecycleRpcRetryable\(payload\)/);

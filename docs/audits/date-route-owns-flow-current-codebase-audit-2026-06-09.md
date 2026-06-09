@@ -22,7 +22,7 @@ Read-only cloud evidence:
 
 | Check | Result |
 |---|---|
-| `supabase migration list --linked` | Latest local and remote migration both include `20260608215911`. |
+| `supabase migration list --linked` | Audit-time read-only evidence topped out at `20260608215911`; this row is historical to the PR #1259 audit snapshot and is superseded by later command-center/cloud alignment evidence, including `20260608224048` and the 2026-06-09 stable-media migration chain. |
 | `supabase db push --linked --dry-run` | `Remote database is up to date.` |
 | `supabase functions list` | `daily-room` active, version 861, updated `2026-06-08 13:49:31 UTC`; Video Date support functions active. |
 | `npm run verify:video-date:functions -- --require-remote` | 42 pass, 0 warn, 0 fail. |

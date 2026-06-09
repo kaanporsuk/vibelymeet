@@ -244,9 +244,16 @@ test("active surface ownership is continuous across web and native route churn",
   assert.match(webSurfaceGuard, /useLayoutEffect/);
   assert.match(webSurfaceGuard, /Passive lease cleanup must see the newest terminal\/exit bridge decision/);
   assert.match(webSurfaceGuard, /shouldBridgeOnCleanupRef\.current = shouldBridgeOnCleanup/);
+  assert.match(webSurfaceGuard, /waitingForClaimableTruth = payload\?\.code === "SURFACE_NOT_CLAIMABLE"/);
+  assert.match(webSurfaceGuard, /if \(waitingForClaimableTruth\) \{[\s\S]{0,180}serverClaimBackoffUntilRef\.current = 0/);
   assert.match(webSurfaceGuard, /const shouldBridge = shouldBridgeOnCleanupRef\.current\?\.\(\) \?\? true/);
   assert.match(webSurfaceGuard, /clearServerSurfaceClaimBridge\(activeKey, serverClientInstanceId\)/);
+  assert.match(webVideoDate, /const videoDateSurfaceClaimable =/);
+  assert.match(webVideoDate, /Boolean\(handshakeStartedAt\)/);
+  assert.match(webVideoDate, /Boolean\(dateStartedAt\)/);
+  assert.match(webVideoDate, /serverTimeline\?\.phase === "handshake"[\s\S]{0,120}serverTimeline\.phaseStartedAtMs !== null/);
   assert.match(webVideoDate, /const videoDateSurfaceLeaseActive =/);
+  assert.match(webVideoDate, /videoDateAccess === "allowed" &&[\s\S]{0,80}videoDateSurfaceClaimable/);
   assert.match(webVideoDate, /shouldBridgeVideoDateSurfaceOnCleanup/);
   assert.match(webVideoDate, /!manualExitInFlightRef\.current/);
   assert.match(webVideoDate, /!terminalSurveyRecoveryInFlightRef\.current/);
