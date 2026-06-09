@@ -68,7 +68,7 @@ Responsibilities:
 
 All previous `const { user } = useAuth()` call sites in **shared/core** have been moved to `useUserProfile()`:
 
-- Hooks: `useDailyDrop`, `useVisibleEvents`, `useEvents` (`useNextRegisteredEvent`), `useEventDetails`, `useEventStatus`, `useCredits`, `useEventReminders`, `useNotificationPreferences`, `useBlockUser`, `useMatches`, `useSubscription`, `useActivityHeartbeat`, `useMatchQueue`, `useMatchCall`, `useEventDeck`, `useDeletionRecovery`, `useMuteMatch`, `useRegistrations` (`useReengagementNotifications` removed — PR #143; web `useMysteryMatch` removed — session cleanup, native uses `lib/useMysteryMatch`)
+- Hooks: `useDailyDrop`, `useVisibleEvents`, `useEvents` (`useNextRegisteredEvent`), `useEventDetails`, `useEventStatus`, `useCredits`, `useEventReminders`, `useNotificationPreferences`, `useBlockUser`, `useMatches`, `useSubscription`, `useActivityHeartbeat`, `useMatchQueue`, `useMatchCall`, `useEventDeck`, `useDeletionRecovery`, `useMuteMatch`, `useRegistrations` (`useReengagementNotifications` removed — PR #143; web/native `useMysteryMatch` removed — Mystery Match removal)
 - Components/pages that only needed profile data: `Dashboard`, `Events`, `EventLobby`, `Matches`, `Credits`, `Chat`, `ReadyGate`, `ReadyGateOverlay`, `MiniProfileModal`, `MatchSuccessModal`, `PauseAccountFlow`, `PushPermissionPrompt`, `NotificationManager`, `AccountSettingsDrawer`, `FeedbackDrawer`, `AdminGrantCreditsModal`, `AdminEventsPanel`, `ReportWizard`, `ProfileWizard`, `PostDateSurvey`, `EventDetails`
 
 ### 3. Account status ownership (pause / resume / admin flags)

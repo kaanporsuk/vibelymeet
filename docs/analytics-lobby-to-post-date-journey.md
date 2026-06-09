@@ -23,10 +23,8 @@ Event Lobby operator diagnostics now also use `shared/observability/eventLobbyOb
 | `lobby_empty_state_impression` | User sees persistent empty deck UI (deck clear / exhausted path). | `platform`, `event_id` |
 | `lobby_empty_state_refresh_tap` | User taps refresh on empty deck. | `platform`, `event_id` |
 | `lobby_convergence_impression` | Lobby yields UI to “Opening Ready Gate…” / “Joining your date…” while session converges. | `platform`, `event_id`, optional `source_surface`: `ready_gate` \| `video_date` |
-| `mystery_match_cta_impression` | Mystery Match CTA visible (web/native empty deck). | `platform`, `event_id` |
-| `mystery_match_cta_tap` | User starts Mystery Match search. | `platform`, `event_id` |
-| `mystery_match_outcome` | RPC/search produced a session or entered waiting loop. | `platform`, `event_id`, `outcome`: `matched` \| `waiting` \| `error` |
-| `mystery_match_cancel` | User cancels Mystery search / waiting. | `platform`, `event_id` |
+
+Mystery Match analytics were retired on 2026-06-09 when the product/backend path was removed.
 
 Safe `lobby_deck_empty.reason` values: `event_not_active`, `user_not_eligible`, `no_confirmed_candidates`, `all_candidates_filtered`, `all_candidates_seen_locally`, `all_candidates_busy_or_unavailable`, `rpc_error`, `network_error`, `unknown`.
 

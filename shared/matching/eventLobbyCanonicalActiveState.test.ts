@@ -44,6 +44,10 @@ const singleOwnerDrainMigration = readFileSync(
 );
 const validation = readFileSync(join(root, "supabase/validation/event_lobby_active_event_contract.sql"), "utf8");
 const swipeActions = readFileSync(join(root, "supabase/functions/swipe-actions/index.ts"), "utf8");
+const mysteryMatchRemoval = readFileSync(
+  join(root, "supabase/migrations/20260609152000_remove_mystery_match.sql"),
+  "utf8",
+);
 
 type EventFixture = {
   exists?: boolean;
@@ -311,19 +315,10 @@ test("handle_swipe rejects inactive events before every mutation or notification
   assert.doesNotMatch(idempotencyBase, /ev\.status = 'live'/);
 });
 
-test("find_mystery_match rejects inactive events before session creation", () => {
-  const mystery = sectionFrom(
-    scheduledActivationMigration,
-    "CREATE OR REPLACE FUNCTION public.find_mystery_match",
-    "COMMENT ON FUNCTION public.find_mystery_match",
-  );
-  const registrationIndex = mystery.indexOf("profile_id = p_user_id");
-  const activeIndex = mystery.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
-  const delegateIndex = mystery.indexOf("public.find_mystery_match_20260502083000_active_base");
-
-  assert.ok(activeIndex > registrationIndex);
-  assert.ok(delegateIndex > activeIndex, "mystery base session creation must be behind active guard");
-  assert.match(mystery, /'error', 'event_not_active'[\s\S]*'terminal', true/);
+test("Mystery Match is removed instead of guarded as a session creation path", () => {
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260502083000_active_base\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
 });
 
 test("queue promotion and drain block inactive events before promotion delegation", () => {
@@ -412,7 +407,7 @@ test("production validation is read-only and checks canonical active-state marke
   assert.match(validation, /handle_swipe_20260502083000_ready_queue_base/);
   assert.match(validation, /promote_ready_gate_if_eligible_20260505223000_lock_order_base/);
   assert.match(validation, /drain_match_queue_v2_20260605232304_single_owner_base/);
-  assert.match(validation, /find_mystery_match_20260502083000_active_base/);
+  assert.match(validation, /mystery_match_rpc_removed/);
   assert.match(validation, /legacy_direct_session_paths_deprecated/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(validation), /\b(insert|update|delete|truncate|alter|drop|create|grant|revoke)\b/i);
 });

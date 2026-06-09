@@ -463,7 +463,6 @@ Prompt 9 native implementation should audit these files first:
 - `apps/mobile/app/ready/[id].tsx`
 - `apps/mobile/app/date/[id].tsx`
 - `apps/mobile/lib/useActiveSession.ts`
-- `apps/mobile/lib/useMysteryMatch.ts`
 - `apps/mobile/lib/imageUrl.ts`
 - `supabase/functions/_shared/eventProfileAdapters.ts`
 - `supabase/functions/_shared/matching/videoSessionFlow.ts`
@@ -476,7 +475,7 @@ Implementation deltas to verify in Prompt 9:
 - Super Vibe remaining UI treats backend outcomes as final truth and does not locally spend allowance before confirmation.
 - Ready Gate overlay and `/ready/[id]` dedupe by `video_session_id` across realtime, polling, deep links, and queued promotion.
 - Event ending while in the lobby stops deck polling, disables swipes, closes transient swipe actions, and routes/shows a terminal state.
-- Queue drain and mystery match calls remain gated by active event, confirmed registration, foreground/focus, and pause state.
+- Queue drain calls remain gated by active event, confirmed registration, foreground/focus, and pause state.
 - Media fallback remains photo, then avatar, then placeholder, with full-card deck image sizing.
 - Native observability uses the shared event names and sanitized properties.
 

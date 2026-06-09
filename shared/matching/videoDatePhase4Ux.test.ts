@@ -82,7 +82,6 @@ test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry state
       actionLabel: "View matches",
       actionTarget: "matches",
       showRefresh: false,
-      showMysteryMatch: false,
       retryable: false,
       terminal: true,
     },
@@ -97,23 +96,27 @@ test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry state
     "event",
   );
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "not_registered" }).showRefresh, false);
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckStateReason: "viewer_paused" }).showMysteryMatch, false);
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "no_confirmed_candidates" }).badge, "Room warming up");
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "no_confirmed_candidates" }).showMysteryMatch, true);
+  assert.equal("showMysteryMatch" in resolveEventDeckPhase4UiState({ platform: "native", deckStateReason: "viewer_paused" }), false);
+  const noConfirmedCandidates = resolveEventDeckPhase4UiState({
+    platform: "web",
+    deckStateReason: "no_confirmed_candidates",
+  });
+  assert.equal(noConfirmedCandidates.badge, "Room warming up");
+  assert.equal("showMysteryMatch" in noConfirmedCandidates, false);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "no_remaining_profiles" }).title, "You've seen everyone for now");
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckStateReason: "scan_window_exhausted" }).showMysteryMatch, true);
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "scan_window_exhausted" }).showMysteryMatch, true);
+  assert.equal("showMysteryMatch" in resolveEventDeckPhase4UiState({ platform: "native", deckStateReason: "scan_window_exhausted" }), false);
+  assert.equal("showMysteryMatch" in resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "scan_window_exhausted" }), false);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckErrorReason: "network_error" }).actionLabel, "Retry");
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckErrorReason: "network_error" }).showMysteryMatch, false);
+  assert.equal("showMysteryMatch" in resolveEventDeckPhase4UiState({ platform: "web", deckErrorReason: "network_error" }), false);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckErrorReason: "rpc_error" }).retryable, true);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).title, "Holding your place");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).showRefresh, false);
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).showMysteryMatch, false);
+  assert.equal("showMysteryMatch" in resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }), false);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "blocked" }).title, "This match is unavailable");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "media_unavailable" }).title, "Media is unavailable");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "media_unavailable" }).retryable, true);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "event_not_active", inactiveReason: "event_ended" }).terminal, true);
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "event_not_active", inactiveReason: "event_ended" }).showMysteryMatch, false);
+  assert.equal("showMysteryMatch" in resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "event_not_active", inactiveReason: "event_ended" }), false);
 });
 
 test("Phase 4 queue labels stay approximate and expose priority relief", () => {
@@ -377,11 +380,11 @@ test("Phase 4 web/native surfaces consume shared UX helpers", () => {
   assert.doesNotMatch(webLobby, /formatVideoDateQueueHintLabel/);
   assert.doesNotMatch(nativeLobby, /formatVideoDateQueueHintLabel/);
   assert.match(webLobby, /emptyDeckUiState\.showRefresh/);
-  assert.match(webLobby, /emptyDeckUiState\.showMysteryMatch/);
+  assert.doesNotMatch(webLobby, /emptyDeckUiState\.showMysteryMatch/);
   assert.match(webLobby, /deckErrorUiState\.actionLabel \|\| deckErrorUiState\.showRefresh/);
   assert.match(webLobby, /deckErrorUiState\.actionTarget === "matches"[\s\S]+navigate\("\/matches"/);
   assert.match(webLobby, /deckErrorUiState\.actionTarget === "event"[\s\S]+navigate\(eventId \? `\/events\/\$\{eventId\}` : "\/events"/);
   assert.match(nativeLobby, /router\.replace\(["']\/\(tabs\)\/matches["']\)/);
-  assert.match(nativeLobby, /emptyDeckUiState\.showMysteryMatch/);
+  assert.doesNotMatch(nativeLobby, /emptyDeckUiState\.showMysteryMatch/);
   assert.match(nativeLobby, /emptyDeckUiState\.showRefresh/);
 });

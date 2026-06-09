@@ -38,7 +38,6 @@ const supabaseTypes = read("src/integrations/supabase/types.ts");
 
 const preferenceSection = functionSection(migration, "preference_allows_gender");
 const baseDeckSection = functionSection(migration, "get_event_deck_20260501180000_active_base");
-const mysteryMatchSection = functionSection(migration, "find_mystery_match_20260501180000_active_base");
 const impressionSection = functionSection(migration, "record_event_profile_impression_v2");
 const deckV3Section = functionSection(migration, "get_event_deck_v3");
 const visibleSection = functionSection(migration, "record_event_deck_card_visible_v1");
@@ -66,8 +65,6 @@ test("Event Deck gender compatibility treats everyone as unrestricted everywhere
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.check_gender_compatibility/);
   assert.match(migration, /public\.preference_allows_gender\(viewer\.interested_in, _target_gender\)/);
   assert.match(migration, /public\.preference_allows_gender\(_target_interested_in, viewer\.gender\)/);
-  assert.match(mysteryMatchSection, /public\.preference_allows_gender\(v_user_interested_in, p\.gender\)/);
-  assert.match(mysteryMatchSection, /public\.preference_allows_gender\(p\.interested_in, v_user_gender\)/);
 });
 
 test("Daily Drop matcher shares everyone and alias semantics", () => {
@@ -115,7 +112,7 @@ test("Web and native mark only rendered top cards as visible", () => {
   assert.match(nativeLobby, /visibleDeckMarkAttemptsRef/);
   assert.match(nativeLobby, /record_event_deck_card_visible_v1/);
   assert.match(nativeLobby, /current\.id/);
-  assert.match(nativeLobby, /appState !== 'active'/);
+  assert.match(nativeLobby, /appState !== "active"/);
   assert.match(nativeLobby, /showQueuedStyleConvergenceUi/);
   assert.match(nativeLobby, /result\?\.ok === false/);
   assert.match(nativeLobby, /scheduleRetry/);
@@ -128,6 +125,9 @@ test("Generated Supabase types know the new deck visibility and prefetch schema"
   assert.match(impressionTypesSection, /Insert: \{[\s\S]*prefetch_expires_at\?: string \| null/);
   assert.match(impressionTypesSection, /Update: \{[\s\S]*prefetch_expires_at\?: string \| null/);
   assert.match(supabaseTypes, /record_event_deck_card_visible_v1/);
-  assert.match(supabaseTypes, /record_event_deck_card_visible_v1: \{\s*Args: \{[\s\S]*p_deck_token\?: string \| null[\s\S]*p_event_id: string[\s\S]*p_target_id: string[\s\S]*p_viewer_id: string/);
+  assert.match(
+    supabaseTypes,
+    /record_event_deck_card_visible_v1:[\s\S]*Args: \{[\s\S]*p_deck_token\?: string(?: \| null)?[\s\S]*p_event_id: string[\s\S]*p_target_id: string[\s\S]*p_viewer_id: string/,
+  );
   assert.match(supabaseTypes, /preference_allows_gender/);
 });

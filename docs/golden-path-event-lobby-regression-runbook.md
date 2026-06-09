@@ -43,7 +43,7 @@ The default harness runs source/static contract tests for:
 - active-event helper states
 - `get_event_deck` inactive rejection
 - `handle_swipe` inactive rejection with no `event_swipes`, `video_sessions`, or registration room/partner mutation
-- `find_mystery_match` inactive rejection
+- removed Mystery Match RPC contract
 - queue promotion inactive rejection
 - block/report exclusion plus paused, suspended, and deleted candidate exclusion markers
 - simultaneous mutual swipes creating one session
@@ -54,6 +54,38 @@ The default harness runs source/static contract tests for:
 - `swipe-actions` duplicate notification suppression and inactive-event normalization
 - web missing/ended/invalid-registration deck gating and Ready Gate open dedupe by session id
 - native deck payload and swipe outcome parsing
+
+## Mystery Match Removal Verification
+
+Mystery Match is removed from the active product/backend path as of migration `20260609152000_remove_mystery_match.sql`. Do not use old parity docs or old applied migrations as current truth.
+
+Required read-only checks:
+
+```bash
+test ! -f src/hooks/useMysteryMatch.ts
+test ! -f apps/mobile/lib/useMysteryMatch.ts
+
+rg -n "useMysteryMatch|find_mystery_match|MYSTERY_MATCH|Mystery Match|showMysteryMatch|mystery_match" \
+  src apps/mobile shared/analytics supabase/functions src/integrations/supabase/types.ts
+
+npx tsx shared/matching/mysteryMatchRemovalContracts.test.ts
+npm run test:event-lobby-regression
+```
+
+Expected result:
+
+- no active source or generated-type hits;
+- `find_mystery_match%` absent from linked Supabase public routines;
+- zero `video_sessions.session_source = 'mystery_match'` rows;
+- `video_sessions.session_source` defaults to `'reciprocal_swipe'::text`;
+- validated reciprocal-swipe-only constraint remains present.
+
+Residual-reference classification:
+
+- Allowed: old applied migrations, `_cursor_context` snapshots, archive docs, historical audit docs, current docs explicitly saying Mystery Match was removed, and active tests/validation asserting RPC absence.
+- Blockers: active product source, generated Supabase types, active validation that requires `find_mystery_match` to exist, or tests preserving Mystery Match behavior as a supported product path.
+
+If running optional broader Video Date checks, note that a failure in `npm run test:video-date-v4` against the single-line regex `existing.roomName === params.roomName && existing.roomUrl === params.roomUrl` in `shared/matching/videoDateSprint3DailyHandoffContracts.test.ts` is a known unrelated source-shape issue when `src/lib/webVideoDateDailyPrewarm.ts` contains the same room-name/URL guard split across lines. Do not classify that as a Mystery Match removal blocker unless the underlying guard is missing.
 
 ## Manual Staging Smoke
 
@@ -179,14 +211,14 @@ Expected observability:
 ### Direct Stale RPC Rejection
 
 1. Use a fixture event that is missing, scheduled/not-started, ended, cancelled, archived, or draft.
-2. Attempt direct calls for deck fetch, swipe, mystery match, queue drain, and Ready Gate/date-entry transition where a fixture session allows it.
+2. Attempt direct calls for deck fetch, swipe, queue drain, and Ready Gate/date-entry transition where a fixture session allows it.
 3. Expect backend rejection before state mutation.
 
 Expected result:
 
 - `get_event_deck` rejects inactive events instead of silently returning an empty deck
 - `handle_swipe` returns `success: false`, `outcome: event_not_active`, and a safe `reason`
-- `find_mystery_match` creates no session
+- `find_mystery_match` is not present as a callable RPC
 - queue promotion does not promote inactive events
 - Ready Gate/date-entry does not advance new date-entry state after event inactivity
 

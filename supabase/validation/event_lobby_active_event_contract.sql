@@ -181,24 +181,13 @@ select
   )
   as ok;
 
--- 7) Mystery Match cannot create Ready Gate sessions for inactive events.
+-- 7) Mystery Match is removed and cannot create Ready Gate sessions.
 select
-  'find_mystery_match_active_guard_present' as check_name,
-  pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
-    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
-  and pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
-    like '%''error'', ''event_not_active''%'
-  and pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
-    like '%''terminal'', true%'
-  and pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
-    like '%public.find_mystery_match_20260502083000_active_base%'
-  and position('public.lock_event_lobby_scheduled_active_state(p_event_id, now())' in pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure))
-    < position('public.find_mystery_match_20260502083000_active_base' in pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure))
-  and not has_function_privilege(
-    'authenticated',
-    'public.find_mystery_match_20260502083000_active_base(uuid,uuid)',
-    'EXECUTE'
-  )
+  'mystery_match_rpc_removed' as check_name,
+  to_regprocedure('public.find_mystery_match(uuid,uuid)') is null
+  and to_regprocedure('public.find_mystery_match_20260501180000_active_base(uuid,uuid)') is null
+  and to_regprocedure('public.find_mystery_match_20260502083000_active_base(uuid,uuid)') is null
+  and to_regprocedure('public.find_mystery_match_20260607103000_session_source_base(uuid,uuid)') is null
   as ok;
 
 -- 7) Queue promotion paths return event_not_valid before promoting Ready Gate.
@@ -251,6 +240,5 @@ select
   has_function_privilege('authenticated', 'public.get_event_deck(uuid,uuid,integer)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.handle_swipe_v2(uuid,uuid,uuid,text,text)', 'EXECUTE')
   and not has_function_privilege('authenticated', 'public.handle_swipe(uuid,uuid,uuid,text)', 'EXECUTE')
-  and has_function_privilege('authenticated', 'public.find_mystery_match(uuid,uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.drain_match_queue(uuid)', 'EXECUTE')
   as ok;

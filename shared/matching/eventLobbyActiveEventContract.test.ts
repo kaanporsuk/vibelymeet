@@ -6,6 +6,10 @@ import assert from "node:assert/strict";
 const root = process.cwd();
 const migrationPath = "supabase/migrations/20260501180000_event_lobby_active_event_contract.sql";
 const migration = readFileSync(join(root, migrationPath), "utf8");
+const mysteryMatchRemoval = readFileSync(
+  join(root, "supabase/migrations/20260609152000_remove_mystery_match.sql"),
+  "utf8",
+);
 const swipeActions = readFileSync(join(root, "supabase/functions/swipe-actions/index.ts"), "utf8");
 
 const migrationSection = (startMarker: string, endMarker: string): string => {
@@ -174,18 +178,12 @@ test("handle_swipe rejects inactive events before delegated swipe/session mutati
   assert.ok(delegateIndex > activeIndex, "swipe active-event gate should precede base delegation");
 });
 
-test("find_mystery_match rejects inactive events before Ready Gate session creation", () => {
-  assert.match(migration, /ALTER FUNCTION public\.find_mystery_match\(uuid, uuid\)\s+RENAME TO find_mystery_match_20260501180000_active_base/);
-  assert.match(migration, /'error', 'event_not_active'[\s\S]*'terminal', true/);
-
-  const mystery = migrationSection(
-    "CREATE OR REPLACE FUNCTION public.find_mystery_match",
-    "COMMENT ON FUNCTION public.find_mystery_match",
-  );
-  const activeIndex = mystery.indexOf("v_inactive_reason := public.get_event_lobby_inactive_reason(p_event_id);");
-  const delegateIndex = mystery.indexOf("public.find_mystery_match_20260501180000_active_base");
-  assert.ok(activeIndex > 0);
-  assert.ok(delegateIndex > activeIndex, "mystery active-event gate should precede base delegation");
+test("Mystery Match no longer exists as an active-event session creation path", () => {
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260501180000_active_base\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260502083000_active_base\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260607103000_session_source_base\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
 });
 
 test("queue promotion and drain preserve event_not_valid reason while blocking inactive promotion", () => {
@@ -244,16 +242,6 @@ test("nonparticipants do not receive detailed inactive reason before auth or eli
     swipe.indexOf("profile_id = p_actor_id") <
       swipe.indexOf("v_inactive_reason := public.get_event_lobby_inactive_reason(p_event_id);"),
     "swipe should establish actor registration before inactive reason details",
-  );
-
-  const mystery = migrationSection(
-    "CREATE OR REPLACE FUNCTION public.find_mystery_match",
-    "COMMENT ON FUNCTION public.find_mystery_match",
-  );
-  assert.ok(
-    mystery.indexOf("profile_id = p_user_id") <
-      mystery.indexOf("v_inactive_reason := public.get_event_lobby_inactive_reason(p_event_id);"),
-    "mystery match should establish registration before inactive reason details",
   );
 
   const promote = migrationSection(

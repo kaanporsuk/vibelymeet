@@ -92,6 +92,7 @@ test("regression runner executes the focused Event Lobby contract pack", () => {
     "npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts",
     "npx tsx shared/matching/eventLobbySwipeAuthContract.test.ts",
     "npx tsx shared/matching/eventLobbyDeckAuditClosure.test.ts",
+    "npx tsx shared/matching/mysteryMatchRemovalContracts.test.ts",
     "npx tsx shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts",
     "npx tsx shared/matching/webEventLobbyGating.test.ts",
     "npx tsx shared/matching/eventLobbyReadyQueueContract.test.ts",
@@ -118,7 +119,7 @@ test("automated coverage maps to the fixed backend/client contracts", () => {
 
   assert.match(activeEventTest, /get_event_deck/);
   assert.match(activeEventTest, /handle_swipe/);
-  assert.match(activeEventTest, /find_mystery_match/);
+  assert.match(activeEventTest, /Mystery Match no longer exists as an active-event session creation path/);
   assert.match(activeEventTest, /drain_match_queue/);
   assert.match(activeEventTest, /event_not_active/);
   assert.match(readyQueueMigration, /event_swipes/);

@@ -28,13 +28,12 @@ function sectionBetween(source: string, startNeedle: string, endNeedle: string):
 
 const migration = read("supabase/migrations/20260601213000_event_lobby_deck_audit_closure.sql");
 const mutualMatchHandoffClosure = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
+const mysteryMatchRemoval = read("supabase/migrations/20260609152000_remove_mystery_match.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const adapters = read("supabase/functions/_shared/eventProfileAdapters.ts");
 
 const cleanupSection = functionSection(migration, "cleanup_event_deck_card_reservations");
-const mysterySection = functionSection(migration, "find_mystery_match_20260501180000_active_base");
-const scheduledMysteryDelegateSection = functionSection(migration, "find_mystery_match_20260502083000_active_base");
 const deckV3Section = functionSection(migration, "get_event_deck_v3");
 const vibeNotificationBlock = sectionBetween(
   swipeActions,
@@ -58,30 +57,12 @@ test("reservation cleanup is service-only, bounded, and scheduled when pg_cron i
   assert.match(deckV3Section, /public\.cleanup_event_deck_card_reservations\(interval '1 day', 5000\)/);
 });
 
-test("Mystery Match delegates candidate choice to canonical deck eligibility", () => {
-  assert.match(mysterySection, /public\.event_deck_candidate_eligibility\(/);
-  assert.match(mysterySection, /p_event_id,\s+p_user_id,\s+er\.profile_id,\s+true,\s+true/);
-  assert.match(mysterySection, /COALESCE\(er\.queue_status, 'idle'\) = 'browsing'/);
-  assert.match(mysterySection, /FOR UPDATE OF er SKIP LOCKED/);
-  assert.match(mysterySection, /pg_try_advisory_xact_lock/);
-  assert.match(mysterySection, /event_lobby_participant_session:/);
-  assert.match(mysterySection, /FOR UPDATE NOWAIT/);
-  assert.match(mysterySection, /GET DIAGNOSTICS v_locked_count = ROW_COUNT/);
-  assert.match(mysterySection, /ON CONFLICT \(event_id, participant_1_id, participant_2_id\) DO NOTHING/);
-  assert.match(mysterySection, /pair_already_in_session/);
-  assert.match(mysterySection, /viewer_unavailable/);
-  assert.doesNotMatch(mysterySection, /JOIN public\.profiles p ON p\.id = er\.profile_id/);
-
-  assert.match(scheduledMysteryDelegateSection, /public\.get_event_lobby_active_state\(p_event_id, now\(\)\)/);
-  assert.match(scheduledMysteryDelegateSection, /RETURN public\.find_mystery_match_20260501180000_active_base\(/);
-  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.find_mystery_match_20260502083000_active_base\(uuid, uuid\)[\s\S]+TO service_role/);
-});
-
-test("Mystery Match sessions are durably labelled separately from reciprocal swipes", () => {
+test("Mystery Match is removed while session_source remains reciprocal-swipe constrained", () => {
   assert.match(mutualMatchHandoffClosure, /ADD COLUMN IF NOT EXISTS session_source text/);
-  assert.match(mutualMatchHandoffClosure, /session_source = 'mystery_match'/);
-  assert.match(mutualMatchHandoffClosure, /'session_source', 'mystery_match'/);
-  assert.match(mutualMatchHandoffClosure, /find_mystery_match_20260607103000_session_source_base/);
+  assert.match(mutualMatchHandoffClosure, /session_source = 'reciprocal_swipe'/);
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match_20260607103000_session_source_base\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
 });
 
 test("deck v3 filters returned cards through swipe-authority eligibility and emits precise empty reasons", () => {
