@@ -9,6 +9,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read(
   "supabase/migrations/20260609105249_video_date_active_entry_failsoft_shell.sql",
 );
+const joinArgRepairMigration = read(
+  "supabase/migrations/20260609112843_video_date_active_entry_join_arg_name_repair.sql",
+);
 const webVideoDate = read("src/pages/VideoDate.tsx");
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
 const packageJson = read("package.json");
@@ -84,6 +87,14 @@ test("active-entry RPCs have final no-throw fail-soft shells", () => {
     assert.match(body, /'retryable', true/);
     assert.match(body, /'active_entry_failsoft_shell', true/);
   }
+});
+
+test("Daily joined shell preserves the generated PostgREST argument name", () => {
+  const body = publicFunctionBody(joinArgRepairMigration, "mark_video_date_daily_joined");
+  assert.match(body, /p_entry_attempt_id text DEFAULT NULL/);
+  assert.doesNotMatch(body, /p_provider_participant_id/);
+  assert.match(body, /mark_video_date_daily_joined_20260609105249_active_entry_base\([\s\S]*p_entry_attempt_id[\s\S]*p_owner_state/);
+  assert.match(joinArgRepairMigration, /DROP FUNCTION IF EXISTS public\.mark_video_date_daily_joined\(uuid, text, text, text, text, text\)/);
 });
 
 test("active-entry fail-soft shell stays in required Video Date suites", () => {

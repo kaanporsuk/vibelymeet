@@ -97,6 +97,13 @@ Proof boundary:
 
 Current local source now includes the active-entry recovery layer for failed production session `d54c5fdb-67f2-4fca-93c5-30936b8af8cb`, event `25e67136-43fa-44de-9f71-475272bc4f59`.
 
+Post-publish repair:
+
+- Live catalog verification after applying `20260609105249_video_date_active_entry_failsoft_shell.sql` found that the public `mark_video_date_daily_joined(uuid,text,text,text,text,text)` wrapper exposed its fifth PostgREST argument as `p_provider_participant_id`.
+- Current web/native clients and generated types call that argument as `p_entry_attempt_id`; positional SQL delegation still worked, but named PostgREST calls could fail.
+- Corrective migration `20260609112843_video_date_active_entry_join_arg_name_repair.sql` drops and recreates the public wrapper with fifth argument `p_entry_attempt_id`, preserves active-entry fail-soft behavior, and keeps delegation to `mark_video_date_daily_joined_20260609105249_active_entry_base(...)`.
+- `shared/matching/videoDateActiveEntryFailsoftShellContracts.test.ts` now locks this public argument name.
+
 Failure model from the latest two-user run:
 
 - Ready Gate reached the both-ready handoff, but `/date/:sessionId` stayed in `Opening the room...` / `Still connecting...`.
