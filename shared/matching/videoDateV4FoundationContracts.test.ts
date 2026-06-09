@@ -80,9 +80,9 @@ test("v4 snapshot core is token-free and Edge-owned Daily token paths eject at t
   assert.match(foundationMigration, /'tokenRequired', true/);
   assert.doesNotMatch(foundationMigration, /'token'\s*,\s*v_/);
 
-  const videoDateTokenCalls = dailyRoomIndex.match(/(?:DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS|tokenWindow\.ttlSeconds),[\s\S]{0,120}\{ ejectAtTokenExp: true \}/g) ?? [];
+  const videoDateTokenCalls = dailyRoomIndex.match(/tokenWindow\.ttlSeconds,[\s\S]{0,120}\{ ejectAtTokenExp: true \}/g) ?? [];
   assert.ok(
-    videoDateTokenCalls.length >= 4,
+    videoDateTokenCalls.length >= 1,
     "all video-date token issuance paths should opt into eject_at_token_exp",
   );
   assert.match(dailyRoomIndex, /resolveVideoDateMeetingTokenWindow/);

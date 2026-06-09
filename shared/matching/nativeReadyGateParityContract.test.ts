@@ -318,25 +318,15 @@ test("standalone native ready route syncs backend truth and has session-scoped r
   assert.match(nativeReadyRoute, /AppState\.addEventListener/);
 });
 
-test("standalone native ready route records entry proof and keeps post-ready warmup non-authoritative", () => {
+test("standalone native ready route records entry proof and leaves provider entry to prepare-date-entry", () => {
   assert.match(nativeReadyRoute, /recordReadyGateEntered/);
   assert.match(nativeReadyRoute, /readyGateEntryProofKeyRef/);
   assert.match(nativeReadyRoute, /standalone_ready_gate_entry_proof_recorded/);
   assert.match(nativeReadyRoute, /isReadyGateEntryProofStatus\(status\)/);
 
-  const warmupBlock =
-    /const startRoomWarmupAfterReady = useCallback\([\s\S]*?\n\s*\);\n\n {2}useSettingsReturnRefresh/.exec(
-      nativeReadyRoute,
-    )?.[0] ?? "";
-  assert.ok(warmupBlock, "standalone ready route should own a post-ready warmup block");
-  assert.match(warmupBlock, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
-  assert.match(warmupBlock, /ensureVideoDateRoomWarmup\(sid/);
-  assert.match(warmupBlock, /readyGateStatus === ['"]both_ready['"][\s\S]{0,40}return/);
-  assert.match(warmupBlock, /permissionProven === true \|\| hasMediaPermission === true/);
-  assert.match(warmupBlock, /startDailyPrewarmFromWarmRoom\(source, warmedRoom\)/);
-  assert.doesNotMatch(warmupBlock, /prepareVideoDateEntry\(/);
-  assert.doesNotMatch(warmupBlock, /preAuthNativeVideoDateDailyPrewarm\(/);
-  assert.doesNotMatch(warmupBlock, /joinNativeVideoDateDailyPrewarm/);
+  assert.doesNotMatch(nativeReadyRoute, /startRoomWarmupAfterReady/);
+  assert.doesNotMatch(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
+  assert.doesNotMatch(nativeReadyRoute, /ensureVideoDateRoomWarmup/);
 
   const canonicalDateEntryBlock =
     /const reconcileFromCanonicalTruth = useCallback\([\s\S]*?\n {6}\/\/ Not startable/.exec(
@@ -362,10 +352,8 @@ test("native Ready Gate overlay reconciles mark-ready timeouts before surfacing 
     nativeReadyGateOverlay,
     /isReadyGateReadyProgressStatus\(\s*syncResult\.status,?\s*\)/,
   );
-  assert.match(
-    nativeReadyGateOverlay,
-    /startRoomWarmupAfterReady\(\s*["']ready_tap_mark_ready_timeout_sync_success["']/,
-  );
+  assert.doesNotMatch(nativeReadyGateOverlay, /startRoomWarmupAfterReady/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /ensureVideoDateRoomWarmup/);
 });
 
 test("native pre-navigation helper treats event-inactive prepare-entry as terminal, not retry lag", () => {

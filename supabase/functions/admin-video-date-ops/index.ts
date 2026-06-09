@@ -250,7 +250,6 @@ type SlowLaunchSessionSummary = {
 };
 
 const LAUNCH_SEGMENT_KEYS = [
-  ["room_warmup_ms", "Room warmup"],
   ["prepare_entry_ms", "Prepare entry"],
   ["provider_verify_ms", "Provider verify"],
   ["permission_check_ms", "Permission check"],

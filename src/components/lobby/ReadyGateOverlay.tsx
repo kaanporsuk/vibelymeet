@@ -25,10 +25,6 @@ import {
   clearWebVideoDateMediaHandoff,
   setWebVideoDateMediaHandoff,
 } from "@/lib/videoDateMediaHandoff";
-import {
-  ensureVideoDateRoomWarmup,
-  videoDateRoomWarmupAfterReadyEnabled,
-} from "@/lib/videoDateRoomWarmup";
 import { recordReadyGateEntered } from "@/lib/readyGateEntryProof";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateSessionTruth";
@@ -617,7 +613,6 @@ const ReadyGateOverlay = ({
   const lastPermissionPrewarmOutcomeRef = useRef<
     "granted" | "denied" | "transient" | null
   >(null);
-  const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
@@ -724,7 +719,6 @@ const ReadyGateOverlay = ({
     (reason: string) => {
       prepareEntryRunIdRef.current += 1;
       prepareEntryHandoffStartedRef.current = false;
-      roomWarmupStartedRef.current = false;
       clearOverlayRealtimeRecoveryTimer();
       clearRealtimeFallbackCopy();
       releasePermissionPrewarmMedia(reason);
@@ -1448,146 +1442,6 @@ const ReadyGateOverlay = ({
       clearPermissionPrewarmMediaReleaseTimer,
       eventId,
       releasePermissionPrewarmMedia,
-      sessionId,
-      user?.id,
-    ],
-  );
-
-  const canStartDailyPrewarmAfterWarmup = useCallback(
-    async (userId: string): Promise<boolean> => {
-      if (getVideoDatePermissionHandoff(sessionId, userId)) return true;
-      if (typeof navigator === "undefined" || !navigator.permissions?.query)
-        return false;
-      try {
-        const [camera, microphone] = await Promise.all([
-          navigator.permissions.query({ name: "camera" as PermissionName }),
-          navigator.permissions.query({ name: "microphone" as PermissionName }),
-        ]);
-        return camera.state === "granted" && microphone.state === "granted";
-      } catch {
-        return false;
-      }
-    },
-    [sessionId],
-  );
-
-  const startRoomWarmupAfterReady = useCallback(
-    (source: string, readyGateStatus?: string | null) => {
-      if (!videoDateRoomWarmupAfterReadyEnabled()) return;
-      if (
-        roomWarmupStartedRef.current ||
-        dateNavigationStartedRef.current ||
-        closedRef.current
-      )
-        return;
-      // 'ready' is the freshly-minted mutual-swipe state. Pre-creating the
-      // room here (item #1 of the latency punch list) shaves the
-      // room_create_or_verify roundtrip off the post-ready-tap path.
-      if (
-        readyGateStatus &&
-        !["ready", "ready_a", "ready_b", "both_ready"].includes(readyGateStatus)
-      ) {
-        return;
-      }
-      if (
-        readyGateStatus === "both_ready" &&
-        prepareEntryHandoffStartedRef.current
-      )
-        return;
-      const userId = user?.id;
-      if (!userId) return;
-
-      roomWarmupStartedRef.current = true;
-      const readyGateKey = activeReadyGateKey;
-      void (async () => {
-        const result = await ensureVideoDateRoomWarmup(sessionId, {
-          eventId,
-          userId,
-          source,
-        });
-        if (activeReadyGateKeyRef.current !== readyGateKey) return;
-        if (dateNavigationStartedRef.current || closedRef.current) return;
-        if (result.ok !== true) {
-          vdbg("ready_gate_room_warmup_after_ready_skipped", {
-            sessionId,
-            eventId,
-            userId,
-            source,
-            code: result.code,
-            retryable: result.retryable,
-          });
-          return;
-        }
-
-        const canPrewarmDaily = await canStartDailyPrewarmAfterWarmup(userId);
-        if (activeReadyGateKeyRef.current !== readyGateKey) return;
-        if (
-          !canPrewarmDaily ||
-          prepareEntryHandoffStartedRef.current ||
-          dateNavigationStartedRef.current ||
-          closedRef.current
-        ) {
-          vdbg("ready_gate_daily_prewarm_after_room_warmup_skipped", {
-            sessionId,
-            eventId,
-            userId,
-            source,
-            reason: canPrewarmDaily
-              ? prepareEntryHandoffStartedRef.current
-                ? "prepare_entry_in_progress"
-                : "closed_or_navigating"
-              : "permission_not_proven",
-          });
-          return;
-        }
-
-        const prewarmMedia = permissionPrewarmMediaRef.current;
-        const prewarm = await startWebVideoDateDailyPrewarm({
-          sessionId,
-          userId,
-          eventId,
-          roomName: result.data.room_name,
-          roomUrl: result.data.room_url,
-          captureProfile: prewarmMedia?.captureProfile,
-          appAcquiredMedia: prewarmMedia,
-          source: "ready_gate_room_warmup_success",
-        });
-        if (
-          prewarm.ok === true &&
-          prewarmMedia &&
-          prewarm.entry.appAcquiredMedia?.stream === prewarmMedia.stream
-        ) {
-          permissionPrewarmMediaRef.current = null;
-          clearPermissionPrewarmMediaReleaseTimer();
-          clearWebVideoDateMediaHandoff(sessionId, userId);
-          permissionPrewarmMediaHandoffStoredRef.current = false;
-        }
-        vdbg("ready_gate_daily_prewarm_after_room_warmup", {
-          sessionId,
-          eventId,
-          userId,
-          source,
-          roomName: result.data.room_name,
-          ok: prewarm.ok,
-          reason: prewarm.ok === true ? null : prewarm.reason,
-          appAcquiredMedia:
-            prewarm.ok === true
-              ? Boolean(prewarm.entry.appAcquiredMedia)
-              : false,
-        });
-        // The ReadyGate warms camera/token/preauth only; it must never perform a
-        // real Daily join. A lobby-side join would start the backend handshake/
-        // warm-up clock before the user is on a stable /date route (and can be
-        // bounced by duplicate-tab handling), causing handshake_timeout. The
-        // real join + mark_video_date_daily_joined is owned solely by /date
-        // (useVideoCall.startCall), which consumes this prewarmed call object.
-      })();
-    },
-    [
-      activeReadyGateKey,
-      canStartDailyPrewarmAfterWarmup,
-      clearPermissionPrewarmMediaReleaseTimer,
-      eventId,
       sessionId,
       user?.id,
     ],
@@ -2612,21 +2466,6 @@ const ReadyGateOverlay = ({
       const isParticipant =
         vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
 
-      // Item #1 of the latency punch list: pre-create the Daily room as
-      // soon as we observe a freshly-minted mutual swipe (status='ready'),
-      // not after the first ready tap. Idempotent under the existing
-      // roomWarmupStartedRef mutex; subsequent post-ready-tap calls become
-      // no-ops because the room is already verified.
-      if (
-        isParticipant &&
-        readyGateStatus === "ready" &&
-        !vs?.ended_at &&
-        !roomWarmupStartedRef.current &&
-        !dateNavigationStartedRef.current &&
-        !closedRef.current
-      ) {
-        startRoomWarmupAfterReady("mutual_swipe_pre_create", readyGateStatus);
-      }
       const recovery = adviseVideoSessionTruthRecovery({
         sessionId,
         eventId,
@@ -2727,7 +2566,6 @@ const ReadyGateOverlay = ({
       refetchSession,
       syncSession,
       markRealtimeDegraded,
-      startRoomWarmupAfterReady,
       navigateToDateForSurveyRecovery,
     ],
   );
@@ -2944,7 +2782,6 @@ const ReadyGateOverlay = ({
     permissionPrewarmCaptureConsumerTokenRef.current = 0;
     permissionPrewarmMediaHandoffStoredRef.current = false;
     permissionPrewarmSkipLoggedRef.current = false;
-    roomWarmupStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
     setIsTransitioning(false);
     setMarkingReady(false);
@@ -3760,11 +3597,6 @@ const ReadyGateOverlay = ({
                                 handleBothReady(
                                   "both_ready_observed_via_rpc_short_circuit",
                                 );
-                              } else {
-                                startRoomWarmupAfterReady(
-                                  "ready_tap_mark_ready_timeout_sync_success",
-                                  syncResult.status,
-                                );
                               }
                               return;
                             }
@@ -3788,11 +3620,6 @@ const ReadyGateOverlay = ({
                           );
                         } else if (result.isTerminal === true) {
                           return;
-                        } else {
-                          startRoomWarmupAfterReady(
-                            "ready_tap_mark_ready_success",
-                            result.status ?? null,
-                          );
                         }
                       } catch (error) {
                         const fallback =

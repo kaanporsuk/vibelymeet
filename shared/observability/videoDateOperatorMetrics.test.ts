@@ -187,7 +187,6 @@ test("latency buckets and context durations are stable", () => {
     dailyJoinDurationMs: null,
     dailyReconnectDurationMs: null,
     extensionRefreshDurationMs: null,
-    roomWarmupDurationMs: null,
     dailyRoomCreateDurationMs: null,
     prepareEntryDurationMs: null,
     providerVerifyDurationMs: null,

@@ -3,6 +3,8 @@
 Date: 2026-06-09  
 Branch: `codex/remove-daily-room-legacy-actions`
 
+Supersession note, 2026-06-09: `docs/branch-deltas/remove-daily-room-non-golden-actions.md` expands this cleanup and removes the additional non-golden Video Date actions `ensure_date_room`, `prepare_diagnostic_entry`, and `prepare_solo_entry` from active source.
+
 ## Scope
 
 Remove the legacy public/client-facing `daily-room` Edge Function actions:
@@ -10,13 +12,14 @@ Remove the legacy public/client-facing `daily-room` Edge Function actions:
 - `create_date_room`
 - `join_date_room`
 
-This is a path-to-leaner cleanup. It removes the old public action contract and dead dispatch branches only. It does not remove provider-side Daily room creation/reuse/verification, which remains owned by `prepare_date_entry` and `ensure_date_room`.
+This was a path-to-leaner cleanup. It removed the old public action contract and dead dispatch branches only. The superseding non-golden cleanup keeps provider-side Daily room creation/reuse/verification owned by `prepare_date_entry` and removes the separate `ensure_date_room` warmup action.
 
 ## Preserved
 
 - `prepare_date_entry` remains the web/native Video Date room/token entry path.
 - `video_date_transition('enter_handshake')` remains intentionally available.
-- `ensure_date_room`, `prepare_diagnostic_entry`, `prepare_solo_entry`, `video_date_leave`, `delete_room`, and match-call actions remain intact.
+- In this earlier branch, `ensure_date_room`, `prepare_diagnostic_entry`, and `prepare_solo_entry` remained intact. The superseding non-golden cleanup removes them from active source.
+- `video_date_leave`, `delete_room`, and match-call actions remain intact.
 - Existing `create_date_room_*` provider observability operation labels remain intact because they are shared Daily provider lifecycle labels used by `prepare_date_entry`.
 
 ## Validation

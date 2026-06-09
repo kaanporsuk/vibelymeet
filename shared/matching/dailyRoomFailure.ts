@@ -4,9 +4,7 @@ import {
 } from "../supabaseFunctionInvokeErrors";
 
 export const DAILY_ROOM_ACTIONS = {
-  ENSURE_ROOM: "ensure_date_room",
   PREPARE_ENTRY: "prepare_date_entry",
-  PREPARE_SOLO_ENTRY: "prepare_solo_entry",
 } as const;
 
 export type DailyRoomAction =

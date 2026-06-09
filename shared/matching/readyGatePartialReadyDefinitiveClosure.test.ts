@@ -213,7 +213,7 @@ test("partial-ready timestamp invariant and diagnostics cover support cleanup", 
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.video_date_partial_ready_diagnostics_v1\(uuid, integer\)[\s\S]*TO service_role/);
 });
 
-test("daily-room refuses partial-ready provider work without the actionability RPC", () => {
+test("daily-room has one actionability-gated Video Date provider/token entry path", () => {
   assert.match(dailyRoom, /type ReadyGateActionabilityPayload =/);
   assert.match(dailyRoom, /async function requireVideoDateReadyGateActionability/);
   assert.match(dailyRoom, /rpc\("video_date_ready_gate_actionability_v1"/);
@@ -222,13 +222,10 @@ test("daily-room refuses partial-ready provider work without the actionability R
   assert.match(dailyRoom, /p_terminalize_invalid: true/);
   assert.match(dailyRoom, /p_lock_rows: true/);
 
-  const warmupBlock = blockBetween(
-    dailyRoom,
-    'if (action === "ensure_date_room")',
-    'if (action === "prepare_solo_entry")',
-  );
-  assert.match(warmupBlock, /source: "daily_room\.ensure_date_room"/);
-  assert.ok(warmupBlock.indexOf("requireVideoDateReadyGateActionability") < warmupBlock.indexOf("ensureVideoDateProviderRoomForToken"));
+  assert.doesNotMatch(dailyRoom, /if \(action === "ensure_date_room"\)/);
+  assert.doesNotMatch(dailyRoom, /if \(action === "prepare_solo_entry"\)/);
+  assert.doesNotMatch(dailyRoom, /source: "daily_room\.ensure_date_room"/);
+  assert.doesNotMatch(dailyRoom, /source: "daily_room\.prepare_solo_entry"/);
 
   const prepareBlock = blockBetween(
     dailyRoom,
@@ -240,22 +237,15 @@ test("daily-room refuses partial-ready provider work without the actionability R
   assert.ok(prepareBlock.indexOf("requireVideoDateReadyGateActionability") < prepareBlock.indexOf("createMeetingToken"));
 });
 
-test("solo prejoin is hard-disabled and cannot mask behind Daily config", () => {
+test("solo prejoin is removed and cannot mask behind Daily config", () => {
   const requiredActionsBlock = dailyRoom.match(/const DAILY_CONFIG_REQUIRED_ACTIONS = new Set\(\[[\s\S]*?\]\);/)?.[0] ?? "";
   assert.ok(requiredActionsBlock.length > 0);
   assert.doesNotMatch(requiredActionsBlock, /"prepare_solo_entry"/);
-  assert.match(dailyRoom, /function videoDateSoloPrejoinServerEnabled\(\): boolean \{\s*return false;\s*\}/);
-
-  const soloBlock = blockBetween(
-    dailyRoom,
-    'if (action === "prepare_solo_entry")',
-    'if (action === "prepare_date_entry")',
-  );
-  assert.match(soloBlock, /code: "SOLO_PREJOIN_DISABLED"/);
-  assert.match(soloBlock, /message: "Video date media starts after both participants are ready\."/);
-  assert.ok(soloBlock.indexOf("SOLO_PREJOIN_DISABLED") < soloBlock.indexOf(".from(\"video_sessions\")"));
-  assert.ok(soloBlock.indexOf("SOLO_PREJOIN_DISABLED") < soloBlock.indexOf("ensureVideoDateProviderRoomForToken"));
-  assert.ok(soloBlock.indexOf("SOLO_PREJOIN_DISABLED") < soloBlock.indexOf("createMeetingToken"));
+  assert.doesNotMatch(dailyRoom, /function videoDateSoloPrejoinServerEnabled/);
+  assert.doesNotMatch(dailyRoom, /SOLO_PREJOIN_DISABLED/);
+  assert.doesNotMatch(dailyRoom, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS/);
+  assert.doesNotMatch(dailyRoom, /canIssueSoloPrejoinVideoDateToken/);
+  assert.doesNotMatch(dailyRoom, /solo_prejoin/);
 });
 
 test("partial-ready closure contracts are in the full and red-flag suites", () => {

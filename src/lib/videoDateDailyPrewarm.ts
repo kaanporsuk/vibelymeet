@@ -34,7 +34,7 @@ type WebDailyPrewarmStatus =
   | "fallback"
   | "destroyed";
 
-type WebDailyPrewarmJoinSource = "both_ready" | "solo_prejoin";
+type WebDailyPrewarmJoinSource = "both_ready";
 
 type WebDailyPrewarmAppAcquiredMedia = {
   stream: MediaStream;
@@ -138,13 +138,10 @@ function prewarmEnabled(): boolean {
   );
 }
 
-function joinPrewarmEnabled(joinSource: WebDailyPrewarmJoinSource): boolean {
+function joinPrewarmEnabled(): boolean {
   if (!prewarmEnabled()) return false;
-  const flagName =
-    joinSource === "solo_prejoin"
-      ? "VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN"
-      : "VITE_VIDEO_DATE_DAILY_JOIN_PREWARM";
-  const defaultValue = joinSource === "solo_prejoin" ? "false" : "true";
+  const flagName = "VITE_VIDEO_DATE_DAILY_JOIN_PREWARM";
+  const defaultValue = "true";
   return (
     String(import.meta.env[flagName] ?? defaultValue).toLowerCase() === "true"
   );
@@ -544,7 +541,7 @@ export async function joinWebVideoDateDailyPrewarm(params: {
   joinSource: WebDailyPrewarmJoinSource;
   waitMs?: number;
 }): Promise<boolean> {
-  if (!joinPrewarmEnabled(params.joinSource)) return false;
+  if (!joinPrewarmEnabled()) return false;
   const entry = prewarmEntries.get(keyFor(params.sessionId, params.userId));
   if (
     !entry ||
@@ -569,18 +566,9 @@ export async function joinWebVideoDateDailyPrewarm(params: {
   entry.status = "joining";
   entry.joinStartedAtMs = startedAtMs;
   entry.joinSource = params.joinSource;
-  const startedCheckpoint =
-    params.joinSource === "solo_prejoin"
-      ? "daily_prewarm_solo_join_started"
-      : "daily_prewarm_join_started";
-  const successCheckpoint =
-    params.joinSource === "solo_prejoin"
-      ? "daily_prewarm_solo_join_success"
-      : "daily_prewarm_join_success";
-  const failureCheckpoint =
-    params.joinSource === "solo_prejoin"
-      ? "daily_prewarm_solo_join_failure"
-      : "daily_prewarm_join_failure";
+  const startedCheckpoint = "daily_prewarm_join_started";
+  const successCheckpoint = "daily_prewarm_join_success";
+  const failureCheckpoint = "daily_prewarm_join_failure";
 
   checkpoint({
     sessionId: params.sessionId,

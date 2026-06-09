@@ -132,7 +132,7 @@ test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guar
     assert.doesNotMatch(source, /(?<!WithTimeout)fetch\(/);
   }
 
-  assert.match(dailyRoom, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 180/);
+  assert.doesNotMatch(dailyRoom, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS/);
   assert.match(dailyRoom, /providerRateLimitConfig\("daily", bucket\)/);
   assert.match(dailyRoom, /providerFetchTimeoutMs\("daily", operation\)/);
   assert.match(dailyRoom, /httpStatus: rateLimited \? 429 : 503/);

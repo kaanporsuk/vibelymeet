@@ -1,8 +1,5 @@
 export type DateRoomAction =
-  | "ensure_date_room"
   | "prepare_date_entry"
-  | "prepare_diagnostic_entry"
-  | "prepare_solo_entry"
   | "video_date_leave";
 
 export type MatchCallStatus = "ringing" | "active" | "ended" | "missed" | "declined" | string | null;
@@ -180,10 +177,6 @@ export function isDailyRoomUrlForName(value: string, roomName: string, dailyDoma
   } catch {
     return false;
   }
-}
-
-export function videoDateDiagnosticRoomNameForUser(userId: string): string {
-  return `date-diag-${userId.replace(/-/g, "").slice(0, 40)}`;
 }
 
 export function resolveCanonicalVideoDateRoom(params: {

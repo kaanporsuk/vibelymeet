@@ -233,21 +233,13 @@ test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into s
   }
 });
 
-test("native standalone Ready route records proof and warms the room after partial-ready truth", () => {
+test("native standalone Ready route records proof without partial-ready provider warmup", () => {
   assert.match(nativeReadyRoute, /recordReadyGateEntered/);
   assert.match(nativeReadyRoute, /surface:\s*'ready_gate_standalone'/);
-  assert.match(nativeReadyRoute, /ensureVideoDateRoomWarmup/);
-  assert.match(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
-  assert.match(nativeReadyRoute, /const startRoomWarmupAfterReady = useCallback/);
-  assert.match(
-    nativeReadyRoute,
-    /startRoomWarmupAfterReady\(\s*'ready_tap_mark_ready_timeout_sync_success'[\s\S]*syncResult\.status[\s\S]*true/,
-  );
-  assert.match(
-    nativeReadyRoute,
-    /startRoomWarmupAfterReady\(\s*'ready_tap_mark_ready_success'[\s\S]*result\.status \?\? null[\s\S]*true/,
-  );
-  assert.match(nativeReadyRoute, /standalone_initial_ready_pre_create/);
+  assert.doesNotMatch(nativeReadyRoute, /ensureVideoDateRoomWarmup/);
+  assert.doesNotMatch(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
+  assert.doesNotMatch(nativeReadyRoute, /const startRoomWarmupAfterReady = useCallback/);
+  assert.doesNotMatch(nativeReadyRoute, /standalone_initial_ready_pre_create/);
   assert.match(nativeReadyRoute, /startNativeVideoDateDailyPrewarm/);
 });
 

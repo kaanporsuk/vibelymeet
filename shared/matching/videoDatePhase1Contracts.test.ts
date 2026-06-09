@@ -3,10 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeVideoDateSnapshot, normalizeVideoDateSnapshotInvokeError } from "./videoDateSnapshot";
-import {
-  VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS,
-  shouldRunVideoDateDiagnostic,
-} from "./videoDateReadinessV2";
+import { resolveVideoDateReadinessDiagnostic } from "./videoDateReadinessV2";
 import {
   isVideoDateDailyTokenJoinError,
   normalizeVideoDateQueueHint,
@@ -124,33 +121,31 @@ test("snapshot invoke errors preserve typed Edge function failures", async () =>
   assert.deepEqual(invalid, { ok: false, error: "snapshot_function_failed", retryable: true });
 });
 
-test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and native", () => {
-  assert.match(dailyRoomContracts, /prepare_diagnostic_entry/);
-  assert.match(dailyRoomContracts, /videoDateDiagnosticRoomNameForUser/);
-  assert.match(dailyRoomIndex, /ACTION: prepare_diagnostic_entry/);
-  assert.match(dailyRoomIndex, /max_participants: 1/);
-  assert.match(dailyRoomIndex, /DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS[\s\S]+ejectAtTokenExp: true/);
-  assert.match(dailyRoomIndex, /providerRoomExpiringSoon/);
-  assert.match(dailyRoomIndex, /"Cache-Control": "no-store"/);
+test("PR 1.2 runtime readiness keeps local capability checks without Daily diagnostic rooms", () => {
+  assert.doesNotMatch(dailyRoomContracts, /prepare_diagnostic_entry/);
+  assert.doesNotMatch(dailyRoomContracts, /videoDateDiagnosticRoomNameForUser/);
+  assert.doesNotMatch(dailyRoomIndex, /ACTION: prepare_diagnostic_entry/);
+  assert.doesNotMatch(dailyRoomIndex, /DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS/);
+  assert.doesNotMatch(dailyRoomIndex, /videoDateDiagnosticRoomProperties/);
   assert.match(webStatusHook, /recordVideoDateHeartbeatV2/);
   assert.match(nativeStatusHook, /recordVideoDateHeartbeatV2/);
   assert.match(webReadinessHook, /recordVideoDateReadinessCheckV2/);
-  assert.match(webReadinessHook, /shouldRunVideoDateDiagnostic/);
   assert.match(webReadinessHook, /permissionsGranted[\s\S]+hasCameraDevice === false/);
-  assert.match(webReadinessHook, /diagnosticRoomPathDefined: true/);
-  assert.match(webReadinessHook, /dailyDiagnostic/);
-  assert.match(webReadinessHook, /diagnostic_entry_exception/);
-  assert.doesNotMatch(webReadinessHook, /token:\s*diagnostic\.token/);
-  assert.match(webReadinessLib, /try\s*{[\s\S]+prepare_diagnostic_entry/);
-  assert.match(webReadinessLib, /diagnostic_entry_invalid_response/);
+  assert.match(webReadinessHook, /dailyRoomDiagnosticRemoved: true/);
+  assert.doesNotMatch(webReadinessHook, /shouldRunVideoDateDiagnostic/);
+  assert.doesNotMatch(webReadinessHook, /diagnosticRoomPathDefined: true/);
+  assert.doesNotMatch(webReadinessHook, /dailyDiagnostic/);
+  assert.doesNotMatch(webReadinessHook, /diagnostic_entry_exception/);
+  assert.doesNotMatch(webReadinessLib, /prepare_diagnostic_entry/);
+  assert.doesNotMatch(webReadinessLib, /diagnostic_entry_invalid_response/);
   assert.match(nativeReadiness, /record_readiness_check_v2/);
-  assert.match(nativeReadiness, /shouldRunVideoDateDiagnostic/);
-  assert.match(nativeReadiness, /diagnosticRoomPathDefined: true/);
-  assert.match(nativeReadiness, /dailyDiagnostic/);
-  assert.match(nativeReadiness, /diagnostic_entry_exception/);
-  assert.doesNotMatch(nativeReadiness, /token:\s*diagnostic\.token/);
-  assert.match(nativeReadiness, /try\s*{[\s\S]+prepare_diagnostic_entry/);
-  assert.match(nativeReadiness, /diagnostic_entry_invalid_response/);
+  assert.match(nativeReadiness, /dailyRoomDiagnosticRemoved: true/);
+  assert.doesNotMatch(nativeReadiness, /shouldRunVideoDateDiagnostic/);
+  assert.doesNotMatch(nativeReadiness, /diagnosticRoomPathDefined: true/);
+  assert.doesNotMatch(nativeReadiness, /dailyDiagnostic/);
+  assert.doesNotMatch(nativeReadiness, /diagnostic_entry_exception/);
+  assert.doesNotMatch(nativeReadiness, /prepare_diagnostic_entry/);
+  assert.doesNotMatch(nativeReadiness, /diagnostic_entry_invalid_response/);
   assert.match(webLobby, /useNonBlockingVideoDateReadiness\(\s*eventId,/);
   assert.match(nativeLobby, /useNonBlockingVideoDateReadiness\(\s*id,/);
   assert.doesNotMatch(webLobby, /canAttemptPairing|readinessBlockMessage|pairingReadinessMessage|rightSwipeDisabled/);
@@ -357,14 +352,13 @@ test("snapshot normalization rejects malformed ok payloads instead of hydrating 
   }
 });
 
-test("readiness diagnostics run in the background only when useful and throttled", () => {
-  const nowMs = 1_000_000;
-  assert.equal(shouldRunVideoDateDiagnostic("blocked", null, nowMs), false);
-  assert.equal(shouldRunVideoDateDiagnostic("unchecked", null, nowMs), false);
-  assert.equal(shouldRunVideoDateDiagnostic("warning", null, nowMs), true);
-  assert.equal(shouldRunVideoDateDiagnostic("ready", nowMs - 1000, nowMs), false);
-  assert.equal(
-    shouldRunVideoDateDiagnostic("ready", nowMs - VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS, nowMs),
-    true,
-  );
+test("readiness diagnostics resolve copy without a Daily-room throttle path", () => {
+  assert.deepEqual(resolveVideoDateReadinessDiagnostic("blocked"), {
+    status: "blocked",
+    diagnosticMessage: "Camera and microphone access are needed before you can join a video date.",
+  });
+  assert.deepEqual(resolveVideoDateReadinessDiagnostic("ready"), {
+    status: "ready",
+    diagnosticMessage: null,
+  });
 });

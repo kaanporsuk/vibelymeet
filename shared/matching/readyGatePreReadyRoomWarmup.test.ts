@@ -20,63 +20,47 @@ const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const sharedPrepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
-const webRoomWarmup = read("src/lib/videoDateRoomWarmup.ts");
-const nativeRoomWarmup = read("apps/mobile/lib/videoDateRoomWarmup.ts");
-const sharedRoomWarmup = read("shared/matching/videoDateRoomWarmup.ts");
+const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const migration = read("supabase/migrations/20260505140000_ready_gate_pre_ready_room_metadata_repair.sql");
 const prepareEntryMetadataMigration = read("supabase/migrations/20260505153000_video_date_prepare_entry_payload_metadata.sql");
 const preserveAfterReadyWarmupMigration = read("supabase/migrations/20260505154500_ready_gate_preserve_after_ready_room_warmup.sql");
 const validation = read("supabase/validation/ready_gate_pre_ready_room_metadata_repair.sql");
 
-test("web Ready Gate overlay warms the Daily room at fresh ready and after successful ready", () => {
-  assert.match(webOverlay, /startRoomWarmupAfterReady\("mutual_swipe_pre_create", readyGateStatus\)/);
-  assert.match(webOverlay, /startRoomWarmupAfterReady\(\s*"ready_tap_mark_ready_success",\s*result\.status \?\? null,\s*\)/);
-  assert.match(webOverlay, /const result = await markReady\(\)[\s\S]*if \(result\.ok === false\)[\s\S]*startRoomWarmupAfterReady/);
-  assert.match(webOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
-  assert.match(webOverlay, /roomWarmupStartedRef/);
-  assert.match(webOverlay, /\["ready", "ready_a", "ready_b", "both_ready"\]/);
+test("web Ready Gate overlay does not warm provider rooms before prepare-date-entry", () => {
+  assert.doesNotMatch(webOverlay, /startRoomWarmupAfterReady/);
+  assert.doesNotMatch(webOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
+  assert.doesNotMatch(webOverlay, /roomWarmupStartedRef/);
+  assert.doesNotMatch(webOverlay, /ensureVideoDateRoomWarmup/);
   assert.match(webOverlay, /const readyGateKey = activeReadyGateKey/);
   assert.match(webOverlay, /activeReadyGateKeyRef\.current !== readyGateKey/);
-  assert.match(webOverlay, /roomWarmupStartedRef\.current = false/);
   assert.doesNotMatch(webOverlay, /addVideoDatePreconnect|SUPABASE_URL/);
   assert.match(webOverlay, /startWebVideoDateDailyPrewarm/);
-  assert.doesNotMatch(webOverlay, /ensureVideoDateRoomWarmup\(sessionId,[\s\S]{0,220}ready_gate_open/);
   assert.match(webOverlay, /void runPermissionPrewarm\("ready_gate_open"\)/);
   assert.match(webOverlay, /void runPermissionPrewarm\("ready_tap"\)/);
   assert.match(webOverlay, /prepareVideoDateEntry\(sessionId/);
   assert.match(webOverlay, /preAuthWebVideoDateDailyPrewarm/);
 });
 
-test("native Ready Gate overlay warms the Daily room at fresh ready and after successful ready", () => {
-  assert.match(nativeOverlay, /startRoomWarmupAfterReady\('mutual_swipe_pre_create', readyGateStatus\)/);
-  assert.match(nativeOverlay, /startRoomWarmupAfterReady\(\s*'ready_tap_mark_ready_success',\s*result\.status \?\? null,\s*\)/);
-  assert.match(nativeOverlay, /const result = await markReady\(\)[\s\S]*if \(result\.ok === false\)[\s\S]*startRoomWarmupAfterReady/);
-  assert.match(nativeOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
-  assert.match(nativeOverlay, /roomWarmupStartedRef/);
-  assert.match(nativeOverlay, /\['ready', 'ready_a', 'ready_b', 'both_ready'\]/);
+test("native Ready Gate overlay does not warm provider rooms before prepare-date-entry", () => {
+  assert.doesNotMatch(nativeOverlay, /startRoomWarmupAfterReady/);
+  assert.doesNotMatch(nativeOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
+  assert.doesNotMatch(nativeOverlay, /roomWarmupStartedRef/);
+  assert.doesNotMatch(nativeOverlay, /ensureVideoDateRoomWarmup/);
   assert.match(nativeOverlay, /const activeReadyGateKey = `\$\{sessionId\}:\$\{eventId\}`/);
   assert.match(nativeOverlay, /const readyGateKey = activeReadyGateKey/);
   assert.match(nativeOverlay, /activeReadyGateKeyRef\.current !== readyGateKey/);
-  assert.match(nativeOverlay, /roomWarmupStartedRef\.current = false/);
   assert.match(nativeOverlay, /startNativeVideoDateDailyPrewarm/);
-  assert.doesNotMatch(nativeOverlay, /ensureVideoDateRoomWarmup\(sessionId,[\s\S]{0,220}ready_gate_open/);
   assert.match(nativeOverlay, /prepareVideoDateEntry\(sessionId/);
   assert.match(nativeOverlay, /preAuthNativeVideoDateDailyPrewarm/);
 });
 
-test("after-ready room warmup helpers are flag-gated and tokenless", () => {
+test("after-ready provider room warmup helpers and action branch are removed", () => {
   assert.equal(exists("src/lib/videoDatePreconnect.ts"), false);
-  assert.match(sharedRoomWarmup, /ENSURE_VIDEO_DATE_ROOM_ACTION = "ensure_date_room"/);
-  assert.match(webRoomWarmup, /VITE_VIDEO_DATE_ROOM_WARMUP_AFTER_READY/);
-  assert.match(nativeRoomWarmup, /EXPO_PUBLIC_VIDEO_DATE_ROOM_WARMUP_AFTER_READY/);
-  for (const source of [webRoomWarmup, nativeRoomWarmup]) {
-    assert.match(source, /ENSURE_VIDEO_DATE_ROOM_ACTION/);
-    assert.match(source, /room_warmup_started/);
-    assert.match(source, /room_warmup_success/);
-    assert.match(source, /room_warmup_failure/);
-    assert.doesNotMatch(source, /prepare_date_entry/);
-    assert.doesNotMatch(source, /token/);
-  }
+  assert.equal(exists("src/lib/videoDateRoomWarmup.ts"), false);
+  assert.equal(exists("apps/mobile/lib/videoDateRoomWarmup.ts"), false);
+  assert.equal(exists("shared/matching/videoDateRoomWarmup.ts"), false);
+  assert.doesNotMatch(dailyRoom, /if \(action === "ensure_date_room"\)/);
+  assert.doesNotMatch(dailyRoom, /ENSURE_VIDEO_DATE_ROOM_ACTION/);
   assert.doesNotMatch(webPrepareEntry, /ensureVideoDateRoom|ENSURE_VIDEO_DATE_ROOM_ACTION|EnsureVideoDateRoom/);
   assert.doesNotMatch(nativePrepareEntry, /ensureVideoDateRoom|ENSURE_VIDEO_DATE_ROOM_ACTION|EnsureVideoDateRoom/);
   assert.doesNotMatch(sharedPrepareEntry, /ENSURE_VIDEO_DATE_ROOM_ACTION|EnsureVideoDateRoom/);

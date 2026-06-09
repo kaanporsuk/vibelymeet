@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Regression guard for the Video Date handoff/timer-ownership fix.
@@ -15,6 +15,7 @@ import { join } from "node:path";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+const exists = (path: string) => existsSync(join(root, path));
 
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
@@ -23,8 +24,6 @@ const nativeReadyGate = read(
 );
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
-const webRoomWarmup = read("src/lib/videoDateRoomWarmup.ts");
-const nativeRoomWarmup = read("apps/mobile/lib/videoDateRoomWarmup.ts");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 
@@ -168,7 +167,7 @@ test("ReadyGate video_provider row stays neutral (waiting) until prepare-entry b
   }
 });
 
-test("ReadyGate handoff retries and room warmups are single-flight/provider-aware", () => {
+test("ReadyGate handoff retries are single-flight/provider-aware without room-warmup helpers", () => {
   for (const [name, source] of [
     ["web", webReadyGate],
     ["native", nativeReadyGate],
@@ -185,19 +184,14 @@ test("ReadyGate handoff retries and room warmups are single-flight/provider-awar
     );
     assert.match(
       source,
-      /prepareEntryHandoffStartedRef\.current[\s\S]{0,260}prepare_entry_in_progress/,
-      `${name} overlay should not start room-warmup Daily prewarm while prepare-entry handoff owns prewarm`,
+      /prepareEntryHandoffStartedRef\.current/,
+      `${name} overlay should keep prepare-entry handoff single-flight`,
     );
+    assert.doesNotMatch(source, /ensureVideoDateRoomWarmup/);
+    assert.doesNotMatch(source, /videoDateRoomWarmupAfterReadyEnabled/);
   }
   assert.match(nativeReadyRoute, /readyActionInFlightRef\.current/);
-
-  for (const [name, source] of [
-    ["web", webRoomWarmup],
-    ["native", nativeRoomWarmup],
-  ] as Array<[string, string]>) {
-    assert.match(source, /const roomWarmupInflight = new Map/);
-    assert.match(source, /existing\.then\(coalesceRoomWarmupResult\)/);
-    assert.match(source, /coalesced: true/);
-    assert.match(source, /ownerEntryAttemptId/);
-  }
+  assert.equal(exists("src/lib/videoDateRoomWarmup.ts"), false);
+  assert.equal(exists("apps/mobile/lib/videoDateRoomWarmup.ts"), false);
+  assert.equal(exists("shared/matching/videoDateRoomWarmup.ts"), false);
 });
