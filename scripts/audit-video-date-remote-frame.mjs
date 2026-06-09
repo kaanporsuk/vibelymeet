@@ -31,6 +31,16 @@ function sliceBetween(source, start, end, relPath) {
   return source.slice(startIndex, endIndex >= 0 ? endIndex : undefined);
 }
 
+function sliceBetweenRegex(source, startPattern, endPattern, relPath, startLabel, endLabel) {
+  const startIndex = source.search(startPattern);
+  assert(startIndex >= 0, `${relPath}: missing marker ${startLabel}`);
+  if (startIndex < 0) return "";
+  const afterStart = source.slice(startIndex);
+  const endOffset = afterStart.search(endPattern);
+  assert(endOffset >= 0, `${relPath}: missing marker ${endLabel}`);
+  return source.slice(startIndex, endOffset >= 0 ? startIndex + endOffset : undefined);
+}
+
 function assertNoCropTokens(label, value) {
   assert(!/\bobject-cover\b/.test(value), `${label}: must not use object-cover`);
   assert(!/\bscale-[^\s"'`]+/.test(value), `${label}: must not use Tailwind scale-*`);
@@ -217,7 +227,7 @@ assert(
     webVideoCall.includes("commitConfirmed: true") &&
     webVideoCall.includes("opts.expectedFacing !== before.facingMode") &&
     webVideoCall.includes("inferCameraFacingModeFromLabel") &&
-    webVideoCall.includes("return currentDeviceId ? candidates[0] ?? null : null") &&
+    /return\s+currentDeviceId\s*\?\s*\(?candidates\[0\]\s*\?\?\s*null\)?\s*:\s*null/.test(webVideoCall) &&
     webVideoCall.includes("daily_camera_switch_render_hint_received") &&
     webVideoCall.includes("daily_camera_switch_render_watch_started") &&
     webVideoCall.includes("daily_camera_switch_no_reattach_needed") &&
@@ -243,8 +253,8 @@ assert(
     !webVideoCall.includes("cameraSwitchHintResendTimeoutRef"),
   `${webVideoCallPath}: deprecated camera-switch hint resend / publishSequence plumbing must stay removed`
 );
-const deterministicCameraSwitchIndex = webVideoCall.indexOf(
-  "switchToDeterministicWebCamera(co, before, desiredFacing"
+const deterministicCameraSwitchIndex = webVideoCall.search(
+  /switchToDeterministicWebCamera\(\s*co,\s*before,\s*desiredFacing/
 );
 const cycleCameraFallbackIndex = webVideoCall.indexOf("co.cycleCamera", deterministicCameraSwitchIndex);
 assert(
@@ -305,8 +315,8 @@ assert(
 );
 assert(
   webVideoCall.includes("VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER") &&
-    webVideoCall.includes("for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER)") &&
-    webVideoCall.includes("getUserMedia(videoDateWebMediaStreamConstraints(profile))") &&
+    /for\s*\(\s*const\s+profile\s+of\s+VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER\s*\)/.test(webVideoCall) &&
+    /getUserMedia\(\s*videoDateWebMediaStreamConstraints\(\s*profile\s*\),?\s*\)/.test(webVideoCall) &&
     webVideoCall.includes("VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC"),
   `${webVideoCallPath}: permission preflight must walk progressive portrait capture profiles and emit sender diagnostics`
 );
@@ -323,11 +333,13 @@ const nativeEventLobbyPath = "apps/mobile/app/event/[eventId]/lobby.tsx";
 const nativeEventLobby = read(nativeEventLobbyPath);
 const nativeDateNavigationGuardPath = "apps/mobile/lib/dateNavigationGuard.ts";
 const nativeDateNavigationGuard = read(nativeDateNavigationGuardPath);
-const nativeRemoteBlock = sliceBetween(
+const nativeRemoteBlock = sliceBetweenRegex(
   nativeDate,
+  /<View\s+style=\{styles\.remoteContainer\}>/,
+  /<View\s+style=\{\[\s*styles\.localPip/,
+  nativeDatePath,
   "<View style={styles.remoteContainer}>",
-  "<View style={[styles.localPip",
-  nativeDatePath
+  "<View style={[styles.localPip"
 );
 const nativeChooseCameraBlock = sliceBetween(
   nativeDate,
@@ -349,7 +361,7 @@ const nativeFallbackConstraints = sliceBetween(
 );
 
 assert(
-  /remoteContainer:\s*\{[^}]*backgroundColor:\s*'#000'/.test(nativeDate),
+  /remoteContainer:\s*\{[\s\S]*?backgroundColor:\s*["']#000["']/.test(nativeDate),
   `${nativeDatePath}: remoteContainer must provide a black letterbox background`
 );
 assert(
@@ -396,7 +408,7 @@ assert(
     nativeDate.includes("native_camera_switch_render_watch_timed_out") &&
     nativeDate.includes("camera_switch_hint_received") &&
     nativeDate.includes("camera_switch_watch_active") &&
-    nativeDate.includes("'camera_switch_hint'") &&
+    /["']camera_switch_hint["']/.test(nativeDate) &&
     !nativeDate.includes("camera_switch_hint:${hint.switchId}"),
   `${nativeDatePath}: native Video Date must commit a live camera switch before sending shared render hints`
 );
@@ -443,7 +455,7 @@ assert(
   `${nativeDatePath}: native receiver must use bounded keyed DailyMediaView remount recovery`
 );
 assert(
-  nativeDate.includes("dailyParticipantSessionId(call.participants()?.local") &&
+  /dailyParticipantSessionId\(\s*call\.participants\(\)\?\.local/.test(nativeDate) &&
     nativeDate.includes("localParticipantSessionId") &&
     !nativeDate.includes("localParticipantId = dailyParticipantId(call.participants()?.local"),
   `${nativeDatePath}: native camera-switch self-origin guard must compare Daily app-message fromId to local session_id`
@@ -485,7 +497,7 @@ assert(
   `${nativeVideoDateDailyConfigPath}: native Video Date Daily options must not use deprecated/strict capture constraints`
 );
 assert(
-  nativeDate.includes("createVideoDateDailyCallObjectGuarded(profile") &&
+  /createVideoDateDailyCallObjectGuarded\(\s*profile\s*,/.test(nativeDate) &&
     nativeDate.includes("daily_call_join_constraint_fallback"),
   `${nativeDatePath}: native Video Date must create Daily through the guarded helper and retry with fallback constraints`
 );
@@ -506,10 +518,10 @@ assert(
   `${nativeDatePath}: native Video Date must not release joining calls or allow multiple Daily instances`
 );
 assert(
-  nativeDate.includes("showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom") &&
+  /showJoiningOverlay\s*=\s*\(\s*joining\s*\|\|\s*isConnecting\s*\)\s*&&\s*!localInDailyRoom/.test(nativeDate) &&
     nativeDate.includes("showPeerWaitOverlay =") &&
-    nativeDate.includes("diagnostic_scope: 'sender_capture'") &&
-    nativeDate.includes("diagnostic_scope: 'receiver_layout'") &&
+    /diagnostic_scope:\s*["']sender_capture["']/.test(nativeDate) &&
+    /diagnostic_scope:\s*["']receiver_layout["']/.test(nativeDate) &&
     nativeDate.includes("receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT") &&
     nativeDate.includes("ensureNativeFrontCameraIntent") &&
     nativeDate.includes("getCameraFacingMode") &&

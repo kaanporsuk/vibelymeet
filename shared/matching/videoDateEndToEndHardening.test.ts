@@ -1407,7 +1407,10 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
 });
 
 test("web and native reject cached prewarmed token after Daily join failure and retry prepare", () => {
-  assert.match(webVideoCallHook, /rejectPreparedVideoDateEntry\(sessionId, userId, "daily_join_failed", eventId\)/);
+  assert.match(
+    webVideoCallHook,
+    /rejectPreparedVideoDateEntry\(\s*sessionId,\s*userId,\s*["']daily_join_failed["'],\s*eventId,?\s*\)/,
+  );
   assert.match(
     webVideoCallHook,
     /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*skipStartGate: true,\s*\}\)/,
@@ -1672,22 +1675,34 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webDailyCallObjectConfig, /appAcquiredMedia\?\.videoTrack/);
   assert.match(webDailyCallObjectConfig, /useDevicePreferenceCookies/);
   assert.match(webDailyCallObjectConfig, /avoidEval:\s*true/);
-  assert.match(webVideoCallHook, /for \(const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER\)/);
-  assert.match(webVideoCallHook, /getUserMedia\(videoDateWebMediaStreamConstraints\(profile\)\)/);
+  assert.match(
+    webVideoCallHook,
+    /for\s*\(\s*const\s+profile\s+of\s+VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER\s*\)/,
+  );
+  assert.match(
+    webVideoCallHook,
+    /getUserMedia\(\s*videoDateWebMediaStreamConstraints\(\s*profile\s*\),?\s*\)/,
+  );
   assert.match(webVideoCallHook, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webVideoCallHook, /permission_handoff_media_acquired/);
   assert.match(webVideoCallHook, /daily_media_permission_handoff_fallback_to_preflight/);
   assert.match(webVideoCallHook, /source_action: "media_handoff_miss"/);
   assert.match(webVideoCallHook, /media_handoff_miss_reason: lastMediaHandoffMissReasonRef\.current/);
   assert.match(webVideoCallHook, /mediaPermissionResultForStatus/);
-  assert.match(webVideoCallHook, /classifyMediaPermissionErrorWithBrowserState\(error, "camera_microphone"\)/);
+  assert.match(
+    webVideoCallHook,
+    /classifyMediaPermissionErrorWithBrowserState\(\s*error,\s*["']camera_microphone["']/,
+  );
   assert.match(webVideoCallHook, /permission_status: permissionResult\.status/);
   assert.match(webVideoCallHook, /permission_state: permissionResult\.permissionState/);
   assert.match(webVideoCallHook, /recovery_action: permissionResult\.recoveryAction/);
   assert.match(webVideoCallHook, /deferredMediaPermissionError/);
   assert.match(webVideoCallHook, /daily_media_permission_handoff_failed_without_preflight_retry/);
   assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("permission_handoff_media_failed"\)/);
-  assert.match(webVideoCallHook, /mediaPermissionFailureSourceAction = "permission_handoff_media_failed"/);
+  assert.match(
+    webVideoCallHook,
+    /mediaPermissionFailureSourceAction\s*=\s*["']permission_handoff_media_failed["']/,
+  );
   assert.match(webVideoCallHook, /source_action: mediaPermissionFailureSourceAction/);
   assert.match(
     readyGateOverlay,
@@ -1731,7 +1746,10 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(webVideoCallHook, /videoSource: false/);
   assert.match(webVideoCallHook, /function videoOnlyCameraSwitchConstraints\(\s*captureProfile: VideoDateWebMediaCaptureProfile/);
   assert.match(webVideoCallHook, /videoDateWebMediaStreamConstraints\(captureProfile\)/);
-  assert.match(webVideoCallHook, /videoOnlyCameraSwitchConstraints\(captureProfileRef\.current, desiredFacing, expectedDeviceId\)/);
+  assert.match(
+    webVideoCallHook,
+    /videoOnlyCameraSwitchConstraints\(\s*captureProfileRef\.current,\s*desiredFacing,\s*expectedDeviceId,?\s*\)/,
+  );
   assert.doesNotMatch(webVideoCallHook, /CAMERA_SWITCH_HINT_RESEND_DELAY_MS/);
   assert.doesNotMatch(webVideoCallHook, /cameraSwitchPublishSequenceRef/);
   assert.doesNotMatch(webVideoCallHook, /cameraSwitchHintResendTimeoutRef/);
@@ -1748,12 +1766,15 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(webVideoCallHook, /video_date_camera_switch_committed/);
   assert.match(webVideoCallHook, /opts\.expectedFacing !== before\.facingMode/);
   assert.match(webVideoCallHook, /inferCameraFacingModeFromLabel/);
-  assert.match(webVideoCallHook, /return currentDeviceId \? candidates\[0\] \?\? null : null/);
+  assert.match(
+    webVideoCallHook,
+    /return\s+currentDeviceId\s*\?\s*\(?candidates\[0\]\s*\?\?\s*null\)?\s*:\s*null/,
+  );
   assert.match(webVideoCallHook, /lastRemoteCameraSwitchHintIdRef/);
   assert.match(webVideoCallHook, /daily_camera_switch_render_watch_started/);
   assert.match(webVideoCallHook, /fresh_frame_not_observed/);
-  const deterministicCameraSwitchIndex = webVideoCallHook.indexOf(
-    "switchToDeterministicWebCamera(co, before, desiredFacing",
+  const deterministicCameraSwitchIndex = webVideoCallHook.search(
+    /switchToDeterministicWebCamera\(\s*co,\s*before,\s*desiredFacing/,
   );
   const cycleCameraFallbackIndex = webVideoCallHook.indexOf("co.cycleCamera", deterministicCameraSwitchIndex);
   assert.ok(deterministicCameraSwitchIndex > 0);
@@ -2957,11 +2978,11 @@ test("web Daily reconnect states cannot suppress the connection overlay forever"
   );
   assert.match(
     webVideoCallHook,
-    /if \(event\?\.event === "reconnecting"\) \{[\s\S]*startReconnectGrace\("network_reconnecting"\);[\s\S]*setDailyReconnectState\("partner_reconnecting"\);/,
+    /if \(\s*event\?\.event === "reconnecting"\s*\) \{[\s\S]*startReconnectGrace\("network_reconnecting"\);[\s\S]*setDailyReconnectState\("partner_reconnecting"\);/,
   );
   assert.match(
     webVideoCallHook,
-    /if \(event\?\.event === "reconnected" \|\| event\?\.event === "connected"\) \{[\s\S]*recoverTransport\(`network_\$\{event\.event\}`\);/,
+    /if \(\s*event\?\.event === "reconnected"\s*\|\|\s*event\?\.event === "connected"\s*\) \{[\s\S]*recoverTransport\(`network_\$\{event\.event\}`\);/,
   );
 });
 
@@ -3251,14 +3272,22 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   }
   assert.match(webDailyPrewarm, /createDailyCallObjectGuarded/);
   assert.match(webDailyPrewarm, /failOnExternalCall:\s*true/);
-  assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia\(captureProfile/);
+  assert.match(webDailyPrewarm, /adoptMatchingExternalCall:\s*false/);
+  assert.match(
+    webDailyPrewarm,
+    /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia\(\s*captureProfile/,
+  );
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptions\(captureProfile\)/);
   assert.match(webDailyPrewarm, /function getLivePrewarmMediaTracks/);
   assert.match(webDailyPrewarm, /getLivePrewarmMediaTracks\(params\.appAcquiredMedia\.stream\)/);
   assert.match(webDailyPrewarm, /appAcquiredMedia && appAcquiredMediaTracks[\s\S]*dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /finally\s*\{[\s\S]*stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/);
-  assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObjectGuarded\(captureProfile/);
+  assert.match(
+    nativeDailyPrewarm,
+    /createVideoDateDailyCallObjectGuarded\(\s*captureProfile/,
+  );
   assert.match(nativeDailyPrewarm, /failOnExternalCall:\s*true/);
+  assert.match(nativeDailyPrewarm, /adoptMatchingExternalCall:\s*false/);
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(
     readyGateOverlay,
@@ -3309,10 +3338,14 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.doesNotMatch(nativeReadyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
   assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);
-  assert.match(webVideoCallHook, /provider_verify_skipped: handoff\.cacheEntry\.value\.provider_verify_skipped/);
+  assert.match(
+    webVideoCallHook,
+    /provider_verify_skipped:\s*handoff\.cacheEntry\.value\.provider_verify_skipped/,
+  );
   assert.match(webVideoCallHook, /daily_join_skipped_prewarmed_already_joined/);
   assert.match(webVideoCallHook, /daily_join_completed_by_prewarm_inflight/);
-  assert.match(webVideoCallHook, /reusedCallObject: singletonCall\.ok === true \|\| prewarmedCall\.ok === true/);
+  assert.match(webVideoCallHook, /daily_prewarm_consumed: prewarmedCall\.ok === true/);
+  assert.match(webVideoCallHook, /daily_call_singleton_reused: singletonCall\.ok === true/);
   assert.match(nativeVideoDateRoute, /consumeNativeVideoDateDailyPrewarm/);
   assert.match(nativeVideoDateRoute, /daily_join_skipped_prewarmed_already_joined/);
   assert.match(nativeVideoDateRoute, /daily_join_completed_by_prewarm_inflight/);
@@ -3330,20 +3363,47 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
 });
 
 test("Daily lifecycle guards destroy stale calls and only reuse same-session joined calls", () => {
-  assert.match(webVideoCallHook, /entry\.previousSessionId !== params\.nextSessionId \|\| entry\.previousRoomName !== params\.nextRoomName/);
+  assert.match(
+    webVideoCallHook,
+    /entry\.previousSessionId\s*!==\s*params\.nextSessionId\s*\|\|\s*entry\.previousRoomName\s*!==\s*params\.nextRoomName/,
+  );
   assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("session_or_room_changed_before_consume"\)/);
   assert.match(webVideoCallHook, /const meetingState = readDailyMeetingState\(entry\.call\)/);
-  assert.match(webVideoCallHook, /meetingState !== "joined-meeting"[\s\S]*destroyWebDailyCallSingleton\("not_joined_before_consume"\)/);
+  assert.match(
+    webVideoCallHook,
+    /meetingState !== "joined-meeting"[\s\S]{0,80}meetingState !== "joining-meeting"[\s\S]*destroyWebDailyCallSingleton\("not_joined_before_consume"\)/,
+  );
   assert.match(webVideoCallHook, /function hasLiveDailyLocalCameraAndMicrophone/);
   assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("local_media_not_live_before_consume"\)/);
-  assert.match(webVideoCallHook, /hasReusableWebDailyCallSingleton\(params: \{ userId: string; nextSessionId: string \}\)/);
+  assert.match(
+    webVideoCallHook,
+    /hasReusableWebDailyCallSingleton\(params: \{[\s\S]{0,120}userId: string;[\s\S]{0,120}nextSessionId: string;[\s\S]{0,120}\}\)/,
+  );
   assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("session_changed_before_preflight"\)/);
   assert.match(webVideoCallHook, /destroyWebDailyCallSingleton\("local_media_not_live_before_preflight"\)/);
 
-  assert.match(webDailyCallInstance, /if \(options\.failOnExternalCall && !isTerminalDailyMeetingState\(meetingState\)\)/);
-  assert.match(webDailyCallInstance, /const destroyed = await destroyDailyCallObject\(sdkCallObject, options\.source, options\.onDiagnostic\)/);
-  assert.match(nativeDailyCallInstance, /if \(options\.failOnExternalCall && !isTerminalNativeDailyMeetingState\(meetingState\)\)/);
-  assert.match(nativeDailyCallInstance, /const destroyed = await destroyNativeDailyCallObject\(sdkCallObject, options\.source, options\.onDiagnostic\)/);
+  assert.match(webDailyCallInstance, /protectedFreshCreatedDailyCallDecision/);
+  assert.match(webDailyCallInstance, /daily_guard_adopted_same_session_external_call/);
+  assert.match(webDailyCallInstance, /isBusyDailyMeetingState\(meetingState\)/);
+  assert.match(
+    webDailyCallInstance,
+    /if \(\s*options\.failOnExternalCall\s*&&\s*!isTerminalDailyMeetingState\(meetingState\)\s*\)/,
+  );
+  assert.match(
+    webDailyCallInstance,
+    /const destroyed = await destroyDailyCallObject\(\s*sdkCallObject,\s*options\.source,\s*options\.onDiagnostic,?\s*\)/,
+  );
+  assert.match(nativeDailyCallInstance, /protectedFreshCreatedNativeDailyCallDecision/);
+  assert.match(nativeDailyCallInstance, /native_daily_guard_adopted_same_session_external_call/);
+  assert.match(nativeDailyCallInstance, /isBusyNativeDailyMeetingState\(meetingState\)/);
+  assert.match(
+    nativeDailyCallInstance,
+    /if \(\s*options\.failOnExternalCall\s*&&\s*!isTerminalNativeDailyMeetingState\(meetingState\)\s*\)/,
+  );
+  assert.match(
+    nativeDailyCallInstance,
+    /const destroyed = await destroyNativeDailyCallObject\(\s*sdkCallObject,\s*options\.source,\s*options\.onDiagnostic,?\s*\)/,
+  );
 });
 
 test("Daily prewarm rejects mismatched or stale call objects before date reuse", () => {
@@ -3351,7 +3411,10 @@ test("Daily prewarm rejects mismatched or stale call objects before date reuse",
     assert.match(source, /function rejectUnusablePrewarmEntry/);
     assert.match(source, /entry\.call\.isDestroyed\(\)/);
     assert.match(source, /entry\.status === ['"]joined['"]/);
-    assert.match(source, /meetingState === ['"]joined-meeting['"] \? null : `joined_state_\$\{meetingState \?\? ['"]unknown['"]\}`/);
+    assert.match(
+      source,
+      /meetingState\s*===\s*["']joined-meeting["']\s*\?\s*null\s*:\s*`joined_state_\$\{\s*meetingState\s*\?\?\s*["']unknown["']\s*\}`/,
+    );
     assert.match(source, /entry\.status === ['"]joining['"]/);
     assert.match(source, /meetingState === ['"]left-meeting['"] \|\| meetingState === ['"]error['"]/);
     assert.match(source, /meetingState === ['"]new['"] \|\| meetingState === ['"]loaded['"]/);
@@ -3377,9 +3440,18 @@ test("Daily readiness diagnostics skip call quality after failed preauth", () =>
 
 test("web and native stamp bilateral remote-video evidence once remote media is mounted", () => {
   assert.match(webVideoCallHook, /const remoteSeenInFlightSessionRef = useRef<string \| null>\(null\)/);
-  assert.match(webVideoCallHook, /const remoteSeenLastStampRef = useRef<\{ sessionId: string; stampedAtMs: number \} \| null>\(null\)/);
-  assert.match(webVideoCallHook, /const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> \| null>\(null\)/);
-  assert.match(webVideoCallHook, /const activeDailyCallIdentityRef = useRef<ActiveDailyCallIdentity \| null>\(null\)/);
+  assert.match(
+    webVideoCallHook,
+    /const remoteSeenLastStampRef = useRef<\{[\s\S]{0,120}sessionId: string;[\s\S]{0,120}stampedAtMs: number;[\s\S]{0,120}\} \| null>\(\s*null,?\s*\)/,
+  );
+  assert.match(
+    webVideoCallHook,
+    /const remoteSeenRetryTimerRef = useRef<[\s\S]{0,120}setTimeout[\s\S]{0,120}\| null>\(\s*null,?\s*\)/,
+  );
+  assert.match(
+    webVideoCallHook,
+    /const activeDailyCallIdentityRef = useRef<ActiveDailyCallIdentity \| null>\(\s*null,?\s*\)/,
+  );
   assert.match(webVideoCallHook, /const markRemoteSeenOnServer = useCallback/);
   assert.match(webVideoCallHook, /supabase\.rpc\("mark_video_date_remote_seen", proof\.args\)/);
   assert.match(webVideoCallHook, /p_provider_session_id: providerSessionId/);
@@ -3403,7 +3475,10 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /source === "first_remote_frame"/);
   assert.match(webVideoCallHook, /source === "request_video_frame_callback"/);
   assert.match(webVideoCallHook, /remoteSeenInFlightSessionRef\.current = null/);
-  assert.match(webVideoCallHook, /remoteSeenLastStampRef\.current = \{ sessionId: activeSessionId, stampedAtMs: Date\.now\(\) \}/);
+  assert.match(
+    webVideoCallHook,
+    /remoteSeenLastStampRef\.current = \{[\s\S]{0,80}sessionId: activeSessionId,[\s\S]{0,80}stampedAtMs: Date\.now\(\),?[\s\S]{0,80}\}/,
+  );
   assert.doesNotMatch(webVideoCallHook, /remoteSeenStampedSessionRef/);
   assert.match(webVideoCallHook, /\.catch\(\(error: unknown\) =>/);
   assert.match(webVideoCallHook, /handleFailure\([\s\S]*"promise_rejected"/);
@@ -3431,7 +3506,7 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(nativeVideoDateRoute, /const remoteSeenInFlightSessionRef = useRef<string \| null>\(null\)/);
   assert.match(
     nativeVideoDateRoute,
-    /const remoteSeenLastStampRef = useRef<\{[\s\S]{0,120}sessionId: string;[\s\S]{0,120}stampedAtMs: number;[\s\S]{0,120}\} \| null>\(null\)/,
+    /const remoteSeenLastStampRef = useRef<\{[\s\S]{0,120}sessionId: string;[\s\S]{0,120}stampedAtMs: number;[\s\S]{0,120}\} \| null>\(\s*null,?\s*\)/,
   );
   assert.match(
     nativeVideoDateRoute,
@@ -3509,7 +3584,10 @@ test("video date trace id is propagated through prepare entry analytics and Dail
   assert.match(webVideoCallHook, /const videoDateTraceId = roomData\.video_date_trace_id \?\? entryAttemptId/);
   assert.match(webVideoCallHook, /VIDEO_DATE_DAILY_JOIN_STARTED[\s\S]*video_date_trace_id: videoDateTraceId/);
   assert.match(webVideoCallHook, /VIDEO_DATE_DAILY_JOIN_SUCCESS[\s\S]*video_date_trace_id: videoDateTraceId/);
-  assert.match(webVideoCallHook, /VIDEO_DATE_DAILY_JOIN_FAILURE[\s\S]*video_date_trace_id: preparedEntryAtFailure\?\.value\.video_date_trace_id/);
+  assert.match(
+    webVideoCallHook,
+    /VIDEO_DATE_DAILY_JOIN_FAILURE[\s\S]*video_date_trace_id:\s*[\s\S]{0,160}preparedEntryAtFailure\?\.value\.video_date_trace_id/,
+  );
   assert.match(nativeVideoDateApi, /video_date_trace_id: result\.data\.video_date_trace_id \?\? result\.data\.entry_attempt_id \?\? null/);
   assert.match(nativeVideoDateRoute, /const videoDateTraceId =[\s\S]*tokenResult\.video_date_trace_id/s);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_DAILY_JOIN_STARTED[\s\S]*video_date_trace_id: videoDateTraceId/);

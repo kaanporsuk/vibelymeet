@@ -64,6 +64,54 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Hot-Path No-Throw Shells And Daily Same-Session Adoption
+
+Current local source now includes the next active-entry hardening pass after the latest production failure still stalled at `/date/:sessionId` with `Still connecting...`.
+
+Failure model addressed:
+
+- The latest two-user production run showed both users reaching Ready Gate readiness, then oscillating between Ready Gate and `/date/:sessionId` while the date shell stayed in `Opening the room...` / `Still connecting...`.
+- Network screenshots showed repeated/pending active-path calls plus raw 500s on `record_video_date_launch_latency_checkpoint` and `video_date_transition`; earlier failure classes also included `claim_video_date_surface`, `mark_video_date_daily_alive`, and `mark_video_date_daily_joined`.
+- Backend chronology from the prior session showed Daily room/session creation was not sufficient proof: one side could briefly have provider evidence while durable bilateral media never stabilized.
+- The remaining client-side race was same-session Daily ownership. Route entry, retry, remount recovery, and legitimate Ready Gate prewarm could see an existing fresh/protected Daily call as an external call and return `external_call_busy` instead of using the existing same-session owner safely.
+
+Implementation added:
+
+- Migration `20260609130139_video_date_hot_path_no_throw_daily_adoption.sql` adds final no-throw public shells around the active hot-path RPCs:
+  - `claim_video_date_surface(uuid,text,text,boolean,integer)`
+  - `mark_video_date_daily_alive(uuid,text,text,text,text,text)`
+  - `mark_video_date_daily_joined(uuid,text,text,text,text,text)`
+  - `video_date_transition(uuid,text,text)`
+  - `video_session_mark_ready_v2(uuid,text,text)`
+  - `record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)`
+- Each wrapper delegates to a preserved base implementation and returns sanitized retryable JSON if the base throws. If the richer lifecycle exception helper fails, the wrapper still returns a direct last-resort JSON payload instead of surfacing a transport 500.
+- Web and native/mobile Daily guards now tag fresh call objects with `videoDateSessionId` and Daily room name, serialize creation, and let route entry, retry, and remount recovery adopt a current/protected same-session call when they ask for the same session/room.
+- Web `useVideoCall`, web Daily prewarm, native/mobile Daily prewarm, and native/mobile `/date/[id]` active entry pass those session/room markers into the guard. Ready Gate prewarm intentionally does **not** adopt a route-owned active call; it fails soft with guard diagnostics instead of wrapping the live route call in prewarm TTL/fallback cleanup.
+- Web `/date/:sessionId` now has bounded automatic retry for retryable start failures while the route shell still owns the active date and the user has not explicitly exited.
+- New diagnostics cover adopted same-session calls, adopted current call objects, protected-call owner/requested session-room markers, and bounded start-retry scheduling/firing/exhaustion.
+- Contract coverage in `shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`, `shared/matching/videoDateActiveEntryFailsoftShellContracts.test.ts`, and `shared/matching/videoDateEndToEndHardening.test.ts` now locks the web/native route adoption paths, prewarm non-adoption, and final no-throw RPC shell shape.
+- Branch delta: `docs/branch-deltas/fix-video-date-hot-path-no-throw-daily-adoption.md`.
+
+Verification completed locally:
+
+- `npx tsx shared/matching/videoDateActiveEntryFailsoftShellContracts.test.ts`
+- `npx tsx shared/matching/videoDateDefinitiveOwnershipContracts.test.ts`
+- `npx tsx shared/matching/reviewComments1256_1262Followups.test.ts`
+- `npx tsx shared/matching/videoDateStableBilateralMediaGateContracts.test.ts`
+- `npm run typecheck`
+- `npm run lint`
+- `npm run test:video-date:red-flags`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` showed exactly pending migration `20260609130139_video_date_hot_path_no_throw_daily_adoption.sql` at local verification time.
+
+Cloud/proof boundary:
+
+- This section describes the source and migration contract; publish close-out must apply and verify linked cloud, and clients must be redeployed, before claiming source/cloud runtime alignment.
+- Final post-review verification avoided additional web/native builds. One earlier local smoke harness invocation did run the web build, so build output is not used as acceptance evidence here.
+- This still is not product acceptance. Video Date is not fixed until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion by both users, plus short leave/rejoin and prolonged absence checks.
+
+---
+
 ## 2026-06-09 Implementation Update: Lean Runtime Contract Foundation
 
 Current local source now includes the first simplification foundation for Video Date. This does not change production routing, Supabase RPC behavior, Edge Function behavior, or Daily provider behavior. It defines the smaller screen/command contract that future web/native migrations should converge on.
