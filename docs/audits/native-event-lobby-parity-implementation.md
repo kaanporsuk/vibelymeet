@@ -4,6 +4,8 @@ Date: 2026-05-01
 Branch: `fix/native-event-lobby-parity`
 Supabase project ref: `schdyxcunwcvddlcshwd`
 
+2026-06-09 supersession: this implementation report predates Mystery Match removal. The native `useMysteryMatch` hook listed below was later deleted, and `find_mystery_match` is no longer a backend contract.
+
 ## Dependency Verification
 
 - Prompt 8 merged on `origin/main`: `be124392c docs: define native event lobby contract`
@@ -18,7 +20,7 @@ Inspected:
 - `apps/mobile/app/event/[eventId]/lobby.tsx`
 - `apps/mobile/lib/eventsApi.ts`
 - `apps/mobile/lib/readyGateApi.ts`
-- `apps/mobile/lib/useMysteryMatch.ts`
+- `apps/mobile/lib/useMysteryMatch.ts` (historical; deleted by Mystery Match removal on 2026-06-09)
 - `apps/mobile/lib/useActiveSession.ts`
 - `apps/mobile/lib/imageUrl.ts`
 - `apps/mobile/components/lobby/ReadyGateOverlay.tsx`

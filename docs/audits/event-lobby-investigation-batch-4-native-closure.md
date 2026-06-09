@@ -4,6 +4,8 @@ Date: 2026-05-01
 Branch: `audit/event-lobby-investigation-native-closure`
 Supabase project ref: `schdyxcunwcvddlcshwd`
 
+2026-06-09 supersession: this investigation predates Mystery Match removal. Historical references to `apps/mobile/lib/useMysteryMatch.ts` and `find_mystery_match` are no longer current; the native hook and backend RPC are removed.
+
 ## 1. Executive Verdict
 
 Verdict: **PASS with runtime-proof warnings**.
@@ -35,7 +37,7 @@ Warning: closure-report Edge Function version/source evidence is correctly histo
 
 | Native behavior | Evidence | Verdict |
 |---|---|---|
-| Canonical surfaces | `apps/mobile/lib/eventsApi.ts` calls `get_event_deck`, invokes `swipe-actions`, and calls `drain_match_queue`; `apps/mobile/lib/readyGateApi.ts` calls `ready_gate_transition`; `apps/mobile/lib/useMysteryMatch.ts` calls `find_mystery_match`. | PASS |
+| Canonical surfaces | Current native uses `apps/mobile/lib/eventsApi.ts` for `get_event_deck`, `swipe-actions`, and `drain_match_queue`; `apps/mobile/lib/readyGateApi.ts` calls `ready_gate_transition`. Historical May 1 `apps/mobile/lib/useMysteryMatch.ts` / `find_mystery_match` path was removed on 2026-06-09. | PASS |
 | No direct lobby session/swipe mutation | Audited native Event Lobby paths only read/count `video_sessions` and `event_swipes`; no `event_swipes` or `video_sessions` insert/update/upsert/delete was found in the audited lobby/Ready Gate/session paths. | PASS |
 | Outcome normalization | `apps/mobile/app/event/[eventId]/lobby.tsx` normalizes `result`, `outcome`, and `error` before failure handling, telemetry, Ready Gate routing, and deck advancement. | PASS |
 | `event_not_active` handling | Native maps deck-empty and swipe `event_not_active` to terminal lobby-closed state through `serverInactiveEventReason`. | PASS |
@@ -47,7 +49,7 @@ Warning: closure-report Edge Function version/source evidence is correctly histo
 | Final deck payload | Native card consumes `primary_photo_path`, `photo_verified`, `premium_badge`, and `availability_state`. | PASS |
 | Media fallback and sizing | Native uses `resolvePrimaryProfilePhotoPath` and `deckCardUrl`; `deckCardUrl` uses the full-card `1080x1440` preset. | PASS |
 | Observability | Native emits shared Event Lobby taxonomy for swipe, queue, Ready Gate, and deck states via `shared/observability/eventLobbyObservability.ts`. | PASS |
-| Side-effect gates | Native gates deck fetch, Mystery Match, queue refresh/drain, foreground/status effects, and swipe actions behind route/user/event/registration/live/pause/focus truth. | PASS |
+| Side-effect gates | Native gates deck fetch, queue refresh/drain, foreground/status effects, and swipe actions behind route/user/event/registration/live/pause/focus truth. Historical Mystery Match gating was removed with the feature. | PASS |
 
 ## 4. Native Module / Binary Constraint Check
 

@@ -4,6 +4,8 @@
 **Scope:** PRs **#463–#472** (today’s Vibely stream: parity, analytics, observability, realtime refactor, evidence docs, event-loop normalization, watchdog wording).  
 **Method:** `git` / `gh pr view`, repo grep/import tracing, `supabase migration list --linked`, `supabase db query --linked`. **No code or cloud mutations** as part of this audit.
 
+> 2026-06-09 supersession: this acceptance audit predates Mystery Match removal. Rows below mentioning Mystery Match are historical PR context only; current source/backend remove the feature and support reciprocal swipe plus queue promotion.
+
 ---
 
 ## 1. Executive verdict
@@ -20,7 +22,7 @@ Secondary debt: **`src/components/events/EmptyDeckFallback.tsx`** has **zero imp
 
 | PR | Intended scope (short) | Merge status | Final `main` anchor | Cloud / deploy | Confidence | Notes |
 |----|------------------------|-------------|----------------------|----------------|------------|-------|
-| **#463** | Post-survey feedback, copy, empty-state, Mystery Match | **MERGED** | `4f774c3d0` | App: Vercel/native as per your pipeline (not verified here) | **High** | Title on `gh` matches “finish post-survey…” |
+| **#463** | Post-survey feedback, copy, empty-state, historical Mystery Match work | **MERGED** | `4f774c3d0` | App: Vercel/native as per your pipeline (not verified here) | **High** | Mystery Match part later superseded by 2026-06-09 removal. |
 | **#464** | Lobby → post-date UX polish (toasts, layout, convergence min-height) | **MERGED** | `429d26c1b` | Same | **High** | |
 | **#465** | CTA/conversion **`LobbyPostDateEvents`** instrumentation | **MERGED** | `28e6b9aea` | Same | **High** | Wired in **`LobbyEmptyState`**, **`VideoDate`**, **`KeepTheVibe`**, **`PostDateSurvey`**, native lobby, etc. |
 | **#466** | Watchdog / no-remote query pack + runbook links | **MERGED** | `01b20de6b` | N/A (docs) | **High** | Later **#472** refreshed PostHog wording — **not redundant** |
@@ -95,7 +97,7 @@ WHERE table_schema = 'public'
 |--------|--------|
 | Post-survey / lobby feedback parity | **matches** (merged **#463** + downstream) |
 | Ready-gate lobby polish | **matches** (**#464** + overlays use **`LobbyPostDateEvents`**) |
-| Mystery Match native gating | **partial / verify in QA** — not re-audited line-by-line here |
+| Mystery Match native gating | **Superseded** — feature removed from active source/backend on 2026-06-09 |
 | Shared analytics not duplicating RG emits | **matches** — RG overlays **`LobbyPostDateEvents` only** |
 | Watchdog / no-remote expansion | **matches** (**#466**) |
 | Convergence helper + deduped refetches | **matches** (**#467**) |
