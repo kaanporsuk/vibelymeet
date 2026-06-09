@@ -41,7 +41,7 @@
 |------|-------------------------|---------------|
 | Session | `video_sessions` rows + Realtime | `useVideoDateSession` (`videoDateApi.ts`) |
 | Room + token | Edge **`daily-room`** `prepare_date_entry` | `getDailyRoomToken`; classified errors (`READY_GATE_NOT_READY`, etc.) |
-| Phases | RPC **`video_date_transition`** (`enter_handshake`, `end`, …) | Implemented; leave path includes `delete_room` + queue leave when applicable |
+| Phases | RPC **`video_date_transition`** (`prepare_entry`, `end`, reconnect / vibe actions) | Implemented; `prepare_date_entry` owns entry through `prepare_entry`; standalone `enter_handshake` is removed as a client-visible action; leave path includes `delete_room` + queue leave when applicable |
 
 **Docs:** `docs/mobile-sprint5.md`, `docs/native-video-date-hardening-deploy.md`.
 

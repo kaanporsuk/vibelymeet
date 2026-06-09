@@ -97,7 +97,11 @@ test("native pre-navigation helper refuses stale handoff before date navigation"
 test("native video-date lifecycle uses backend RPC surfaces", () => {
   assert.match(nativeVideoDateApi, /Uses same contracts as web: daily-room Edge Function, video_date_transition RPC/);
   assert.match(nativeVideoDateApi, /supabase\.rpc\('video_date_transition'/);
-  assert.match(nativeVideoDateApi, /action:\s*'enter_handshake'/);
+  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
+  assert.doesNotMatch(nativeVideoDateApi, /export async function enterHandshake/);
+  assert.doesNotMatch(nativeVideoDateApi, /enterHandshakeWithTimeout/);
+  assert.doesNotMatch(nativeVideoDateApi, /p_action:\s*['"]enter_handshake['"]/);
+  assert.doesNotMatch(nativeDateRoute, /enterHandshakeWithTimeout/);
   assert.match(nativeVideoDateApi, /action:\s*'sync_reconnect'/);
   assert.match(nativeVideoDateApi, /action:\s*'mark_reconnect_return'/);
   assert.match(nativeVideoDateApi, /action:\s*'end'/);

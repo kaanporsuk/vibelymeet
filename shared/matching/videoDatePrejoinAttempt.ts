@@ -4,7 +4,7 @@ export type PrejoinAttemptStep =
   | "permissions"
   | "truth_fetch"
   | "handshake_guard"
-  | "enter_handshake"
+  | "prepare_entry_routeable"
   | "refetch_video_session"
   | "daily_room_truth_guard"
   | "surface_claim"
@@ -15,7 +15,7 @@ export type PrejoinAttemptStep =
 export function shouldPreservePrejoinAttemptOnCleanup(step: PrejoinAttemptStep): boolean {
   return (
     step === "truth_fetch" ||
-    step === "enter_handshake" ||
+    step === "prepare_entry_routeable" ||
     step === "refetch_video_session" ||
     step === "daily_room_truth_guard" ||
     step === "surface_claim" ||

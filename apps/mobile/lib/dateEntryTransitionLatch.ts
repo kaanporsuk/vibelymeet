@@ -8,7 +8,7 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 const DEFAULT_TTL_MS = 25_000;
 
-/** Covers full native prejoin: enter_handshake → token → Daily join (lobby closure pack used 25s; too short). */
+/** Covers full native prejoin: prepare-entry routeability -> token -> Daily join (lobby closure pack used 25s; too short). */
 export const VIDEO_DATE_ENTRY_PIPELINE_TTL_MS = 180_000;
 export const VIDEO_DATE_ROUTE_OWNERSHIP_TTL_MS = 10 * 60_000;
 export const VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS = 30_000;

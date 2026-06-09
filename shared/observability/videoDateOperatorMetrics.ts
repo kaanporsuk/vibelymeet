@@ -183,9 +183,6 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "permission_check_started"
   | "permission_check_success"
   | "permission_check_skipped"
-  | "enter_handshake_started"
-  | "enter_handshake_success"
-  | "enter_handshake_failure"
   | "daily_token_started"
   | "daily_token_success"
   | "daily_token_failure"
@@ -243,8 +240,6 @@ export type ReadyGateToDateLatencyContext = {
   videoStageShellVisibleAtMs?: number;
   permissionCheckStartedAtMs?: number;
   permissionCheckCompletedAtMs?: number;
-  enterHandshakeStartedAtMs?: number;
-  enterHandshakeCompletedAtMs?: number;
   dailyTokenStartedAtMs?: number;
   dailyTokenCompletedAtMs?: number;
   dailyJoinStartedAtMs?: number;
@@ -373,11 +368,6 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "permission_check_success":
     case "permission_check_skipped":
       return "permissionCheckCompletedAtMs";
-    case "enter_handshake_started":
-      return "enterHandshakeStartedAtMs";
-    case "enter_handshake_success":
-    case "enter_handshake_failure":
-      return "enterHandshakeCompletedAtMs";
     case "daily_token_started":
       return "dailyTokenStartedAtMs";
     case "daily_token_success":

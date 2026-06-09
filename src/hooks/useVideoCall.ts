@@ -4905,7 +4905,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         latchSameSessionDailyContinuity(sessionId, "date_entry_truth_active");
 
         vdbg("video_date_transition_skipped", {
-          action: "sync_reconnect_enter_handshake",
+          action: "prepare_entry_routeable",
           sessionId,
           userId,
           eventId: truthRow.event_id ?? eventId,

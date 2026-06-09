@@ -160,11 +160,6 @@ export async function prepareVideoDateEntry(
       'success',
     );
     trackLatencyCheckpoint(
-      'enter_handshake_started',
-      'prepare_date_entry_started',
-      'success',
-    );
-    trackLatencyCheckpoint(
       'daily_token_started',
       'daily_token_request_started',
       'success',
@@ -379,13 +374,6 @@ export async function prepareVideoDateEntry(
       providerVerifyExtra,
     );
     trackLatencyCheckpoint(
-      'enter_handshake_success',
-      'prepare_date_entry_success',
-      'success',
-      null,
-      tokenDurationMs,
-    );
-    trackLatencyCheckpoint(
       'daily_token_success',
       'daily_token_success',
       'success',
@@ -583,12 +571,6 @@ export async function prepareVideoDateEntry(
   });
   trackLatencyCheckpoint(
     'prepare_entry_failure',
-    'prepare_date_entry_failure',
-    'failure',
-    result.code,
-  );
-  trackLatencyCheckpoint(
-    'enter_handshake_failure',
     'prepare_date_entry_failure',
     'failure',
     result.code,

@@ -2913,7 +2913,7 @@ const VideoDate = () => {
     };
   }, [id, user?.id, navigate, logJourney, recoverTerminalPostDateSurvey]);
 
-  // Server-side phase timing + enter_handshake (only after participant guard passes).
+  // Server-side phase timing from prepare_date_entry/prepare_entry (only after participant guard passes).
   useEffect(() => {
     if (!id || videoDateAccess !== "allowed") return;
 
@@ -3022,7 +3022,7 @@ const VideoDate = () => {
 
       vdbg("date_timing_prejoin_pending", {
         sessionId: id,
-        reason: "use_video_call_owns_enter_handshake",
+        reason: "prepare_date_entry_owns_entry",
         row: data,
       });
       setHandshakeStartFailed(false);

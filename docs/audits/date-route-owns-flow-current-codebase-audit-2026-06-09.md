@@ -2,7 +2,7 @@
 
 Generated: 2026-06-09
 
-Supersession note, 2026-06-09: the later Daily-room legacy action cleanup removes public `create_date_room` and `join_date_room` action support from the active Edge Function contract/dispatch. Current room/token entry remains `prepare_date_entry`; `enter_handshake` remains intentionally preserved.
+Supersession note, 2026-06-09: later cleanup removes public `create_date_room` and `join_date_room` action support from the active Edge Function contract/dispatch, and `docs/branch-deltas/remove-standalone-enter-handshake.md` removes standalone/client-visible `video_date_transition('enter_handshake')`. Current room/token entry remains `prepare_date_entry`, which owns routeable entry through `video_date_transition('prepare_entry')`.
 
 Repo root: `/Users/kaanporsuk/Documents/Vibely/Git/vibelymeet`
 
@@ -49,7 +49,7 @@ Current ownership answers:
 
 `both_ready` is date-owned before `prepare_date_entry`, after missing Daily metadata, and after retryable Daily/provider prepare failure. It is not guaranteed to remain date-owned after terminal/auth/safety failures such as `SESSION_ENDED`, `ACCESS_DENIED`, or `BLOCKED_PAIR`; those are not provider churn and can correctly end or redirect.
 
-Legacy/compatibility code still exists: older `create_date_room`, `join_date_room`, and `enter_handshake` paths remain in `supabase/functions/daily-room/index.ts` and native API helpers, but the normal current token path is `prepare_date_entry`.
+Superseded legacy note: older snapshots described `create_date_room`, `join_date_room`, and native `enterHandshake` helpers. Current active source removes those client-visible entry paths; the normal token path is `prepare_date_entry`, and standalone `enter_handshake` now returns `ENTER_HANDSHAKE_REMOVED`.
 
 Production health verdict: CODE/TEST/CLOUD strong; LIVE remains UNKNOWN because no fresh disposable two-user production run through survey completion was performed.
 

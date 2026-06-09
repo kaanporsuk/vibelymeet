@@ -70,8 +70,6 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_PREWARMED_TOKEN_CACHED: 'video_date_prewarmed_token_cached',
   VIDEO_DATE_PREWARMED_TOKEN_USED: 'video_date_prewarmed_token_used',
   VIDEO_DATE_PREWARMED_TOKEN_REJECTED: 'video_date_prewarmed_token_rejected',
-  VIDEO_DATE_ENTER_HANDSHAKE_SUCCESS: 'video_date_enter_handshake_success',
-  VIDEO_DATE_ENTER_HANDSHAKE_FAILURE: 'video_date_enter_handshake_failure',
   VIDEO_DATE_DAILY_TOKEN_SUCCESS: 'video_date_daily_token_success',
   VIDEO_DATE_DAILY_TOKEN_FAILURE: 'video_date_daily_token_failure',
   VIDEO_DATE_DAILY_SDK_UNRESPONSIVE: 'video_date_daily_sdk_unresponsive',

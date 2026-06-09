@@ -36,7 +36,7 @@ Previous failed-session overlay: production session `4082fe36-8480-4d30-9a1d-1de
 
 | Layer | Native | Web |
 |-------|--------|-----|
-| **RC operator breadcrumbs** | Sentry category `rc.video_date.entry` — control-plane steps (`daily_join_ok`, `enter_handshake_*`, …) plus **`no_remote_watchdog_recovery_start`**, **`peer_missing_terminal_watchdog_fire`** for the first-remote watchdog | No `rc.*` namespace; use **`vdbg`** messages (`daily_no_remote_watchdog_*`) |
+| **RC operator breadcrumbs** | Sentry category `rc.video_date.entry` — control-plane steps (`prepare_entry_routeable`, `prepare_date_entry_*`, `daily_join_ok`, …) plus **`no_remote_watchdog_recovery_start`**, **`peer_missing_terminal_watchdog_fire`** for the first-remote watchdog | No `rc.*` namespace; use **`vdbg`** messages (`daily_no_remote_watchdog_*`) |
 | **Daily transport breadcrumbs** | Sentry category **`video-date-daily`** (`videoDateDailyDiagnostic`) — `peer_missing_timeout`, `no_remote_auto_recovery_*`, `first_remote_observed`, join/token messages | Same logging style via `vdbg` / development console for web Daily path |
 | **Product analytics** | PostHog events such as `video_date_peer_missing_*`, `video_date_join_*` when the analytics instrumentation PR is present (`shared/analytics/lobbyToPostDateJourney.ts`) | Same event names with `platform: web` |
 
@@ -359,8 +359,8 @@ Hardening sprint product events added/verified in `shared/analytics/lobbyToPostD
 - `video_date_ready_gate_ready`
 - `video_date_both_ready`
 - `video_date_route_entered`
-- `video_date_enter_handshake_success`
-- `video_date_enter_handshake_failure`
+- `video_date_prepare_entry_success`
+- `video_date_prepare_entry_failure`
 - `video_date_daily_token_success`
 - `video_date_daily_token_failure`
 - `video_date_daily_joined`
