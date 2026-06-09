@@ -30,7 +30,7 @@ Clients may keep informational busy badges for stale cached cards, but active in
 
 `partner unavailable`: safety, visibility, blocked/reported, paused, not-registered, inactive-event, or not-currently-promotable paths remain non-mutating and notification-suppressed where applicable.
 
-`match_queued`: removed from the active client contract. Migration `20260610000100_remove_post_date_instant_next.sql` expires existing queued sessions and wraps the active swipe base so future queued results are converted to a non-session swipe result.
+`match_queued`: removed from the active client contract. Migration `20260610000100_remove_post_date_instant_next.sql` expires pre-existing queued sessions and removes queue-drain/promotion RPCs. Follow-up migration `20260610022531_review_comments_1262_1280_followups.sql` wraps the active swipe base so any delegated `match_queued` fallback is promoted into the same session as a normal Ready Gate `match` instead of burning reciprocal swipes.
 
 ## Ready Gate State Machine
 

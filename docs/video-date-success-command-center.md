@@ -156,7 +156,7 @@ Implementation added:
 - Native notification reconciliation no longer rescues queued sessions through `drain_match_queue`.
 - Shared queue-drain eligibility/reason-copy helpers and queue-drain observability events were removed.
 - Feature flags `video_date.post_date_instant_next_v2` and `video_date.outbox_v2.drain_match_queue` were removed from client contracts.
-- Forward migration `20260610000100_remove_post_date_instant_next.sql` deletes those flags, expires existing queued sessions, rejects processing `drain_match_queue` commands, rewrites `mark_lobby_foreground` to heartbeat only, wraps swipe output so future `match_queued` results become non-session swipe results, rewrites `resolve_post_date_next_surface` to return only survey/lobby/chat/wrap-up/home, strips legacy queue-drain counters from Sprint 7 ops payloads, and drops queue drain, queue hint, queued promotion, and pending-feedback queue-drain RPCs.
+- Forward migration `20260610000100_remove_post_date_instant_next.sql` deletes those flags, expires existing queued sessions, rejects processing `drain_match_queue` commands, rewrites `mark_lobby_foreground` to heartbeat only, rewrites `resolve_post_date_next_surface` to return only survey/lobby/chat/wrap-up/home, strips legacy queue-drain counters from Sprint 7 ops payloads, and drops queue drain, queue hint, queued promotion, and pending-feedback queue-drain RPCs. Review follow-up migration `20260610022531_review_comments_1262_1280_followups.sql` supersedes the original non-session conversion wrapper so any delegated `match_queued` fallback promotes into the same session as a normal Ready Gate `match` instead of burning reciprocal swipes.
 - Admin Video Date Ops no longer shows queue-drain health or survey-to-next-gate conversion metrics.
 - Branch delta: `docs/branch-deltas/remove-post-date-instant-next.md`.
 
@@ -192,6 +192,33 @@ Preserved:
 Proof boundary:
 
 - This is a cleanup/simplification pass, not Video Date product acceptance. Do not remove legacy DB columns, generated type fields, or phase vocabulary until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
+
+## 2026-06-10 Review-Comments Follow-up: PR #1262 Through #1280
+
+Thread-aware GitHub review scan covered the 18 most recent merged PRs chronologically: #1262, #1263, #1264, #1265, #1266, #1267, #1268, #1269, #1270, #1271, #1272, #1273, #1275, #1276, #1277, #1278, #1279, and #1280. No Copilot-authored review comments were present in that set. Codex comments with actionable findings were present on #1262, #1264, #1267, #1268, #1277, #1279, and #1280.
+
+Already-current main coverage:
+
+- #1262 surface-claim lease/backoff feedback is covered by the current `SURFACE_NOT_CLAIMABLE` no-backoff guard behavior and `shared/matching/reviewComments1256_1262Followups.test.ts`.
+- #1264 Daily joined RPC argument-name feedback is covered by corrective migration `20260609112843_video_date_active_entry_join_arg_name_repair.sql` and generated types preserving `p_entry_attempt_id`.
+- #1266 prewarm adoption feedback was already resolved/outdated in GitHub and superseded by the current Daily adoption guards.
+
+Current follow-up implementation:
+
+- Branch delta: `docs/branch-deltas/review-comments-1262-1280-followups.md`.
+- Forward migration: `supabase/migrations/20260610022531_review_comments_1262_1280_followups.sql`.
+- The migration repairs event registrations that still point at a live Ready Gate session via `current_room_id` but lost partner/status truth while stale Mystery Match suppression was cleared.
+- The same migration replaces the post-auto-next swipe wrapper so a delegated `match_queued` fallback promotes the same session to a normal Ready Gate `match` instead of expiring the only reciprocal-swipe session after both swipes were recorded.
+- `scripts/audit-video-date-ultimate-design.mjs` now follows `EntryPhaseTimer` paths and neutral `entryStartedAt` aliases.
+- `docs/supabase-live-backend-audit.md` no longer includes removed `find_mystery_match` / `drain_match_queue` rows in the current critical-RPC existence claim.
+- `docs/branch-deltas/remove-match-calls.md` records the #1277 cleanup limitation: once `match_calls` and `match-call-room-cleanup` were removed from linked cloud, a later forward migration cannot reconstruct deleted Daily room-name inventory; current verification must prove Match Calls remain absent and rely on golden Video Date cleanup for `video_sessions` room drift.
+- Regression coverage: `shared/matching/reviewComments1262_1280Followups.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+
+Proof boundary:
+
+- This is review-comment hardening and cloud-alignment work, not product acceptance. Video Date remains unaccepted until the fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> both users persist `date_feedback`, including leave/rejoin and prolonged absence checks.
 
 ---
 

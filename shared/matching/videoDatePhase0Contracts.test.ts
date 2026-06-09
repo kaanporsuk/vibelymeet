@@ -17,6 +17,10 @@ const flagCore = readFileSync(join(root, "shared/featureFlags/clientFeatureFlagC
 const videoDateFlags = readFileSync(join(root, "shared/featureFlags/videoDateV4Flags.ts"), "utf8");
 const validationSql = readFileSync(join(root, "supabase/validation/video_date_phase0_observability_flags.sql"), "utf8");
 const runtimeCopyEntities = readFileSync(join(root, "scripts/runtime-copy-entities.test.ts"), "utf8");
+const autoNextRemovalMigration = readFileSync(
+  join(root, "supabase/migrations/20260610000100_remove_post_date_instant_next.sql"),
+  "utf8",
+);
 
 test("Phase 0 keeps synthetic events out of user-facing event surfaces", () => {
   assert.match(phase0Migration, /ADD COLUMN IF NOT EXISTS is_test_event boolean NOT NULL DEFAULT false/);
@@ -52,7 +56,7 @@ test("Phase 0 exposes service-role-only dashboard read models", () => {
 });
 
 test("Phase 0 seeds every video-date flag default-off with hard-kill compatibility", () => {
-  const flags = [
+  const currentFlags = [
     "video_date.snapshot_v2",
     "video_date.deck_deal_v2",
     "video_date.readiness_v2",
@@ -71,13 +75,22 @@ test("Phase 0 seeds every video-date flag default-off with hard-kill compatibili
     "video_date.outbox_v2.submit_verdict",
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
+  ];
+  const removedFlags = [
     "video_date.outbox_v2.drain_match_queue",
   ];
 
-  for (const flag of flags) {
+  for (const flag of currentFlags) {
     const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(videoDateFlags, new RegExp(`"${escaped}"`));
     assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
+  }
+
+  for (const flag of removedFlags) {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.doesNotMatch(videoDateFlags, new RegExp(`"${escaped}"`));
+    assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
+    assert.match(autoNextRemovalMigration, new RegExp(`DELETE FROM public\\.client_feature_flags[\\s\\S]*'${escaped}'`));
   }
 
   assert.match(flagCore, /VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS/);

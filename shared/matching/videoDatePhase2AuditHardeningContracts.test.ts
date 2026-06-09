@@ -143,19 +143,24 @@ test("synthetic monitor covers webhook and orphan cleanup paths", () => {
   assert.match(syntheticMonitor, /phase2_path_probe_failed/);
 });
 
-test("Daily call-quality diagnostics run as advisory background checks on web and native", () => {
-  assert.match(webReadiness, /runDailyCallQualityAdvisory/);
-  assert.match(webReadiness, /createDailyCallObjectGuarded/);
-  assert.match(webReadiness, /failOnExternalCall:\s*true/);
-  assert.match(webReadiness, /testCallQuality/);
-  assert.match(webReadiness, /DAILY_CALL_QUALITY_TIMEOUT_MS/);
-  assert.match(nativeReadiness, /runNativeDailyCallQualityAdvisory/);
-  assert.match(nativeReadiness, /createVideoDateDailyDiagnosticCallObjectGuarded/);
-  assert.match(nativeReadiness, /failOnExternalCall:\s*true/);
-  assert.match(readFileSync(join(root, "apps/mobile/lib/videoDateDailyMediaConfig.ts"), "utf8"), /audioSource: false[\s\S]+videoSource: false/);
-  assert.match(nativeReadiness, /testCallQuality/);
-  assert.match(nativeReadiness, /testWebsocketConnectivity/);
-  assert.match(nativeReadiness, /DAILY_CALL_QUALITY_TIMEOUT_MS/);
+test("Daily readiness diagnostics remain local capability checks on web and native", () => {
+  assert.match(webReadiness, /recordVideoDateReadinessCheckV2/);
+  assert.match(webReadiness, /inspectWebVideoDateCapabilities/);
+  assert.match(webReadiness, /queryPermissionState\("camera"\)/);
+  assert.match(webReadiness, /queryPermissionState\("microphone"\)/);
+  assert.match(webReadiness, /enumerateMediaDevices/);
+  assert.match(webReadiness, /dailyRoomDiagnosticRemoved: true/);
+  assert.doesNotMatch(webReadiness, /runDailyCallQualityAdvisory|createDailyCallObjectGuarded|testCallQuality/);
+
+  assert.match(nativeReadiness, /recordVideoDateReadinessCheckV2/);
+  assert.match(nativeReadiness, /inspectNativeVideoDateCapabilities/);
+  assert.match(nativeReadiness, /Camera\.getCameraPermissionsAsync/);
+  assert.match(nativeReadiness, /Camera\.getMicrophonePermissionsAsync/);
+  assert.match(nativeReadiness, /dailyRoomDiagnosticRemoved: true/);
+  assert.doesNotMatch(
+    nativeReadiness,
+    /runNativeDailyCallQualityAdvisory|createVideoDateDailyDiagnosticCallObjectGuarded|testCallQuality|testWebsocketConnectivity/,
+  );
 });
 
 test("shared idempotency helper documents server bounds and emits UUID v4 request ids", () => {

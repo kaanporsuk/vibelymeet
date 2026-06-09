@@ -209,11 +209,16 @@ export const PostDateSurvey = ({
     pending.resolve(confirmedResult);
   }, [clearVerdictConfirmTimeout]);
 
-  const confirmVerdictWithServerNextSurface = useCallback(async (result: unknown) => {
+  const fetchPostDateNextSessionTruth = useCallback(async () => {
     const { data, error } = await supabase.rpc("resolve_post_date_next_surface", {
       p_session_id: sessionId,
     });
-    const nextSurface = !error ? normalizeServerPostDateNextSurface(data) : null;
+    if (error) return null;
+    return normalizeServerPostDateNextSurface(data);
+  }, [sessionId]);
+
+  const confirmVerdictWithServerNextSurface = useCallback(async (result: unknown) => {
+    const nextSurface = await fetchPostDateNextSessionTruth();
     if (!nextSurface || nextSurface.action === "survey") return null;
     const base = result && typeof result === "object" && !Array.isArray(result)
       ? result as Record<string, unknown>
@@ -224,7 +229,7 @@ export const PostDateSurvey = ({
       committed: true,
       next_surface: nextSurface,
     };
-  }, [sessionId]);
+  }, [fetchPostDateNextSessionTruth]);
 
   const waitForVerdictConfirmation = useCallback(
     async (result: unknown): Promise<unknown | null> => {
@@ -433,11 +438,8 @@ export const PostDateSurvey = ({
       seconds_until_event_end: secondsUntilEventEnd,
     });
     try {
-      const { data: nextData, error: nextError } = await supabase.rpc("resolve_post_date_next_surface", {
-        p_session_id: sessionId,
-      });
-      const serverNext = normalizeServerPostDateNextSurface(nextData);
-      if (!nextError && serverNext) {
+      const serverNext = await fetchPostDateNextSessionTruth();
+      if (serverNext) {
         if (serverNext.action === "ready_gate" || serverNext.action === "video_date") {
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
             platform: "web",
@@ -654,11 +656,12 @@ export const PostDateSurvey = ({
     eventId,
     sessionId,
     partnerId,
-    setStatus,
-    checkEventActive,
-    logJourney,
-    continuityDecision.action,
-    secondsUntilEventEnd,
+	    setStatus,
+	    checkEventActive,
+	    fetchPostDateNextSessionTruth,
+	    logJourney,
+	    continuityDecision.action,
+	    secondsUntilEventEnd,
   ]);
 
   // Screen 1: Verdict (mandatory) — single backend path (RPC via Edge: persist + mutual match + server push when new match)

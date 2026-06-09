@@ -24,7 +24,7 @@ Forward migration:
 
 - `supabase/migrations/20260610000100_remove_post_date_instant_next.sql`
 
-The migration deletes the removed feature flags, expires existing queued sessions, rejects processing `drain_match_queue` commands, rewrites lobby foreground to heartbeat only, wraps active swipe results so future `match_queued` becomes a non-session swipe result, rewrites post-date routing so it never returns another Ready Gate or Video Date, strips legacy queue-drain counters from the Sprint 7 ops payload, and drops the removed public/helper RPC chain.
+The migration deletes the removed feature flags, expires existing queued sessions, rejects processing `drain_match_queue` commands, rewrites lobby foreground to heartbeat only, rewrites post-date routing so it never returns another Ready Gate or Video Date, strips legacy queue-drain counters from the Sprint 7 ops payload, and drops the removed public/helper RPC chain. A later review follow-up, `20260610022531_review_comments_1262_1280_followups.sql`, supersedes the original non-session conversion wrapper so any delegated `match_queued` fallback is promoted into the same session as a normal Ready Gate `match` instead of burning reciprocal swipes.
 
 ## Preserved
 

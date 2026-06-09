@@ -102,7 +102,7 @@ test("web and native joined confirmation wait for provider proof before RPC", ()
     );
     assert.match(source, /p_provider_session_id: providerSessionId/);
     assert.match(source, /p_call_instance_id: dailyCallInstanceId/);
-    assert.match(source, /p_entry_attempt_id: entryAttemptId \?\? entryOwner\?\.entryAttemptId \?\? null/);
+    assert.match(source, /p_entry_attempt_id:\s*entryAttemptId \?\? entryOwner\?\.entryAttemptId \?\? null/);
     assert.match(
       source,
       /if \(!joinedProof\.providerBackedJoined\) \{[\s\S]{0,1000}code: "provider_presence_missing"[\s\S]{0,360}retryable/s,

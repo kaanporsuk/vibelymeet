@@ -144,10 +144,26 @@ test("web and native surveys gate optimistic advancement behind shared confirmat
     assert.match(source, /normalizePostDateVerdictConfirmationResult/);
     assert.match(source, /derivePostDateSurveyStepFromVerdict/);
     assert.match(source, /nextSurface\.action === ["']survey["']/);
-    assert.match(source, /confirmation_timeout/);
-    assert.match(source, /const canOptimisticallyAdvanceVerdict = postDateInstantNextV2\.enabled && !verdictConfirmEnabled/);
-    assert.match(source, /if \(canOptimisticallyAdvanceVerdict\) \{[\s\S]+setStep\(optimisticStep\)/);
+    assert.match(source, /confirmVerdictWithServerNextSurface/);
+    assert.match(source, /resolve_post_date_next_surface/);
+    assert.match(source, /normalizeServerPostDateNextSurface/);
+    assert.match(
+      source,
+      /verdictConfirmTimeoutRef\.current = (?:window\.)?setTimeout\(\(\) => \{[\s\S]+confirmVerdictWithServerNextSurface\(result\)/,
+    );
     assert.match(source, /const confirmedResult = verdictConfirmEnabled \? await waitForVerdictConfirmation\(result\) : result/);
+    assert.doesNotMatch(source, /postDateInstantNext|canOptimisticallyAdvanceVerdict|optimisticStep/);
+    const verdictSubmitBlock =
+      source.match(/const confirmedResult = verdictConfirmEnabled[\s\S]+?applyConfirmedVerdictStep\(confirmedResult\);/)?.[0] ?? "";
+    assert.match(verdictSubmitBlock, /const feedbackRowConfirmed = await confirmActorFeedbackRow\(liked, ['"]verdict_submitted['"]\)/);
+    assert.ok(
+      verdictSubmitBlock.indexOf("waitForVerdictConfirmation") < verdictSubmitBlock.indexOf("confirmActorFeedbackRow"),
+      "survey must wait for verdict confirmation before actor feedback-row proof",
+    );
+    assert.ok(
+      verdictSubmitBlock.indexOf("confirmActorFeedbackRow") < verdictSubmitBlock.indexOf("applyConfirmedVerdictStep"),
+      "survey must not advance until actor feedback-row proof is visible",
+    );
     assert.match(source, /recordReportPassVerdict[\s\S]+waitForVerdictConfirmation/);
     assert.match(source, /report_pass_confirmation_failed/);
     assert.match(source, /highlightsSaveInFlightRef/);

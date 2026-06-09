@@ -12,7 +12,7 @@ function read(path) {
 
 const files = {
   webDate: "src/pages/VideoDate.tsx",
-  webTimer: "src/components/video-date/HandshakeTimer.tsx",
+  webTimer: "src/components/video-date/EntryPhaseTimer.tsx",
   webIceBreaker: "src/components/video-date/IceBreakerCard.tsx",
   webVibeCheck: "src/components/video-date/VibeCheckButton.tsx",
   webControls: "src/components/video-date/VideoDateControls.tsx",
@@ -21,7 +21,7 @@ const files = {
   webKeepTheVibe: "src/components/video-date/KeepTheVibe.tsx",
   webCall: "src/hooks/useVideoCall.ts",
   nativeDate: "apps/mobile/app/date/[id].tsx",
-  nativeTimer: "apps/mobile/components/video-date/HandshakeTimer.tsx",
+  nativeTimer: "apps/mobile/components/video-date/EntryPhaseTimer.tsx",
   nativeIceBreaker: "apps/mobile/components/video-date/IceBreakerCard.tsx",
   nativeVibeCheck: "apps/mobile/components/video-date/VibeCheckButton.tsx",
   nativeControls: "apps/mobile/components/video-date/VideoDateControls.tsx",
@@ -128,10 +128,10 @@ check(
     includes("sharedCountdown", "resolveVideoDatePhaseCountdown") &&
     includes("webDate", "resolveVideoDatePhaseCountdown") &&
     includes("nativeDate", "resolveVideoDatePhaseCountdown") &&
-    includes("webDate", "handshakeStartedAt") &&
-    includes("nativeDate", "handshakeStartedAt"),
+    includes("webDate", "entryStartedAt") &&
+    includes("nativeDate", "entryStartedAtIso"),
   "Timer Sync",
-  "Handshake countdown derives from shared started-at session time on web and native.",
+  "Entry countdown derives from shared started-at session time on web and native.",
   `${files.sharedCountdown}, ${evidence("webDate", "resolveVideoDatePhaseCountdown")}, ${evidence("nativeDate", "resolveVideoDatePhaseCountdown")}`,
   `${files.sharedCountdown}, ${files.webDate}, ${files.nativeDate}`,
 );
