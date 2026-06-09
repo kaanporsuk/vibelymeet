@@ -6,6 +6,8 @@
 
 > Update 2026-04-06: `public.match_mutes` was later retired after `match_notification_mutes` became the sole canonical per-match mute table. References below to `match_mutes` reflect the historical 2026-03-18 snapshot.
 >
+> Update 2026-06-09: Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. Historical references below to `find_mystery_match`, `useMysteryMatch`, or `session_source = 'mystery_match'` do not describe current schema or client behavior. Current Video Date session creation is reciprocal swipe plus supported queue promotion into Ready Gate.
+>
 > Historical note: this document preserves a March 18, 2026 live audit snapshot. For current schema truth, use the latest migrations, live DB state, and `src/integrations/supabase/types.ts`.
 
 ---
@@ -64,9 +66,11 @@ Relevant FKs (from live DB, `confdeltype`: `c` = CASCADE, `a` = NO ACTION):
 
 ## SECTION 2: LIVE RPC / SQL FUNCTIONS vs CODE
 
-### Live public RPCs (callable; triggers omitted)
+### Historical live public RPCs (callable; triggers omitted)
 
 Routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premium_status`, `claim_media_delete_jobs`, `complete_media_delete_job`, `daily_drop_transition`, `deduct_credit`, `drain_match_queue`, `enqueue_media_delete`, `find_mystery_match`, `generate_recurring_events`, `get_event_deck`, `get_other_city_events`, `get_visible_events`, `handle_swipe`, `leave_matching_queue`, `promote_purgeable_assets`, `ready_gate_transition`, `release_media_reference`, `update_participant_status`, `video_date_transition`.
+
+This March 18 snapshot included `find_mystery_match`. It is no longer callable in the current linked database after migration `20260609152000_remove_mystery_match.sql`.
 
 > **Media lifecycle RPCs** (added in `20260417100000`): `claim_media_delete_jobs`, `complete_media_delete_job`, `enqueue_media_delete`, `promote_purgeable_assets`, `release_media_reference` — all service_role only, called by `process-media-delete-jobs` worker.
 
@@ -84,7 +88,7 @@ Routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premiu
 | get_other_city_events | useVisibleEvents.ts | — |
 | get_event_deck | useEventDeck.ts | eventsApi.ts |
 | drain_match_queue | useMatchQueue.ts | eventsApi.ts |
-| find_mystery_match | useMysteryMatch.ts | useMysteryMatch.ts |
+| find_mystery_match | historical `useMysteryMatch.ts` (deleted 2026-06-09) | historical `useMysteryMatch.ts` (deleted 2026-06-09) |
 | generate_recurring_events | AdminEventFormModal, AdminEventsPanel | — |
 | check_mutual_vibe_and_match | PostDateSurvey.tsx | videoDateApi.ts |
 | ready_gate_transition | useReadyGate.ts | readyGateApi.ts |
@@ -103,7 +107,7 @@ Routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premiu
 |-----|------------|---------------------------|
 | check_mutual_vibe_and_match | Yes | p_session_id uuid → jsonb |
 | drain_match_queue | Yes | p_event_id uuid, p_user_id uuid → jsonb |
-| find_mystery_match | Yes | p_event_id uuid, p_user_id uuid → jsonb |
+| find_mystery_match | Historical only; removed 2026-06-09 | p_event_id uuid, p_user_id uuid → jsonb |
 | get_event_deck | Yes | p_event_id uuid, p_user_id uuid, p_limit int DEFAULT 50 → TABLE(...) |
 | handle_swipe | Yes | p_event_id, p_actor_id, p_target_id uuid, p_swipe_type text → jsonb |
 | deduct_credit | Yes | p_user_id uuid, p_credit_type text → boolean |

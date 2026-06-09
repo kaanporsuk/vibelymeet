@@ -2,15 +2,17 @@
 
 Branch: `fix/event-lobby-active-event-contract`
 
+2026-06-09 supersession: Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. Historical references in this branch delta to wrapping or calling `find_mystery_match` describe the May 1 implementation state only and must not be used as current guidance.
+
 2026-05-01 follow-up: `20260501223000_event_lobby_canonical_active_state.sql` supersedes the original inactive-reason helper with `get_event_lobby_active_state(uuid, timestamptz)`, keeps the original helpers as compatibility wrappers, and changes `get_event_deck` inactive behavior from silent empty deck to explicit `event_not_active` rejection. See `docs/audits/event-lobby-active-event-contract-verification.md` for the current rebuild delta and remote verification.
 
 ## Problem
 
-Production verification showed that Event Lobby backend entrypoints could still be called outside the true live event window. Stale links, direct RPC calls, native retries, or queue drains could reach deck, swipe, mystery match, or queued Ready Gate promotion logic after an event was not live anymore.
+Production verification showed that Event Lobby backend entrypoints could still be called outside the true live event window. Stale links, direct RPC calls, native retries, or queue drains could reach deck, swipe, then-supported Mystery Match, or queued Ready Gate promotion logic after an event was not live anymore.
 
 ## Approach
 
-This branch adds a shared SQL active-event guard and wraps the existing mature RPC bodies without changing their success-path behavior. The public RPC signatures stay the same; inactive events are rejected before profile disclosure, swipe inserts, super-vibe accounting, `video_sessions` creation/reuse, mystery-match creation, or queued Ready Gate promotion.
+This branch adds a shared SQL active-event guard and wraps the existing mature RPC bodies without changing their success-path behavior. The public RPC signatures stay the same; inactive events are rejected before profile disclosure, swipe inserts, super-vibe accounting, `video_sessions` creation/reuse, then-supported Mystery Match creation, or queued Ready Gate promotion.
 
 ## Files Changed
 
@@ -25,7 +27,7 @@ This branch adds a shared SQL active-event guard and wraps the existing mature R
 - Added `public.is_event_lobby_active(uuid)`
 - Wrapped `public.get_event_deck(uuid, uuid, integer)`
 - Wrapped `public.handle_swipe(uuid, uuid, uuid, text)`
-- Wrapped `public.find_mystery_match(uuid, uuid)`
+- Wrapped `public.find_mystery_match(uuid, uuid)` in the historical May 1 state. This RPC is dropped in current schema by `20260609152000_remove_mystery_match.sql`.
 - Wrapped `public.promote_ready_gate_if_eligible(uuid, uuid)`
 - Wrapped `public.drain_match_queue(uuid)`
 
@@ -40,7 +42,7 @@ The previous implementations are retained as timestamped internal base functions
 - They return only a boolean or lifecycle reason code, never profile, registration, swipe, match, or media payload data.
 - Public wrappers only return detailed inactive reason codes after the caller is authenticated and, where applicable, established as a registered/confirmed event participant. Nonparticipants receive authorization or registration/admission outcomes instead of lifecycle details.
 
-No web or native client should call these helpers directly. Clients should keep using `get_event_deck`, `swipe-actions`/`handle_swipe`, `find_mystery_match`, and `drain_match_queue`.
+No web or native client should call these helpers directly. Current clients should use `get_event_deck`, `swipe-actions`/`handle_swipe`, and `drain_match_queue`; they must not call `find_mystery_match`, which was removed on 2026-06-09.
 
 ## Security Definer Hygiene
 
@@ -76,7 +78,7 @@ Inactive outcomes:
 
 - `get_event_deck`: returns zero rows.
 - `handle_swipe`: returns `success: false`, `result: "event_not_active"`, `error: "event_not_active"`, and `reason`.
-- `find_mystery_match`: returns `success: false`, `error: "event_not_active"`, `reason`, and `terminal: true`.
+- `find_mystery_match`: historical May 1 behavior returned `success: false`, `error: "event_not_active"`, `reason`, and `terminal: true`. Current schema removes this RPC entirely.
 - `promote_ready_gate_if_eligible`: unauthenticated/spoofed direct client calls return `promoted: false`, `reason: "unauthorized"`; nonregistered or unconfirmed actors return `registration_missing` / `admission_not_confirmed`; inactive events return `promoted: false`, `reason: "event_not_valid"`, and `inactive_reason`. `service_role` remains allowed for trusted backend/operator calls.
 - `drain_match_queue`: nonregistered or unconfirmed actors return `registration_missing` / `admission_not_confirmed`; inactive events return `found: false`, `reason: "event_not_valid"`, and `inactive_reason`.
 
