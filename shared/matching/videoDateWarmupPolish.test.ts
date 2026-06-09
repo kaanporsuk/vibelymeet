@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveVideoDatePhaseCountdown } from "./videoDateCountdown";
+import { videoDateEntryTimingAliases } from "./videoDateEntryTiming";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -11,8 +12,8 @@ test("warm-up countdown derives from authoritative started-at timestamp", () => 
   const startedAt = "2026-05-03T18:55:36.000Z";
   const countdown = resolveVideoDatePhaseCountdown({
     phase: "handshake",
-    handshakeStartedAtIso: startedAt,
-    handshakeDurationSeconds: 60,
+    entryStartedAtIso: startedAt,
+    entryDurationSeconds: 60,
     dateDurationSeconds: 300,
     nowMs: Date.parse("2026-05-03T18:56:01.000Z"),
   });
@@ -27,8 +28,8 @@ test("warm-up countdown derives from authoritative started-at timestamp", () => 
 test("final-ten state is computed from remaining server deadline time", () => {
   const countdown = resolveVideoDatePhaseCountdown({
     phase: "handshake",
-    handshakeStartedAtIso: "2026-05-03T18:55:36.000Z",
-    handshakeDurationSeconds: 60,
+    entryStartedAtIso: "2026-05-03T18:55:36.000Z",
+    entryDurationSeconds: 60,
     dateDurationSeconds: 300,
     nowMs: Date.parse("2026-05-03T18:56:27.000Z"),
   });
@@ -41,7 +42,7 @@ test("date countdown includes backend-confirmed extension seconds", () => {
   const countdown = resolveVideoDatePhaseCountdown({
     phase: "date",
     dateStartedAtIso: "2026-05-03T18:56:36.000Z",
-    handshakeDurationSeconds: 60,
+    entryDurationSeconds: 60,
     dateDurationSeconds: 300,
     dateExtraSeconds: 120,
     nowMs: Date.parse("2026-05-03T19:00:36.000Z"),
@@ -55,8 +56,8 @@ test("date countdown includes backend-confirmed extension seconds", () => {
 test("countdown model clamps invalid duration input to safe UI values", () => {
   const countdown = resolveVideoDatePhaseCountdown({
     phase: "handshake",
-    handshakeStartedAtIso: "2026-05-03T18:55:36.000Z",
-    handshakeDurationSeconds: Number.NaN,
+    entryStartedAtIso: "2026-05-03T18:55:36.000Z",
+    entryDurationSeconds: Number.NaN,
     dateDurationSeconds: 300,
     nowMs: Date.parse("2026-05-03T18:55:45.000Z"),
   });
@@ -66,6 +67,20 @@ test("countdown model clamps invalid duration input to safe UI values", () => {
   assert.equal(countdown.durationMs, 0);
   assert.equal(countdown.progress, 1);
   assert.equal(countdown.formattedTime, "0:00");
+});
+
+test("entry timing aliases keep legacy DB columns at the boundary", () => {
+  const aliases = videoDateEntryTimingAliases({
+    handshake_started_at: "2026-05-03T18:55:36.000Z",
+    handshake_grace_expires_at: "2026-05-03T18:56:46.000Z",
+    date_started_at: null,
+  });
+
+  assert.deepEqual(aliases, {
+    entryStartedAtIso: "2026-05-03T18:55:36.000Z",
+    entryGraceExpiresAtIso: "2026-05-03T18:56:46.000Z",
+    dateStartedAtIso: null,
+  });
 });
 
 test("decision guidance belongs to Pass/Vibe, not icebreaker", () => {
@@ -108,6 +123,10 @@ test("web desktop stage and native timer hardening contracts remain in place", (
   assert.equal(webDate.includes("md:w-[min(calc(100vw_-_2rem),500px)]"), true);
   assert.equal(webDate.includes("md:h-[min(calc(100dvh_-_2rem),920px)]"), true);
   assert.equal(nativeCountdownBlock.includes("resolveVideoDatePhaseCountdown"), true);
+  assert.equal(webDate.includes("entryStartedAtIso"), true);
+  assert.equal(nativeCountdownBlock.includes("entryStartedAtIso"), true);
+  assert.equal(webDate.includes("handshakeStartedAtIso"), false);
+  assert.equal(nativeCountdownBlock.includes("handshakeStartedAtIso"), false);
   assert.equal(webDate.includes("let completionFired = false"), true);
   assert.equal(nativeCountdownBlock.includes("let completionFired = false"), true);
   assert.equal(webDate.includes("countdownCompletionKeyRef"), true);

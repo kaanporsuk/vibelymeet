@@ -56,7 +56,7 @@ A successful Video Date run means:
 5. Both users are handed to `/date/:sessionId` or native date route without lobby cycling.
 6. Both users enter the same Daily room name and URL.
 7. Local and remote media tracks mount for both users.
-8. The handshake/date timer follows server truth.
+8. The entry/date timer follows server truth.
 9. Ending the date opens the post-date survey.
 10. Survey completion persists and routes the user into the expected next lobby/deck/Ready Gate state.
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
@@ -145,6 +145,31 @@ Proof boundary:
 
 ---
 
+## 2026-06-09 Implementation Update: Neutral Entry Timer Aliases
+
+Current source now introduces neutral entry/date timer aliases over the legacy handshake timer column names. This is a terminology cleanup only; deployed DB columns and runtime phase values are intentionally preserved.
+
+Implementation added:
+
+- New shared alias boundary `shared/matching/videoDateEntryTiming.ts` maps legacy DB fields to neutral names: `handshake_started_at` -> `entryStartedAtIso`, `handshake_grace_expires_at` -> `entryGraceExpiresAtIso`, and `date_started_at` -> `dateStartedAtIso`.
+- Web/native countdown model `shared/matching/videoDateCountdown.ts` now accepts `entryStartedAtIso` and `entryDurationSeconds`.
+- Web/native timer UI components are renamed to `EntryPhaseTimer`.
+- Web `/date/:sessionId`, native `/date/[id]`, and native session countdown resolution use neutral names such as `entryStartedAt`, `entryTimerStarted`, `entryDeadlineUrgent`, and `entry_visible_countdown_elapsed` for active countdown/timer logic.
+- Warm-up timer telemetry source action is now `server_entry_started_at`; active payloads include neutral `entry_started_at` while preserving legacy `handshake_started_at` for compatibility.
+- Branch delta: `docs/branch-deltas/neutral-entry-timer-aliases.md`.
+
+Preserved:
+
+- `handshake_started_at` and `handshake_grace_expires_at` remain server timing columns.
+- Runtime phase values remain `handshake`, `date`, and `ended`.
+- `complete_handshake`, Vibe/Pass, `prepare_date_entry`, `video_date_transition('prepare_entry')`, and `video_date_transition('end')` remain active.
+
+Proof boundary:
+
+- This is a cleanup/simplification pass, not Video Date product acceptance. Do not remove legacy DB columns, generated type fields, or phase vocabulary until the fresh disposable two-user production proof reaches survey completion by both users.
+
+---
+
 ## 2026-06-09 Implementation Update: Standalone Enter Handshake Removed
 
 Current source now removes standalone/client-visible `video_date_transition('enter_handshake')` from the active Video Date entry path. The golden entry command is `prepare_date_entry`, which continues to call `video_date_transition('prepare_entry')` inside `daily-room`.
@@ -163,7 +188,7 @@ Preserved:
 - `prepare_date_entry` remains the only golden web/native room and token entry command.
 - `video_date_transition('prepare_entry')` remains active and owns routeable entry/timing setup.
 - `video_date_transition('end')` remains active.
-- `handshake_started_at` and `handshake_grace_expires_at` remain server timing columns for handshake/date timer semantics.
+- `handshake_started_at` and `handshake_grace_expires_at` remain server timing columns, now aliased in active product countdown code as entry/date timer semantics.
 
 Proof boundary:
 

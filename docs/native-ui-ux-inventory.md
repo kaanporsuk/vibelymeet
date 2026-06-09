@@ -399,7 +399,7 @@ Convention: **Route** = Expo Router path from `app/`. **Layout** from parent `_l
 
 **Data:** `daily-room`, `video_date_transition`, session/video hooks. Legacy `leave_matching_queue` was removed from the active backend contract on 2026-06-09.
 
-**Visual:** Full-screen video UI; `ConnectionOverlay`, `HandshakeTimer`, `VideoDateControls`, `VibeCheckButton`, sheets.
+**Visual:** Full-screen video UI; `ConnectionOverlay`, `EntryPhaseTimer`, `VideoDateControls`, `VibeCheckButton`, sheets.
 
 ---
 
@@ -637,7 +637,7 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 |----------|------|-----|----------|--------|---------|
 | TypingIndicator | 3 dots scale/opacity | Animated.loop sequence | 300ms | timing | mount |
 | ActiveCallBanner | icon scale pulse | Animated.loop | 750ms | timing | active call |
-| HandshakeTimer | wrap scale | Animated.loop | 300ms | timing | urgent |
+| EntryPhaseTimer | wrap scale | Animated.loop | 300ms | timing | urgent |
 | VibeCheckButton | button scale | Animated | 900ms loop | timing | prominent |
 | ConnectionOverlay | rings scale | Animated.loop | 1000ms | timing | connecting |
 | MutualVibeToast | toast | Animated | — | — | event |

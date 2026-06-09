@@ -15,7 +15,7 @@ import * as Sentry from "@sentry/react";
 import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 import { captureSupabaseError } from "@/lib/errorTracking";
 
-import { HandshakeTimer } from "@/components/video-date/HandshakeTimer";
+import { EntryPhaseTimer } from "@/components/video-date/EntryPhaseTimer";
 import { IceBreakerCard } from "@/components/video-date/IceBreakerCard";
 import { VideoDateControls } from "@/components/video-date/VideoDateControls";
 import { SelfViewPIP } from "@/components/video-date/SelfViewPIP";
@@ -99,6 +99,7 @@ import {
   remainingStartedAtCountdownSeconds,
   resolveVideoDatePhaseCountdown,
 } from "@clientShared/matching/videoDateCountdown";
+import { videoDateEntryStartedAtIso } from "@clientShared/matching/videoDateEntryTiming";
 import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
 import {
   mediaPermissionMessage,
@@ -601,7 +602,7 @@ const VideoDate = () => {
   const [showEndDateConfirm, setShowEndDateConfirm] = useState(false);
   const [isEndDateConfirming, setIsEndDateConfirming] = useState(false);
   const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
-  const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(
+  const [entryStartedAt, setEntryStartedAt] = useState<string | null>(
     null,
   );
   const [handshakeTruth, setHandshakeTruth] =
@@ -1137,7 +1138,7 @@ const VideoDate = () => {
         currentRoomId: reg?.current_room_id ?? null,
         vsState: vs?.state ?? null,
         vsPhase: vs?.phase ?? null,
-        handshakeStartedAt: vs?.handshake_started_at ?? null,
+        entryStartedAt: vs?.handshake_started_at ?? null,
         readyGateStatus: vs?.ready_gate_status ?? null,
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
         dateRouteOwned: isVideoDateRouteOwned(id, user.id),
@@ -1967,10 +1968,10 @@ const VideoDate = () => {
         setTimeLeft(countdown.remainingSeconds ?? 0);
         const startedIso = isoFromTimelineMs(timeline.phaseStartedAtMs);
         if (timeline.phase === "handshake") {
-          setHandshakeStartedAt(startedIso);
+          setEntryStartedAt(startedIso);
           setDateStartedAt(null);
         } else {
-          setHandshakeStartedAt(null);
+          setEntryStartedAt(null);
           setDateStartedAt(startedIso);
         }
       } else if (timeline.phase === "ended") {
@@ -2075,7 +2076,7 @@ const VideoDate = () => {
     surveyOpenedRef.current = false;
     terminalSurveyRecoveryInFlightRef.current = false;
     setTerminalSurveyRecoveryActive(false);
-    setHandshakeStartedAt(null);
+    setEntryStartedAt(null);
     setCallStartFailure(null);
     handshakeCompletionInFlightRef.current = false;
     handshakeCompletionDeadlineKeyRef.current = null;
@@ -2382,7 +2383,7 @@ const VideoDate = () => {
   useEffect(() => {
     setDateExtraSeconds(0);
     setDateStartedAt(null);
-    setHandshakeStartedAt(null);
+    setEntryStartedAt(null);
     setTimeLeft(null);
   }, [id]);
 
@@ -2940,7 +2941,7 @@ const VideoDate = () => {
           error: error ? { code: error.code, message: error.message } : null,
           hasData: Boolean(data),
         });
-        setHandshakeStartedAt(null);
+        setEntryStartedAt(null);
         setHandshakeStartFailed(true);
         setHandshakeFailureCode(undefined);
         setTimeLeft(null);
@@ -2960,7 +2961,7 @@ const VideoDate = () => {
         data.phase === "ended"
       ) {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
-        setHandshakeStartedAt(null);
+        setEntryStartedAt(null);
         await recoverTerminalPostDateSurvey("timing_terminal");
         setDateStartedAt(
           typeof data.date_started_at === "string"
@@ -2978,7 +2979,7 @@ const VideoDate = () => {
       ) {
         vdbg("date_timing_existing_date", { sessionId: id, row: data });
         markDateFlowEntered();
-        setHandshakeStartedAt(null);
+        setEntryStartedAt(null);
         const dateStartedAt =
           typeof data.date_started_at === "string"
             ? data.date_started_at
@@ -2997,22 +2998,24 @@ const VideoDate = () => {
         return;
       }
 
-      if (data.handshake_started_at) {
+      const fetchedEntryStartedAt = videoDateEntryStartedAtIso(data);
+
+      if (fetchedEntryStartedAt) {
         vdbg("date_timing_existing_handshake", { sessionId: id, row: data });
-        setHandshakeStartedAt(data.handshake_started_at);
+        setEntryStartedAt(fetchedEntryStartedAt);
         setDateStartedAt(null);
-        const handshakeRemaining =
+        const entryRemaining =
           remainingStartedAtCountdownSeconds({
-            startedAtIso: data.handshake_started_at,
+            startedAtIso: fetchedEntryStartedAt,
             durationSeconds: HANDSHAKE_TIME,
             nowMs: now,
           }) ?? 0;
-        setTimeLeft(handshakeRemaining);
+        setTimeLeft(entryRemaining);
         clearHandshakeGraceState();
-        if (handshakeRemaining <= 0) {
+        if (entryRemaining <= 0) {
           window.setTimeout(() => {
             void checkMutualVibeRef.current?.(
-              "handshake_timing_refetch_deadline_elapsed",
+              "entry_timing_refetch_deadline_elapsed",
             );
           }, 0);
         }
@@ -3474,7 +3477,7 @@ const VideoDate = () => {
           const newState = row.state || row.phase;
 
           if (row.ended_at || newState === "ended") {
-            setHandshakeStartedAt(null);
+            setEntryStartedAt(null);
             setDateStartedAt(
               typeof row.date_started_at === "string"
                 ? row.date_started_at
@@ -3487,7 +3490,7 @@ const VideoDate = () => {
           if (newState === "date" || Boolean(row.date_started_at)) {
             markDateFlowEntered();
             clearHandshakeGraceState();
-            setHandshakeStartedAt(null);
+            setEntryStartedAt(null);
             const extraNorm = normalizedDateExtraSeconds(
               row.date_extra_seconds,
             );
@@ -3508,19 +3511,21 @@ const VideoDate = () => {
             return;
           }
 
-          if (row.handshake_started_at) {
-            setHandshakeStartedAt(row.handshake_started_at);
+          const rowEntryStartedAt = videoDateEntryStartedAtIso(row);
+
+          if (rowEntryStartedAt) {
+            setEntryStartedAt(rowEntryStartedAt);
             setDateStartedAt(null);
-            const handshakeRemaining =
+            const entryRemaining =
               remainingStartedAtCountdownSeconds({
-                startedAtIso: row.handshake_started_at,
+                startedAtIso: rowEntryStartedAt,
                 durationSeconds: HANDSHAKE_TIME,
               }) ?? 0;
-            setTimeLeft(handshakeRemaining);
+            setTimeLeft(entryRemaining);
             clearHandshakeGraceState();
-            if (handshakeRemaining <= 0) {
+            if (entryRemaining <= 0) {
               void checkMutualVibeRef.current?.(
-                "handshake_realtime_deadline_elapsed",
+                "entry_realtime_deadline_elapsed",
               );
             }
             setPhase("handshake");
@@ -3961,7 +3966,7 @@ const VideoDate = () => {
     const hasAuthoritativeStart = useTimelineCountdown
       ? true
       : phase === "handshake"
-        ? Boolean(handshakeStartedAt)
+        ? Boolean(entryStartedAt)
         : phase === "date"
           ? Boolean(dateStartedAt)
           : false;
@@ -3973,9 +3978,9 @@ const VideoDate = () => {
         ? resolveVideoDateTimelineCountdown(timelineForCountdown)
         : resolveVideoDatePhaseCountdown({
             phase,
-            handshakeStartedAtIso: handshakeStartedAt,
+            entryStartedAtIso: entryStartedAt,
             dateStartedAtIso: dateStartedAt,
-            handshakeDurationSeconds: HANDSHAKE_TIME,
+            entryDurationSeconds: HANDSHAKE_TIME,
             dateDurationSeconds: DATE_TIME,
             dateExtraSeconds,
           });
@@ -3991,12 +3996,12 @@ const VideoDate = () => {
       if (phaseRef.current === "date") {
         void handleCallEndRef.current?.("date_timeout");
       } else if (phaseRef.current === "handshake") {
-        vdbg("handshake_visible_countdown_elapsed", {
+        vdbg("entry_visible_countdown_elapsed", {
           sessionId: id ?? null,
           trigger: "complete_handshake",
         });
         void checkMutualVibeRef.current?.(
-          "handshake_visible_countdown_elapsed",
+          "entry_visible_countdown_elapsed",
         );
       }
     };
@@ -4010,7 +4015,7 @@ const VideoDate = () => {
     phase,
     dateStartedAt,
     dateExtraSeconds,
-    handshakeStartedAt,
+    entryStartedAt,
     serverTimeline,
     timelineV2.enabled,
   ]);
@@ -4560,7 +4565,7 @@ const VideoDate = () => {
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(
-    async (source = "handshake_server_deadline", allowRetry = true) => {
+    async (source = "entry_server_deadline", allowRetry = true) => {
       if (!id) return;
       if (phaseRef.current !== "handshake") return;
       if (handshakeCompletionInFlightRef.current) {
@@ -4760,7 +4765,7 @@ const VideoDate = () => {
             }
             handshakeCompletionDeadlineKeyRef.current = null;
             if (extensionStartedAt) {
-              setHandshakeStartedAt(extensionStartedAt);
+              setEntryStartedAt(extensionStartedAt);
             }
             setPhase("handshake");
             setTimeLeft(positiveExtensionSeconds);
@@ -4850,18 +4855,18 @@ const VideoDate = () => {
     }
 
     const candidateTimeline = serverTimeline;
-    const timelineForHandshake =
+    const timelineForEntry =
       timelineV2.enabled &&
       candidateTimeline !== null &&
       candidateTimeline.sessionId === id &&
       candidateTimeline.phase === "handshake"
         ? candidateTimeline
         : null;
-    const timelineDeadlineMs = timelineForHandshake
-      ? timelineForHandshake.phaseDeadlineAtMs
+    const timelineDeadlineMs = timelineForEntry
+      ? timelineForEntry.phaseDeadlineAtMs
       : null;
-    const startedMs = handshakeStartedAt
-      ? new Date(handshakeStartedAt).getTime()
+    const startedMs = entryStartedAt
+      ? new Date(entryStartedAt).getTime()
       : null;
     const legacyDeadlineMs =
       typeof startedMs === "number" && Number.isFinite(startedMs)
@@ -4873,21 +4878,21 @@ const VideoDate = () => {
     const deadlineKey = `${id}:${deadlineMs}`;
     const localNowMs = Date.now();
     const serverNowEstimateMs =
-      timelineDeadlineMs !== null && timelineForHandshake
-        ? localNowMs + timelineForHandshake.clockSkewMs
+      timelineDeadlineMs !== null && timelineForEntry
+        ? localNowMs + timelineForEntry.clockSkewMs
         : localNowMs;
     const delayMs = Math.max(0, deadlineMs - serverNowEstimateMs);
     const fire = () => {
       if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
       handshakeCompletionDeadlineKeyRef.current = deadlineKey;
-      void checkMutualVibe("handshake_server_deadline");
+      void checkMutualVibe("entry_server_deadline");
     };
 
     const timer = setTimeout(fire, delayMs);
     return () => clearTimeout(timer);
   }, [
     checkMutualVibe,
-    handshakeStartedAt,
+    entryStartedAt,
     id,
     phase,
     serverTimeline,
@@ -5992,10 +5997,10 @@ const VideoDate = () => {
     phase === "handshake"
       ? HANDSHAKE_TIME
       : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
-  const handshakeTimerDisplayLeft = timeLeft ?? 0;
-  const handshakeTimerTotal = totalTime;
-  const handshakeTimerStarted =
-    phase !== "handshake" || Boolean(handshakeStartedAt);
+  const entryTimerDisplayLeft = timeLeft ?? 0;
+  const entryTimerTotal = totalTime;
+  const entryTimerStarted =
+    phase !== "handshake" || Boolean(entryStartedAt);
   const partnerFirstName = partner.name.trim().split(/\s+/)[0] || partner.name;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
   const suppressPartnerControlsAfterSafety =
@@ -6065,12 +6070,12 @@ const VideoDate = () => {
     localHasDecided: localHandshakeHasDecided,
   });
   const iceBreakerPositionClass =
-    phase === "handshake" && handshakeTimerStarted
+    phase === "handshake" && entryTimerStarted
       ? "bottom-[14rem]"
       : "bottom-[6.75rem]";
 
   useEffect(() => {
-    if (!id || !handshakeTimerStarted || phase !== "handshake") return;
+    if (!id || !entryTimerStarted || phase !== "handshake") return;
     const key = `${id}:warmup_timer_started`;
     if (warmupTimerStartedTrackedRef.current === key) return;
     warmupTimerStartedTrackedRef.current = key;
@@ -6086,7 +6091,7 @@ const VideoDate = () => {
       buildReadyGateToDateLatencyPayload({
         context: latencyContext,
         checkpoint: "warmup_timer_started",
-        sourceAction: "server_handshake_started_at",
+        sourceAction: "server_entry_started_at",
         outcome: "success",
       }),
     );
@@ -6095,10 +6100,11 @@ const VideoDate = () => {
       session_id: id,
       event_id: eventId ?? null,
       source_surface: "video_date_route",
-      source_action: "server_handshake_started_at",
-      handshake_started_at: handshakeStartedAt ?? null,
+      source_action: "server_entry_started_at",
+      entry_started_at: entryStartedAt ?? null,
+      handshake_started_at: entryStartedAt ?? null,
     });
-  }, [eventId, handshakeStartedAt, handshakeTimerStarted, id, phase]);
+  }, [eventId, entryStartedAt, entryTimerStarted, id, phase]);
 
   if (!id || videoDateAccess === "not_found") {
     return (
@@ -6434,7 +6440,7 @@ const VideoDate = () => {
                     />
                     <span className="text-[11px] font-medium text-green-400">
                       {phase === "handshake"
-                        ? handshakeTimerStarted
+                        ? entryTimerStarted
                           ? "Warm up"
                           : "Settling in"
                         : "Live"}
@@ -6464,7 +6470,7 @@ const VideoDate = () => {
                   className="px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
                 >
                   <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
-                    {handshakeTimerStarted ? "Warm up" : "Settling in"}
+                    {entryTimerStarted ? "Warm up" : "Settling in"}
                   </span>
                 </motion.div>
               )}
@@ -6479,10 +6485,10 @@ const VideoDate = () => {
                   </span>
                 </motion.div>
               )}
-              {handshakeTimerStarted ? (
-                <HandshakeTimer
-                  timeLeft={handshakeTimerDisplayLeft}
-                  totalTime={handshakeTimerTotal}
+              {entryTimerStarted ? (
+                <EntryPhaseTimer
+                  timeLeft={entryTimerDisplayLeft}
+                  totalTime={entryTimerTotal}
                   phase={phase}
                 />
               ) : (
@@ -6662,7 +6668,7 @@ const VideoDate = () => {
         <AnimatePresence>
           {isConnected &&
             phase === "handshake" &&
-            handshakeTimerStarted &&
+            entryTimerStarted &&
             !showFeedback && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}

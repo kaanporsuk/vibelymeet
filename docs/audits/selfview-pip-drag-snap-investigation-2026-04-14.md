@@ -35,7 +35,7 @@ No other `src/components/**` file defines an alternate self-view PIP for these p
 Relevant structure in `VideoDate.tsx` (simplified):
 
 - Root: `fixed inset-0 … flex flex-col overflow-hidden`
-- **Top HUD** (`absolute top-0 … z-30`): partner pill, phase chips, `HandshakeTimer`
+- **Top HUD** (`absolute top-0 … z-30`): partner pill, phase chips, `EntryPhaseTimer`
 - **`remoteContainerRef`**: `div.flex-1.relative` — remote video + `ConnectionOverlay` + `ReconnectionOverlay` + bottom gradient
 - **`SelfViewPIP`**: sibling **after** that div, still inside root; `absolute top-16 right-3 z-40`
 - **Ice breaker** `bottom-28` `z-20`; **VibeCheckButton** `z-25`; **controls** `bottom-0 … z-30`; **PartnerProfileSheet** / **PostDateSurvey** as separate layers

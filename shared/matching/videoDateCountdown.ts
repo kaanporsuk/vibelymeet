@@ -8,9 +8,9 @@ export type VideoDateCountdownPhase = "handshake" | "date" | "ended";
 
 export type VideoDatePhaseCountdownArgs = {
   phase: VideoDateCountdownPhase;
-  handshakeStartedAtIso?: string | null;
+  entryStartedAtIso?: string | null;
   dateStartedAtIso?: string | null;
-  handshakeDurationSeconds: number;
+  entryDurationSeconds: number;
   dateDurationSeconds: number;
   dateExtraSeconds?: number | null;
   nowMs?: number;
@@ -70,9 +70,9 @@ function normalizedDurationSeconds(raw: number): number {
 
 export function resolveVideoDatePhaseCountdown({
   phase,
-  handshakeStartedAtIso,
+  entryStartedAtIso,
   dateStartedAtIso,
-  handshakeDurationSeconds,
+  entryDurationSeconds,
   dateDurationSeconds,
   dateExtraSeconds,
   nowMs,
@@ -81,10 +81,10 @@ export function resolveVideoDatePhaseCountdown({
     phase === "date"
       ? normalizedDurationSeconds(dateDurationSeconds) + normalizedExtraSeconds(dateExtraSeconds)
       : phase === "handshake"
-        ? normalizedDurationSeconds(handshakeDurationSeconds)
+        ? normalizedDurationSeconds(entryDurationSeconds)
         : 0;
   const durationMs = durationSeconds * 1000;
-  const startedAtIso = phase === "date" ? dateStartedAtIso : phase === "handshake" ? handshakeStartedAtIso : null;
+  const startedAtIso = phase === "date" ? dateStartedAtIso : phase === "handshake" ? entryStartedAtIso : null;
   const deadlineMs =
     phase === "ended"
       ? null

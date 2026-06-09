@@ -13,7 +13,7 @@
 | `checkpoint/FinalVerdict.tsx` | Pass/vibe buttons (callback only) | `VerdictScreen` + Edge | Button styling | safe delete | keep deleted |
 | `checkpoint/HolographicLock.tsx` | Confetti + lock animation overlay | `MatchSuccessModal` / other celebration | Unique FX | safe but archive-worthy | keep deleted; recover from git if art direction returns |
 | `VideoControls.tsx` | Mute/video/leave bar | `VideoDateControls.tsx` | Alternate glass styling | safe delete | keep deleted |
-| `CompactTimer.tsx` | Small SVG countdown ring | `HandshakeTimer` / in-page timers in `VideoDate` | Compact ring design | safe delete | keep deleted |
+| `CompactTimer.tsx` | Small SVG countdown ring | `EntryPhaseTimer` / in-page timers in `VideoDate` | Compact ring design | safe delete | keep deleted |
 | `VibeProgressRing.tsx` | Large gradient progress ring | Same family of timers in live page | Ring aesthetic | safe delete | keep deleted |
 | `DraggablePIP.tsx` | Draggable snap PIP | `SelfViewPIP.tsx` (fixed behavior) | **Draggable** interaction never shipped | safe delete; partial idea | keep deleted; implement on `SelfViewPIP` if PM wants |
 | `PartnerTeaseCard.tsx` | “Up next” teaser card | `PartnerProfileSheet` / handshake UX | Teaser layout | safe delete | keep deleted |
