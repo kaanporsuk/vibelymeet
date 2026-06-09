@@ -96,15 +96,13 @@ test("remote-seen retries keep the accepted render evidence source", () => {
   }
 });
 
-test("web surface claims wait for claimable truth and do not back off on pre-handshake rejection", () => {
-  assert.match(webVideoDate, /const videoDateSurfaceClaimable =/);
-  assert.match(webVideoDate, /Boolean\(handshakeStartedAt\)/);
-  assert.match(webVideoDate, /Boolean\(dateStartedAt\)/);
-  assert.match(webVideoDate, /Boolean\(handshakeTruth\?\.handshake_started_at\)/);
-  assert.match(webVideoDate, /Boolean\(handshakeTruth\?\.date_started_at\)/);
-  assert.match(webVideoDate, /serverTimeline\?\.phase === "date"/);
-  assert.match(webVideoDate, /serverTimeline\?\.phase === "handshake"[\s\S]{0,120}serverTimeline\.phaseStartedAtMs !== null/);
-  assert.match(webVideoDate, /videoDateAccess === "allowed" &&[\s\S]{0,80}videoDateSurfaceClaimable/);
+test("web surface claims start with the stable route shell and do not back off before backend claimability", () => {
+  assert.match(webVideoDate, /const videoDateRouteShellActive =/);
+  assert.match(webVideoDate, /videoDateAccess === "allowed"/);
+  assert.match(webVideoDate, /!showFeedback/);
+  assert.match(webVideoDate, /!terminalSurveyRecoveryActive/);
+  assert.match(webVideoDate, /phase !== "ended"/);
+  assert.match(webVideoDate, /const videoDateSurfaceLeaseActive =\s*\n\s*videoDateRouteShellActive/);
 
   assert.match(webSurfaceGuard, /SURFACE_NOT_CLAIMABLE/);
   assert.match(webSurfaceGuard, /if \(waitingForClaimableTruth\) \{/);

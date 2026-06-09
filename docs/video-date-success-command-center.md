@@ -64,6 +64,86 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-09 Implementation Update: Lean Runtime Contract Foundation
+
+Current local source now includes the first simplification foundation for Video Date. This does not change production routing, Supabase RPC behavior, Edge Function behavior, or Daily provider behavior. It defines the smaller screen/command contract that future web/native migrations should converge on.
+
+Implementation added:
+
+- `docs/contracts/video-date-lean-runtime-contract.md` defines the lean screen model: `lobby`, `ready_gate`, `date`, `survey`, `done`, and `blocked`.
+- `shared/matching/videoDateLeanRuntimeContract.ts` wraps the existing canonical route decision layer and exposes normalized lean commands, command ownership, web path, native path, participant state, and snapshot metadata.
+- `shared/matching/videoDateLeanRuntimeContract.test.ts` asserts the golden-path screen sequence, command ownership, and that the contract wraps existing read surfaces instead of introducing a duplicate backend source of truth.
+- Branch delta: `docs/branch-deltas/video-date-lean-runtime-contract.md`.
+
+Backend scope:
+
+- No Supabase migration was added.
+- No Edge Function was changed.
+- The read-model boundary intentionally reuses `get_video_date_start_snapshot_v1`, `video-date-snapshot`, and `get_video_date_snapshot_core` instead of adding a new runtime snapshot RPC before clients consume the contract.
+
+Verification completed:
+
+- `npx tsx shared/matching/videoDateLeanRuntimeContract.test.ts`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+
+Proof boundary:
+
+- This is architecture/simplification groundwork only. Video Date remains unaccepted until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> both users persist `date_feedback`, including leave/rejoin and prolonged absence checks.
+
+---
+
+## 2026-06-09 Implementation Update: Active Entry Stable Shell And Hot-Path Fail-Soft
+
+Current local source now includes the active-entry recovery layer for failed production session `d54c5fdb-67f2-4fca-93c5-30936b8af8cb`, event `25e67136-43fa-44de-9f71-475272bc4f59`.
+
+Failure model from the latest two-user run:
+
+- Ready Gate reached the both-ready handoff, but `/date/:sessionId` stayed in `Opening the room...` / `Still connecting...`.
+- Network evidence showed active hot-path failures/pending churn around `daily-room`, direct `video_date_transition`, `record_video_date_launch_latency_checkpoint`, and earlier `mark_video_date_daily_joined`.
+- Supabase chronology showed one participant reached `/date` and claimed the video-date surface once, but the claim expired before durable Daily provider presence existed. That participant never produced provider-backed Daily join/presence.
+- The peer later prepared/joined Daily briefly, then left; stable bilateral media never certified, `date_started_at` stayed null, and no `date_feedback` rows were expected or created.
+- The stable-media gate was doing the correct thing by refusing promotion/survey. The remaining root cause was the asymmetric active-entry shell: route ownership/surface ownership and retryable hot-path RPC responses were not continuous enough during the pre-stable handoff.
+
+Implementation added:
+
+- Web `/date/:sessionId` now treats `videoDateAccess === "allowed"` as the stable single-owner shell. `useVideoDateDupTabGuard(...)` stays active for the full allowed route shell until terminal survey, explicit exit, feedback, or ended phase, instead of waiting for handshake/date truth before renewing backend surface claims.
+- Existing web surface-claim behavior still treats `SURFACE_NOT_CLAIMABLE` as no-backoff retry while backend route state catches up, but duplicate-tab/local lease protection begins immediately once the date route is allowed.
+- Native/mobile already had the stronger shape: active surface ownership spans eligible entry, joining, connecting, local Daily room presence, handshake, and date. Contract coverage now keeps web and native aligned around this invariant.
+- `supabase/functions/daily-room/index.ts` now maps retryable `prepare_entry` and `confirm_prepare_entry` payloads to retryable 409-style responses instead of falling through to default 500 status mapping.
+- New migration `20260609105249_video_date_active_entry_failsoft_shell.sql` wraps the final public active-entry RPCs without changing their base state-machine logic:
+  - `video_session_mark_ready_v2(uuid,text,text)`
+  - `video_date_transition(uuid,text,text)`
+  - `mark_video_date_daily_joined(uuid,text,text,text,text,text)`
+  - `record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)`
+- These wrappers return sanitized retryable JSON with `active_entry_failsoft_shell=true` on uncaught helper/observability failures, with last-resort fallback JSON if the richer lifecycle exception payload builder itself fails.
+- Added `shared/matching/videoDateActiveEntryFailsoftShellContracts.test.ts`, wired into both `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+- Updated `shared/matching/videoDateStableBilateralMediaGateContracts.test.ts` and `shared/matching/reviewComments1256_1262Followups.test.ts` so they assert route-shell ownership starts at allowed `/date`, not only after handshake/date truth appears.
+- Branch delta: `docs/branch-deltas/fix-video-date-active-entry-failsoft-shell.md`.
+
+Verification completed:
+
+- `npx tsx shared/matching/videoDateActiveEntryFailsoftShellContracts.test.ts`
+- `npx tsx shared/matching/videoDateStableBilateralMediaGateContracts.test.ts`
+- `npx tsx shared/matching/reviewComments1256_1262Followups.test.ts`
+- `npx tsx shared/matching/videoDateFailsoftDateRoomRpcs.test.ts`
+- `npm run test:video-date:red-flags`
+- `npm run test:video-date-v4`
+- `npm run typecheck`
+- `npm run lint`
+- `git diff --check`
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase migration list --linked` showed the new local migration `20260609105249_video_date_active_entry_failsoft_shell.sql` pending with no remote counterpart.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db push --linked --dry-run` showed exactly that pending migration would be pushed.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db lint --linked --schema public --fail-on error` exited 0 with only legacy warning/notice output.
+- `SUPABASE_CLI_TELEMETRY_OPTOUT=1 supabase db advisors --linked --level error --fail-on error` returned `No issues found`.
+
+Cloud/proof boundary:
+
+- This section describes local source and migration implementation until the new migration is applied to linked Supabase cloud and clients are redeployed.
+- This still is not product acceptance. Video Date is not fixed until a fresh disposable two-user production run proves match -> Ready Gate -> same Daily room -> stable bilateral provider-backed media/date -> date end -> survey completion by both users, plus short leave/rejoin and prolonged absence checks.
+
+---
+
 ## 2026-06-09 Implementation Update: PR #1256-#1262 Review-Comments Follow-Up
 
 Current source and linked Supabase cloud now include the follow-up pass for actionable GitHub review comments on the last seven merged PRs: `#1256`, `#1257`, `#1258`, `#1259`, `#1260`, `#1261`, and `#1262`.
