@@ -3,7 +3,7 @@
 Date: 2026-04-04
 Scope: final live-state audit for active events flow after merged/deployed Phases 1, 1.1, 2, 3, 4A.
 
-Superseded 2026-06-09: direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`. Historical references below are not current backend guidance.
+Superseded 2026-06-09: direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `20260609163130_remove_legacy_queue_session_rpcs.sql`, and `leave_matching_queue(uuid)` was removed by `20260609165218_remove_leave_matching_queue.sql`. Historical references below are not current backend guidance.
 
 ## Closure Verdict
 Ready to close events stream after one final ship-now fix in this pass:

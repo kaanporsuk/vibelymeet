@@ -40,6 +40,10 @@ const legacyQueueSessionRpcRemovalMigration = readFileSync(
   "supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql",
   "utf8",
 );
+const legacyQueueCleanupRpcRemovalMigration = readFileSync(
+  "supabase/migrations/20260609165218_remove_leave_matching_queue.sql",
+  "utf8",
+);
 const eventRegistrationDmlLockdownMigration = readFileSync(
   "supabase/migrations/20260606164737_event_registration_rpc_owned_dml_lockdown.sql",
   "utf8",
@@ -275,6 +279,14 @@ test("legacy direct queue and session RPCs are removed from the current backend 
     /DROP FUNCTION IF EXISTS public\.join_matching_queue\(uuid, uuid\)/,
   );
   assert.doesNotMatch(legacyQueueSessionRpcRemovalMigration, /DROP FUNCTION IF EXISTS public\.leave_matching_queue/i);
+  assert.match(
+    legacyQueueCleanupRpcRemovalMigration,
+    /DROP FUNCTION IF EXISTS public\.leave_matching_queue\(uuid\)/,
+  );
+  assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /DROP FUNCTION IF EXISTS public\.drain_match_queue/i);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible/i);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /ALTER TABLE[\s\S]*session_source/i);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemovalMigration, /DROP COLUMN[\s\S]*session_source/i);
 });
 
 test("web lobby treats readiness as non-blocking diagnostics for deck swipes", () => {

@@ -4,7 +4,7 @@ Date: 2026-05-01
 Branch: `fix/event-lobby-active-event-contract`
 Mode: remote verification first, then additive migration hardening. No production data mutation was performed during pre-audit.
 
-2026-06-09 supersession: this verification predates Mystery Match removal and the later direct legacy queue/session RPC removal. Historical rows and patch-plan references to `find_mystery_match`, `find_video_date_match`, or `join_matching_queue` describe the May 1 active-event hardening state only. Current schema drops `find_mystery_match` via `20260609152000_remove_mystery_match.sql` and drops `find_video_date_match(uuid,uuid)` plus `join_matching_queue(uuid,uuid)` via `20260609163130_remove_legacy_queue_session_rpcs.sql`.
+2026-06-09 supersession: this verification predates Mystery Match removal and the later legacy queue/session RPC removals. Historical rows and patch-plan references to `find_mystery_match`, `find_video_date_match`, `join_matching_queue`, or `leave_matching_queue` describe the May 1 active-event hardening state only. Current schema drops `find_mystery_match` via `20260609152000_remove_mystery_match.sql`, drops `find_video_date_match(uuid,uuid)` plus `join_matching_queue(uuid,uuid)` via `20260609163130_remove_legacy_queue_session_rpcs.sql`, and drops `leave_matching_queue(uuid)` via `20260609165218_remove_leave_matching_queue.sql`.
 
 ## Scope
 

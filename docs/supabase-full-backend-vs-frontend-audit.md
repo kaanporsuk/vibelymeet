@@ -16,7 +16,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 >
 > Current Event Lobby addendum (2026-06-09): Mystery Match was removed from the active product/backend path by `supabase/migrations/20260609152000_remove_mystery_match.sql`. `find_mystery_match` is no longer in generated Supabase types, web/native `useMysteryMatch` hooks are deleted, and `video_sessions.session_source` is defaulted/constrained to `reciprocal_swipe`.
 >
-> Current leaner-path addendum (2026-06-09): direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`. Generated Supabase types no longer expose either RPC. `leave_matching_queue(uuid)` remains intentionally retained for a separate proof pass.
+> Current leaner-path addendum (2026-06-09): direct legacy queue/session RPCs `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` were removed from the active linked schema by `supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql`, and `leave_matching_queue(uuid)` was removed by `supabase/migrations/20260609165218_remove_leave_matching_queue.sql`. Generated Supabase types no longer expose any of these deprecated RPCs. The active path remains swipe-actions, reciprocal swipe or supported queue promotion, Ready Gate, then Video Date.
 
 ---
 
@@ -113,7 +113,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | is_blocked | user1_id, user2_id | boolean |
 | is_registered_for_event | _event_id, _user_id | boolean |
 | join_matching_queue | Removed 2026-06-09 | Removed |
-| leave_matching_queue | p_event_id, p_user_id | Json |
+| leave_matching_queue | Removed 2026-06-09 | Removed |
 | update_participant_status | p_event_id, p_user_id, p_status | void |
 | daily_drop_transition | p_drop_id, p_action, p_text? | Json |
 | ready_gate_transition | p_session_id, p_action, p_reason? | Json |
@@ -138,10 +138,10 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | daily_drop_transition | useDailyDrop | dailyDropApi (view/pass); opener/reply via **edge** |
 | check_mutual_vibe_and_match | PostDateSurvey | videoDateApi |
 | deduct_credit | useCredits | videoDateApi |
-| leave_matching_queue | VideoDate | date/[id] |
+| leave_matching_queue | Removed 2026-06-09; no web caller | Removed 2026-06-09; no native caller |
 | handle_swipe | **only via** swipe-actions EF | **only via** swipe-actions EF |
 
-**Not referenced in src/ or apps/mobile/** (likely DB/trigger/internal): `can_view_profile_photo`, `check_gender_compatibility`, `get_own_pii`, `get_user_subscription_status`, `has_role`, `haversine_distance`, `is_blocked`, `is_registered_for_event` — confirm with SQL + grep before marking dead. `join_matching_queue` and `find_video_date_match` were removed on 2026-06-09 after that confirmation.
+**Not referenced in src/ or apps/mobile/** (likely DB/trigger/internal): `can_view_profile_photo`, `check_gender_compatibility`, `get_own_pii`, `get_user_subscription_status`, `has_role`, `haversine_distance`, `is_blocked`, `is_registered_for_event` — confirm with SQL + grep before marking dead. `join_matching_queue`, `find_video_date_match`, and `leave_matching_queue` were removed on 2026-06-09 after that confirmation.
 
 ### 2c. Flags
 

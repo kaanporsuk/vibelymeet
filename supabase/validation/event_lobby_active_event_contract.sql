@@ -226,7 +226,7 @@ select
   'legacy_direct_session_rpcs_removed' as check_name,
   to_regprocedure('public.find_video_date_match(uuid,uuid)') is null
   and to_regprocedure('public.join_matching_queue(uuid,uuid)') is null
-  and to_regprocedure('public.leave_matching_queue(uuid)') is not null
+  and to_regprocedure('public.leave_matching_queue(uuid)') is null
   as ok;
 
 -- 9) Public client contracts remain callable.

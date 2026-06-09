@@ -4,7 +4,7 @@ Date: 2026-05-01
 
 Branch: `audit/event-lobby-investigation-backend-contracts`
 
-2026-06-09 supersession: this investigation predates Mystery Match removal and the later direct legacy queue/session RPC removal. Historical rows below mentioning `find_mystery_match`, `find_video_date_match`, or `join_matching_queue` describe the May 1 backend contract only; current schema removes those deprecated RPCs and keeps reciprocal swipe plus supported queue promotion as the session creation path.
+2026-06-09 supersession: this investigation predates Mystery Match removal and the later legacy queue/session RPC removals. Historical rows below mentioning `find_mystery_match`, `find_video_date_match`, `join_matching_queue`, or `leave_matching_queue` describe the May 1 backend contract only; current schema removes those deprecated RPCs and keeps reciprocal swipe plus supported queue promotion as the session creation path.
 
 ## 1. Executive Verdict
 

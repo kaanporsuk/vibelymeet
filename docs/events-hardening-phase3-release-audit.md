@@ -2,7 +2,7 @@
 
 Date: 2026-04-04
 
-Superseded 2026-06-09: the compatibility no-op posture for `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` was later replaced by removal from the active linked schema via `20260609163130_remove_legacy_queue_session_rpcs.sql`. This file is retained as historical Phase 3 context.
+Superseded 2026-06-09: the compatibility no-op posture for `find_video_date_match(uuid,uuid)` and `join_matching_queue(uuid,uuid)` was later replaced by removal from the active linked schema via `20260609163130_remove_legacy_queue_session_rpcs.sql`, and the retained `leave_matching_queue(uuid)` compatibility surface was later removed by `20260609165218_remove_leave_matching_queue.sql`. This file is retained as historical Phase 3 context.
 
 ## Scope
 

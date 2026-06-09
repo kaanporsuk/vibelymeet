@@ -103,19 +103,21 @@ Current source and linked Supabase cloud now remove the deprecated direct queue/
 
 - `public.find_video_date_match(uuid, uuid)`
 - `public.join_matching_queue(uuid, uuid)`
+- `public.leave_matching_queue(uuid)`
 
 Implementation added:
 
 - Forward migration `20260609163130_remove_legacy_queue_session_rpcs.sql` drops only the two deprecated RPCs above.
-- `leave_matching_queue(uuid)` is intentionally retained for a separate cleanup/proof pass.
-- Supabase generated types were regenerated from the linked project after the migration; neither removed RPC appears in `src/integrations/supabase/types.ts`.
-- `supabase/validation/event_lobby_active_event_contract.sql` now validates RPC absence with `to_regprocedure(...) is null` and also asserts `leave_matching_queue(uuid)` still exists.
+- Forward migration `20260609165218_remove_leave_matching_queue.sql` drops the remaining legacy cleanup RPC only.
+- Supabase generated types were regenerated from the linked project after the migrations; none of the removed RPCs appears in `src/integrations/supabase/types.ts`.
+- `supabase/validation/event_lobby_active_event_contract.sql` now validates absence for all three RPCs with `to_regprocedure(...) is null`.
 - Focused Event Lobby and Video Date contract tests now assert removal instead of preserving `deprecated_legacy_queue_surface` callable shims.
 
 Proof boundary:
 
 - The only supported Event Lobby -> Video Date creation path remains `/event/:eventId/lobby` -> deck/swipe through `swipe-actions` -> backend `handle_swipe` / `handle_swipe_v2` -> reciprocal swipe or supported queue promotion -> Ready Gate -> Video Date.
-- Do not restore `find_video_date_match` or `join_matching_queue` as compatibility no-ops unless product direction changes.
+- Do not restore `find_video_date_match`, `join_matching_queue`, or `leave_matching_queue` as compatibility no-ops unless product direction changes.
+- Do not remove `drain_match_queue`, `promote_ready_gate_if_eligible`, Ready Gate, Video Date state-machine behavior, or `video_sessions.session_source` as part of this cleanup.
 - Historical applied migrations and older audits can still mention these RPCs as past behavior; active source, generated types, validation requiring callability, or tests preserving callable no-op behavior are blockers.
 - This remains a cleanup/simplification pass, not Video Date product acceptance. Video Date is not accepted until the fresh disposable two-user production proof reaches survey completion by both users.
 

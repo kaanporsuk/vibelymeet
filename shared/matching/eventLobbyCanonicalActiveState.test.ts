@@ -52,6 +52,10 @@ const legacyQueueSessionRpcRemoval = readFileSync(
   join(root, "supabase/migrations/20260609163130_remove_legacy_queue_session_rpcs.sql"),
   "utf8",
 );
+const legacyQueueCleanupRpcRemoval = readFileSync(
+  join(root, "supabase/migrations/20260609165218_remove_leave_matching_queue.sql"),
+  "utf8",
+);
 
 type EventFixture = {
   exists?: boolean;
@@ -388,6 +392,11 @@ test("legacy direct session creation RPCs are removed rather than preserved as c
   assert.match(legacyQueueSessionRpcRemoval, /DROP FUNCTION IF EXISTS public\.find_video_date_match\(uuid, uuid\)/);
   assert.match(legacyQueueSessionRpcRemoval, /DROP FUNCTION IF EXISTS public\.join_matching_queue\(uuid, uuid\)/);
   assert.doesNotMatch(legacyQueueSessionRpcRemoval, /DROP FUNCTION IF EXISTS public\.leave_matching_queue/i);
+  assert.match(legacyQueueCleanupRpcRemoval, /DROP FUNCTION IF EXISTS public\.leave_matching_queue\(uuid\)/);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /DROP FUNCTION IF EXISTS public\.drain_match_queue/i);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /DROP FUNCTION IF EXISTS public\.promote_ready_gate_if_eligible/i);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /ALTER TABLE[\s\S]*session_source/i);
+  assert.doesNotMatch(legacyQueueCleanupRpcRemoval, /DROP COLUMN[\s\S]*session_source/i);
 });
 
 test("swipe-actions suppresses inactive-event notification side effects", () => {
@@ -418,6 +427,6 @@ test("production validation is read-only and checks canonical active-state marke
   assert.match(validation, /legacy_direct_session_rpcs_removed/);
   assert.match(validation, /to_regprocedure\('public\.find_video_date_match\(uuid,uuid\)'\) is null/);
   assert.match(validation, /to_regprocedure\('public\.join_matching_queue\(uuid,uuid\)'\) is null/);
-  assert.match(validation, /to_regprocedure\('public\.leave_matching_queue\(uuid\)'\) is not null/);
+  assert.match(validation, /to_regprocedure\('public\.leave_matching_queue\(uuid\)'\) is null/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(validation), /\b(insert|update|delete|truncate|alter|drop|create|grant|revoke)\b/i);
 });
