@@ -257,7 +257,7 @@ Follow-up bugfix prompt: none.
 
 ### Finding B2-002 - PASS - Native EventLobby mirrors contract with acceptable implementation differences
 
-Evidence: native maps `archived_at` / `ended_at`, blocks terminal statuses and local ended window, gates deck/status/foreground/queue/Mystery Match behind `lobbySideEffectsEnabled`, and uses backend-startable date navigation.
+Evidence: native maps `archived_at` / `ended_at`, blocks terminal statuses and local ended window, gates deck/status/foreground/queue behind `lobbySideEffectsEnabled`, and uses backend-startable date navigation. The historical Mystery Match side-effect path was removed on 2026-06-09.
 
 Follow-up bugfix prompt: none.
 
