@@ -3233,7 +3233,6 @@ export default function VideoDateScreen() {
           setPartnerEverJoined(true);
           setIsPartnerDisconnected(false);
           setIsConnecting(false);
-          markRemoteSeenOnServerRef.current?.("participant_joined");
           remoteParticipantRef.current = p;
           resetNativeRemoteRenderRecovery(p, "participant_joined");
           setRemoteParticipant(p);
@@ -3306,7 +3305,6 @@ export default function VideoDateScreen() {
               latency_bucket: latencyPayload.latency_bucket,
             });
           }
-          markRemoteSeenOnServerRef.current?.("participant_updated");
           setPartnerEverJoined(true);
           setIsPartnerDisconnected(false);
           const nextTrackKey = nativeRemoteRenderTrackKey(p);
@@ -4819,9 +4817,9 @@ export default function VideoDateScreen() {
       const nowMs = Date.now();
       const lastStamp = remoteSeenLastStampRef.current;
       const forceRestamp =
-        source === "participant_joined" ||
-        source === "post_join_snapshot" ||
-        source === "shared_call_snapshot";
+        source === "remote_track_mounted" ||
+        source === "first_remote_frame" ||
+        source === "request_video_frame_callback";
       if (
         !forceRestamp &&
         lastStamp?.sessionId === sessionId &&
@@ -4906,6 +4904,7 @@ export default function VideoDateScreen() {
             p_provider_session_id: providerSessionId,
             p_entry_attempt_id: entryAttemptId,
             p_owner_state: "joined",
+            p_evidence_source: attemptSource,
           },
         };
       };
@@ -7812,7 +7811,6 @@ export default function VideoDateScreen() {
         if (remotes.length > 0) {
           const remote = remotes[0] as DailyParticipant;
           clearPartnerAwayAfterTransportGrace("shared_call_snapshot");
-          markRemoteSeenOnServerRef.current?.("shared_call_snapshot");
           remoteParticipantRef.current = remote;
           resetNativeRemoteRenderRecovery(remote, "shared_call_snapshot");
           setRemoteParticipant(remote);

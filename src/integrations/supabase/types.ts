@@ -12408,6 +12408,7 @@ export type Database = {
       mark_video_date_remote_seen: {
         Args: {
           p_call_instance_id?: string
+          p_evidence_source?: string
           p_entry_attempt_id?: string
           p_owner_id?: string
           p_owner_state?: string

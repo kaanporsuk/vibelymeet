@@ -39,7 +39,7 @@ test("terminal survey recovery tears down Daily before showing survey", () => {
   );
 });
 
-test("remote-seen clients restamp reconnect observations instead of once-per-session gating", () => {
+test("remote-seen clients restamp render observations instead of once-per-session gating", () => {
   for (const [name, source] of [
     ["web", webVideoCall],
     ["native", nativeDateRoute],
@@ -47,9 +47,20 @@ test("remote-seen clients restamp reconnect observations instead of once-per-ses
     assert.match(source, /REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000/);
     assert.match(source, /remoteSeenInFlightSessionRef/);
     assert.match(source, /remoteSeenLastStampRef/);
-    assert.match(source, /source === ['"]participant_joined['"]/);
+    assert.match(source, /p_evidence_source: attemptSource/, name);
+    assert.match(source, /source === ['"]remote_track_mounted['"]/, name);
+    assert.doesNotMatch(source, /source === ['"]participant_joined['"]/, name);
+    assert.doesNotMatch(source, /source === ['"]post_join_snapshot['"]/, name);
+    assert.doesNotMatch(source, /source === ['"]shared_call_snapshot['"]/, name);
     assert.doesNotMatch(source, /remoteSeenStampedSessionRef/);
   }
+
+  assert.match(webVideoCall, /source === ['"]loadeddata['"]/);
+  assert.match(webVideoCall, /source === ['"]playing['"]/);
+  assert.doesNotMatch(webVideoCall, /markRemoteSeenOnServer\(["']participant_joined["']\)/);
+  assert.doesNotMatch(webVideoCall, /markRemoteSeenOnServer\(["']post_join_snapshot["']\)/);
+  assert.doesNotMatch(nativeDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']participant_joined["']\)/);
+  assert.doesNotMatch(nativeDateRoute, /markRemoteSeenOnServerRef\.current\?\.\(["']shared_call_snapshot["']\)/);
 });
 
 test("first-remote watchdog suppresses terminal peer-missing on historical encounter truth", () => {
