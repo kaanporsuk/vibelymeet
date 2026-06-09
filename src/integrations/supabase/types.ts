@@ -11728,22 +11728,6 @@ export type Database = {
         Args: { p_deadline_id: number; p_worker_id: string }
         Returns: Json
       }
-      find_mystery_match: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
-      find_mystery_match_20260501180000_active_base: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
-      find_mystery_match_20260502083000_active_base: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
-      find_mystery_match_20260607103000_session_source_base: {
-        Args: { p_event_id: string; p_user_id: string }
-        Returns: Json
-      }
       find_video_date_match: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
@@ -12617,6 +12601,17 @@ export type Database = {
         }
         Returns: Json
       }
+      mark_video_date_daily_joined_20260609105249_active_entry_base: {
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       mark_video_date_remote_seen: {
         Args: {
           p_call_instance_id?: string
@@ -12954,6 +12949,15 @@ export type Database = {
           p_provider_user_id?: string
           p_room_name?: string
           p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
+      record_vd_launch_lat_20260609105249_active_base: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
         }
         Returns: Json
       }
@@ -13646,6 +13650,16 @@ export type Database = {
         }
         Returns: Json
       }
+      vd_claim_surface_20260609130139_hot_base: {
+        Args: {
+          p_client_instance_id: string
+          p_session_id: string
+          p_surface: string
+          p_takeover?: boolean
+          p_ttl_seconds?: number
+        }
+        Returns: Json
+      }
       vd_claim_surface_terminal_truth_base: {
         Args: {
           p_client_instance_id: string
@@ -13656,7 +13670,29 @@ export type Database = {
         }
         Returns: Json
       }
+      vd_daily_alive_20260609130139_hot_base: {
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       vd_daily_alive_remote_seen_base: {
+        Args: {
+          p_call_instance_id?: string
+          p_entry_attempt_id?: string
+          p_owner_id?: string
+          p_owner_state?: string
+          p_provider_session_id?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_daily_joined_20260609130139_hot_base: {
         Args: {
           p_call_instance_id?: string
           p_entry_attempt_id?: string
@@ -13677,6 +13713,23 @@ export type Database = {
           p_provider_user_id?: string
           p_room_name?: string
           p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
+      vd_launch_latency_20260609130139_hot_base: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      vd_mark_ready_20260609130139_hot_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
         }
         Returns: Json
       }
@@ -13773,6 +13826,10 @@ export type Database = {
       }
       vd_start_snapshot_partial_base: {
         Args: { p_session_id: string }
+        Returns: Json
+      }
+      vd_transition_20260609130139_hot_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
       vd_transition_both_ready_owner_base: {
@@ -14302,6 +14359,10 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      video_date_transition_20260609105249_active_entry_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
       video_date_uuid_from_daily_room_name_v1: {
         Args: { p_room_name: string }
         Returns: string
@@ -14470,6 +14531,14 @@ export type Database = {
         Returns: Json
       }
       video_session_mark_ready_v2_20260608114500_review_comments_base: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_v2_20260609105249_active_entry_base: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string

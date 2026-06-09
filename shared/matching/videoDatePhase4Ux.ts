@@ -39,7 +39,6 @@ export type EventDeckPhase4UiState = {
   actionLabel: string | null;
   actionTarget: EventDeckPhase4ActionTarget;
   showRefresh: boolean;
-  showMysteryMatch: boolean;
   retryable: boolean;
   terminal: boolean;
 };
@@ -218,7 +217,6 @@ function emptyState(input: {
     actionLabel: "Refresh now",
     actionTarget: "refresh",
     showRefresh: true,
-    showMysteryMatch: true,
     retryable: input.retryable ?? true,
     terminal: false,
   };
@@ -237,7 +235,6 @@ function blockedState(input: {
   return {
     ...input,
     showRefresh: false,
-    showMysteryMatch: false,
     retryable: false,
     terminal: input.terminal ?? true,
   };
@@ -263,7 +260,6 @@ function focusedLobbyState(input: {
     actionLabel: copy.actionLabel,
     actionTarget,
     showRefresh: copy.retryable && actionTarget === "refresh",
-    showMysteryMatch: false,
     retryable: copy.retryable,
     terminal: copy.terminal,
   };

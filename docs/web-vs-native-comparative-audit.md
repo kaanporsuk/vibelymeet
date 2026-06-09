@@ -104,7 +104,7 @@
 | usePushNotificationEvents | src/hooks/usePushNotificationEvents.ts | **MISSING** | — | |
 | useRegistrations | src/hooks/useRegistrations.ts | Partial | eventsApi.ts (useRegisterForEvent, useIsRegisteredForEvent) | No useUserRegistrations equivalent |
 | useEventDetails | src/hooks/useEventDetails.ts | Yes | apps/mobile/lib/eventsApi.ts | useEventDetails, useIsRegisteredForEvent |
-| useMysteryMatch | *(deleted — session cleanup)* | — | apps/mobile/lib/useMysteryMatch.ts | Web copy removed |
+| useMysteryMatch | *(deleted — Mystery Match removal)* | — | *(deleted — Mystery Match removal)* | Web/native copies removed |
 | useEventLifecycle | src/hooks/useEventLifecycle.ts | **MISSING** | — | Web: PostDateSurvey |
 | useNetworkStatus | *(deleted — session cleanup)* | — | apps/mobile/lib/useNetworkStatus.ts | Web copy removed |
 | useFaceVerification | src/hooks/useFaceVerification.ts | **MISSING** | — | |

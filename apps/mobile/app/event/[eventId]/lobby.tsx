@@ -55,7 +55,6 @@ import { ReadyGateOverlay } from "@/components/lobby/ReadyGateOverlay";
 import { EventEndedModal } from "@/components/events/EventEndedModal";
 import { useEventStatus } from "@/lib/eventStatus";
 import { useConnectivity } from "@/lib/useConnectivity";
-import { useMysteryMatch } from "@/lib/useMysteryMatch";
 import { supabase } from "@/lib/supabase";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
@@ -2879,16 +2878,6 @@ export default function EventLobbyScreen() {
     return () => clearInterval(interval);
   }, [eventEndTime]);
 
-  const mysteryMatchEnabled = lobbySideEffectsEnabled;
-  const { findMysteryMatch, cancelSearch, isSearching, isWaiting } =
-    useMysteryMatch({
-      eventId: id,
-      onMatchFound: (sessionId) => {
-        openReadyGateWithSession(sessionId, "mystery_match");
-      },
-      enabled: mysteryMatchEnabled,
-    });
-
   const eventSubtitle = useMemo(() => {
     if (!event?.event_date) return "Live room";
     const t = new Date(event.event_date).toLocaleTimeString("en-US", {
@@ -3079,7 +3068,6 @@ export default function EventLobbyScreen() {
 
   const convergenceImpressionRef = useRef(false);
   const emptyStateImpressionRef = useRef(false);
-  const mysteryCtaImpressionRef = useRef(false);
 
   const showConvergenceYieldUi = yieldingToVideoDateUi || yieldingToReadyGateUi;
 
@@ -3467,25 +3455,6 @@ export default function EventLobbyScreen() {
   }, [baseEmptyEligible, id, isEmpty]);
 
   useEffect(() => {
-    const mysteryVisible =
-      Boolean(id) &&
-      baseEmptyEligible &&
-      isEmpty &&
-      mysteryMatchEnabled &&
-      !isWaiting;
-    if (!mysteryVisible) {
-      mysteryCtaImpressionRef.current = false;
-      return;
-    }
-    if (mysteryCtaImpressionRef.current) return;
-    mysteryCtaImpressionRef.current = true;
-    trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_IMPRESSION, {
-      platform: "native",
-      event_id: id,
-    });
-  }, [baseEmptyEligible, id, isEmpty, isWaiting, mysteryMatchEnabled]);
-
-  useEffect(() => {
     if (!postSurveyBridgeVisible) return;
     if (deckLoading || !sessionHydrated) return;
     const tid = setTimeout(() => setPostSurveyBridgeVisible(false), 1200);
@@ -3715,7 +3684,6 @@ export default function EventLobbyScreen() {
               ? envelope.reason
               : (envelope.error ?? "event_not_active");
           setServerInactiveEventReasonWithSource(failureReason, "swipe");
-          cancelSearch();
           void queryClient.invalidateQueries({
             queryKey: ["event-details", id],
           });
@@ -4413,175 +4381,72 @@ export default function EventLobbyScreen() {
                         { borderColor: theme.glassBorder },
                       ]}
                     >
-                      {isWaiting ? (
-                        <>
-                          <Text style={styles.emptyEmoji}>⏳</Text>
-                          <Text
-                            style={[styles.emptyTitle, { color: theme.text }]}
-                          >
-                            Hang tight!
-                          </Text>
-                          <Text
-                            style={[
-                              styles.emptyMessage,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            New people may join the event! We&apos;ll refresh
-                            your deck automatically.
-                          </Text>
-                          <View style={styles.emptyCheckingRow}>
-                            <Ionicons
-                              name="sync"
-                              size={14}
-                              color={theme.tint}
-                            />
-                            <Text
-                              style={[
-                                styles.emptySubline,
-                                { color: theme.tint },
-                              ]}
-                            >
-                              Checking for new arrivals...
-                            </Text>
-                          </View>
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.emptySecondaryBtn,
-                              pressed && { opacity: 0.8 },
-                            ]}
-                            onPress={cancelSearch}
-                          >
-                            <Text
-                              style={[
-                                styles.emptySecondaryLabel,
-                                { color: theme.textSecondary },
-                              ]}
-                            >
-                              No thanks, I&apos;ll wait
-                            </Text>
-                          </Pressable>
-                        </>
-                      ) : (
-                        <>
-                          <View
-                            style={[
-                              styles.emptyIconWrap,
-                              { backgroundColor: theme.accentSoft },
-                            ]}
-                          >
-                            <Ionicons
-                              name="people-outline"
-                              size={40}
-                              color={theme.tint}
-                            />
-                          </View>
-                          <Text
-                            style={[styles.emptyTitle, { color: theme.text }]}
-                          >
-                            {postSurveyReturnContext
-                              ? postSurveyContinuityDecision.title
-                              : emptyDeckUiState.title}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.emptyMessage,
-                              { color: theme.textSecondary },
-                            ]}
-                          >
-                            {postSurveyReturnContext
-                              ? postSurveyContinuityDecision.message
-                              : emptyDeckUiState.message}
-                          </Text>
-                          {emptyDeckUiState.showRefresh ||
-                          emptyDeckUiState.actionTarget === "end_break" ? (
-                            <Pressable
-                              style={({ pressed }) => [
-                                styles.emptyPrimaryBtn,
-                                { backgroundColor: theme.tint },
-                                pressed && { opacity: 0.9 },
-                              ]}
-                              onPress={() => {
-                                if (
-                                  emptyDeckUiState.actionTarget === "end_break"
-                                ) {
-                                  handleEndBreak();
-                                  return;
-                                }
-                                if (id) {
-                                  trackEvent(
-                                    LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP,
-                                    {
-                                      platform: "native",
-                                      event_id: id,
-                                    },
-                                  );
-                                }
-                                cancelSearch();
-                                refetchDeck();
-                              }}
-                              disabled={
-                                emptyDeckUiState.actionTarget === "end_break" &&
-                                endingBreak
-                              }
-                            >
-                              <Text style={styles.emptyPrimaryLabel}>
-                                {emptyDeckUiState.actionTarget ===
-                                  "end_break" && endingBreak
-                                  ? "Ending break..."
-                                  : (emptyDeckUiState.actionLabel ??
-                                    "Refresh now")}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                          {emptyDeckUiState.showMysteryMatch ? (
-                            <Pressable
-                              style={({ pressed }) => [
-                                styles.emptyMysteryBtn,
+                      <View
+                        style={[
+                          styles.emptyIconWrap,
+                          { backgroundColor: theme.accentSoft },
+                        ]}
+                      >
+                        <Ionicons
+                          name="people-outline"
+                          size={40}
+                          color={theme.tint}
+                        />
+                      </View>
+                      <Text
+                        style={[styles.emptyTitle, { color: theme.text }]}
+                      >
+                        {postSurveyReturnContext
+                          ? postSurveyContinuityDecision.title
+                          : emptyDeckUiState.title}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.emptyMessage,
+                          { color: theme.textSecondary },
+                        ]}
+                      >
+                        {postSurveyReturnContext
+                          ? postSurveyContinuityDecision.message
+                          : emptyDeckUiState.message}
+                      </Text>
+                      {emptyDeckUiState.showRefresh ||
+                      emptyDeckUiState.actionTarget === "end_break" ? (
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.emptyPrimaryBtn,
+                            { backgroundColor: theme.tint },
+                            pressed && { opacity: 0.9 },
+                          ]}
+                          onPress={() => {
+                            if (emptyDeckUiState.actionTarget === "end_break") {
+                              handleEndBreak();
+                              return;
+                            }
+                            if (id) {
+                              trackEvent(
+                                LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP,
                                 {
-                                  borderColor: theme.border,
-                                  backgroundColor: withAlpha(theme.text, 0.04),
+                                  platform: "native",
+                                  event_id: id,
                                 },
-                                pressed && { opacity: 0.85 },
-                                isSearching && { opacity: 0.6 },
-                              ]}
-                              onPress={() => {
-                                if (id) {
-                                  trackEvent(
-                                    LobbyPostDateEvents.MYSTERY_MATCH_CTA_TAP,
-                                    {
-                                      platform: "native",
-                                      event_id: id,
-                                    },
-                                  );
-                                }
-                                void findMysteryMatch();
-                              }}
-                              disabled={isSearching}
-                            >
-                              {isSearching ? (
-                                <Text
-                                  style={[
-                                    styles.emptySecondaryLabel,
-                                    { color: theme.text },
-                                  ]}
-                                >
-                                  Finding match...
-                                </Text>
-                              ) : (
-                                <Text
-                                  style={[
-                                    styles.emptySecondaryLabel,
-                                    { color: theme.text },
-                                  ]}
-                                >
-                                  Mystery Match (optional)
-                                </Text>
-                              )}
-                            </Pressable>
-                          ) : null}
-                        </>
-                      )}
+                              );
+                            }
+                            refetchDeck();
+                          }}
+                          disabled={
+                            emptyDeckUiState.actionTarget === "end_break" &&
+                            endingBreak
+                          }
+                        >
+                          <Text style={styles.emptyPrimaryLabel}>
+                            {emptyDeckUiState.actionTarget === "end_break" &&
+                            endingBreak
+                              ? "Ending break..."
+                              : (emptyDeckUiState.actionLabel ?? "Refresh now")}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </Card>
                   </View>
                 ) : (
@@ -5526,15 +5391,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   emptyRefreshLabel: { fontSize: 14, fontWeight: "500" },
-  emptyMysteryBtn: {
-    alignSelf: "stretch",
-    paddingVertical: 12,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    alignItems: "center",
-    marginBottom: spacing.sm,
-  },
   lobbySuccessToast: {
     position: "absolute",
     left: spacing.lg,

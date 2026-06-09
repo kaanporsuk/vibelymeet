@@ -61,7 +61,6 @@ test("audited native Event Lobby paths still avoid direct server-owned writes", 
     "apps/mobile/lib/readyGateApi.ts",
     "apps/mobile/lib/useActiveSession.ts",
     "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
-    "apps/mobile/lib/useMysteryMatch.ts",
   ]) {
     const source = read(path);
 

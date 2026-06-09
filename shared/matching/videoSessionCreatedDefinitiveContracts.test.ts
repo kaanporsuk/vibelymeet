@@ -25,11 +25,10 @@ function read(path: string): string {
 const activeSession = read("shared/matching/activeSession.ts");
 const webActiveSession = read("src/hooks/useActiveSession.ts");
 const nativeActiveSession = read("apps/mobile/lib/useActiveSession.ts");
-const webMysteryMatch = read("src/hooks/useMysteryMatch.ts");
-const nativeMysteryMatch = read("apps/mobile/lib/useMysteryMatch.ts");
 const generatedTypes = read("src/integrations/supabase/types.ts");
 const mutualMatchHandoff = read("supabase/migrations/20260607103000_video_date_mutual_match_handoff_closure.sql");
 const finalContractsMigration = read("supabase/migrations/20260607152000_video_session_created_definitive_contracts.sql");
+const mysteryMatchRemoval = read("supabase/migrations/20260609152000_remove_mystery_match.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 
 function session(
@@ -101,19 +100,12 @@ test("queued session with current_room_id remains lobby/syncing, not Ready Gate 
   assert.match(nativeActiveSession, /kind: 'syncing'/);
 });
 
-test("Mystery Match returns and consumes canonical session payload fields on web and native", () => {
-  for (const field of [
-    "'video_session_id', v_session_id_text",
-    "'match_id', COALESCE",
-    "'event_id', p_event_id::text",
-    "'ready_gate_status', v_ready_gate_status",
-    "'session_source', 'mystery_match'",
-  ]) {
-    assert.match(finalContractsMigration, new RegExp(field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
-  assert.match(finalContractsMigration, /session_source = 'mystery_match'/);
-  assert.match(webMysteryMatch, /result\?\.video_session_id \?\? result\?\.session_id \?\? result\?\.match_id/);
-  assert.match(nativeMysteryMatch, /result\?\.video_session_id \?\? result\?\.session_id \?\? result\?\.match_id/);
+test("Mystery Match payload compatibility is superseded by hard removal", () => {
+  assert.match(mysteryMatchRemoval, /DROP FUNCTION IF EXISTS public\.find_mystery_match\(uuid, uuid\)/);
+  assert.match(mysteryMatchRemoval, /session_source = 'mystery_match'/);
+  assert.match(mysteryMatchRemoval, /session_source = 'reciprocal_swipe'/);
+  assert.match(mysteryMatchRemoval, /video_sessions_session_source_rec_swipe_only/);
+  assert.doesNotMatch(generatedTypes, /find_mystery_match/);
 });
 
 test("generated Supabase video_sessions table contract includes session_source", () => {

@@ -15,10 +15,6 @@ export const LobbyPostDateEvents = {
   LOBBY_EMPTY_STATE_IMPRESSION: 'lobby_empty_state_impression',
   LOBBY_EMPTY_STATE_REFRESH_TAP: 'lobby_empty_state_refresh_tap',
   LOBBY_CONVERGENCE_IMPRESSION: 'lobby_convergence_impression',
-  MYSTERY_MATCH_CTA_IMPRESSION: 'mystery_match_cta_impression',
-  MYSTERY_MATCH_CTA_TAP: 'mystery_match_cta_tap',
-  MYSTERY_MATCH_OUTCOME: 'mystery_match_outcome',
-  MYSTERY_MATCH_CANCEL: 'mystery_match_cancel',
 
   // --- Ready Gate ---
   READY_GATE_IMPRESSION: 'ready_gate_impression',
