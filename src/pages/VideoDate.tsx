@@ -628,6 +628,7 @@ const VideoDate = () => {
   const warmupTimerStartedTrackedRef = useRef<string | null>(null);
   const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
+  const routeMountIdRef = useRef(`vd-web-route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
   const eventIdRef = useRef<string | undefined>(undefined);
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
@@ -1224,8 +1225,10 @@ const VideoDate = () => {
     dailyTokenRefreshV2: dailyTokenRefreshV2.enabled,
     dailyCallSingletonEligible:
       !showFeedback &&
+      !terminalSurveyRecoveryActive &&
       phase !== "ended" &&
-      (phase === "handshake" ||
+      (videoDateAccess === "allowed" ||
+        phase === "handshake" ||
         phase === "date" ||
         Boolean(dateStartedAt) ||
         videoSessionHasEncounterExposureTruth(handshakeTruth)),
@@ -1307,13 +1310,26 @@ const VideoDate = () => {
     }
   }, [remotePlayback.firstFrameRendered]);
 
+  const videoDateSurfaceLeaseActive =
+    videoDateAccess === "allowed" &&
+    !showFeedback &&
+    !terminalSurveyRecoveryActive &&
+    phase !== "ended";
+  const shouldBridgeVideoDateSurfaceOnCleanup = useCallback(
+    () =>
+      videoDateSurfaceLeaseActive &&
+      !manualExitInFlightRef.current &&
+      !terminalSurveyRecoveryInFlightRef.current &&
+      !surveyOpenedRef.current &&
+      explicitEndRequestedRef.current === "idle" &&
+      phaseRef.current !== "ended",
+    [videoDateSurfaceLeaseActive],
+  );
   const { dupBlocked, takeOver } = useVideoDateDupTabGuard(
     id,
     user?.id,
-    videoDateAccess === "allowed" &&
-      !showFeedback &&
-      !terminalSurveyRecoveryActive &&
-      phase !== "ended",
+    videoDateSurfaceLeaseActive,
+    shouldBridgeVideoDateSurfaceOnCleanup,
   );
   const [showDuplicateTabConflict, setShowDuplicateTabConflict] =
     useState(false);
@@ -2209,21 +2225,15 @@ const VideoDate = () => {
 
   useEffect(() => {
     if (!id || !user?.id || videoDateAccess !== "allowed") return;
-    const terminalSurveyOwner =
-      showFeedback || terminalSurveyRecoveryActive || phase === "ended";
-    const shouldOwnDateRoute =
-      terminalSurveyOwner ||
-      isConnecting ||
-      isConnected ||
-      callStarted ||
-      localInDailyRoom ||
-      dailyMeetingState === "joining-meeting" ||
-      dailyMeetingState === "joined-meeting" ||
-      Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(handshakeTruth);
-    if (!shouldOwnDateRoute) return;
+    if (dupBlocked) return;
     const refreshDateRouteOwnership = () => {
       markVideoDateRouteOwned(id, user.id);
+      vdbg("date_route_ownership_refresh", {
+        sessionId: id,
+        userId: user.id,
+        routeMountId: routeMountIdRef.current,
+        routeOwnerId: `${user.id}:${id}`,
+      });
     };
     refreshDateRouteOwnership();
     const intervalId = window.setInterval(
@@ -2234,17 +2244,8 @@ const VideoDate = () => {
       window.clearInterval(intervalId);
     };
   }, [
-    callStarted,
-    dailyMeetingState,
-    dateStartedAt,
-    handshakeTruth,
+    dupBlocked,
     id,
-    isConnected,
-    isConnecting,
-    localInDailyRoom,
-    phase,
-    showFeedback,
-    terminalSurveyRecoveryActive,
     user?.id,
     videoDateAccess,
   ]);
@@ -3215,6 +3216,7 @@ const VideoDate = () => {
     if (callStarted) return;
     if (callStartFailure) return;
 
+    let cancelled = false;
     setCallStarted(true);
     const mediaPromptIntent = nextVideoDateMediaPromptIntentRef.current;
     nextVideoDateMediaPromptIntentRef.current = "auto";
@@ -3232,6 +3234,16 @@ const VideoDate = () => {
       level: "info",
     });
     startCall(id, { mediaPromptIntent }).then((result) => {
+      if (cancelled) {
+        vdbg("date_entry_start_result_ignored_after_cleanup", {
+          sessionId: id,
+          userId: user?.id ?? null,
+          eventId: eventId ?? null,
+          joinCycle,
+          ok: result.ok,
+        });
+        return;
+      }
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
       if (!videoJoinOutcomeByCycleRef.current.has(joinCycle)) {
@@ -3322,6 +3334,9 @@ const VideoDate = () => {
       setHandshakeStartFailed(true);
       setHandshakeFailureCode(undefined);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [
     callStartFailure,
     id,

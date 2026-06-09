@@ -374,6 +374,32 @@ export function PostDateSurvey({
     [confirmVerdictWithServerNextSurface],
   );
 
+  const confirmActorFeedbackRow = useCallback(
+    async (liked: boolean, source: string): Promise<boolean> => {
+      for (let attempt = 1; attempt <= 6; attempt += 1) {
+        const { data, error } = await supabase
+          .from('date_feedback')
+          .select('session_id,user_id,liked,created_at')
+          .eq('session_id', sessionId)
+          .eq('user_id', userId)
+          .maybeSingle();
+        if (!error && data && data.liked === liked) {
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+      }
+      trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        reason: 'date_feedback_row_missing_after_verdict',
+        source,
+      });
+      return false;
+    },
+    [eventId, sessionId, userId],
+  );
+
   const applyConfirmedVerdictStep = useCallback((result: unknown) => {
     const nextStep = derivePostDateSurveyStepFromVerdict(result);
     setVerdictUiState(nextStep === 'awaiting_partner' ? 'awaiting_partner' : 'confirmed');
@@ -1144,6 +1170,23 @@ export function PostDateSurvey({
         }
         return;
       }
+      const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, 'verdict_submitted');
+      if (!feedbackRowConfirmed) {
+        setVerdictRetryable(true);
+        setVerdictError("Couldn't confirm your answer. Tap to retry.");
+        setVerdictUiState('retryable_failed');
+        if (optimisticallyAdvanced) {
+          setStep(previousStep);
+          trackEvent('post_date_verdict_optimistic_rollback', {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            reason: 'date_feedback_row_missing_after_verdict',
+            rollback_step: previousStep,
+          });
+        }
+        return;
+      }
       const confirmedVerdict = normalizePostDateVerdictConfirmationResult(confirmedResult);
       if (optimisticallyAdvanced) {
         trackEvent('post_date_verdict_optimistic_confirmed', {
@@ -1366,6 +1409,9 @@ export function PostDateSurvey({
         });
         return false;
       }
+    }
+    if (!(await confirmActorFeedbackRow(false, 'report_before_verdict'))) {
+      return false;
     }
     reportPassVerdictSavedRef.current = true;
     trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {

@@ -14,19 +14,27 @@ const latestPresenceRepair = read("supabase/migrations/20260604193140_video_date
 const remoteSeenLatestState = read("supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql");
 const packageJson = read("package.json");
 
-test("web date route ownership refresh is tied to real Daily ownership, not optimistic phase", () => {
-  const effectStart = webDateRoute.indexOf("const shouldOwnDateRoute =");
+test("web date route ownership starts from allowed route access, not optimistic phase or Daily state", () => {
+  const effectStart = webDateRoute.indexOf(
+    'if (!id || !user?.id || videoDateAccess !== "allowed") return;',
+  );
   assert.notEqual(effectStart, -1, "date route ownership effect should exist");
-  const effectEnd = webDateRoute.indexOf("if (!shouldOwnDateRoute) return;", effectStart);
-  assert.notEqual(effectEnd, -1, "ownership guard should check shouldOwnDateRoute");
-  const ownershipGate = webDateRoute.slice(effectStart, effectEnd);
+  const effectEnd = webDateRoute.indexOf("}, [", effectStart);
+  assert.notEqual(effectEnd, -1, "ownership effect should include a dependency list");
+  const ownershipEffect = webDateRoute.slice(effectStart, effectEnd);
 
-  assert.match(ownershipGate, /isConnecting/);
-  assert.match(ownershipGate, /isConnected/);
-  assert.match(ownershipGate, /localInDailyRoom/);
-  assert.match(ownershipGate, /dailyMeetingState === "joined-meeting"/);
-  assert.doesNotMatch(ownershipGate, /phase === "handshake"/);
-  assert.doesNotMatch(ownershipGate, /phase === "date"/);
+  assert.match(ownershipEffect, /if \(dupBlocked\) return;/);
+  assert.match(ownershipEffect, /markVideoDateRouteOwned\(id, user\.id\)/);
+  assert.match(ownershipEffect, /VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS/);
+  assert.doesNotMatch(ownershipEffect, /shouldOwnDateRoute/);
+  assert.doesNotMatch(ownershipEffect, /phase === "handshake"/);
+  assert.doesNotMatch(ownershipEffect, /phase === "date"/);
+  assert.doesNotMatch(ownershipEffect, /isConnecting/);
+  assert.doesNotMatch(ownershipEffect, /isConnected/);
+  assert.doesNotMatch(ownershipEffect, /callStarted/);
+  assert.doesNotMatch(ownershipEffect, /dailyMeetingState/);
+  assert.doesNotMatch(ownershipEffect, /localInDailyRoom/);
+  assert.doesNotMatch(ownershipEffect, /dateStartedAt/);
 });
 
 test("terminal survey recovery tears down Daily before showing survey", () => {

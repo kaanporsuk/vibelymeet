@@ -194,7 +194,7 @@ test("Sprint 4 duplicate web start attempts wait for the real in-flight result",
   assert.match(webCall, /start_call_in_flight_failed/);
   assert.match(
     webCall,
-    /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*\}\)/,
+    /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*skipStartGate: true,\s*\}\)/,
   );
 });
 

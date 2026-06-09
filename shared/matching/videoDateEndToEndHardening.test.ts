@@ -1410,7 +1410,7 @@ test("web and native reject cached prewarmed token after Daily join failure and 
   assert.match(webVideoCallHook, /rejectPreparedVideoDateEntry\(sessionId, userId, "daily_join_failed", eventId\)/);
   assert.match(
     webVideoCallHook,
-    /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*\}\)/,
+    /return await startCall\(sessionId, \{\s*internalRetry: true,\s*mediaPromptIntent,\s*skipStartGate: true,\s*\}\)/,
   );
   assert.match(
     nativeVideoDateRoute,
@@ -3409,6 +3409,10 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /if \(hasRemoteVideo\) \{[\s\S]*markRemoteFirstFrameRendered\("loadeddata"\)[\s\S]*markRemoteFirstFrameRendered\("playing"\)/);
   assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)[\s\S]*if \(remoteFirstFrameTrackedRef\.current\) return/);
   assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)/);
+  assert.match(
+    webVideoCallHook,
+    /markRemoteFirstFrameRendered\(\s*method === "request_video_frame_callback"[\s\S]{0,160}"request_video_frame_callback"[\s\S]{0,160}"first_remote_frame"/,
+  );
   assert.doesNotMatch(webVideoCallHook, /markRemoteSeenOnServer\("participant_joined"\)/);
   assert.doesNotMatch(webVideoCallHook, /markRemoteSeenOnServer\("participant_updated"\)/);
   assert.doesNotMatch(webVideoCallHook, /markRemoteSeenOnServer\("post_join_snapshot"\)/);

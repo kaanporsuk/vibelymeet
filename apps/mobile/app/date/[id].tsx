@@ -304,6 +304,8 @@ const NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS = 1_000;
 const NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX =
   "vibely_vd_native_surface_client";
 const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS: number | null = null;
+const NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS = 6;
+const NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_RETRY_BASE_MS = 300;
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
 const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
@@ -1453,6 +1455,11 @@ export default function VideoDateScreen() {
   );
   const videoDateSurfaceOwnerIdRef = useRef(
     createNativeVideoDateSurfaceOwnerId(),
+  );
+  const routeMountIdRef = useRef(
+    `vd-native-route-${Date.now().toString(36)}-${Math.random()
+      .toString(36)
+      .slice(2, 10)}`,
   );
   const surfaceClaimInFlightRef = useRef(false);
   const surfaceClaimInFlightPromiseRef =
@@ -3808,17 +3815,16 @@ export default function VideoDateScreen() {
     const terminalSurveyOwner =
       showFeedback || phase === "ended" || terminalSurveyHardStopRef.current;
     if (!dateEntryPermissionEligible && !terminalSurveyOwner) return;
-    const shouldOwnDateRoute =
-      terminalSurveyOwner ||
-      joining ||
-      isConnecting ||
-      localInDailyRoom ||
-      hasStartedJoinRef.current ||
-      phase === "handshake" ||
-      phase === "date";
-    if (!shouldOwnDateRoute) return;
     const refreshDateRouteOwnership = () => {
       markVideoDateRouteOwned(sessionId, user.id);
+      vdbg("native_date_route_ownership_refresh", {
+        sessionId,
+        userId: user.id,
+        routeMountId: routeMountIdRef.current,
+        routeOwnerId: `${user.id}:${sessionId}`,
+        terminalSurveyOwner,
+        dateEntryPermissionEligible,
+      });
     };
     refreshDateRouteOwnership();
     const intervalId = setInterval(
@@ -3830,9 +3836,6 @@ export default function VideoDateScreen() {
     };
   }, [
     dateEntryPermissionEligible,
-    isConnecting,
-    joining,
-    localInDailyRoom,
     phase,
     sessionId,
     showFeedback,
@@ -5398,13 +5401,15 @@ export default function VideoDateScreen() {
       const call = callRef.current;
       if (call) {
         detachCallListeners(cleanupReason);
+        const meetingStateBeforeCleanup = safeNativeDailyMeetingState(call);
         const shouldParkSingleton =
           cleanupMode === "preserve_active_handoff" &&
           dailyCallSingletonV2.enabled &&
-          dateEstablishedRef.current &&
           !showFeedback &&
           !terminalSurveyHardStopRef.current &&
-          phaseRef.current !== "ended";
+          phaseRef.current !== "ended" &&
+          meetingStateBeforeCleanup !== "left-meeting" &&
+          meetingStateBeforeCleanup !== "error";
         if (shouldParkSingleton && parkSharedCallForWarmHandoff(call, cleanupReason)) {
           vdbg("daily_call_live_remount_detach_only", {
             sessionId: sessionId ?? null,
@@ -5413,6 +5418,7 @@ export default function VideoDateScreen() {
             roomName: roomNameRef.current ?? null,
             reason: cleanupReason,
             cleanupMode,
+            meetingState: meetingStateBeforeCleanup,
             heartbeatPreserved: true,
             callRefPreserved: true,
           });
@@ -6701,7 +6707,12 @@ export default function VideoDateScreen() {
       Boolean(profileId) &&
       nativeSurfaceClientReady &&
       !showFeedback &&
-      (phase === "handshake" || phase === "date");
+      (dateEntryPermissionEligible ||
+        phase === "handshake" ||
+        phase === "date" ||
+        isConnecting ||
+        joining ||
+        localInDailyRoom);
     if (!activeVideoSurface) {
       setSurfaceClaimBlockedState(false);
       return;
@@ -6767,6 +6778,10 @@ export default function VideoDateScreen() {
     };
   }, [
     claimNativeVideoDateSurface,
+    dateEntryPermissionEligible,
+    isConnecting,
+    joining,
+    localInDailyRoom,
     multiDeviceV2.enabled,
     nativeSurfaceClientReady,
     phase,
@@ -9724,22 +9739,31 @@ export default function VideoDateScreen() {
       ) => {
         let nextCall = existingCall ?? null;
         if (!nextCall) {
-          const guarded = await createVideoDateDailyCallObjectGuarded(profile, {
-            source: "native_video_date_start_call",
-            currentCallObject: callRef.current,
-            waitForCleanup: true,
-            onDiagnostic: (eventName, payload) => {
-              vdbg(eventName, {
-                sessionId,
-                userId: user.id,
-                eventId: eventId || null,
-                roomName: tokenResult.room_name,
-                source: "native_video_date_start_call",
-                ...payload,
-              });
-            },
-          });
-          if (guarded.ok === false) {
+          for (
+            let attempt = 1;
+            attempt <= NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS;
+            attempt += 1
+          ) {
+            const guarded = await createVideoDateDailyCallObjectGuarded(profile, {
+              source: "native_video_date_start_call",
+              currentCallObject: callRef.current,
+              waitForCleanup: true,
+              onDiagnostic: (eventName, payload) => {
+                vdbg(eventName, {
+                  sessionId,
+                  userId: user.id,
+                  eventId: eventId || null,
+                  roomName: tokenResult.room_name,
+                  source: "native_video_date_start_call",
+                  attempt,
+                  ...payload,
+                });
+              },
+            });
+            if (guarded.ok === true) {
+              nextCall = guarded.call;
+              break;
+            }
             guardedCreateFailure = guarded.reason;
             vdbg("native_daily_guard_create_blocked", {
               sessionId,
@@ -9748,10 +9772,25 @@ export default function VideoDateScreen() {
               roomName: tokenResult.room_name,
               reason: guarded.reason,
               meetingState: guarded.meetingState ?? null,
+              attempt,
+              maxAttempts: NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS,
             });
+            if (
+              (guarded.reason === "external_call_busy" ||
+                guarded.reason === "cleanup_pending") &&
+              attempt < NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS
+            ) {
+              await sleepNativeRuntimeRecovery(
+                Math.min(
+                  1_200,
+                  NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_RETRY_BASE_MS * attempt,
+                ),
+              );
+              continue;
+            }
             return null;
           }
-          nextCall = guarded.call;
+          if (!nextCall) return null;
         }
         const reusedPrewarmed = reuseKind === "prewarm";
         dailyPrewarmConsumedForJoin = reusedPrewarmed;
