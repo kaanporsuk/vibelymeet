@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   resolveEventDeckPhase4UiState,
-  resolveVideoDateHandshakeUiState,
+  resolveVideoDateEntryUiState,
   shouldShowVideoDateIceBreaker,
 } from "./videoDatePhase4Ux";
 
@@ -23,12 +23,12 @@ test("Phase 4 handshake UI derives local and partner decisions from decided_at t
     participant_2_decided_at: "2026-05-24T08:00:05.000Z",
   };
 
-  assert.deepEqual(resolveVideoDateHandshakeUiState(truth, "user-a"), {
+  assert.deepEqual(resolveVideoDateEntryUiState(truth, "user-a"), {
     localDecision: true,
     localHasDecided: true,
     partnerHasDecided: true,
   });
-  assert.deepEqual(resolveVideoDateHandshakeUiState(truth, "user-b"), {
+  assert.deepEqual(resolveVideoDateEntryUiState(truth, "user-b"), {
     localDecision: false,
     localHasDecided: true,
     partnerHasDecided: true,
@@ -36,7 +36,7 @@ test("Phase 4 handshake UI derives local and partner decisions from decided_at t
 });
 
 test("Phase 4 handshake UI treats legacy liked=false without decided_at as undecided", () => {
-  const state = resolveVideoDateHandshakeUiState(
+  const state = resolveVideoDateEntryUiState(
     {
       participant_1_id: "user-a",
       participant_2_id: "user-b",
@@ -124,10 +124,10 @@ test("Phase 4 web/native surfaces consume shared UX helpers", () => {
   const nativeButton = read("apps/mobile/components/video-date/VibeCheckButton.tsx");
 
   for (const source of [webVideoDate, nativeVideoDate]) {
-    assert.match(source, /resolveVideoDateHandshakeUiState/);
+    assert.match(source, /resolveVideoDateEntryUiState/);
     assert.match(source, /shouldShowVideoDateIceBreaker/);
-    assert.match(source, /localHasDecided=\{localHandshakeHasDecided\}/);
-    assert.match(source, /partnerHasDecided=\{partnerHandshakeHasDecided\}/);
+    assert.match(source, /localHasDecided=\{localEntryHasDecided\}/);
+    assert.match(source, /partnerHasDecided=\{partnerEntryHasDecided\}/);
   }
 
   for (const source of [webButton, nativeButton]) {

@@ -64,6 +64,22 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-10 Implementation Update: handshake → entry, Phase A (client vocabulary)
+
+First pass of the handshake → entry terminology migration: **client-facing TS identifiers only**, DB/wire unchanged. Audit map: `docs/branch-deltas/handshake-to-entry-audit.md`; delta: `docs/branch-deltas/handshake-to-entry-phase-a.md`.
+
+Renamed a safe allowlist of ~40 internal identifiers (312 substitutions / 14 files) + two file renames (`videoDateHandshakePersistence.ts` → `videoDateEntryPersistence.ts` and its test). Examples: `clearHandshakeGraceState` → `clearEntryGraceState`, `completeHandshake` → `completeEntry`, `VideoDateHandshakeTruth` → `VideoDateEntryTruth`, `resolveVideoDateHandshakeUiState` → `resolveVideoDateEntryUiState`.
+
+Deliberately preserved (wire/data/contract): the `'complete_handshake'`/`'continue_handshake'` transition action strings, the `handshake_started_at`/`handshake_grace_expires_at` columns and `'handshake'` phase/state values, `ReadyGateQueueStatus.InHandshake = 'in_handshake'` (queue_status), the `video_date.outbox_v2.continue_handshake` flag + `continueHandshakeV2`, analytics payload keys, the lucide `HeartHandshake` icon, generated types, migrations, Edge Functions, validation SQL.
+
+Verification: typecheck (the net for identifier renames), lint, `test:video-date-v4`, `test:video-date:red-flags`, the renamed persistence test (18/18); full matching/observability sweep shows the 13 still-red files are pre-existing on clean `main` with **zero new failures**. Behavior unchanged (identifier-only rename).
+
+Subsequent phases (separate sign-off + real e2e window): DB additive compat columns/RPC wrappers/actions, Edge Function migration, `ALTER TYPE video_date_state RENAME VALUE 'handshake' → 'entry'`, flag-key rename, types regen.
+
+Proof boundary: client vocabulary refactor, not Video Date acceptance. No two-user run was possible here.
+
+---
+
 ## 2026-06-10 Implementation Update: Ready Gate Single Prepare-Owner
 
 Consolidated Ready Gate entry ownership so there is one canonical `prepare_date_entry` owner per platform. Golden flow unchanged: Event Lobby -> mutual match -> Ready Gate -> both_ready -> `prepare_date_entry`/`prepare_entry` -> `/date/:sessionId`. Ready Gate and the Daily room creation inside `prepare_date_entry` are untouched.

@@ -266,7 +266,7 @@ export function pickRegistrationForActiveSession<
  * True when `video_sessions` already reflects an authoritative handshake/date transition.
  * Do not trust legacy `phase` alone here.
  */
-export function videoSessionRowIndicatesHandshakeOrDate(
+export function videoSessionRowIndicatesEntryOrDate(
   row: {
     daily_room_name?: string | null;
     daily_room_url?: string | null;

@@ -10,7 +10,7 @@ import {
   remainingStartedAtCountdownSeconds,
   startedAtCountdownDeadlineMs,
 } from "./videoDateCountdown";
-import { VIDEO_DATE_HANDSHAKE_TRUTH_SELECT } from "./videoDateHandshakePersistence";
+import { VIDEO_DATE_ENTRY_TRUTH_SELECT } from "./videoDateEntryPersistence";
 import {
   getPostDateLobbyContinuityDecision,
   getPostDateSurveyContinuityDecision,
@@ -609,9 +609,9 @@ test("started-at countdown recomputes handshake time from server timestamp", () 
 });
 
 test("handshake truth select carries server date timing for timer reconciliation", () => {
-  assert.match(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT, /handshake_started_at/);
-  assert.match(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT, /date_started_at/);
-  assert.match(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT, /date_extra_seconds/);
+  assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /handshake_started_at/);
+  assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /date_started_at/);
+  assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /date_extra_seconds/);
 });
 
 test("post-date continuity uses event timing for nearly-over state", () => {
@@ -2481,7 +2481,7 @@ test("native video date overlays never mask the post-date survey", () => {
   assert.match(nativeVideoDateRoute, /const showOpeningRoomTopPill =[\s\S]{0,80}!showFeedback &&/);
   assert.match(nativeVideoDateRoute, /const showJoiningOverlay =[\s\S]*!showFeedback &&/);
   assert.match(nativeVideoDateRoute, /const showPeerWaitOverlay =[\s\S]*!showFeedback &&/);
-  assert.match(nativeVideoDateRoute, /const showHandshakeChrome =[\s\S]*!showFeedback &&/);
+  assert.match(nativeVideoDateRoute, /const showEntryChrome =[\s\S]*!showFeedback &&/);
   assert.match(nativeVideoDateRoute, /const showDatePhaseChrome =[\s\S]{0,80}!showFeedback &&/);
   assert.match(nativeVideoDateRoute, /\{!showFeedback && peerMissingTerminal && \(/);
 });
@@ -2764,7 +2764,7 @@ test("web and native countdown-zero paths complete handshake and last-10s urgenc
   assert.match(webVideoDatePage, /countdownCompletionKeyRef/);
   assert.doesNotMatch(webVideoDatePage, /handshake_grace_expiry/);
   assert.match(nativeVideoDateRoute, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: ["']complete_handshake["']/);
-  assert.match(nativeVideoDateRoute, /completeHandshakeFromServerDeadline\(\s*["']entry_visible_countdown_elapsed["']/);
+  assert.match(nativeVideoDateRoute, /completeEntryFromServerDeadline\(\s*["']entry_visible_countdown_elapsed["']/);
   assert.match(nativeVideoDateRoute, /countdownCompletionKeyRef/);
   assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
   assert.match(webVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);

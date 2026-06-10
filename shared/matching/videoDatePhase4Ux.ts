@@ -3,7 +3,7 @@ import {
   type VideoDateLobbyFocusedReason,
 } from "./videoDateLobbyStateCopy";
 
-export type VideoDateHandshakeUiTruth = {
+export type VideoDateEntryUiTruth = {
   participant_1_id?: string | null;
   participant_2_id?: string | null;
   participant_1_liked?: boolean | null;
@@ -12,7 +12,7 @@ export type VideoDateHandshakeUiTruth = {
   participant_2_decided_at?: string | null;
 } | null | undefined;
 
-export type VideoDateHandshakeUiState = {
+export type VideoDateEntryUiState = {
   localDecision: boolean | null;
   localHasDecided: boolean;
   partnerHasDecided: boolean;
@@ -62,10 +62,10 @@ function decisionFrom(decidedAt: unknown, liked: unknown): boolean | null {
   return null;
 }
 
-export function resolveVideoDateHandshakeUiState(
-  truth: VideoDateHandshakeUiTruth,
+export function resolveVideoDateEntryUiState(
+  truth: VideoDateEntryUiTruth,
   userId: string | null | undefined,
-): VideoDateHandshakeUiState {
+): VideoDateEntryUiState {
   if (!truth || !userId) {
     return { localDecision: null, localHasDecided: false, partnerHasDecided: false };
   }

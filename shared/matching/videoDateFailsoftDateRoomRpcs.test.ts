@@ -22,7 +22,7 @@ const webDupTabGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const handshakePersistence = read(
-  "shared/matching/videoDateHandshakePersistence.ts",
+  "shared/matching/videoDateEntryPersistence.ts",
 );
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
 const dailyRoomFailure = read("shared/matching/dailyRoomFailure.ts");
