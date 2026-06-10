@@ -263,11 +263,11 @@ test("web date pre-date failure exits use the manual server-end path", () => {
   const mediaPermissionBlock = blockBetween(
     webVideoDatePage,
     "const permissionBlock =",
-    "if (handshakeStartFailed)",
+    "if (entryStartFailed)",
   );
   const handshakeFailureBlock = blockBetween(
     webVideoDatePage,
-    "if (handshakeStartFailed)",
+    "if (entryStartFailed)",
     "if (callStartFailure?.retryable)",
   );
   const retryableStartFailureBlock = blockBetween(

@@ -11814,13 +11814,13 @@ export default function VideoDateScreen() {
     phase !== "ended" &&
     !suppressPartnerControlsAfterSafety,
   );
-  const handshakeUiState = useMemo(
+  const entryUiState = useMemo(
     () => resolveVideoDateEntryUiState(session, user?.id),
     [session, user?.id],
   );
-  const localEntryDecision = handshakeUiState.localDecision;
-  const localEntryHasDecided = handshakeUiState.localHasDecided;
-  const partnerEntryHasDecided = handshakeUiState.partnerHasDecided;
+  const localEntryDecision = entryUiState.localDecision;
+  const localEntryHasDecided = entryUiState.localHasDecided;
+  const partnerEntryHasDecided = entryUiState.partnerHasDecided;
 
   useEffect(() => {
     const key = `${sessionId ?? "none"}:${entryStartedAtIso ?? "no-start"}`;

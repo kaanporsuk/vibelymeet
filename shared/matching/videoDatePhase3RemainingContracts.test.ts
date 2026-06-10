@@ -213,7 +213,7 @@ test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
   assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);
   assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
   assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
-  assert.match(webVideoDate, /video_session_handshake_auto_promote_v2/);
+  assert.match(webVideoDate, /video_session_entry_auto_promote_v2/);
   assert.match(webVideoDate, /video_session_date_timeout_v2/);
   assert.match(webVideoDate, /video_session_extend_date_v2/);
   assert.match(webVideoDate, /handleCallEndRef\.current\?\.\("date_timeout"\)/);
@@ -222,7 +222,7 @@ test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
   assert.match(nativeVideoDateApi, /dateTimeoutV2\?: boolean/);
   assert.match(nativeVideoDateApi, /submitVerdictV3\?: boolean/);
   assert.match(nativeVideoDateApi, /extensionV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /video_session_handshake_auto_promote_v2/);
+  assert.match(nativeVideoDateApi, /video_session_entry_auto_promote_v2/);
   assert.match(nativeVideoDateApi, /video_session_date_timeout_v2/);
   assert.match(nativeVideoDateApi, /video_session_extend_date_v2/);
   assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);

@@ -177,7 +177,7 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(flags, /"video_date\.daily_call_singleton_v2"/);
   assert.match(dailySingletonMatchEtaMigration, /'video_date\.daily_call_singleton_v2', false, 0/);
   assert.doesNotMatch(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
-  assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
+  assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(entryTruth\)/);
   assert.match(
     webVideoDate,
     /dailyCallSingletonEligible:[\s\S]*!showFeedback[\s\S]*!terminalSurveyRecoveryActive[\s\S]*phase !== "ended"[\s\S]*videoDateAccess === "allowed"/,
