@@ -19,7 +19,7 @@ import {
   readVideoDatePushPreloadTimeline,
 } from '@/lib/videoDatePushPreload';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
-import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
+import { videoSessionRowIndicatesEntryOrDate } from '@clientShared/matching/activeSession';
 import {
   videoDateLifecycleRpcCode,
   videoDateLifecycleRpcIndicatesTerminalStop,
@@ -59,11 +59,11 @@ import {
 import { resolveVideoDatePhaseCountdown } from '@clientShared/matching/videoDateCountdown';
 import { videoDateEntryStartedAtIso } from '@clientShared/matching/videoDateEntryTiming';
 import {
-  VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
-  handshakeTruthLogPayload,
-  persistHandshakeDecisionWithVerification,
-  type PersistHandshakeDecisionResult,
-} from '@clientShared/matching/videoDateHandshakePersistence';
+  VIDEO_DATE_ENTRY_TRUTH_SELECT,
+  entryTruthLogPayload,
+  persistEntryDecisionWithVerification,
+  type PersistEntryDecisionResult,
+} from '@clientShared/matching/videoDateEntryPersistence';
 import {
   fallbackVideoDateIceBreakerState,
   normalizeVideoDateIceBreakerIndex,
@@ -153,7 +153,7 @@ export type GetDailyRoomTokenResult =
       video_date_trace_id?: string | null;
     };
 
-export type CompleteHandshakeResult = {
+export type CompleteEntryResult = {
   success?: boolean;
   state: 'date' | 'ended' | 'handshake';
   code?: string | null;
@@ -176,7 +176,7 @@ type VideoDateTransitionDiagnostics = {
   phase?: string | null;
 };
 
-type RecordHandshakeDecisionOptions = {
+type RecordEntryDecisionOptions = {
   continueHandshakeV2?: boolean;
 };
 
@@ -184,7 +184,7 @@ type EndVideoDateOptions = {
   dateTimeoutV2?: boolean;
 };
 
-type CompleteHandshakeOptions = {
+type CompleteEntryOptions = {
   handshakeAutoPromoteV2?: boolean;
 };
 
@@ -336,7 +336,7 @@ export function useVideoDateSession(
       }
 
       if (
-        videoSessionRowIndicatesHandshakeOrDate({
+        videoSessionRowIndicatesEntryOrDate({
           state,
           handshake_started_at: row.handshake_started_at,
         })
@@ -828,7 +828,7 @@ export async function fetchVideoSessionDateEntryTruth(
 
   const { data, error } = await supabase
     .from('video_sessions')
-    .select(`${VIDEO_DATE_HANDSHAKE_TRUTH_SELECT}, event_id, date_started_at, ready_gate_status, ready_gate_expires_at`)
+    .select(`${VIDEO_DATE_ENTRY_TRUTH_SELECT}, event_id, date_started_at, ready_gate_status, ready_gate_expires_at`)
     .eq('id', sessionId)
     .maybeSingle();
   if (error) {
@@ -857,10 +857,10 @@ export function fetchVideoSessionDateEntryTruthCoalesced(
 }
 
 /** True when the session has entered handshake/date on the server (do not bounce to `/ready` from stale `in_ready_gate`). */
-export function videoSessionIndicatesHandshakeOrDate(
+export function videoSessionIndicatesEntryOrDate(
   vs: Pick<VideoSessionDateEntryTruth, 'handshake_started_at' | 'state' | 'phase'> | null
 ): boolean {
-  return videoSessionRowIndicatesHandshakeOrDate(
+  return videoSessionRowIndicatesEntryOrDate(
     vs
       ? {
           state: vs.state,
@@ -1113,12 +1113,12 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 }
 
 /** Record the current user's explicit handshake decision. Partner is never notified. */
-export async function recordHandshakeDecision(
+export async function recordEntryDecision(
   sessionId: string,
   action: 'vibe' | 'pass',
   diagnostics?: VideoDateTransitionDiagnostics,
-  options?: RecordHandshakeDecisionOptions
-): Promise<PersistHandshakeDecisionResult> {
+  options?: RecordEntryDecisionOptions
+): Promise<PersistEntryDecisionResult> {
   const actorUserId = diagnostics?.actorUserId ?? null;
   const expectedDecision = action === 'vibe';
   if (!actorUserId) {
@@ -1140,7 +1140,7 @@ export async function recordHandshakeDecision(
     };
   }
 
-  const result = await persistHandshakeDecisionWithVerification({
+  const result = await persistEntryDecisionWithVerification({
     sessionId,
     actorUserId,
     action,
@@ -1209,7 +1209,7 @@ export async function recordHandshakeDecision(
     persistedDecision: result.persistedDecision,
     persistedDecisionAt: result.persistedDecisionAt,
     actorDecisionPersisted: result.actorDecisionPersisted,
-    ...handshakeTruthLogPayload(result.truth),
+    ...entryTruthLogPayload(result.truth),
   });
   return result;
 }
@@ -1218,16 +1218,16 @@ export async function recordHandshakeDecision(
 export async function recordVibe(
   sessionId: string,
   diagnostics?: VideoDateTransitionDiagnostics,
-  options?: RecordHandshakeDecisionOptions
-): Promise<PersistHandshakeDecisionResult> {
-  return recordHandshakeDecision(sessionId, 'vibe', diagnostics, options);
+  options?: RecordEntryDecisionOptions
+): Promise<PersistEntryDecisionResult> {
+  return recordEntryDecision(sessionId, 'vibe', diagnostics, options);
 }
 
 /** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
-export async function completeHandshake(
+export async function completeEntry(
   sessionId: string,
-  options?: CompleteHandshakeOptions
-): Promise<CompleteHandshakeResult | null> {
+  options?: CompleteEntryOptions
+): Promise<CompleteEntryResult | null> {
   const args = {
     p_session_id: sessionId,
     p_action: 'complete_handshake',
@@ -1236,7 +1236,7 @@ export async function completeHandshake(
   vdbg('complete_handshake_truth_before', {
     action: 'complete_handshake',
     sessionId,
-    ...handshakeTruthLogPayload(truthBefore),
+    ...entryTruthLogPayload(truthBefore),
   });
   vdbg('video_date_transition_before', { action: 'complete_handshake', args });
   const { data, error } = options?.handshakeAutoPromoteV2 === true
@@ -1260,10 +1260,10 @@ export async function completeHandshake(
     sessionId,
     ok: !error,
     rpcPayload: data ?? null,
-    ...handshakeTruthLogPayload(truthAfter),
+    ...entryTruthLogPayload(truthAfter),
   });
   if (error) return null;
-  const payload = data as Partial<CompleteHandshakeResult> | null;
+  const payload = data as Partial<CompleteEntryResult> | null;
   if (payload?.success === false && payload.retryable === true) return null;
   const state = payload?.state;
   return {

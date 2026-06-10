@@ -54,8 +54,8 @@ test("native handshake CTA emits visibility, final-ten, and timeout context tele
   assert.match(route, /handshake_cta_hidden/);
   assert.match(route, /video_date_handshake_cta_hidden/);
   assert.match(route, /handshake_final_10s_nudge/);
-  assert.match(route, /const hasHandshakePeerEvidence = hasRemotePartner \|\| \(peerServerJoinedAt != null && !isPartnerDisconnected\)/);
-  assert.match(route, /hasHandshakePeerEvidence &&/);
+  assert.match(route, /const hasEntryPeerEvidence = hasRemotePartner \|\| \(peerServerJoinedAt != null && !isPartnerDisconnected\)/);
+  assert.match(route, /hasEntryPeerEvidence &&/);
   assert.match(route, /peer_server_joined: peerServerJoinedAt != null/);
   assert.match(route, /Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Warning\)/);
   assert.match(route, /ctaTelemetry: handshakeCtaLatestRef\.current/);

@@ -37,7 +37,7 @@ const realtimeRlsRuntime = readFileSync(
   "utf8",
 );
 const handshakePersistence = readFileSync(
-  join(root, "shared/matching/videoDateHandshakePersistence.ts"),
+  join(root, "shared/matching/videoDateEntryPersistence.ts"),
   "utf8",
 );
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
@@ -140,7 +140,7 @@ test("Phase 4 consumers seed and reset session sequence state across web and nat
   assert.match(nativeReadyGate, selectsSessionSeq);
   assert.match(nativeVideoDateApi, selectsSessionSeq);
   assert.match(webVideoDate, selectsSessionSeq);
-  assert.match(handshakePersistence, /VIDEO_DATE_HANDSHAKE_TRUTH_SELECT =[\s\S]*session_seq/);
+  assert.match(handshakePersistence, /VIDEO_DATE_ENTRY_TRUTH_SELECT =[\s\S]*session_seq/);
 
   assert.match(webReadyGate, /sessionSeqRef\.current = null/);
   for (const lobbySource of [webEventLobby, nativeEventLobby]) {

@@ -49,8 +49,8 @@ import {
   type GetDailyRoomTokenResult,
   type RoomTokenFailureCode,
   endVideoDate,
-  recordHandshakeDecision,
-  completeHandshake,
+  recordEntryDecision,
+  completeEntry,
   syncVideoDateReconnect,
   markReconnectPartnerAway,
   signalVideoDateLeave,
@@ -87,7 +87,7 @@ import {
   getVideoSessionPartnerIdForUser,
   videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
-  videoSessionRowIndicatesHandshakeOrDate,
+  videoSessionRowIndicatesEntryOrDate,
 } from "@clientShared/matching/activeSession";
 import {
   videoDateLifecycleRpcCode,
@@ -110,7 +110,7 @@ import {
   buildVideoDateMutualExtensionIdempotencyKey,
 } from "@clientShared/matching/videoDateTransitionCommands";
 import type { VideoDateSessionBroadcastEvent } from "@clientShared/matching/videoDateSessionChannel";
-import { handshakeDecisionFailureIndicatesSessionEnded } from "@clientShared/matching/videoDateHandshakePersistence";
+import { entryDecisionFailureIndicatesSessionEnded } from "@clientShared/matching/videoDateEntryPersistence";
 import {
   createVideoDateCameraSwitchRenderHint,
   parseVideoDateCameraSwitchRenderHint,
@@ -214,7 +214,7 @@ import {
   resolveVideoDateIceBreakerIndex,
 } from "@clientShared/matching/videoDateIceBreakers";
 import {
-  resolveVideoDateHandshakeUiState,
+  resolveVideoDateEntryUiState,
   shouldShowVideoDateIceBreaker,
 } from "@clientShared/matching/videoDatePhase4Ux";
 import { shouldRefreshDailyTokenBeforeReconnect } from "@clientShared/matching/videoDatePhase4";
@@ -381,7 +381,7 @@ function getCachedNativeVideoDateClientInstanceId(
   return isValidNativeVideoDateClientInstanceId(existing) ? existing : null;
 }
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
-// media before the server deadline is allowed to call completeHandshake.
+// media before the server deadline is allowed to call completeEntry.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
 const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
 
@@ -3692,7 +3692,7 @@ export default function VideoDateScreen() {
     session?.participant_2_remote_seen_at,
   ]);
 
-  const clearHandshakeGraceState = useCallback(() => {}, []);
+  const clearEntryGraceState = useCallback(() => {}, []);
 
   const hasRemotePartner = !!remoteParticipant;
   /** Remote participant's first Daily join stamp (null = they have not opened/joined this date yet). */
@@ -3745,7 +3745,7 @@ export default function VideoDateScreen() {
     setLocalInDailyRoom(false);
     setPeerMissingTerminal(false);
     clearPartnerAwayAfterTransportGrace("session_reset");
-    clearHandshakeGraceState();
+    clearEntryGraceState();
     handshakeCompletionInFlightRef.current = false;
     handshakeCompletionDeadlineKeyRef.current = null;
     handshakeCtaImpressionRef.current = null;
@@ -3760,7 +3760,7 @@ export default function VideoDateScreen() {
   }, [
     sessionId,
     user?.id,
-    clearHandshakeGraceState,
+    clearEntryGraceState,
     clearPartnerAwayAfterTransportGrace,
   ]);
 
@@ -4760,9 +4760,9 @@ export default function VideoDateScreen() {
   useEffect(() => {
     return () => {
       clearFirstConnectWatchdog();
-      clearHandshakeGraceState();
+      clearEntryGraceState();
     };
-  }, [clearFirstConnectWatchdog, clearHandshakeGraceState]);
+  }, [clearFirstConnectWatchdog, clearEntryGraceState]);
 
   useEffect(() => {
     if (hasRemotePartner && (phase === "handshake" || phase === "date")) {
@@ -5403,7 +5403,7 @@ export default function VideoDateScreen() {
           return;
         }
       }
-      clearHandshakeGraceState();
+      clearEntryGraceState();
       clearPartnerAwayAfterTransportGrace(cleanupReason);
       clearFirstConnectWatchdog();
       clearDailyTokenRefreshTimer();
@@ -5500,7 +5500,7 @@ export default function VideoDateScreen() {
       parkSharedCallForWarmHandoff,
       releaseSharedCallIfOwned,
       detachCallListeners,
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       resetNativeRemoteRenderRecovery,
     ],
   );
@@ -6146,7 +6146,7 @@ export default function VideoDateScreen() {
     const runSync = async (reason: string, mode: "immediate" | "backoff") => {
       if (cancelled || !sessionId || phaseRef.current === "ended") return;
       const canSyncReconnect =
-        videoSessionRowIndicatesHandshakeOrDate(
+        videoSessionRowIndicatesEntryOrDate(
           session
             ? {
                 state: session.state ?? null,
@@ -6766,13 +6766,13 @@ export default function VideoDateScreen() {
     user?.id,
   ]);
 
-  const handleHandshakeDecision = useCallback(
+  const handleEntryDecision = useCallback(
     async (action: "vibe" | "pass"): Promise<boolean> => {
       if (!sessionId || !user?.id) return false;
       if (handshakeDecisionInFlightRef.current) return false;
       handshakeDecisionInFlightRef.current = true;
       try {
-        const result = await recordHandshakeDecision(
+        const result = await recordEntryDecision(
           sessionId,
           action,
           {
@@ -6804,12 +6804,12 @@ export default function VideoDateScreen() {
         });
         if (!result.ok) {
           void refetchVideoSession();
-          const sessionEnded = handshakeDecisionFailureIndicatesSessionEnded({
+          const sessionEnded = entryDecisionFailureIndicatesSessionEnded({
             truth: result.truth,
             rpcPayload: result.rpcPayload,
           });
           if (sessionEnded) {
-            clearHandshakeGraceState();
+            clearEntryGraceState();
             vdbg("prejoin_state_callError", {
               value: null,
               sessionId,
@@ -6837,10 +6837,10 @@ export default function VideoDateScreen() {
             result.truth.phase === "date" ||
             Boolean(result.truth.date_started_at));
         if (transitionedToDate) {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           setShowMutualToast(true);
         }
-        // Immediately reconcile UI from server truth so that localHandshakeDecision
+        // Immediately reconcile UI from server truth so that localEntryDecision
         // reflects the persisted decision even if the Realtime UPDATE arrives late
         // or the component remounts before it does.
         void refetchVideoSession();
@@ -6854,22 +6854,22 @@ export default function VideoDateScreen() {
       user?.id,
       continueHandshakeV2.enabled,
       refetchVideoSession,
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       handleCallEnd,
     ],
   );
 
   const handleUserVibe = useCallback(
-    () => handleHandshakeDecision("vibe"),
-    [handleHandshakeDecision],
+    () => handleEntryDecision("vibe"),
+    [handleEntryDecision],
   );
   const handleUserPass = useCallback(
-    () => handleHandshakeDecision("pass"),
-    [handleHandshakeDecision],
+    () => handleEntryDecision("pass"),
+    [handleEntryDecision],
   );
 
   const handleMutualToastComplete = useCallback(() => {
-    clearHandshakeGraceState();
+    clearEntryGraceState();
     setShowMutualToast(false);
     setLocalTimeLeft(
       remainingDatePhaseSeconds({
@@ -6879,7 +6879,7 @@ export default function VideoDateScreen() {
       }),
     );
   }, [
-    clearHandshakeGraceState,
+    clearEntryGraceState,
     session?.date_extra_seconds,
     session?.date_started_at,
   ]);
@@ -8166,8 +8166,8 @@ export default function VideoDateScreen() {
 
       currentStep = setPrejoinStep("prepare_entry_routeable");
       const hasEntryStarted = Boolean(videoDateEntryStartedAtIso(truth0));
-      const alreadyInHandshakeOrDate =
-        videoSessionRowIndicatesHandshakeOrDate(truth0);
+      const alreadyInEntryOrDate =
+        videoSessionRowIndicatesEntryOrDate(truth0);
       const preparedEntryRouteable = truthRecovery0.action === "go_date";
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, "prepare_entry_routeable", {
         session_id: sessionId,
@@ -8176,14 +8176,14 @@ export default function VideoDateScreen() {
         vs_state: truth0.state,
         vs_phase: truth0.phase,
         routeable: preparedEntryRouteable,
-        already_handshake_or_date: alreadyInHandshakeOrDate,
+        already_handshake_or_date: alreadyInEntryOrDate,
         entry_started_at: hasEntryStarted,
       });
       vdbg("prejoin_step_prejoin_prepare_entry_routeable", {
         sessionId,
         userId: user.id,
         hasEntryStarted,
-        alreadyInHandshakeOrDate,
+        alreadyInEntryOrDate,
         truthDecision: truthDecision0,
         preparedEntryRouteable,
         state: truth0.state,
@@ -10751,11 +10751,11 @@ export default function VideoDateScreen() {
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
   useEffect(() => {
     if (phase !== "ended" || !sessionId) return;
-    clearHandshakeGraceState();
+    clearEntryGraceState();
     void handleCallEnd("server_end");
-  }, [phase, sessionId, handleCallEnd, clearHandshakeGraceState]);
+  }, [phase, sessionId, handleCallEnd, clearEntryGraceState]);
 
-  const completeHandshakeFromServerDeadline = useCallback(
+  const completeEntryFromServerDeadline = useCallback(
     async (source: string, allowRetry = true) => {
       if (!sessionId || phaseRef.current !== "handshake") return;
       if (handshakeCompletionInFlightRef.current) {
@@ -10781,7 +10781,7 @@ export default function VideoDateScreen() {
           }
           handshakeCompletionRetryTimerRef.current = setTimeout(() => {
             handshakeCompletionRetryTimerRef.current = null;
-            void completeHandshakeFromServerDeadline(
+            void completeEntryFromServerDeadline(
               `${source}_after_decision_persistence`,
               false,
             );
@@ -10809,7 +10809,7 @@ export default function VideoDateScreen() {
           }
           handshakeCompletionRetryTimerRef.current = setTimeout(() => {
             handshakeCompletionRetryTimerRef.current = null;
-            void completeHandshakeFromServerDeadline(
+            void completeEntryFromServerDeadline(
               `${source}_after_media_window`,
               false,
             );
@@ -10827,7 +10827,7 @@ export default function VideoDateScreen() {
           trigger: "server_deadline",
           ctaTelemetry,
         });
-        const result = await completeHandshake(sessionId, {
+        const result = await completeEntry(sessionId, {
           handshakeAutoPromoteV2: handshakeAutoPromoteV2.enabled,
         });
         if (phaseRef.current !== "handshake") return;
@@ -10846,7 +10846,7 @@ export default function VideoDateScreen() {
             }
             handshakeCompletionRetryTimerRef.current = setTimeout(() => {
               handshakeCompletionRetryTimerRef.current = null;
-              void completeHandshakeFromServerDeadline(
+              void completeEntryFromServerDeadline(
                 `${source}_retry`,
                 false,
               );
@@ -10856,13 +10856,13 @@ export default function VideoDateScreen() {
         }
 
         if (result.state === "date") {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           setShowMutualToast(true);
           return;
         }
 
         if (result.state === "handshake") {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           const positiveExtensionSeconds =
             result.extended === true &&
             typeof result.seconds_remaining === "number" &&
@@ -10900,7 +10900,7 @@ export default function VideoDateScreen() {
             }
             handshakeCompletionRetryTimerRef.current = setTimeout(() => {
               handshakeCompletionRetryTimerRef.current = null;
-              void completeHandshakeFromServerDeadline(
+              void completeEntryFromServerDeadline(
                 `${source}_retry`,
                 false,
               );
@@ -10910,7 +10910,7 @@ export default function VideoDateScreen() {
         }
 
         if (result.state === "ended" || result.already_ended) {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           if (result.reason === "handshake_timeout") {
             const notice = getVideoDateWarmupChoiceNotice({
               waitingForSelf: result.waiting_for_self,
@@ -10957,7 +10957,7 @@ export default function VideoDateScreen() {
       }
     },
     [
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       cleanupForAbortWithoutServerEnd,
       handleCallEnd,
       openNativePostDateSurveyFromTerminalTruth,
@@ -11007,13 +11007,13 @@ export default function VideoDateScreen() {
     const fire = () => {
       if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
       handshakeCompletionDeadlineKeyRef.current = deadlineKey;
-      void completeHandshakeFromServerDeadline("entry_server_deadline");
+      void completeEntryFromServerDeadline("entry_server_deadline");
     };
 
     const timer = setTimeout(fire, delayMs);
     return () => clearTimeout(timer);
   }, [
-    completeHandshakeFromServerDeadline,
+    completeEntryFromServerDeadline,
     phase,
     session?.ended_at,
     entryStartedAtIso,
@@ -11025,9 +11025,9 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (phase === "date") {
-      clearHandshakeGraceState();
+      clearEntryGraceState();
     }
-  }, [phase, clearHandshakeGraceState]);
+  }, [phase, clearEntryGraceState]);
 
   // Authoritative visible countdown: recompute from server-owned phase timestamps every tick.
   useEffect(() => {
@@ -11079,7 +11079,7 @@ export default function VideoDateScreen() {
           sessionId: sessionId ?? null,
           trigger: "complete_handshake",
         });
-        void completeHandshakeFromServerDeadline(
+        void completeEntryFromServerDeadline(
           "entry_visible_countdown_elapsed",
         );
       }
@@ -11093,7 +11093,7 @@ export default function VideoDateScreen() {
     phase,
     sessionId,
     handleCallEnd,
-    completeHandshakeFromServerDeadline,
+    completeEntryFromServerDeadline,
     serverTimeline,
     session?.date_extra_seconds,
     session?.date_started_at,
@@ -11791,16 +11791,16 @@ export default function VideoDateScreen() {
     !peerMissingTerminal &&
     !isPartnerDisconnected;
 
-  const hasHandshakePeerEvidence =
+  const hasEntryPeerEvidence =
     hasRemotePartner || (peerServerJoinedAt != null && !isPartnerDisconnected);
 
   // Show the Vibe/Pass CTA during the hard-deadline handshake, using server
   // join evidence as a fallback when Daily participant/track state jitters.
-  const showHandshakeChrome =
+  const showEntryChrome =
     !showFeedback &&
     phase === "handshake" &&
     entryTimerStarted &&
-    hasHandshakePeerEvidence &&
+    hasEntryPeerEvidence &&
     !peerMissingTerminal;
   const showDatePhaseChrome =
     !showFeedback && phase === "date" && hasRemotePartner;
@@ -11815,19 +11815,19 @@ export default function VideoDateScreen() {
     !suppressPartnerControlsAfterSafety,
   );
   const handshakeUiState = useMemo(
-    () => resolveVideoDateHandshakeUiState(session, user?.id),
+    () => resolveVideoDateEntryUiState(session, user?.id),
     [session, user?.id],
   );
-  const localHandshakeDecision = handshakeUiState.localDecision;
-  const localHandshakeHasDecided = handshakeUiState.localHasDecided;
-  const partnerHandshakeHasDecided = handshakeUiState.partnerHasDecided;
+  const localEntryDecision = handshakeUiState.localDecision;
+  const localEntryHasDecided = handshakeUiState.localHasDecided;
+  const partnerEntryHasDecided = handshakeUiState.partnerHasDecided;
 
   useEffect(() => {
     const key = `${sessionId ?? "none"}:${entryStartedAtIso ?? "no-start"}`;
     if (
-      !showHandshakeChrome ||
+      !showEntryChrome ||
       !entryDeadlineUrgent ||
-      localHandshakeDecision !== null ||
+      localEntryDecision !== null ||
       handshakeFinalTenNudgeKeyRef.current === key
     ) {
       return;
@@ -11849,10 +11849,10 @@ export default function VideoDateScreen() {
   }, [
     displayTimeLeft,
     entryDeadlineUrgent,
-    localHandshakeDecision,
+    localEntryDecision,
     entryStartedAtIso,
     sessionId,
-    showHandshakeChrome,
+    showEntryChrome,
   ]);
 
   const remoteVideoTrack = remoteParticipant
@@ -11869,9 +11869,9 @@ export default function VideoDateScreen() {
   useEffect(() => {
     const now = Date.now();
     const localDecisionLabel: HandshakeCtaTelemetrySnapshot["local_decision"] =
-      localHandshakeDecision === true
+      localEntryDecision === true
         ? "vibe"
-        : localHandshakeDecision === false
+        : localEntryDecision === false
           ? "pass"
           : "none";
     const current = handshakeCtaImpressionRef.current;
@@ -11880,7 +11880,7 @@ export default function VideoDateScreen() {
       ? Math.max(0, now - current.shownAtMs)
       : handshakeCtaLastVisibleMsRef.current;
     handshakeCtaLatestRef.current = {
-      cta_visible: showHandshakeChrome,
+      cta_visible: showEntryChrome,
       cta_visible_ms: ctaVisibleMs,
       cta_last_time_left: current?.lastTimeLeft ?? displayTimeLeft ?? null,
       has_remote_partner: hasRemotePartner,
@@ -11937,7 +11937,7 @@ export default function VideoDateScreen() {
       });
     };
 
-    if (showHandshakeChrome && sessionId) {
+    if (showEntryChrome && sessionId) {
       if (!current || current.key !== key) {
         if (current) logHidden("replaced_by_new_handshake_key", current);
         handshakeCtaImpressionRef.current = {
@@ -11991,7 +11991,7 @@ export default function VideoDateScreen() {
     eventId,
     hasRemotePartner,
     isPartnerDisconnected,
-    localHandshakeDecision,
+    localEntryDecision,
     partnerEverJoined,
     peerMissingTerminal,
     peerServerJoinedAt,
@@ -12001,7 +12001,7 @@ export default function VideoDateScreen() {
     entryStartedAtIso,
     sessionId,
     showFeedback,
-    showHandshakeChrome,
+    showEntryChrome,
   ]);
 
   const effectiveIceBreakerClockMs = useMemo(() => {
@@ -12078,7 +12078,7 @@ export default function VideoDateScreen() {
       !showPeerWaitOverlay &&
       (phase === "handshake" || phase === "date"),
     phase,
-    localHasDecided: localHandshakeHasDecided,
+    localHasDecided: localEntryHasDecided,
   });
   const showCollapsedIceBreaker = shouldShowVideoDateIceBreaker({
     baseVisible:
@@ -12094,9 +12094,9 @@ export default function VideoDateScreen() {
       !showPeerWaitOverlay &&
       (phase === "handshake" || phase === "date"),
     phase,
-    localHasDecided: localHandshakeHasDecided,
+    localHasDecided: localEntryHasDecided,
   });
-  const iceBreakerBottomOffset = showHandshakeChrome
+  const iceBreakerBottomOffset = showEntryChrome
     ? handshakeBottomOffset + HANDSHAKE_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
     : Math.max(
         insets.bottom + measuredControlsStackHeight + FLOATING_CHROME_GAP,
@@ -13011,7 +13011,7 @@ export default function VideoDateScreen() {
         </View>
       ) : null}
 
-      {showHandshakeChrome && (
+      {showEntryChrome && (
         <View
           style={[
             styles.handshakeBottomStack,
@@ -13020,9 +13020,9 @@ export default function VideoDateScreen() {
         >
           <VibeCheckButton
             timeLeft={displayTimeLeft}
-            decision={localHandshakeDecision}
-            localHasDecided={localHandshakeHasDecided}
-            partnerHasDecided={partnerHandshakeHasDecided}
+            decision={localEntryDecision}
+            localHasDecided={localEntryHasDecided}
+            partnerHasDecided={partnerEntryHasDecided}
             onVibe={handleUserVibe}
             onPass={handleUserPass}
           />

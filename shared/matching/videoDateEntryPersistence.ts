@@ -1,9 +1,9 @@
-export const VIDEO_DATE_HANDSHAKE_TRUTH_SELECT =
+export const VIDEO_DATE_ENTRY_TRUTH_SELECT =
   "id, participant_1_id, participant_2_id, session_seq, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url";
 
-export type HandshakeDecisionAction = "vibe" | "pass";
+export type EntryDecisionAction = "vibe" | "pass";
 
-export type VideoDateHandshakeTruth = {
+export type VideoDateEntryTruth = {
   id?: string | null;
   participant_1_id?: string | null;
   participant_2_id?: string | null;
@@ -43,15 +43,15 @@ export type VideoDateTransitionPayload = {
   seconds_remaining?: number | null;
 };
 
-export function handshakeTruthIndicatesEndedSession(
-  truth: VideoDateHandshakeTruth | null | undefined,
+export function entryTruthIndicatesEndedSession(
+  truth: VideoDateEntryTruth | null | undefined,
 ): boolean {
   if (!truth) return false;
   return Boolean(truth.ended_at) || truth.state === "ended" || truth.phase === "ended";
 }
 
 /** `video_date_transition` returned `success:false` with a terminal code or ended state. */
-export function handshakeRpcIndicatesTerminalDecisionRejection(
+export function entryRpcIndicatesTerminalDecisionRejection(
   payload: VideoDateTransitionPayload | null | undefined,
 ): boolean {
   if (!payload) return false;
@@ -60,13 +60,13 @@ export function handshakeRpcIndicatesTerminalDecisionRejection(
   return payload.state === "ended";
 }
 
-export function handshakeDecisionFailureIndicatesSessionEnded(opts: {
-  truth: VideoDateHandshakeTruth | null;
+export function entryDecisionFailureIndicatesSessionEnded(opts: {
+  truth: VideoDateEntryTruth | null;
   rpcPayload: VideoDateTransitionPayload | null;
 }): boolean {
   return (
-    handshakeTruthIndicatesEndedSession(opts.truth) ||
-    handshakeRpcIndicatesTerminalDecisionRejection(opts.rpcPayload)
+    entryTruthIndicatesEndedSession(opts.truth) ||
+    entryRpcIndicatesTerminalDecisionRejection(opts.rpcPayload)
   );
 }
 
@@ -82,22 +82,22 @@ type TransitionResult = {
 };
 
 type TruthResult = {
-  truth: VideoDateHandshakeTruth | null;
+  truth: VideoDateEntryTruth | null;
   error?: VideoDateTransitionError | null;
 };
 
-export type PersistHandshakeDecisionInput = {
+export type PersistEntryDecisionInput = {
   sessionId: string;
   actorUserId: string;
-  action: HandshakeDecisionAction;
-  rpc: (args: { p_session_id: string; p_action: HandshakeDecisionAction }) => Promise<TransitionResult>;
+  action: EntryDecisionAction;
+  rpc: (args: { p_session_id: string; p_action: EntryDecisionAction }) => Promise<TransitionResult>;
   fetchTruth: () => Promise<TruthResult>;
   retryDelaysMs?: readonly number[];
   sleep?: (ms: number) => Promise<void>;
   log?: (event: string, payload: Record<string, unknown>) => void;
 };
 
-export type PersistHandshakeDecisionFailureReason =
+export type PersistEntryDecisionFailureReason =
   | "actor_not_participant"
   | "decision_not_persisted"
   | "rpc_error"
@@ -105,10 +105,10 @@ export type PersistHandshakeDecisionFailureReason =
   | "truth_unavailable"
   | "exception";
 
-export type PersistHandshakeDecisionResult =
+export type PersistEntryDecisionResult =
   | {
       ok: true;
-      action: HandshakeDecisionAction;
+      action: EntryDecisionAction;
       attempts: number;
       actorDecisionPersisted: true;
       actorDecisionSlot: "participant_1_liked" | "participant_2_liked";
@@ -117,14 +117,14 @@ export type PersistHandshakeDecisionResult =
       persistedDecision: boolean;
       persistedDecisionAt: string;
       rpcPayload: VideoDateTransitionPayload | null;
-      truth: VideoDateHandshakeTruth;
+      truth: VideoDateEntryTruth;
       state: string | null;
     }
   | {
       ok: false;
-      action: HandshakeDecisionAction;
+      action: EntryDecisionAction;
       attempts: number;
-      reason: PersistHandshakeDecisionFailureReason;
+      reason: PersistEntryDecisionFailureReason;
       retryable: boolean;
       actorDecisionPersisted: false;
       actorDecisionSlot: "participant_1_liked" | "participant_2_liked" | null;
@@ -133,12 +133,12 @@ export type PersistHandshakeDecisionResult =
       persistedDecision: boolean | null;
       persistedDecisionAt: string | null;
       rpcPayload: VideoDateTransitionPayload | null;
-      truth: VideoDateHandshakeTruth | null;
+      truth: VideoDateEntryTruth | null;
       error?: VideoDateTransitionError | null;
       userMessage: string;
     };
 
-export type CompleteHandshakeTruthExpectation =
+export type CompleteEntryTruthExpectation =
   | { kind: "already_ended"; reason: string | null }
   | { kind: "date" }
   | { kind: "ended_non_mutual" }
@@ -149,12 +149,12 @@ function asPayload(data: unknown): VideoDateTransitionPayload | null {
   return data as VideoDateTransitionPayload;
 }
 
-export function expectedDecisionForHandshakeAction(action: HandshakeDecisionAction): boolean {
+export function expectedDecisionForEntryAction(action: EntryDecisionAction): boolean {
   return action === "vibe";
 }
 
 export function actorDecisionSlot(
-  truth: VideoDateHandshakeTruth | null,
+  truth: VideoDateEntryTruth | null,
   actorUserId: string,
 ): "participant_1_liked" | "participant_2_liked" | null {
   if (!truth) return null;
@@ -164,7 +164,7 @@ export function actorDecisionSlot(
 }
 
 export function actorDecisionTimestampSlot(
-  truth: VideoDateHandshakeTruth | null,
+  truth: VideoDateEntryTruth | null,
   actorUserId: string,
 ): "participant_1_decided_at" | "participant_2_decided_at" | null {
   if (!truth) return null;
@@ -174,7 +174,7 @@ export function actorDecisionTimestampSlot(
 }
 
 export function actorPersistedDecision(
-  truth: VideoDateHandshakeTruth | null,
+  truth: VideoDateEntryTruth | null,
   actorUserId: string,
 ): boolean | null {
   const slot = actorDecisionSlot(truth, actorUserId);
@@ -183,7 +183,7 @@ export function actorPersistedDecision(
 }
 
 export function actorPersistedDecisionAt(
-  truth: VideoDateHandshakeTruth | null,
+  truth: VideoDateEntryTruth | null,
   actorUserId: string,
 ): string | null {
   const slot = actorDecisionTimestampSlot(truth, actorUserId);
@@ -192,24 +192,24 @@ export function actorPersistedDecisionAt(
 }
 
 export function actorDecisionPersisted(
-  truth: VideoDateHandshakeTruth | null,
+  truth: VideoDateEntryTruth | null,
   actorUserId: string,
-  action: HandshakeDecisionAction,
+  action: EntryDecisionAction,
 ): boolean {
   return Boolean(actorPersistedDecisionAt(truth, actorUserId))
-    && actorPersistedDecision(truth, actorUserId) === expectedDecisionForHandshakeAction(action);
+    && actorPersistedDecision(truth, actorUserId) === expectedDecisionForEntryAction(action);
 }
 
 /** Explicit Pass: decided_at set and liked is false (undecided keeps liked null or legacy false without decided_at). */
-export function hasExplicitHandshakePass(truth: VideoDateHandshakeTruth): boolean {
+export function hasExplicitEntryPass(truth: VideoDateEntryTruth): boolean {
   const p1Pass = Boolean(truth.participant_1_decided_at) && truth.participant_1_liked === false;
   const p2Pass = Boolean(truth.participant_2_decided_at) && truth.participant_2_liked === false;
   return p1Pass || p2Pass;
 }
 
-export function completeHandshakeExpectation(
-  truth: VideoDateHandshakeTruth,
-): CompleteHandshakeTruthExpectation {
+export function completeEntryExpectation(
+  truth: VideoDateEntryTruth,
+): CompleteEntryTruthExpectation {
   if (truth.ended_at || truth.state === "ended" || truth.phase === "ended") {
     return { kind: "already_ended", reason: truth.ended_reason ?? null };
   }
@@ -218,7 +218,7 @@ export function completeHandshakeExpectation(
   if (participant1Decided && participant2Decided && truth.participant_1_liked === true && truth.participant_2_liked === true) {
     return { kind: "date" };
   }
-  if (hasExplicitHandshakePass(truth)) {
+  if (hasExplicitEntryPass(truth)) {
     return { kind: "ended_non_mutual" };
   }
   if (participant1Decided && participant2Decided) {
@@ -231,7 +231,7 @@ export function completeHandshakeExpectation(
   };
 }
 
-export function handshakeTruthLogPayload(truth: VideoDateHandshakeTruth | null): Record<string, unknown> {
+export function entryTruthLogPayload(truth: VideoDateEntryTruth | null): Record<string, unknown> {
   return {
     participant_1_joined_at: truth?.participant_1_joined_at ?? null,
     participant_2_joined_at: truth?.participant_2_joined_at ?? null,
@@ -252,7 +252,7 @@ function isRetryableError(error: VideoDateTransitionError | null | undefined): b
   return /fetch|network|timeout|timed out|temporar|aborted|relay|unavailable|connection|503|504|502/.test(text);
 }
 
-function userMessageForFailure(reason: PersistHandshakeDecisionFailureReason): string {
+function userMessageForFailure(reason: PersistEntryDecisionFailureReason): string {
   if (reason === "rpc_rejected") return "We could not save your choice. Try again.";
   if (reason === "decision_not_persisted") return "Your choice did not save yet. Tap again.";
   if (reason === "actor_not_participant") return "This date is no longer available.";
@@ -267,16 +267,16 @@ function userMessageForRpcRejectedPayload(payload: VideoDateTransitionPayload | 
   return userMessageForFailure("rpc_rejected");
 }
 
-export async function persistHandshakeDecisionWithVerification(
-  input: PersistHandshakeDecisionInput,
-): Promise<PersistHandshakeDecisionResult> {
+export async function persistEntryDecisionWithVerification(
+  input: PersistEntryDecisionInput,
+): Promise<PersistEntryDecisionResult> {
   const delays = input.retryDelaysMs ?? [700, 1_600];
   const sleep = input.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const expectedDecision = expectedDecisionForHandshakeAction(input.action);
+  const expectedDecision = expectedDecisionForEntryAction(input.action);
   let lastPayload: VideoDateTransitionPayload | null = null;
-  let lastTruth: VideoDateHandshakeTruth | null = null;
+  let lastTruth: VideoDateEntryTruth | null = null;
   let lastError: VideoDateTransitionError | null = null;
-  let lastReason: PersistHandshakeDecisionFailureReason = "exception";
+  let lastReason: PersistEntryDecisionFailureReason = "exception";
 
   for (let attempt = 1; attempt <= delays.length + 1; attempt += 1) {
     if (attempt > 1) {
@@ -312,7 +312,7 @@ export async function persistHandshakeDecisionWithVerification(
           rpcPayload: lastPayload,
         });
         if (retryable) continue;
-        let truthForReturn: VideoDateHandshakeTruth | null = lastTruth;
+        let truthForReturn: VideoDateEntryTruth | null = lastTruth;
         if (!truthForReturn) {
           const tr = await input.fetchTruth();
           const fetched = tr.truth ?? null;
@@ -370,7 +370,7 @@ export async function persistHandshakeDecisionWithVerification(
         persistedDecision,
         persistedDecisionAt,
         actorDecisionPersisted: persisted,
-        ...handshakeTruthLogPayload(lastTruth),
+        ...entryTruthLogPayload(lastTruth),
       });
 
       const confirmedTruth = lastTruth;
@@ -456,7 +456,7 @@ export async function persistHandshakeDecisionWithVerification(
 
       lastReason = "decision_not_persisted";
       if (retryableConsistencyMiss) continue;
-      const failureTruth = lastTruth as VideoDateHandshakeTruth;
+      const failureTruth = lastTruth as VideoDateEntryTruth;
 
       return {
         ok: false,
@@ -490,7 +490,7 @@ export async function persistHandshakeDecisionWithVerification(
         rpcPayload: lastPayload,
       });
       if (retryable) continue;
-      let truthForException: VideoDateHandshakeTruth | null = lastTruth;
+      let truthForException: VideoDateEntryTruth | null = lastTruth;
       if (!truthForException) {
         const tr = await input.fetchTruth();
         const fetched = tr.truth ?? null;

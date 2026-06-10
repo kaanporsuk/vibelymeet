@@ -106,7 +106,7 @@ import {
 import {
   videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
-  videoSessionRowIndicatesHandshakeOrDate,
+  videoSessionRowIndicatesEntryOrDate,
 } from "@clientShared/matching/activeSession";
 import {
   videoDateLifecycleRpcCode,
@@ -116,14 +116,14 @@ import {
 } from "@clientShared/matching/videoDateLifecycleRpc";
 import { adviseVideoSessionTruthRecovery } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
-  VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
-  handshakeDecisionFailureIndicatesSessionEnded,
-  handshakeTruthLogPayload,
-  persistHandshakeDecisionWithVerification,
-  type VideoDateHandshakeTruth,
-} from "@clientShared/matching/videoDateHandshakePersistence";
+  VIDEO_DATE_ENTRY_TRUTH_SELECT,
+  entryDecisionFailureIndicatesSessionEnded,
+  entryTruthLogPayload,
+  persistEntryDecisionWithVerification,
+  type VideoDateEntryTruth,
+} from "@clientShared/matching/videoDateEntryPersistence";
 import {
-  resolveVideoDateHandshakeUiState,
+  resolveVideoDateEntryUiState,
   shouldShowVideoDateIceBreaker,
 } from "@clientShared/matching/videoDatePhase4Ux";
 import {
@@ -329,7 +329,7 @@ function runVideoDateManualExitStep(
 
 type VideoDateAccess = "loading" | "allowed" | "denied" | "not_found";
 
-function messageForHandshakeFailure(code?: string): string {
+function messageForEntryFailure(code?: string): string {
   if (code === "READY_GATE_NOT_READY") {
     return "Almost there — finish the Ready Gate with your match first.";
   }
@@ -393,7 +393,7 @@ interface PartnerData {
 }
 
 type CallPhase = "handshake" | "date" | "ended";
-type CompleteHandshakePayload = {
+type CompleteEntryPayload = {
   success?: boolean;
   state?: "date" | "ended" | "handshake";
   code?: string | null;
@@ -565,8 +565,8 @@ const VideoDate = () => {
     undefined,
   );
   const [timingReady, setTimingReady] = useState(false);
-  const [handshakeStartFailed, setHandshakeStartFailed] = useState(false);
-  const [handshakeFailureCode, setHandshakeFailureCode] = useState<
+  const [handshakeStartFailed, setEntryStartFailed] = useState(false);
+  const [handshakeFailureCode, setEntryFailureCode] = useState<
     string | undefined
   >(undefined);
   const [blurAmount, setBlurAmount] = useState(20);
@@ -593,8 +593,8 @@ const VideoDate = () => {
   const [entryStartedAt, setEntryStartedAt] = useState<string | null>(
     null,
   );
-  const [handshakeTruth, setHandshakeTruth] =
-    useState<VideoDateHandshakeTruth | null>(null);
+  const [handshakeTruth, setEntryTruth] =
+    useState<VideoDateEntryTruth | null>(null);
   const [serverTimeline, setServerTimeline] =
     useState<VideoDateTimelineState | null>(initialPushTimeline);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
@@ -682,12 +682,12 @@ const VideoDate = () => {
   const terminalDailyStopRef = useRef<((reason: string) => void) | null>(null);
   const terminalDailyStopRequestedRef = useRef(false);
   const postEncounterPeerMissingSuppressedRef = useRef<string | null>(null);
-  /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
+  /** Set after `handleCallEnd` is defined — avoids TDZ when `handleEntryDecision` closes over end UX. */
   const handleCallEndRef = useRef<
     ((reason?: VideoDateEndReason) => Promise<void>) | null
   >(null);
 
-  const clearHandshakeGraceState = useCallback(() => {}, []);
+  const clearEntryGraceState = useCallback(() => {}, []);
 
   const clearCallStartAutoRetryTimer = useCallback(() => {
     if (!callStartAutoRetryTimerRef.current) return;
@@ -745,7 +745,7 @@ const VideoDate = () => {
         terminalDailyStopRequestedRef.current = true;
         stopDailyForTerminal(reason);
       }
-      clearHandshakeGraceState();
+      clearEntryGraceState();
       clearCallStartAutoRetryTimer();
       callStartAutoRetryCountRef.current = 0;
       setPhase("ended");
@@ -764,7 +764,7 @@ const VideoDate = () => {
     },
     [
       clearCallStartAutoRetryTimer,
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       eventId,
       id,
       setStatus,
@@ -1029,7 +1029,7 @@ const VideoDate = () => {
         return true;
       }
 
-      clearHandshakeGraceState();
+      clearEntryGraceState();
       terminalSurveyRecoveryInFlightRef.current = false;
       setTerminalSurveyRecoveryActive(false);
       setPhase("ended");
@@ -1051,7 +1051,7 @@ const VideoDate = () => {
       return true;
     },
     [
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       enterTerminalSurveyHardStop,
       hydrateTerminalSurveyContext,
       id,
@@ -2342,8 +2342,8 @@ const VideoDate = () => {
     const load = async () => {
       setVideoDateAccess("loading");
       setTimingReady(false);
-      setHandshakeStartFailed(false);
-      setHandshakeFailureCode(undefined);
+      setEntryStartFailed(false);
+      setEntryFailureCode(undefined);
       setCallStartFailure(null);
       setCallStarted(false);
 
@@ -2379,12 +2379,12 @@ const VideoDate = () => {
           setVideoDateAccess("not_found");
           return;
         }
-        setHandshakeTruth({ id, ...(sessionRow as VideoDateHandshakeTruth) });
+        setEntryTruth({ id, ...(sessionRow as VideoDateEntryTruth) });
 
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
         const sessionIsDateCapable =
-          videoSessionRowIndicatesHandshakeOrDate(sessionRow);
+          videoSessionRowIndicatesEntryOrDate(sessionRow);
         const routeRecovery = adviseVideoSessionTruthRecovery({
           sessionId: id,
           eventId: sessionRow.event_id,
@@ -2857,8 +2857,8 @@ const VideoDate = () => {
 
     const fetchTiming = async () => {
       setTimingReady(false);
-      setHandshakeStartFailed(false);
-      setHandshakeFailureCode(undefined);
+      setEntryStartFailed(false);
+      setEntryFailureCode(undefined);
 
       const { data, error } = await supabase
         .from("video_sessions")
@@ -2877,8 +2877,8 @@ const VideoDate = () => {
           hasData: Boolean(data),
         });
         setEntryStartedAt(null);
-        setHandshakeStartFailed(true);
-        setHandshakeFailureCode(undefined);
+        setEntryStartFailed(true);
+        setEntryFailureCode(undefined);
         setTimeLeft(null);
         setTimingReady(true);
         return;
@@ -2946,7 +2946,7 @@ const VideoDate = () => {
             nowMs: now,
           }) ?? 0;
         setTimeLeft(entryRemaining);
-        clearHandshakeGraceState();
+        clearEntryGraceState();
         if (entryRemaining <= 0) {
           window.setTimeout(() => {
             void checkMutualVibeRef.current?.(
@@ -2963,8 +2963,8 @@ const VideoDate = () => {
         reason: "prepare_date_entry_owns_entry",
         row: data,
       });
-      setHandshakeStartFailed(false);
-      clearHandshakeGraceState();
+      setEntryStartFailed(false);
+      clearEntryGraceState();
       setDateStartedAt(null);
       setTimeLeft(null);
       setTimingReady(true);
@@ -2979,7 +2979,7 @@ const VideoDate = () => {
     id,
     user?.id,
     videoDateAccess,
-    clearHandshakeGraceState,
+    clearEntryGraceState,
     markDateFlowEntered,
     recoverTerminalPostDateSurvey,
     timingRefreshNonce,
@@ -3315,8 +3315,8 @@ const VideoDate = () => {
             "prepare_date_entry_not_ready",
           );
           if (!redirected) {
-            setHandshakeStartFailed(true);
-            setHandshakeFailureCode("READY_GATE_NOT_READY");
+            setEntryStartFailed(true);
+            setEntryFailureCode("READY_GATE_NOT_READY");
           }
         })();
         return;
@@ -3357,8 +3357,8 @@ const VideoDate = () => {
       if (failure.kind === "auth") {
         toast.error("Please sign in again, then try once more.");
       }
-      setHandshakeStartFailed(true);
-      setHandshakeFailureCode(undefined);
+      setEntryStartFailed(true);
+      setEntryFailureCode(undefined);
     });
     return () => {
       cancelled = true;
@@ -3399,7 +3399,7 @@ const VideoDate = () => {
           filter: `id=eq.${id}`,
         },
         (payload) => {
-          const row = payload.new as VideoDateHandshakeTruth & {
+          const row = payload.new as VideoDateEntryTruth & {
             session_seq?: number | null;
           };
           if (
@@ -3408,7 +3408,7 @@ const VideoDate = () => {
           ) {
             sessionSeqRef.current = row.session_seq;
           }
-          setHandshakeTruth({ id, ...row });
+          setEntryTruth({ id, ...row });
           const newState = row.state || row.phase;
 
           if (row.ended_at || newState === "ended") {
@@ -3424,7 +3424,7 @@ const VideoDate = () => {
 
           if (newState === "date" || Boolean(row.date_started_at)) {
             markDateFlowEntered();
-            clearHandshakeGraceState();
+            clearEntryGraceState();
             setEntryStartedAt(null);
             const extraNorm = normalizedDateExtraSeconds(
               row.date_extra_seconds,
@@ -3457,7 +3457,7 @@ const VideoDate = () => {
                 durationSeconds: HANDSHAKE_TIME,
               }) ?? 0;
             setTimeLeft(entryRemaining);
-            clearHandshakeGraceState();
+            clearEntryGraceState();
             if (entryRemaining <= 0) {
               void checkMutualVibeRef.current?.(
                 "entry_realtime_deadline_elapsed",
@@ -3476,7 +3476,7 @@ const VideoDate = () => {
     id,
     user?.id,
     videoDateAccess,
-    clearHandshakeGraceState,
+    clearEntryGraceState,
     markDateFlowEntered,
     recoverTerminalPostDateSurvey,
     trackTimerDriftRecovery,
@@ -4293,13 +4293,13 @@ const VideoDate = () => {
   ]);
 
   // Record user's explicit handshake decision.
-  const handleHandshakeDecision = useCallback(
+  const handleEntryDecision = useCallback(
     async (action: "vibe" | "pass"): Promise<boolean> => {
       if (!id || !user?.id) return false;
       if (handshakeDecisionInFlightRef.current) return false;
       handshakeDecisionInFlightRef.current = true;
       try {
-        const result = await persistHandshakeDecisionWithVerification({
+        const result = await persistEntryDecisionWithVerification({
           sessionId: id,
           actorUserId: user.id,
           action,
@@ -4334,11 +4334,11 @@ const VideoDate = () => {
           fetchTruth: async () => {
             const { data, error } = await supabase
               .from("video_sessions")
-              .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+              .select(VIDEO_DATE_ENTRY_TRUTH_SELECT)
               .eq("id", id)
               .maybeSingle();
             return {
-              truth: (data as VideoDateHandshakeTruth | null) ?? null,
+              truth: (data as VideoDateEntryTruth | null) ?? null,
               error: error
                 ? { code: error.code, message: error.message, name: error.name }
                 : null,
@@ -4371,7 +4371,7 @@ const VideoDate = () => {
         });
 
         if (!("reason" in result)) {
-          setHandshakeTruth(result.truth);
+          setEntryTruth(result.truth);
           const transitionedToDate =
             action === "vibe" &&
             (result.state === "date" ||
@@ -4379,7 +4379,7 @@ const VideoDate = () => {
               result.truth.phase === "date" ||
               Boolean(result.truth.date_started_at));
           if (transitionedToDate) {
-            clearHandshakeGraceState();
+            clearEntryGraceState();
             markDateFlowEntered();
             const dateStartedAt =
               result.truth.date_started_at ?? new Date().toISOString();
@@ -4417,7 +4417,7 @@ const VideoDate = () => {
           });
           return true;
         }
-        setHandshakeTruth(result.truth ?? null);
+        setEntryTruth(result.truth ?? null);
         setTimingRefreshNonce((n) => n + 1);
         vdbg("handshake_decision_ui_result", {
           sessionId: id,
@@ -4436,12 +4436,12 @@ const VideoDate = () => {
           completeHandshakeTriggeredAfterPersistence: false,
           completeHandshakeTriggerReason: "decision_not_persisted",
         });
-        const sessionEnded = handshakeDecisionFailureIndicatesSessionEnded({
+        const sessionEnded = entryDecisionFailureIndicatesSessionEnded({
           truth: result.truth,
           rpcPayload: result.rpcPayload,
         });
         if (sessionEnded) {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           const recovered = await recoverLifecycleRpcTerminalSurvey(
             "handshake_decision_terminal_survey",
             result.rpcPayload,
@@ -4464,7 +4464,7 @@ const VideoDate = () => {
       id,
       user?.id,
       continueHandshakeV2.enabled,
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       markDateFlowEntered,
       endCall,
       recoverLifecycleRpcTerminalSurvey,
@@ -4478,8 +4478,8 @@ const VideoDate = () => {
       decision: "vibe",
       phase,
     });
-    return handleHandshakeDecision("vibe");
-  }, [handleHandshakeDecision, id, phase]);
+    return handleEntryDecision("vibe");
+  }, [handleEntryDecision, id, phase]);
   const handleUserPass = useCallback(() => {
     recordUserAction("video_date_handshake_decision_clicked", {
       surface: "video_date",
@@ -4487,16 +4487,16 @@ const VideoDate = () => {
       decision: "pass",
       phase,
     });
-    return handleHandshakeDecision("pass");
-  }, [handleHandshakeDecision, id, phase]);
+    return handleEntryDecision("pass");
+  }, [handleEntryDecision, id, phase]);
 
   const handshakeUiState = useMemo(
-    () => resolveVideoDateHandshakeUiState(handshakeTruth, user?.id),
+    () => resolveVideoDateEntryUiState(handshakeTruth, user?.id),
     [handshakeTruth, user?.id],
   );
-  const localHandshakeDecision = handshakeUiState.localDecision;
-  const localHandshakeHasDecided = handshakeUiState.localHasDecided;
-  const partnerHandshakeHasDecided = handshakeUiState.partnerHasDecided;
+  const localEntryDecision = handshakeUiState.localDecision;
+  const localEntryHasDecided = handshakeUiState.localHasDecided;
+  const partnerEntryHasDecided = handshakeUiState.partnerHasDecided;
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(
@@ -4579,15 +4579,15 @@ const VideoDate = () => {
       try {
         const { data: truthBefore } = await supabase
           .from("video_sessions")
-          .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+          .select(VIDEO_DATE_ENTRY_TRUTH_SELECT)
           .eq("id", id)
           .maybeSingle();
         vdbg("complete_handshake_truth_before", {
           action: "complete_handshake",
           sessionId: id,
           source,
-          ...handshakeTruthLogPayload(
-            (truthBefore as VideoDateHandshakeTruth | null) ?? null,
+          ...entryTruthLogPayload(
+            (truthBefore as VideoDateEntryTruth | null) ?? null,
           ),
         });
         vdbg("video_date_transition_before", {
@@ -4610,11 +4610,11 @@ const VideoDate = () => {
         if (phaseRef.current !== "handshake") return;
         const { data: truthAfter } = await supabase
           .from("video_sessions")
-          .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+          .select(VIDEO_DATE_ENTRY_TRUTH_SELECT)
           .eq("id", id)
           .maybeSingle();
-        setHandshakeTruth(
-          (truthAfter as VideoDateHandshakeTruth | null) ?? null,
+        setEntryTruth(
+          (truthAfter as VideoDateEntryTruth | null) ?? null,
         );
         vdbg("video_date_transition_after", {
           action: "complete_handshake",
@@ -4629,8 +4629,8 @@ const VideoDate = () => {
           source,
           ok: !error,
           rpcPayload: result ?? null,
-          ...handshakeTruthLogPayload(
-            (truthAfter as VideoDateHandshakeTruth | null) ?? null,
+          ...entryTruthLogPayload(
+            (truthAfter as VideoDateEntryTruth | null) ?? null,
           ),
         });
 
@@ -4639,7 +4639,7 @@ const VideoDate = () => {
           return;
         }
 
-        const payload = result as CompleteHandshakePayload | null;
+        const payload = result as CompleteEntryPayload | null;
         const handledLifecycleTerminalSurvey =
           await recoverLifecycleRpcTerminalSurvey(
             "complete_handshake_lifecycle_terminal_survey",
@@ -4657,7 +4657,7 @@ const VideoDate = () => {
         }
         if (payload?.state === "date") {
           const dateTruth =
-            (truthAfter as VideoDateHandshakeTruth | null) ?? null;
+            (truthAfter as VideoDateEntryTruth | null) ?? null;
           const extraNorm = normalizedDateExtraSeconds(
             dateTruth?.date_extra_seconds,
           );
@@ -4666,7 +4666,7 @@ const VideoDate = () => {
               ? dateTruth.date_started_at
               : null;
           markDateFlowEntered();
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           setDateExtraSeconds(extraNorm);
           setDateStartedAt(startedAt);
           setTimeLeft(
@@ -4678,7 +4678,7 @@ const VideoDate = () => {
           );
           setShowMutualToast(true);
         } else if (payload?.state === "handshake") {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           const positiveExtensionSeconds =
             payload.extended === true &&
             typeof payload.seconds_remaining === "number" &&
@@ -4690,9 +4690,9 @@ const VideoDate = () => {
             const extensionStartedAt =
               typeof payload.extension_started_at === "string"
                 ? payload.extension_started_at
-                : typeof (truthAfter as VideoDateHandshakeTruth | null)
+                : typeof (truthAfter as VideoDateEntryTruth | null)
                       ?.handshake_started_at === "string"
-                  ? (truthAfter as VideoDateHandshakeTruth).handshake_started_at
+                  ? (truthAfter as VideoDateEntryTruth).handshake_started_at
                   : null;
             if (handshakeCompletionRetryTimerRef.current) {
               clearTimeout(handshakeCompletionRetryTimerRef.current);
@@ -4717,7 +4717,7 @@ const VideoDate = () => {
           scheduleRetry("handshake_deadline_not_terminal");
           return;
         } else {
-          clearHandshakeGraceState();
+          clearEntryGraceState();
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_HANDSHAKE_NOT_MUTUAL, {
             platform: "web",
             session_id: id,
@@ -4767,7 +4767,7 @@ const VideoDate = () => {
       id,
       eventId,
       endCall,
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       markDateFlowEntered,
       recoverTerminalPostDateSurvey,
       recoverLifecycleRpcTerminalSurvey,
@@ -4836,7 +4836,7 @@ const VideoDate = () => {
   ]);
 
   const handleMutualToastComplete = useCallback(async () => {
-    clearHandshakeGraceState();
+    clearEntryGraceState();
     markDateFlowEntered();
     setShowMutualToast(false);
     setPhase("date");
@@ -4858,7 +4858,7 @@ const VideoDate = () => {
   }, [
     id,
     eventId,
-    clearHandshakeGraceState,
+    clearEntryGraceState,
     markDateFlowEntered,
     dateExtraSeconds,
     dateStartedAt,
@@ -5534,7 +5534,7 @@ const VideoDate = () => {
         reason,
         source,
       });
-      clearHandshakeGraceState();
+      clearEntryGraceState();
       if (id) {
         clearDateEntryTransition(id);
         clearVideoDateRouteOwnership(id, user?.id ?? null);
@@ -5585,7 +5585,7 @@ const VideoDate = () => {
       navigate(target, { replace: true });
     },
     [
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       endCall,
       eventId,
       id,
@@ -5619,7 +5619,7 @@ const VideoDate = () => {
         phase,
         reason: opts?.reason ?? "ended_from_client",
       });
-      clearHandshakeGraceState();
+      clearEntryGraceState();
       await endCall("user_leave_button");
       toast("You left the date — stay safe! 💚", { duration: 2000 });
       await handleCallEnd(opts?.reason);
@@ -5629,7 +5629,7 @@ const VideoDate = () => {
       endCall,
       handleCallEnd,
       handlePreDateExit,
-      clearHandshakeGraceState,
+      clearEntryGraceState,
       handshakeTruth,
       id,
       phase,
@@ -5793,15 +5793,15 @@ const VideoDate = () => {
 
   useEffect(() => {
     if (phase === "date" || phase === "ended") {
-      clearHandshakeGraceState();
+      clearEntryGraceState();
     }
-  }, [phase, clearHandshakeGraceState]);
+  }, [phase, clearEntryGraceState]);
 
   useEffect(() => {
     return () => {
-      clearHandshakeGraceState();
+      clearEntryGraceState();
     };
-  }, [clearHandshakeGraceState]);
+  }, [clearEntryGraceState]);
 
   /** After in-call "End & report" succeeds (report RPC already sent). */
   const handleEndAfterInCallReport = useCallback(async () => {
@@ -5988,7 +5988,7 @@ const VideoDate = () => {
       !anyReconnectVisible &&
       (phase === "handshake" || phase === "date"),
     phase,
-    localHasDecided: localHandshakeHasDecided,
+    localHasDecided: localEntryHasDecided,
   });
   const showCollapsedIceBreaker = shouldShowVideoDateIceBreaker({
     baseVisible:
@@ -6002,7 +6002,7 @@ const VideoDate = () => {
       !anyReconnectVisible &&
       (phase === "handshake" || phase === "date"),
     phase,
-    localHasDecided: localHandshakeHasDecided,
+    localHasDecided: localEntryHasDecided,
   });
   const iceBreakerPositionClass =
     phase === "handshake" && entryTimerStarted
@@ -6172,7 +6172,7 @@ const VideoDate = () => {
               clearCallStartAutoRetryTimer();
               callStartAutoRetryCountRef.current = 0;
               setCallStartFailure(null);
-              setHandshakeStartFailed(false);
+              setEntryStartFailed(false);
               setCallStarted(false);
               clearMediaPermissionError();
             }}
@@ -6206,7 +6206,7 @@ const VideoDate = () => {
           Video date couldn&apos;t start
         </h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          {messageForHandshakeFailure(handshakeFailureCode)}
+          {messageForEntryFailure(handshakeFailureCode)}
         </p>
         <Button
           type="button"
@@ -6613,9 +6613,9 @@ const VideoDate = () => {
               >
                 <VibeCheckButton
                   timeLeft={timeLeft ?? 0}
-                  decision={localHandshakeDecision}
-                  localHasDecided={localHandshakeHasDecided}
-                  partnerHasDecided={partnerHandshakeHasDecided}
+                  decision={localEntryDecision}
+                  localHasDecided={localEntryHasDecided}
+                  partnerHasDecided={partnerEntryHasDecided}
                   onVibe={handleUserVibe}
                   onPass={handleUserPass}
                 />

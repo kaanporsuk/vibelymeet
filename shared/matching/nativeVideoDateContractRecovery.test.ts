@@ -135,7 +135,7 @@ test("native date route has session-scoped duplicate join and terminal recovery 
     assert.match(nativeDateRoute, new RegExp(marker));
   }
   assert.match(nativeDateRoute, /setPartnerEverJoined\(false\);\s*hasStartedJoinRef\.current = false;\s*prejoinAttemptRef\.current = null;/);
-  assert.match(nativeDateRoute, /\}, \[phase, sessionId, handleCallEnd, clearHandshakeGraceState\]\);/);
+  assert.match(nativeDateRoute, /\}, \[phase, sessionId, handleCallEnd, clearEntryGraceState\]\);/);
   assert.match(nativeDateRoute, /\(joining && hasStartedJoinRef\.current\)[\s\S]{0,120}\|\|[\s\S]{0,120}hasStartedJoinRef\.current/);
 });
 

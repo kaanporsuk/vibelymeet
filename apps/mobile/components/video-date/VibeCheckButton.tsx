@@ -1,6 +1,6 @@
 /**
  * Warm-up (handshake) Pass / Vibe strip. UI only acknowledges a choice after the
- * caller confirms the decision persisted (`recordHandshakeDecision`).
+ * caller confirms the decision persisted (`recordEntryDecision`).
  */
 
 import React, { useEffect, useRef } from 'react';
