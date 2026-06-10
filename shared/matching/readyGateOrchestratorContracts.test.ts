@@ -39,12 +39,11 @@ test("Ready Gate realtime orchestrator uses bounded exponential resubscribe back
   );
 });
 
-test("Ready Gate resilience uses v2 canonical flags with v1 as compatibility alias", () => {
-  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: true, aliasEnabled: false }), true);
-  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: false, aliasEnabled: true }), true);
-  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: false, aliasEnabled: false }), false);
-  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: true, aliasEnabled: false }), true);
-  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: false, aliasEnabled: true }), true);
+test("Ready Gate resilience uses canonical v2 flags only (v1 alias retired)", () => {
+  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: true }), true);
+  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: false }), false);
+  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: true }), true);
+  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: false }), false);
 });
 
 test("Ready Gate realtime telemetry names stay exact", () => {
@@ -258,7 +257,8 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
     assert.match(source, /phaseDeadlineAtMs/);
     assert.match(source, /clockSkewMs/);
     assert.match(source, /countdownDegraded/);
-    assert.match(source, /ready_gate_resilient_clock_v1/);
+    assert.match(source, /isReadyGateResilientClockEnabled/);
+    assert.doesNotMatch(source, /ready_gate_resilient_clock_v1/);
     assert.match(source, /CLOSED/);
     assert.match(source, /const snapshot = await fetchVideoDateSnapshot\(sessionId, \{ includeToken: false \}\);\s+if \(activeReadyGateSessionIdRef\.current !== sessionId\) return/);
     assert.match(source, /const syncResult = await syncSession\(\)/);

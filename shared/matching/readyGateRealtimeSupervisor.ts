@@ -70,16 +70,14 @@ export type ReadyGateRealtimeSupervisor = {
 
 export function isReadyGateResilientClockEnabled(input: {
   timelineV2Enabled: boolean;
-  aliasEnabled?: boolean;
 }): boolean {
-  return input.timelineV2Enabled || input.aliasEnabled === true;
+  return input.timelineV2Enabled;
 }
 
 export function isReadyGateResilientBroadcastEnabled(input: {
   broadcastV2Enabled: boolean;
-  aliasEnabled?: boolean;
 }): boolean {
-  return input.broadcastV2Enabled || input.aliasEnabled === true;
+  return input.broadcastV2Enabled;
 }
 
 export function getReadyGateRealtimeReconnectDelayMs(attempt: number): number {

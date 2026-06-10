@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
   clearClientFeatureFlagCache as clearRuntimeClientFeatureFlagCache,
@@ -9,7 +9,6 @@ import {
   prefetchClientFeatureFlags as prefetchRuntimeClientFeatureFlags,
   type ClientFeatureFlagKey,
 } from "./clientFeatureFlagCore";
-import { isFeatureFlagEnabledWithAlias } from "./featureFlagAliasResolution";
 
 const baseMigration = readFileSync("supabase/migrations/20260519120000_client_feature_flags.sql", "utf8");
 const hardeningMigration = readFileSync("supabase/migrations/20260520120000_client_feature_flags_hardening.sql", "utf8");
@@ -183,32 +182,23 @@ test("media v2 flags are seeded disabled with zero rollout", () => {
 test("video date v4 flags are typed, prefetched, and use namespaced stable rollout keys", () => {
   for (const flag of [
     "video_date.snapshot_v2",
-    "video_date.deck_deal_v2",
     "video_date.readiness_v2",
     "video_date.micro_verdict_v2",
     "video_date.broadcast_v2",
     "video_date.timeline_v2",
     "video_date.deck_prefetch_polish_v2",
-    "video_date.deck_optimistic_v1",
     "video_date.lobby_timeline_v2",
     "video_date.daily_call_singleton_v2",
-    "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",
-    "video_date.daily_webhooks_v2",
     "video_date.extension_mutual_v2",
     "video_date.safety_always_on_v2",
-    "video_date.daily_pool_v2",
     "video_date.multi_device_v2",
-    "video_date.ready_gate_resilient_clock_v1",
-    "video_date.push_open_dedupe_v1",
     "video_date.verdict_confirm_v2",
-    "video_date.verdict_confirm_v1",
     "video_date.outbox_v2.mark_ready",
     "video_date.outbox_v2.forfeit",
     "video_date.outbox_v2.continue_handshake",
     "video_date.outbox_v2.handshake_auto_promote",
     "video_date.outbox_v2.date_timeout",
-    "video_date.outbox_v2.submit_verdict",
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
   ]) {
@@ -223,11 +213,30 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
   assert.match(core, /export const LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "media_v2_flag_evaluated"/);
 });
 
-test("feature flag alias helper lets canonical kill switch win over compatibility aliases", () => {
-  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: true }, { enabled: false }), true);
-  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: false }, { enabled: true }), true);
-  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: true, source: "kill_switched" }, { enabled: true }), false);
-  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: false }, { enabled: false }), false);
+test("server-only rollout flags and retired alias keys stay out of the client flag list", () => {
+  // Server-side rollout flags (read only by DB functions) plus retired v1
+  // alias keys and the hard-coded-v3 submit_verdict key. They remain seeded in
+  // historical migrations but must not be declared as client-read flags.
+  for (const flag of [
+    "video_date.deck_deal_v2",
+    "video_date.deck_optimistic_v1",
+    "video_date.broadcast_batched_v2",
+    "video_date.daily_webhooks_v2",
+    "video_date.daily_pool_v2",
+    "video_date.ready_gate_resilient_clock_v1",
+    "video_date.push_open_dedupe_v1",
+    "video_date.verdict_confirm_v1",
+    "video_date.outbox_v2.submit_verdict",
+    "video_date.outbox_lease_refresh_v2",
+    "video_date.deadline_partial_unique_v2",
+    "video_date.orphan_safety_interlock_v2",
+    "video_date.circuit_breaker_v2",
+  ]) {
+    assert.doesNotMatch(videoDateFlags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  }
+  // The alias dual-read machinery is fully retired with the alias keys.
+  assert.equal(existsSync("shared/featureFlags/featureFlagAliasResolution.ts"), false);
+  assert.doesNotMatch(videoDateFlags, /ALIAS_GROUPS|aliases:/);
 });
 
 test("web/native hooks use the shared core with persisted initial data and debounced refresh", () => {

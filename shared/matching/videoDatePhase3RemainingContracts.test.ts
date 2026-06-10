@@ -220,14 +220,12 @@ test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
 
   assert.match(nativeVideoDateApi, /handshakeAutoPromoteV2\?: boolean/);
   assert.match(nativeVideoDateApi, /dateTimeoutV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /submitVerdictV3\?: boolean/);
   assert.match(nativeVideoDateApi, /extensionV2\?: boolean/);
   assert.match(nativeVideoDateApi, /video_session_entry_auto_promote_v2/);
   assert.match(nativeVideoDateApi, /video_session_date_timeout_v2/);
   assert.match(nativeVideoDateApi, /video_session_extend_date_v2/);
   assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);
   assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.submit_verdict["'],?\s*\)/);
   assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
   assert.match(nativeVideoDateScreen, /handleCallEnd\(["']local_end["'], ["']date_timeout["']\)/);
 });
@@ -280,15 +278,17 @@ test("date-timeout v2 only opens terminal UX after backend confirms the session 
   );
 });
 
-test("post-date outbox can opt into verdict v3 without changing report-only safety path", () => {
-  assert.match(outboxTypes, /backendVersion\?: "v2" \| "v3"/);
-  assert.match(webSurvey, /useFeatureFlag\("video_date\.outbox_v2\.submit_verdict"\)/);
-  assert.match(webSurvey, /backendVersion: submitVerdictV3\.enabled \? "v3" : "v2"/);
-  assert.match(webPostDateOutbox, /transition_version: item\.payload\.backendVersion \?\? "v2"/);
-  assert.match(nativePostDateOutbox, /transition_version: item\.payload\.backendVersion \?\? ['"]v2['"]/);
-  assert.match(nativeVideoDateScreen, /submitVerdictV3: submitVerdictV3\.enabled/);
-  assert.match(postDateVerdictEdge, /transition_version\?: "v2" \| "v3"/);
-  assert.match(postDateVerdictEdge, /body\?\.transition_version === "v3"[\s\S]+submit_post_date_verdict_v3/);
+test("post-date outbox is hard-coded to verdict v3 without changing report-only safety path", () => {
+  // The flag-gated v2/v3 selection was collapsed 2026-06-10: clients always
+  // send v3, and the Edge Function coerces stale v2/keyless callers onto v3.
+  assert.doesNotMatch(outboxTypes, /backendVersion/);
+  assert.doesNotMatch(webSurvey, /outbox_v2\.submit_verdict|backendVersion/);
+  assert.match(webPostDateOutbox, /transition_version: "v3"/);
+  assert.match(nativePostDateOutbox, /transition_version: ['"]v3['"]/);
+  assert.doesNotMatch(nativeVideoDateScreen, /submitVerdictV3/);
+  assert.match(postDateVerdictEdge, /deprecated_version_coerced_to_v3/);
+  assert.match(postDateVerdictEdge, /submit_post_date_verdict_v3/);
+  assert.doesNotMatch(postDateVerdictEdge, /submit_post_date_verdict_v2|"submit_post_date_verdict"/);
   assert.match(postDateVerdictEdge, /action === "report"[\s\S]+submit_post_date_safety_report_v1/);
 });
 

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { isDateNavigationSuppressedAfterManualExit } from "@/lib/dateNavigationGuard";
-import { isActiveSessionContextShadowEnabled } from "@/lib/runtimeFlags";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
@@ -85,82 +84,6 @@ async function isReadyGateSuppressedForSession(
     sessionId,
     nowMs,
   );
-}
-
-type ShadowRpcError = {
-  message?: string;
-};
-
-type ShadowRpcResult = {
-  data: unknown;
-  error: ShadowRpcError | null;
-};
-
-type ShadowActiveSessionSnapshot = {
-  kind: string | null;
-  sessionId: string | null;
-  eventId: string | null;
-  queueStatus: string | null;
-};
-
-function normalizeUnknownActiveSession(value: unknown): ShadowActiveSessionSnapshot | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Record<string, unknown>;
-  const kind = typeof row.kind === "string" ? row.kind : null;
-  const sessionId =
-    typeof row.sessionId === "string"
-      ? row.sessionId
-      : typeof row.session_id === "string"
-        ? row.session_id
-        : null;
-  const eventId =
-    typeof row.eventId === "string"
-      ? row.eventId
-      : typeof row.event_id === "string"
-        ? row.event_id
-        : null;
-  const queueStatus =
-    typeof row.queueStatus === "string"
-      ? row.queueStatus
-      : typeof row.queue_status === "string"
-        ? row.queue_status
-        : null;
-
-  if (!kind && !sessionId && !eventId && !queueStatus) return null;
-  return { kind, sessionId, eventId, queueStatus };
-}
-
-function normalizeShadowRpcActiveSession(data: unknown): ShadowActiveSessionSnapshot | null {
-  if (!data || typeof data !== "object") return null;
-  const row = data as Record<string, unknown>;
-  return normalizeUnknownActiveSession(row.active_session ?? row.activeSession ?? null);
-}
-
-function activeSessionSnapshot(activeSession: ActiveSession | null): ShadowActiveSessionSnapshot | null {
-  if (!activeSession) return null;
-  return {
-    kind: activeSession.kind,
-    sessionId: activeSession.sessionId,
-    eventId: activeSession.eventId,
-    queueStatus: activeSession.queueStatus ?? null,
-  };
-}
-
-function activeSessionShadowKey(activeSession: ShadowActiveSessionSnapshot | null): string {
-  if (!activeSession) return "null";
-  return [
-    activeSession.kind ?? "none",
-    activeSession.sessionId ?? "none",
-    activeSession.eventId ?? "none",
-    activeSession.queueStatus ?? "none",
-  ].join(":");
-}
-
-function shadowSnapshotsMatch(
-  legacy: ShadowActiveSessionSnapshot | null,
-  shadow: ShadowActiveSessionSnapshot | null,
-): boolean {
-  return activeSessionShadowKey(legacy) === activeSessionShadowKey(shadow);
 }
 
 async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
@@ -462,7 +385,6 @@ export function useActiveSession(
   const checkInFlightRef = useRef<Promise<void> | null>(null);
   const checkQueuedRef = useRef(false);
   const runCheckRef = useRef<(() => Promise<void>) | null>(null);
-  const shadowCompareKeyRef = useRef<string | null>(null);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
 
@@ -932,54 +854,6 @@ export function useActiveSession(
     }, ACTIVE_SESSION_POLL_MS);
     return () => clearInterval(intervalId);
   }, [enabled, userId, check]);
-
-  useEffect(() => {
-    if (!enabled || !hydrated || !userId || !isActiveSessionContextShadowEnabled()) return;
-    const legacySnapshot = activeSessionSnapshot(activeSession);
-    const compareKey = `${userId}:${eventFilter ?? "*"}:${activeSessionShadowKey(legacySnapshot)}`;
-    if (shadowCompareKeyRef.current === compareKey) return;
-    shadowCompareKeyRef.current = compareKey;
-
-    let cancelled = false;
-    void (async () => {
-      const rpc = supabase.rpc as unknown as (
-        fn: "get_active_session_context",
-        args: { p_event_id: string | null },
-      ) => Promise<ShadowRpcResult>;
-      const { data, error } = await rpc("get_active_session_context", { p_event_id: eventFilter });
-      if (cancelled) return;
-
-      if (error) {
-        trackEvent("active_session_context_shadow_error", {
-          platform: "web",
-          scoped_event_id: eventFilter,
-          legacy_session_present: Boolean(legacySnapshot),
-          message: error.message ?? "unknown",
-        });
-        return;
-      }
-
-      const shadowSnapshot = normalizeShadowRpcActiveSession(data);
-      if (!shadowSnapshotsMatch(legacySnapshot, shadowSnapshot)) {
-        trackEvent("active_session_context_shadow_mismatch", {
-          platform: "web",
-          scoped_event_id: eventFilter,
-          legacy_kind: legacySnapshot?.kind ?? null,
-          legacy_session_present: Boolean(legacySnapshot?.sessionId),
-          legacy_event_id: legacySnapshot?.eventId ?? null,
-          legacy_queue_status: legacySnapshot?.queueStatus ?? null,
-          shadow_kind: shadowSnapshot?.kind ?? null,
-          shadow_session_present: Boolean(shadowSnapshot?.sessionId),
-          shadow_event_id: shadowSnapshot?.eventId ?? null,
-          shadow_queue_status: shadowSnapshot?.queueStatus ?? null,
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSession, enabled, eventFilter, hydrated, userId]);
 
   const stable = useMemo(
     () => ({ activeSession, hydrated, refetch: check }),

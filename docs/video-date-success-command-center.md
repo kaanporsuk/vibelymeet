@@ -64,6 +64,22 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-10 Implementation Update: Top-5 Simplification Execution (verdict v3-only, flag/alias purge, single web hydration owner, legacy sweeps, dead drain views)
+
+Delta: `docs/branch-deltas/video-date-simplification-top5.md`. Source audit: `docs/audits/video-date-next-simplification-candidates-2026-06-10.md`. Branch `claude/video-date-simplification-top5`.
+
+- **Verdict path is v3-only.** Web/native `PostDateSurvey`, `apps/mobile/lib/videoDateApi.ts`, and both post-date outbox executors no longer carry `backendVersion`/`submitVerdictV3`; `transition_version: "v3"` is hard-coded. `post-date-verdict` Edge source now dispatches a single verdict RPC (`submit_post_date_verdict_v3`) and coerces stale v2/keyless callers onto v3 with a deterministic legacy idempotency key plus `deprecated_version_coerced_to_v3` log. Verified before hard-coding: flag `video_date.outbox_v2.submit_verdict` is enabled in production, so v3 was already live behavior. RPCs v1/v2 are NOT dropped yet (needs Edge deploy + release boundary).
+- **Client flag list purged.** `VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS` now lists only client-read flags; 8 server-read rollout keys, 4 retired v1 alias keys, and `outbox_v2.submit_verdict` are out of the client list. `featureFlagAliasResolution.ts` and `VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS` are deleted; the five dual-read sites read canonical `.enabled` (all canonical flags verified enabled in production). DB flag rows untouched.
+- **One web lobby hydration owner.** The default-false single-owner/shadow experiment is deleted (`runtimeFlags` entries, `useEventActiveSession`, shadow compare in `useActiveSession`); `EventLobby.tsx` uses `useActiveSession(user?.id, { eventId })` only. `SessionHydrationProvider` stays (live app-shell usage).
+- **Legacy sweeps:** `pendingMatch` deep-link param consumers removed (zero producers verified); unconsumed `videoDateLeanRuntimeContract` module/test/wiring deleted (doc tombstoned); outbox drainer dispatches canonical kinds only.
+- **Cloud change:** migration `20260610182520_remove_dead_event_loop_drain_views.sql` applied to `schdyxcunwcvddlcshwd` (drops `v_event_loop_drain_events`/`v_event_loop_drain_outcomes_hourly`; zero dependents/readers verified live); post-apply dry-run clean; types regenerated (−56 lines).
+- **Deferred with live-evidence reasons:** physical queued purge (15 live functions incl. the `enforce_one_active_video_session` trigger still reference `queued_expires_at`), queue-fairness views (26 live dependents), client `'queued'` pre-hydration placeholder rename, verdict v1/v2 RPC drop, onion flattening, handshake→entry Phase D/E.
+- **Edge deploys pending (deliberate):** `post-date-verdict` and `video-date-outbox-drainer` source changed but not deployed; deployed versions remain fully compatible with updated clients.
+
+This is a behavior-preserving simplification pass, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
+---
+
 ## 2026-06-10 Implementation Update: handshake → entry, Phase B/C (additive DB compat + client readers)
 
 Delta: `docs/branch-deltas/handshake-to-entry-phase-bc.md`. **Additive and behavior-preserving** — nothing renamed or dropped.

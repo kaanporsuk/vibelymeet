@@ -188,10 +188,6 @@ type CompleteEntryOptions = {
   handshakeAutoPromoteV2?: boolean;
 };
 
-type SubmitVerdictOptions = {
-  submitVerdictV3?: boolean;
-};
-
 type SpendVideoDateCreditExtensionOptions = {
   extensionV2?: boolean;
   extensionMutualV2?: boolean;
@@ -1506,15 +1502,14 @@ function verdictBreadcrumb(
 }
 
 /**
- * Post-date survey screen 1: single backend path (`post-date-verdict` Edge → `submit_post_date_verdict` RPC).
+ * Post-date survey screen 1: single backend path (`post-date-verdict` Edge → `submit_post_date_verdict_v3` RPC).
  * Do not write video_sessions / date_feedback for the mandatory verdict from the client.
  */
 export async function submitVerdictAndCheckMutual(
   sessionId: string,
   userId: string,
   _partnerId: string,
-  liked: boolean,
-  options?: SubmitVerdictOptions
+  liked: boolean
 ): Promise<SubmitVerdictAndCheckMutualResult> {
   const row = await submitNativePostDateOutboxItem({
     userId,
@@ -1522,7 +1517,6 @@ export async function submitVerdictAndCheckMutual(
     payload: {
       kind: 'verdict',
       liked,
-      backendVersion: options?.submitVerdictV3 === true ? 'v3' : 'v2',
     },
   }) as PostDateVerdictResponseBody | null;
   if (!row || typeof row !== 'object') {

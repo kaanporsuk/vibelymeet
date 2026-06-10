@@ -56,33 +56,44 @@ test("Phase 0 exposes service-role-only dashboard read models", () => {
 });
 
 test("Phase 0 seeds every video-date flag default-off with hard-kill compatibility", () => {
-  const currentFlags = [
+  const clientFlags = [
     "video_date.snapshot_v2",
-    "video_date.deck_deal_v2",
     "video_date.readiness_v2",
     "video_date.micro_verdict_v2",
     "video_date.broadcast_v2",
     "video_date.timeline_v2",
-    "video_date.daily_webhooks_v2",
     "video_date.extension_mutual_v2",
     "video_date.safety_always_on_v2",
-    "video_date.daily_pool_v2",
     "video_date.outbox_v2.mark_ready",
     "video_date.outbox_v2.forfeit",
     "video_date.outbox_v2.continue_handshake",
     "video_date.outbox_v2.handshake_auto_promote",
     "video_date.outbox_v2.date_timeout",
-    "video_date.outbox_v2.submit_verdict",
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
+  ];
+  // Seeded by Phase 0 but read only by DB functions (or retired from the
+  // client path entirely, like submit_verdict after the v3 hard-coding); they
+  // must not be declared in the client flag list.
+  const serverOnlyOrRetiredFlags = [
+    "video_date.deck_deal_v2",
+    "video_date.daily_webhooks_v2",
+    "video_date.daily_pool_v2",
+    "video_date.outbox_v2.submit_verdict",
   ];
   const removedFlags = [
     "video_date.outbox_v2.drain_match_queue",
   ];
 
-  for (const flag of currentFlags) {
+  for (const flag of clientFlags) {
     const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(videoDateFlags, new RegExp(`"${escaped}"`));
+    assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
+  }
+
+  for (const flag of serverOnlyOrRetiredFlags) {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.doesNotMatch(videoDateFlags, new RegExp(`"${escaped}"`));
     assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
   }
 

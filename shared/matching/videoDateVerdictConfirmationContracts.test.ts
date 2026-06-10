@@ -27,9 +27,12 @@ const packageJson = readFileSync(join(root, "package.json"), "utf8");
 
 test("verdict confirmation flags and v3 RPC contract are additive and default-off", () => {
   for (const flag of ["video_date.verdict_confirm_v2", "video_date.verdict_confirm_v1"]) {
-    assert.match(flags, new RegExp(`"${flag}"`));
     assert.match(migration, new RegExp(`'${flag}',\\s*false,\\s*0`));
   }
+  // Only the canonical v2 flag remains client-declared; the v1 alias key was
+  // retired with the alias machinery on 2026-06-10.
+  assert.match(flags, /"video_date\.verdict_confirm_v2"/);
+  assert.doesNotMatch(flags, /"video_date\.verdict_confirm_v1"/);
 
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.submit_post_date_verdict_v3/);
   assert.match(migration, /'committed', true/);
@@ -55,9 +58,9 @@ test("verdict confirmation flags and v3 RPC contract are additive and default-of
 
 test("verdict confirmation shared helper normalizes flags, results, broadcasts, and steps", () => {
   assert.equal(POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS, 2_500);
-  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: true }, { enabled: false }), true);
-  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: false }, { enabled: true }), true);
-  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: true, source: "kill_switched" }, { enabled: true }), false);
+  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: true }), true);
+  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: false }), false);
+  assert.equal(isVideoDateVerdictConfirmEnabled(null), false);
 
   const result = normalizePostDateVerdictConfirmationResult({
     success: true,
@@ -129,7 +132,7 @@ test("post-date mutual match notifications carry per-recipient peer routing data
 test("web and native surveys gate optimistic advancement behind shared confirmation", () => {
   for (const source of [webSurvey, nativeSurvey]) {
     assert.match(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v2["']\)/);
-    assert.match(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v1["']\)/);
+    assert.doesNotMatch(source, /verdict_confirm_v1/);
     assert.match(source, /isVideoDateVerdictConfirmEnabled/);
     assert.match(source, /type PostDateVerdictUiState/);
     for (const state of ["idle", "submitting", "confirmed", "awaiting_partner", "retryable_failed"]) {
@@ -170,8 +173,8 @@ test("web and native surveys gate optimistic advancement behind shared confirmat
     assert.match(source, /safetySaveInFlightRef/);
     assert.match(source, /safetyReportInFlightRef/);
   }
-  assert.match(nativeSurvey, /useFeatureFlag\('video_date\.outbox_v2\.submit_verdict'\)/);
-  assert.match(nativeSurvey, /backendVersion: submitVerdictV3\.enabled \? 'v3' : 'v2'/);
+  // Verdict submission is hard-coded to v3; no flag-gated version selection.
+  assert.doesNotMatch(nativeSurvey, /outbox_v2\.submit_verdict|backendVersion/);
   assert.match(webSafetyScreen, /onReport: \(reason: string, details: string, alsoBlock: boolean\) => boolean \| Promise<boolean>/);
   assert.match(webSafetyScreen, /isReportSubmitting/);
 });

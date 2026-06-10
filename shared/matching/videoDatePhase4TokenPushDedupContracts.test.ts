@@ -152,7 +152,8 @@ test("Phase 4 push preload is compact, routeable, and ack-deduped", () => {
   assert.match(readFileSync(join(root, "src/lib/videoDatePushPreload.ts"), "utf8"), /if \(!timeline\) sessionStorage\.removeItem\(key\)/);
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload/);
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload\(data, 'native_click'/);
-  assert.match(nativeDeepLink, /useFeatureFlag\('video_date\.push_open_dedupe_v1'\)/);
+  assert.match(nativeDeepLink, /useFeatureFlag\('video_date\.multi_device_dedup_v2'\)/);
+  assert.doesNotMatch(nativeDeepLink, /push_open_dedupe_v1/);
   assert.match(nativeDeepLink, /multiDeviceDedupEnabled/);
   assert.match(nativeDeepLink, /preloadVideoDatePushTargetsFromPayload/);
   assert.match(readFileSync(join(root, "apps/mobile/lib/videoDatePushPreload.ts"), "utf8"), /if \(!timeline\) preloadBySessionId\.delete\(sessionId\)/);

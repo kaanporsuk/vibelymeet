@@ -43,7 +43,6 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useNonBlockingVideoDateReadiness } from "@/hooks/useVideoDateReadiness";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import { useActiveSession } from "@/hooks/useActiveSession";
-import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
 import { preloadRoute, preloadRouteOnIdle } from "@/lib/routePreload";
@@ -99,7 +98,6 @@ import {
   shouldSuppressVideoDateDeckProfile,
   type VideoDateDeckRecentSwipeEntry,
 } from "@clientShared/matching/videoDateDeckPrefetch";
-import { isFeatureFlagEnabledWithAlias } from "@clientShared/featureFlags/featureFlagAliasResolution";
 import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
 import {
   createVideoDateSessionChannel,
@@ -115,7 +113,6 @@ import {
   EventLobbyObservabilityEvents,
   resolveDeckEmptyReason,
 } from "@clientShared/observability/eventLobbyObservability";
-import { isActiveSessionSingleOwnerEnabled } from "@/lib/runtimeFlags";
 import {
   resolveEventDeckPhase4UiState,
   type EventDeckPhase4UiState,
@@ -391,19 +388,11 @@ const EventLobby = () => {
     string | null
   >(null);
   const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
-  const singleOwnerActiveSessionEnabled = isActiveSessionSingleOwnerEnabled();
-  const providerScopedHydration = useEventActiveSession(eventId);
-  const legacyScopedHydration = useActiveSession(user?.id, {
-    eventId,
-    enabled: !singleOwnerActiveSessionEnabled,
-  });
   const {
     activeSession: scopedSession,
     hydrated: sessionHydrated,
     refetch: refetchScopedSession,
-  } = singleOwnerActiveSessionEnabled
-    ? providerScopedHydration
-    : legacyScopedHydration;
+  } = useActiveSession(user?.id, { eventId });
   const sameEventScopedSession = useMemo(() => {
     if (
       !sessionHydrated ||
@@ -498,16 +487,8 @@ const EventLobby = () => {
   const deckPrefetchPolishV2 = useFeatureFlag(
     "video_date.deck_prefetch_polish_v2",
   );
-  const deckOptimisticAliasV1 = useFeatureFlag("video_date.deck_optimistic_v1");
   const lobbyTimelineV2 = useFeatureFlag("video_date.lobby_timeline_v2");
-  const deckPrefetchPolishEnabled = useMemo(
-    () =>
-      isFeatureFlagEnabledWithAlias(
-        deckPrefetchPolishV2,
-        deckOptimisticAliasV1,
-      ),
-    [deckOptimisticAliasV1, deckPrefetchPolishV2],
-  );
+  const deckPrefetchPolishEnabled = deckPrefetchPolishV2.enabled;
   useNonBlockingVideoDateReadiness(
     eventId,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -950,15 +931,12 @@ const EventLobby = () => {
   );
 
 
-  // Pending video session from post-date queue / push deep link (canonical + legacy query names)
+  // Pending video session from push deep link (canonical query name only)
   useEffect(() => {
-    const pending =
-      searchParams.get("pendingVideoSession") ??
-      searchParams.get("pendingMatch");
+    const pending = searchParams.get("pendingVideoSession");
     if (pending) {
       const nextParams = new URLSearchParams(searchParams);
       nextParams.delete("pendingVideoSession");
-      nextParams.delete("pendingMatch");
       setSearchParams(nextParams, { replace: true });
       scheduleLobbyConvergenceRefresh(pending, "pending_video_session", 0);
     }
