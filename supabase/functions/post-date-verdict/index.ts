@@ -105,30 +105,40 @@ serve(async (req) => {
     const { data: authUser } = await userClient.auth.getUser();
     const actorUserId = authUser?.user?.id ?? null;
 
+    // Single canonical verdict path: submit_post_date_verdict_v3. Older client
+    // builds that still send transition_version "v2" (or no idempotency key at
+    // all) are coerced onto v3 with a deterministic per-user/session key so the
+    // legacy submit_post_date_verdict / _v2 RPC branches can be retired.
+    let verdictIdempotencyKey = idempotencyKey;
+    if (action === "verdict" && !verdictIdempotencyKey) {
+      verdictIdempotencyKey = await stableUuidFromParts([
+        actorUserId ?? "anonymous",
+        sessionId,
+        "verdict-legacy-keyless",
+      ]);
+    }
+    if (action === "verdict" && body?.transition_version !== "v3") {
+      logLifecycle({
+        session_id: sessionId,
+        user_id: actorUserId,
+        category: "post_date_verdict",
+        result: "deprecated_version_coerced_to_v3",
+        error_reason: body?.transition_version ?? (idempotencyKey ? "missing_version" : "keyless_legacy"),
+      });
+    }
+
     const { data, error } = action === "report"
       ? await userClient.rpc("submit_post_date_safety_report_v1", {
           p_session_id: sessionId,
           p_idempotency_key: idempotencyKey,
           p_safety_report: body?.safety_report ?? null,
         })
-      : idempotencyKey
-        ? body?.transition_version === "v3"
-          ? await userClient.rpc("submit_post_date_verdict_v3", {
-              p_session_id: sessionId,
-              p_liked: effectiveLiked as boolean,
-              p_idempotency_key: idempotencyKey,
-              p_safety_report: body?.safety_report ?? null,
-            })
-          : await userClient.rpc("submit_post_date_verdict_v2", {
-              p_session_id: sessionId,
-              p_liked: effectiveLiked as boolean,
-              p_idempotency_key: idempotencyKey,
-              p_safety_report: body?.safety_report ?? null,
-            })
-        : await userClient.rpc("submit_post_date_verdict", {
-            p_session_id: sessionId,
-            p_liked: effectiveLiked as boolean,
-          });
+      : await userClient.rpc("submit_post_date_verdict_v3", {
+          p_session_id: sessionId,
+          p_liked: effectiveLiked as boolean,
+          p_idempotency_key: verdictIdempotencyKey,
+          p_safety_report: body?.safety_report ?? null,
+        });
 
     if (error) {
       console.error("post-date-verdict RPC error:", error);
