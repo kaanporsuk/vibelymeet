@@ -9,6 +9,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read(
   "supabase/migrations/20260607183000_video_date_ready_gate_entry_proof.sql",
 );
+const convoyHardeningMigration = read(
+  "supabase/migrations/20260610201512_video_date_ready_gate_convoy_hardening.sql",
+);
 const webOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
@@ -59,6 +62,45 @@ test("first participant entry can extend an active Ready Gate without marking Re
   assert.doesNotMatch(migration, /ready_participant_2_at\s*=/);
   assert.doesNotMatch(migration, /handshake_started_at\s*=/);
   assert.doesNotMatch(migration, /date_started_at\s*=/);
+});
+
+test("entry proof RPC must never queue behind critical ready-path locks (2026-06-10 convoy incident)", () => {
+  // Telemetry/TTL stamping fails fast as retryable READY_GATE_BUSY instead of
+  // joining the video_sessions row lock convoy behind mark_ready /
+  // ready_gate_transition (raw 57014 -> HTTP 500s killed session 927942c2).
+  assert.match(convoyHardeningMigration, /CREATE OR REPLACE FUNCTION public\.record_video_date_ready_gate_entered_v1/);
+  assert.match(convoyHardeningMigration, /FOR UPDATE NOWAIT/);
+  assert.match(convoyHardeningMigration, /WHEN lock_not_available THEN/);
+  assert.match(
+    convoyHardeningMigration,
+    /'code', 'READY_GATE_BUSY',\s*\n\s*'retryable', true/,
+  );
+
+  // The corrective definition must preserve the original authority and
+  // actionability guards verbatim.
+  assert.match(convoyHardeningMigration, /v_actor uuid := auth\.uid\(\)/);
+  assert.match(convoyHardeningMigration, /v_session\.participant_1_id = v_actor/);
+  assert.match(convoyHardeningMigration, /v_session\.participant_2_id = v_actor/);
+  assert.match(convoyHardeningMigration, /public\.is_blocked\(v_session\.participant_1_id, v_session\.participant_2_id\)/);
+  assert.match(convoyHardeningMigration, /public\.get_event_lobby_inactive_reason\(v_session\.event_id\)/);
+  assert.match(
+    convoyHardeningMigration,
+    /v_session\.ready_gate_status NOT IN \('ready', 'ready_a', 'ready_b', 'snoozed'\)/,
+  );
+  assert.match(convoyHardeningMigration, /'code', 'NOT_ACTIONABLE_READY_GATE'/);
+  assert.match(convoyHardeningMigration, /'code', 'READY_GATE_EXPIRED'/);
+  assert.match(convoyHardeningMigration, /v_min_expires_at timestamptz := v_now \+ interval '45 seconds'/);
+  assert.doesNotMatch(convoyHardeningMigration, /handshake_started_at\s*=/);
+  assert.doesNotMatch(convoyHardeningMigration, /date_started_at\s*=/);
+
+  // Convoy survival ceiling: queued critical statements get 15s (was 8s) so a
+  // transiently blocked mark_ready can succeed instead of dying at 8s and
+  // re-queueing at the back of the lock queue.
+  assert.match(
+    convoyHardeningMigration,
+    /ALTER ROLE authenticated SET statement_timeout = '15s';/,
+  );
+  assert.match(convoyHardeningMigration, /NOTIFY pgrst, 'reload config';/);
 });
 
 test("web and native overlays record entry proof only after hydrated actionable Ready Gate state", () => {

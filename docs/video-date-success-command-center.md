@@ -2790,6 +2790,31 @@ Verification on 2026-06-07: focused review-comments test passed, adjacent Video 
 
 ---
 
+### 2026-06-10 Ready Gate Lock-Convoy Incident (session 927942c2) + Convoy Hardening
+
+Observed symptom: two-user production test on event `3f303f62-6c12-4f3e-a6c7-6cc338413db0` (online lobby 19:44-20:29 UTC) stuck at Ready Gate after both users tapped ready. UI showed "Both ready. Connecting you now..." with "Status sync is delayed"; console showed HTTP 500s from `video_session_mark_ready_v2`, `ready_gate_transition`, `get_video_date_start_snapshot_v1`, and `get_profile_for_viewer`. Session `927942c2-0704-4e42-a95c-c3fc56accc02` started 19:44:49, ready gate expired 19:45:52, ended 19:45:55 with `ended_reason = ready_gate_expired`. `daily_room_name`/`daily_room_url` were not the issue this time; readiness simply never landed server-side.
+
+Root cause chain (postgres_logs + lock-wait logs + pg_stat_statements evidence):
+
+1. All 500s were SQLSTATE `57014` statement timeouts (nine between 19:45:04 and 19:45:42) against the `authenticated` role's 8s `statement_timeout`. PL/pgSQL `EXCEPTION WHEN OTHERS` cannot catch `query_canceled`, so the established fail-soft wrappers correctly did not (and cannot) absorb these — raw 500s are inherent to 57014.
+2. Lock-wait logs show a lock convoy on the single `video_sessions` row (relation 17626, tuple (0,3)): `video_session_mark_ready_v2` waited 1.85s behind an earlier transaction, then itself held the row > 3.3s while `video_date_outbox_enqueue_v2` and `record_video_date_ready_gate_entered_v1` (entry-proof telemetry, eager `SELECT ... FOR UPDATE`) queued behind it. Client retries deepened the queue past 8s.
+3. The underlying capacity truth: the project runs on default Micro burstable compute (no compute add-on; `shared_buffers` 224MB, 60 direct connections, 2 shared ARM cores for Postgres + PostgREST + Realtime + Auth). Over the 15-day `pg_stat_statements` window the box is chronically CPU-starved: `video_session_mark_ready_v2` mean 3.1s / max 27.8s over 109 calls, `get_profile_for_viewer` mean 436ms over 7,237 calls, `mark_video_date_remote_seen` mean 1.6s; Supabase-internal telemetry and Realtime WAL queries took 11s during the incident window. Cache hit ratio is 99.97%, so this is CPU, not disk. Realtime WAL/`postgres_changes` processing is the top cumulative consumer (~5,800s over ~446k calls in 15 days).
+4. Rejected hypotheses: PR #1286 object drops (no live RPC references a dropped view; the chronic timing pattern predates tonight), `daily_room_name` null regression (room columns never populated because the gate never reached both-ready server-side), and the hourly `23505` on `idx_video_date_recovery_alert_dispatches_hour` (expected dedupe-by-unique-violation, explicitly handled by `video-date-recovery-alert-dispatcher`; log noise only).
+
+Product decision 2026-06-10: compute upgrade offered (Small/Medium/Large) and deliberately deferred by the operator. Convoy resilience must therefore come from the database layer until that decision changes.
+
+Implemented hardening (branch `fix/video-date-ready-gate-convoy-hardening`, migration `20260610201512_video_date_ready_gate_convoy_hardening.sql`, applied to cloud):
+
+- `record_video_date_ready_gate_entered_v1` now takes `FOR UPDATE NOWAIT` on the session row and converts `lock_not_available` (55P03) into structured retryable JSON `{ok:false, code:'READY_GATE_BUSY', retryable:true}` instead of queueing behind critical ready-path transactions. All web/native callers are fire-and-forget with analytics-only failure handling (`ready_gate_entry_proof_failed`), so the busy-skip is strictly better than the prior 8s queue wait followed by a raw 500.
+- `authenticated` `statement_timeout` raised 8s -> 15s (with `NOTIFY pgrst, 'reload config'`). The Ready Gate window is 45-60s; a mark_ready that survives a 10s transient convoy beats one cancelled at 8s whose retry re-queues at the back of the lock queue. Revert: `ALTER ROLE authenticated SET statement_timeout = '8s'; NOTIFY pgrst, 'reload config';`.
+- `shared/matching/readyGateEntryProofContracts.test.ts` gained a convoy-incident contract test asserting NOWAIT + READY_GATE_BUSY + preserved authority/actionability guards + the 15s ceiling.
+
+Verification on 2026-06-10: dry-run then push applied the migration; live catalog markers confirmed `FOR UPDATE NOWAIT`, `READY_GATE_BUSY`, `lock_not_available` handler, and `authenticated` rolconfig `statement_timeout=15s`; a no-auth probe returned `AUTH_REQUIRED` (function executes). Entry-proof contract file passes 7/7. `npm run test:video-date:red-flags` passes except one pre-existing failure on main: `videoDateSprint5PostDateSurveyContracts.test.ts` "safety reports force a pass before any match or notification path" still asserts the removed `submit_post_date_verdict_v2` path in `post-date-verdict` (stale assertion missed by the PR #1286 v3-only close-out; follow-up needed, not caused by this branch).
+
+Open risk, stated honestly: this hardening removes one convoy participant and raises the survival ceiling, but the chronic CPU starvation of Micro compute remains the dominant failure driver for Ready Gate under any concurrency. Until compute is upgraded, multi-second RPC latencies and occasional 57014s remain possible at both-ready bursts. A fresh two-user end-to-end run is required before claiming recovery; this entry is implementation and cloud evidence only, not acceptance proof.
+
+---
+
 ## Fresh Session Handoff Prompt
 
 Use this prompt when starting a new Codex/agent session:
