@@ -127,26 +127,6 @@ export type SwipeRecoverySummary = {
   recovery_rate: number | null;
 };
 
-export type QueueDrainInputRow = {
-  outcome?: string | null;
-  reason_code?: string | null;
-};
-
-export type QueueDrainReasonCount = { reason: string; count: number };
-
-export type QueueDrainSummary = {
-  attempts: number;
-  successes: number;
-  no_ops: number;
-  blocked: number;
-  failures: number;
-  failure_rate: number | null;
-  non_success_rate: number | null;
-  top_failure_reasons: QueueDrainReasonCount[];
-  top_no_op_reasons: QueueDrainReasonCount[];
-  top_blocked_reasons: QueueDrainReasonCount[];
-};
-
 export type FirstFrameDedupeInputRow = {
   session_id?: string | null;
   actor_id?: string | null;
@@ -159,11 +139,6 @@ export const COLLISION_REASON_CODES = new Set([
   RECOVERABLE_COLLISION_REASON_CODE,
   "participant_has_active_session_conflict",
   "active_session_conflict",
-]);
-
-export const EXPECTED_QUEUE_DRAIN_NO_OP_REASON_CODES = new Set([
-  "no_queued_session",
-  "session_not_promotable",
 ]);
 
 export function safeRate(numerator: number, denominator: number): number | null {
@@ -216,49 +191,6 @@ export function summarizeSwipeRecovery(rows: SwipeRecoveryInputRow[]): SwipeReco
     unrecovered_rows: Math.max(0, collisionCount - recoveredCount),
     collision_rate: safeRate(collisionCount, rows.length),
     recovery_rate: safeRate(recoveredCount, collisionCount),
-  };
-}
-
-function normalizedQueueDrainOutcome(row: QueueDrainInputRow): "success" | "no_op" | "blocked" | "failure" {
-  const outcome = (row.outcome ?? "").trim().toLowerCase();
-  const reason = (row.reason_code ?? "").trim().toLowerCase();
-  if (outcome === "no_op" || EXPECTED_QUEUE_DRAIN_NO_OP_REASON_CODES.has(reason)) return "no_op";
-  if (outcome === "success") return "success";
-  if (outcome === "blocked") return "blocked";
-  return "failure";
-}
-
-function countQueueDrainReasons(rows: QueueDrainInputRow[]): QueueDrainReasonCount[] {
-  const reasonCounts = rows.reduce<Record<string, number>>((acc, row) => {
-    const reason = row.reason_code || "unknown";
-    acc[reason] = (acc[reason] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  return Object.entries(reasonCounts)
-    .map(([reason, count]) => ({ reason, count }))
-    .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason))
-    .slice(0, 5);
-}
-
-export function summarizeQueueDrain(rows: QueueDrainInputRow[]): QueueDrainSummary {
-  const successRows = rows.filter((row) => normalizedQueueDrainOutcome(row) === "success");
-  const noOpRows = rows.filter((row) => normalizedQueueDrainOutcome(row) === "no_op");
-  const blockedRows = rows.filter((row) => normalizedQueueDrainOutcome(row) === "blocked");
-  const failureRows = rows.filter((row) => normalizedQueueDrainOutcome(row) === "failure");
-  const nonSuccessCount = noOpRows.length + blockedRows.length + failureRows.length;
-
-  return {
-    attempts: rows.length,
-    successes: successRows.length,
-    no_ops: noOpRows.length,
-    blocked: blockedRows.length,
-    failures: failureRows.length,
-    failure_rate: safeRate(failureRows.length, rows.length),
-    non_success_rate: safeRate(nonSuccessCount, rows.length),
-    top_failure_reasons: countQueueDrainReasons(failureRows),
-    top_no_op_reasons: countQueueDrainReasons(noOpRows),
-    top_blocked_reasons: countQueueDrainReasons(blockedRows),
   };
 }
 

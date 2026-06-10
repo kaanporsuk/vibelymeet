@@ -64,6 +64,34 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-10 Implementation Update: Queued-Session Branch Removed At The Swipe Source
+
+Current source removes the last live remnant of the match-queue subsystem: the swipe path no longer creates a queued `video_sessions` row or returns `match_queued`. This finishes the cleanup that began with the post-date instant-next removal (`20260610000100`) and the `match_queued` -> Ready Gate conversion wrapper (`20260610022531`). Those earlier changes already dropped `drain_match_queue`, `drain_match_queue_v2`, `get_video_date_queue_hint_v1`, and `promote_ready_gate_if_eligible`, and ensured no queued session was ever persisted (the wrapper promoted any queued result to `ready` in the same transaction). This change moves that guarantee to the source so the queued branch no longer exists at all.
+
+Implementation added:
+
+- Forward migration `supabase/migrations/20260610120000_remove_match_queue_source_always_ready.sql`:
+  - `CREATE OR REPLACE public.handle_swipe_20260506090000_stale_room_base(...)` now inserts a single `ready` Ready Gate session for every mutual match (`ready_gate_status = 'ready'`, `ready_gate_expires_at = now() + 30s`, `queued_expires_at = NULL`) and returns `result = 'match'` with `immediate = true`. The `v_create_queued` / `v_has_queued_session` / actor-target presence computation and the entire queued branch (the `match_queued` return and `ready_gate_status = 'queued'` insert) are removed.
+  - `CREATE OR REPLACE public.handle_swipe_20260601183000_deck_authority_base(...)` collapses to a pass-through over `handle_swipe_20260610000100_auto_next_base(...)`; the now-dead `match_queued` -> Ready Gate promotion logic is gone. Super Vibe consumed truth is still preserved by the inner auto-next/super-vibe base.
+- Dead admin queue-drain analytics removed from `supabase/functions/_shared/admin-video-date-ops.ts` (`summarizeQueueDrain`, `QueueDrainSummary`/`QueueDrainInputRow`/`QueueDrainReasonCount`, `EXPECTED_QUEUE_DRAIN_NO_OP_REASON_CODES`, helpers) plus their tests; the drain command kind they summarized no longer exists. `summarizeSwipeRecovery` and the rest of operator metrics are untouched.
+- Regression coverage: `shared/matching/matchQueueSourceRemovalContracts.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
+- Branch delta: `docs/branch-deltas/remove-match-queue-source.md`.
+
+Intentionally left in place (inert, documented):
+
+- `video_sessions.queued_expires_at` column, the `p_queued_expires_at` parameter of `video_session_blocks_global_active_conflict(...)`, and the `'queued'` value in the `ready_gate_status` / `queue_status` vocabularies are kept as vestigial. After this change they have no live writer (always NULL / never set). Physically dropping them cascades into the shared global-active-conflict guard signature and generated types, which cannot be end-to-end verified in this environment; it is recorded as a clean follow-up rather than bundled into this change.
+- Phase 6 queue-fairness views (`v_video_date_queue_fairness_candidates`, `v_video_date_queue_fairness_event_health`) and `get_video_date_queue_fairness_health(...)` are kept: they are an operator-observability surface read by the `admin-video-date-ops` Edge Function and `shared/observability/videoDateOperatorMetrics.ts`, independent of the matching queue flow. With no queued sessions they simply report empty/healthy.
+
+Schema-shape note:
+
+- No tables, columns, views, or function signatures were added or removed; only two function bodies changed. Generated `src/integrations/supabase/types.ts` is therefore unchanged and was not regenerated.
+
+Proof boundary:
+
+- This is a simplification/cleanup pass, not Video Date product acceptance. Static contract suites (`test:video-date-v4`, `test:video-date:red-flags`, event-lobby regression) pass, but acceptance still requires the fresh disposable two-user production run from mutual match -> Ready Gate -> same Daily room -> stable bilateral media/date -> date end -> both users persist `date_feedback`.
+
+---
+
 ## 2026-06-09 Implementation Update: Mystery Match Removed From Event Lobby
 
 Current source and linked Supabase cloud now remove Mystery Match from the active Event Lobby and Video Date creation path.
