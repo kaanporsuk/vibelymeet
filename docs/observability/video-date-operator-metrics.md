@@ -51,7 +51,7 @@ Returned aggregates:
 | `ready_gate_open_to_date_join_latency` | Ready Gate open to date join latency | `event_loop_observability_events` + `video_sessions` | lower | Ready Gate open is derived from promotion rows, not a dedicated timestamp column. |
 | `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | After `20260501092000_handle_swipe_presence_and_already_matched_session.sql`, `already_matched + session_id` represents a recovered/routable same-pair session. |
 | `survey_to_next_ready_gate_conversion` | Survey to next Ready Gate conversion | PostHog continuity events, plus DB approximation | higher | PostHog is the clean source for route decisions; DB approximation is useful for spot checks. |
-| `queue_drain_failure_rate` | Queue drain failure rate | `v_event_loop_drain_events` or `v_event_loop_observability_metric_streams` | lower | Use `metric_stream = 'drain_rpc_outer'` to avoid double-counting inner promotions. |
+| `queue_drain_failure_rate` | Queue drain failure rate — **REMOVED 2026-06-10** | (none; `v_event_loop_drain_events` dropped) | n/a | The queue/drain subsystem and its views are removed (`20260610000100`, `20260610120000`, `20260610182520`). No rows are produced; the flow is direct mutual match -> Ready Gate -> Video Date. |
 | `timer_drift_recovered_by_server_truth` | Timer drift recovered by server truth | PostHog event `video_date_timer_drift_recovered_by_server_truth` | lower | Emitted only for meaningful date-phase corrections. |
 
 Default threshold helpers live in `shared/observability/videoDateOperatorMetrics.ts`.
@@ -249,14 +249,21 @@ order by conversion_rate asc nulls last;
 
 The DB query is a correlation aid. Use PostHog for the exact client route decision because the continuity bridge can route to Ready Gate, fresh deck, last-chance, or empty states based on multiple backend-derived inputs.
 
-## 5. Queue Drain Failure Rate
+## 5. Queue Drain Failure Rate — REMOVED (historical)
 
-Source:
+> **Removed 2026-06-10.** The queue/drain/promotion subsystem is gone: drain RPCs
+> dropped by `20260610000100_remove_post_date_instant_next.sql`, the swipe source
+> stopped creating queued sessions in `20260610120000_remove_match_queue_source_always_ready.sql`,
+> and `v_event_loop_drain_events` / `v_event_loop_drain_outcomes_hourly` were
+> dropped by `20260610182520_remove_dead_event_loop_drain_views.sql`. The SQL
+> below no longer runs and is kept only as historical context.
+
+Source (historical):
 
 - Preferred: `v_event_loop_observability_metric_streams`
-- Fallback: `v_event_loop_drain_events`
+- Fallback: `v_event_loop_drain_events` (dropped 2026-06-10)
 
-SQL:
+SQL (historical):
 
 ```sql
 with drain as (
@@ -299,7 +306,7 @@ left join reasons r on r.event_id = s.event_id
 order by drain_failure_rate desc nulls last;
 ```
 
-If the normalized view is unavailable in a local or stale environment, use `public.v_event_loop_drain_events` directly and do not add promotion-engine rows to the same denominator.
+Historical note: `public.v_event_loop_drain_events` was dropped 2026-06-10 (`20260610182520_remove_dead_event_loop_drain_views.sql`); the fallback above no longer exists.
 
 ## 6. Timer Drift Recovered By Server Truth
 
