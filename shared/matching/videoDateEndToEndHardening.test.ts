@@ -2399,7 +2399,7 @@ test("video date button escape contracts keep web and native users routable", ()
     webVideoDatePage,
     /onLeave=\{[\s\S]{0,120}peerMissing\.terminal[\s\S]{0,120}\?[\s\S]{0,120}handlePeerMissingLeave[\s\S]{0,120}:[\s\S]{0,120}handlePreDateExit[\s\S]{0,120}\}/,
   );
-  assert.match(webVideoDatePage, /const hasDateEntryTruth =[\s\S]*hasEnteredDateFlowRef\.current[\s\S]*phaseRef\.current === "date"[\s\S]*Boolean\(dateStartedAt\)[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
+  assert.match(webVideoDatePage, /const hasDateEntryTruth =[\s\S]*hasEnteredDateFlowRef\.current[\s\S]*phaseRef\.current === "date"[\s\S]*Boolean\(dateStartedAt\)[\s\S]*videoSessionHasEncounterExposureTruth\(entryTruth\)/);
   assert.match(webVideoDatePage, /confirmTerminalPostDateSurveyFromServerTruth\("local_end"\)/);
   assert.doesNotMatch(webVideoDatePage, /openPostDateSurvey\(["']local_end["']\)/);
   assert.match(webDateNavigationGuard, /recent_manual_exit/);

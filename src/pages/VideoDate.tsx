@@ -565,8 +565,8 @@ const VideoDate = () => {
     undefined,
   );
   const [timingReady, setTimingReady] = useState(false);
-  const [handshakeStartFailed, setEntryStartFailed] = useState(false);
-  const [handshakeFailureCode, setEntryFailureCode] = useState<
+  const [entryStartFailed, setEntryStartFailed] = useState(false);
+  const [entryFailureCode, setEntryFailureCode] = useState<
     string | undefined
   >(undefined);
   const [blurAmount, setBlurAmount] = useState(20);
@@ -593,7 +593,7 @@ const VideoDate = () => {
   const [entryStartedAt, setEntryStartedAt] = useState<string | null>(
     null,
   );
-  const [handshakeTruth, setEntryTruth] =
+  const [entryTruth, setEntryTruth] =
     useState<VideoDateEntryTruth | null>(null);
   const [serverTimeline, setServerTimeline] =
     useState<VideoDateTimelineState | null>(initialPushTimeline);
@@ -1250,15 +1250,15 @@ const VideoDate = () => {
         phase === "handshake" ||
         phase === "date" ||
         Boolean(dateStartedAt) ||
-        videoSessionHasEncounterExposureTruth(handshakeTruth)),
+        videoSessionHasEncounterExposureTruth(entryTruth)),
     videoSessionState: phase,
     localDecisionPersisted: Boolean(
-      handshakeTruth &&
+      entryTruth &&
       user?.id &&
-      ((handshakeTruth.participant_1_id === user.id &&
-        handshakeTruth.participant_1_decided_at) ||
-        (handshakeTruth.participant_2_id === user.id &&
-          handshakeTruth.participant_2_decided_at)),
+      ((entryTruth.participant_1_id === user.id &&
+        entryTruth.participant_1_decided_at) ||
+        (entryTruth.participant_2_id === user.id &&
+          entryTruth.participant_2_decided_at)),
     ),
     onCallEnded: () => {
       Sentry.addBreadcrumb({
@@ -1654,12 +1654,12 @@ const VideoDate = () => {
 
   useEffect(() => {
     if (
-      typeof handshakeTruth?.session_seq === "number" &&
-      Number.isFinite(handshakeTruth.session_seq)
+      typeof entryTruth?.session_seq === "number" &&
+      Number.isFinite(entryTruth.session_seq)
     ) {
-      sessionSeqRef.current = handshakeTruth.session_seq;
+      sessionSeqRef.current = entryTruth.session_seq;
     }
-  }, [handshakeTruth?.session_seq]);
+  }, [entryTruth?.session_seq]);
 
   useEffect(() => {
     let mounted = true;
@@ -2032,7 +2032,7 @@ const VideoDate = () => {
         eventId: eventId ?? null,
         videoDateAccess,
         timingReady,
-        handshakeStartFailed,
+        entryStartFailed,
         phase,
         showFeedback,
         isConnected,
@@ -2050,7 +2050,7 @@ const VideoDate = () => {
     eventId,
     videoDateAccess,
     timingReady,
-    handshakeStartFailed,
+    entryStartFailed,
     phase,
     showFeedback,
     isConnected,
@@ -2278,7 +2278,7 @@ const VideoDate = () => {
           ...payload,
           videoDateAccess,
           timingReady,
-          handshakeStartFailed,
+          entryStartFailed,
           callStarted,
           isConnecting,
           isConnected,
@@ -2291,7 +2291,7 @@ const VideoDate = () => {
         elapsedMs,
         videoDateAccess,
         timingReady,
-        handshakeStartFailed,
+        entryStartFailed,
         callStarted,
         isConnecting,
         isConnected,
@@ -2305,7 +2305,7 @@ const VideoDate = () => {
   }, [
     callStarted,
     eventId,
-    handshakeStartFailed,
+    entryStartFailed,
     id,
     isConnected,
     isConnecting,
@@ -3175,7 +3175,7 @@ const VideoDate = () => {
   // Start Daily as soon as the participant guard passes; timing hydration can finish in parallel.
   useEffect(() => {
     if (!id) return;
-    if (videoDateAccess !== "allowed" || handshakeStartFailed) return;
+    if (videoDateAccess !== "allowed" || entryStartFailed) return;
     if (
       phase === "ended" ||
       showFeedback ||
@@ -3367,7 +3367,7 @@ const VideoDate = () => {
     callStartFailure,
     id,
     videoDateAccess,
-    handshakeStartFailed,
+    entryStartFailed,
     phase,
     showFeedback,
     terminalSurveyRecoveryActive,
@@ -4490,13 +4490,13 @@ const VideoDate = () => {
     return handleEntryDecision("pass");
   }, [handleEntryDecision, id, phase]);
 
-  const handshakeUiState = useMemo(
-    () => resolveVideoDateEntryUiState(handshakeTruth, user?.id),
-    [handshakeTruth, user?.id],
+  const entryUiState = useMemo(
+    () => resolveVideoDateEntryUiState(entryTruth, user?.id),
+    [entryTruth, user?.id],
   );
-  const localEntryDecision = handshakeUiState.localDecision;
-  const localEntryHasDecided = handshakeUiState.localHasDecided;
-  const partnerEntryHasDecided = handshakeUiState.partnerHasDecided;
+  const localEntryDecision = entryUiState.localDecision;
+  const localEntryHasDecided = entryUiState.localHasDecided;
+  const partnerEntryHasDecided = entryUiState.partnerHasDecided;
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(
@@ -5353,7 +5353,7 @@ const VideoDate = () => {
     const confirmedEncounter =
       phaseRef.current === "date" ||
       Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(handshakeTruth);
+      videoSessionHasEncounterExposureTruth(entryTruth);
     if (!confirmedEncounter) return;
 
     const key = `${id}:post_encounter_peer_missing_terminal_suppressed`;
@@ -5367,7 +5367,7 @@ const VideoDate = () => {
       phase: phaseRef.current,
       dateStartedAt,
       hasEncounterExposureTruth:
-        videoSessionHasEncounterExposureTruth(handshakeTruth),
+        videoSessionHasEncounterExposureTruth(entryTruth),
     });
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
       platform: "web",
@@ -5380,7 +5380,7 @@ const VideoDate = () => {
   }, [
     dateStartedAt,
     eventId,
-    handshakeTruth,
+    entryTruth,
     id,
     peerMissing.terminal,
     showFeedback,
@@ -5604,7 +5604,7 @@ const VideoDate = () => {
         hasEnteredDateFlowRef.current ||
         phaseRef.current === "date" ||
         Boolean(dateStartedAt) ||
-        videoSessionHasEncounterExposureTruth(handshakeTruth);
+        videoSessionHasEncounterExposureTruth(entryTruth);
       if (!hasDateEntryTruth) {
         await handlePreDateExit({
           reason: opts?.reason ?? "ended_from_client",
@@ -5630,7 +5630,7 @@ const VideoDate = () => {
       handleCallEnd,
       handlePreDateExit,
       clearEntryGraceState,
-      handshakeTruth,
+      entryTruth,
       id,
       phase,
     ],
@@ -5773,7 +5773,7 @@ const VideoDate = () => {
       hasEnteredDateFlowRef.current ||
       phaseRef.current === "date" ||
       Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(handshakeTruth);
+      videoSessionHasEncounterExposureTruth(entryTruth);
     if (hasDateEntryTruth) {
       void handleLeave({ reason: "partner_absent_after_confirmed_encounter" });
       return;
@@ -5787,7 +5787,7 @@ const VideoDate = () => {
     eventId,
     handleLeave,
     handlePreDateExit,
-    handshakeTruth,
+    entryTruth,
     id,
   ]);
 
@@ -6198,7 +6198,7 @@ const VideoDate = () => {
     );
   }
 
-  if (handshakeStartFailed) {
+  if (entryStartFailed) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
@@ -6206,7 +6206,7 @@ const VideoDate = () => {
           Video date couldn&apos;t start
         </h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          {messageForEntryFailure(handshakeFailureCode)}
+          {messageForEntryFailure(entryFailureCode)}
         </p>
         <Button
           type="button"

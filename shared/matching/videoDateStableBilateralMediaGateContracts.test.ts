@@ -70,7 +70,7 @@ test("web date route owns from allowed access while Daily singleton excludes ter
   assert.match(singletonEligibility, /videoDateAccess === "allowed"/);
   assert.match(
     singletonEligibility,
-    /videoSessionHasEncounterExposureTruth\(handshakeTruth\)/,
+    /videoSessionHasEncounterExposureTruth\(entryTruth\)/,
   );
   assert.ok(
     singletonEligibility.indexOf("!showFeedback") <
