@@ -1,4 +1,17 @@
-# Event-loop dashboard normalization (operators)
+# Event-loop dashboard normalization (operators) — REMOVED (historical)
+
+> **Removed 2026-06-10.** This document normalizes telemetry for the
+> queue/drain/promotion subsystem, which no longer exists. The RPCs
+> `promote_ready_gate_if_eligible` and `drain_match_queue` were dropped by
+> `20260610000100_remove_post_date_instant_next.sql`; the swipe source stopped
+> creating queued sessions in `20260610120000_remove_match_queue_source_always_ready.sql`;
+> and the views `v_event_loop_drain_events` / `v_event_loop_drain_outcomes_hourly`
+> were dropped by `20260610182520_remove_dead_event_loop_drain_views.sql`. The
+> queries below reference dropped functions and views and no longer run. The
+> supported flow is direct mutual match -> Ready Gate -> Video Date with no
+> queue. Kept only as historical context; `mark_lobby_foreground` /
+> promotion-engine event-log rows that predate the removal may still exist in
+> `event_loop_observability_events` for backfill analysis.
 
 How to read **`promote_ready_gate_if_eligible`**, **`drain_match_queue`**, and **`mark_lobby_foreground`** telemetry without overstating backend problems.
 

@@ -223,16 +223,29 @@ What not to conclude:
 - A no-op result can mean no eligible queued session at that moment, not a drain bug.
 - Survey completion is client-observed. For backend queue truth, check drain/promotion SQL before tuning cadence.
 
-## 7. Dashboard: Queue Drain Failures
+## 7. Dashboard: Queue Drain Failures — REMOVED (historical)
 
-Source of truth: Supabase SQL.
+> **Removed 2026-06-10.** The queue/drain/promotion subsystem this dashboard
+> monitored no longer exists. The drain/promotion RPCs (`drain_match_queue`,
+> `drain_match_queue_v2`, `get_video_date_queue_hint_v1`,
+> `promote_ready_gate_if_eligible`) were dropped by
+> `20260610000100_remove_post_date_instant_next.sql`; the swipe source stopped
+> creating queued sessions in `20260610120000_remove_match_queue_source_always_ready.sql`;
+> and the operator views `v_event_loop_drain_events` /
+> `v_event_loop_drain_outcomes_hourly` were dropped by
+> `20260610182520_remove_dead_event_loop_drain_views.sql`. Do not build or query
+> this dashboard — the views are gone and no rows are produced. The section is
+> kept only as historical context. The supported flow is direct mutual match ->
+> Ready Gate -> Video Date with no queue.
+
+Source of truth (historical): Supabase SQL.
 
 Use `docs/observability/event-loop-dashboard-normalization.md` before interpreting these numbers.
 
-Preferred views:
+Preferred views (historical — `v_event_loop_drain_events` is dropped):
 
 - `v_event_loop_observability_metric_streams`
-- `v_event_loop_drain_events`
+- `v_event_loop_drain_events` (dropped 2026-06-10)
 - `v_event_loop_promotion_events`
 - `v_event_loop_mark_lobby_promotion_normalized`
 
@@ -312,7 +325,8 @@ GROUP BY 1, 2
 ORDER BY rows DESC;
 ```
 
-Fallback:
+Fallback (historical — `v_event_loop_drain_events` was dropped 2026-06-10 by
+`20260610182520_remove_dead_event_loop_drain_views.sql`; this query no longer runs):
 
 ```sql
 SELECT
