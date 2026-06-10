@@ -45,7 +45,6 @@ import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import { useActiveSession } from "@/hooks/useActiveSession";
 import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
-import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
 import { preloadRoute, preloadRouteOnIdle } from "@/lib/routePreload";
 import { toast } from "sonner";
@@ -518,7 +517,6 @@ const EventLobby = () => {
   const activeSessionIdRef = useRef<string | null>(null);
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
-  const prepareNavigationInFlightRef = useRef<Set<string>>(new Set());
   const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -951,174 +949,6 @@ const EventLobby = () => {
     [eventId, location.pathname, navigate, user?.id],
   );
 
-  const prepareAndNavigateToDateSession = useCallback(
-    (sessionId: string, source: string) => {
-      const pipelineActive = isDateEntryTransitionActive(sessionId);
-      const routeOwned = isVideoDateRouteOwned(sessionId, user?.id ?? null);
-      const navigationAlreadyClaimed =
-        dateNavigationSessionIdRef.current === sessionId;
-      if (pipelineActive || routeOwned || navigationAlreadyClaimed) {
-        vdbg("event_lobby_prepare_entry_suppressed", {
-          sessionId,
-          eventId,
-          source,
-          reason: pipelineActive
-            ? "date_entry_pipeline_active"
-            : routeOwned
-              ? "date_route_ownership_active"
-              : "date_navigation_already_claimed",
-        });
-        navigateToDateSession(
-          sessionId,
-          pipelineActive
-            ? `${source}_date_entry_pipeline_active`
-            : routeOwned
-              ? `${source}_date_route_ownership_active`
-              : `${source}_date_navigation_already_claimed`,
-        );
-        return;
-      }
-      if (prepareNavigationInFlightRef.current.has(sessionId)) {
-        vdbg("event_lobby_prepare_entry_suppressed", {
-          sessionId,
-          eventId,
-          source,
-          reason: "prepare_entry_already_in_flight",
-        });
-        return;
-      }
-      prepareNavigationInFlightRef.current.add(sessionId);
-      const observedAtMs = Date.now();
-      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
-        sessionId,
-        platform: "web",
-        eventId,
-        sourceSurface: "event_lobby",
-        checkpoint: "both_ready_observed",
-        nowMs: observedAtMs,
-      });
-      trackEvent(
-        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-        buildReadyGateToDateLatencyPayload({
-          context: latencyContext,
-          checkpoint: "both_ready_observed",
-          sourceAction: source,
-          outcome: "success",
-        }),
-      );
-      trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        source,
-        source_surface: "event_lobby",
-        source_action: source,
-      });
-      const navigateAfterPrepare = (nextSource: string) => {
-        if (user?.id) {
-          updateVideoDateEntryOwnerState({
-            sessionId,
-            userId: user.id,
-            state: "navigating",
-            source: `event_lobby_${nextSource}`,
-          });
-        }
-        const navigationContext = recordReadyGateToDateLatencyCheckpoint({
-          sessionId,
-          platform: "web",
-          eventId,
-          sourceSurface: "event_lobby",
-          checkpoint: "navigation_started",
-        });
-        trackEvent(
-          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-          buildReadyGateToDateLatencyPayload({
-            context: navigationContext,
-            checkpoint: "navigation_started",
-            sourceAction: nextSource,
-            outcome: "success",
-          }),
-        );
-        navigateToDateSession(sessionId, nextSource);
-      };
-      void prepareVideoDateEntry(sessionId, {
-        eventId,
-        userId: user?.id ?? null,
-        source: `event_lobby_${source}`,
-        bothReadyObservedAtMs: observedAtMs,
-      })
-        .then((result) => {
-          if (result.ok === true) {
-            navigateAfterPrepare(`${source}_prepare_done`);
-            return;
-          }
-          trackEvent(
-            LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,
-            {
-              platform: "web",
-              session_id: sessionId,
-              event_id: eventId,
-              source_surface: "event_lobby",
-              source_action: "prepare_entry_failed_date_owned",
-              code: result.code,
-              reason_code: result.code,
-              httpStatus: result.httpStatus ?? null,
-              retryable: result.retryable,
-            },
-          );
-          vdbg("event_lobby_prepare_entry_failed_date_owned", {
-            sessionId,
-            eventId,
-            source,
-            code: result.code,
-            httpStatus: result.httpStatus ?? null,
-            retryable: result.retryable,
-          });
-          trackEvent(LobbyPostDateEvents.READY_GATE_HANDOFF_RECOVERY, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            source_surface: "event_lobby",
-            source_action: `${source}_prepare_failed_date_owned`,
-            outcome: "date_owned",
-            code: result.code,
-            reason_code: result.code,
-            httpStatus: result.httpStatus ?? null,
-            retryable: result.retryable,
-          });
-          navigateAfterPrepare(`${source}_prepare_failed_date_owned`);
-        })
-        .catch((error) => {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          trackEvent(
-            LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,
-            {
-              platform: "web",
-              session_id: sessionId,
-              event_id: eventId,
-              source_surface: "event_lobby",
-              source_action: "prepare_entry_exception_date_owned",
-              code: "PREPARE_ENTRY_EXCEPTION",
-              reason_code: "PREPARE_ENTRY_EXCEPTION",
-              httpStatus: null,
-              retryable: true,
-            },
-          );
-          vdbg("event_lobby_prepare_entry_exception_date_owned", {
-            sessionId,
-            eventId,
-            source,
-            message,
-          });
-          navigateAfterPrepare(`${source}_prepare_exception_date_owned`);
-        })
-        .finally(() => {
-          prepareNavigationInFlightRef.current.delete(sessionId);
-        });
-    },
-    [eventId, navigateToDateSession, user?.id],
-  );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
   useEffect(() => {
@@ -1147,7 +977,6 @@ const EventLobby = () => {
     dateNavigationSessionIdRef.current = null;
     visibleDeckCardsRef.current.clear();
     visibleDeckMarkAttemptsRef.current.clear();
-    prepareNavigationInFlightRef.current.clear();
     for (const timer of lobbyConvergenceRefreshTimersRef.current.values()) {
       clearTimeout(timer);
     }
@@ -1820,18 +1649,15 @@ const EventLobby = () => {
           queryKey: ["event-deck", eventId, user.id],
         });
       }
-      if (event.kind === "ready_gate_both_ready") {
-        prepareAndNavigateToDateSession(
-          event.sessionId,
-          "broadcast_ready_gate_both_ready",
-        );
-      }
+      // Single prepare-owner: a `ready_gate_both_ready` broadcast only triggers
+      // the convergence refresh above. The mounted Ready Gate overlay (or the
+      // standalone `/ready/:id` host) is the sole owner of prepare_date_entry and
+      // the date handoff; the lobby no longer runs a competing prepare/navigate.
     },
     [
       deckPrefetchPolishEnabled,
       eventId,
       lobbyBroadcastSessionId,
-      prepareAndNavigateToDateSession,
       queryClient,
       readyGatePressureActive,
       scheduleLobbyConvergenceRefresh,

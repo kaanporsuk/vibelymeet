@@ -75,19 +75,16 @@ test("partial-ready migration terminalizes invalid pre-date Ready Gates and pres
   );
 });
 
-test("both-ready prepare failures remain date-owned across web and native clients", () => {
-  assert.match(webEventLobby, /source_action: "prepare_entry_failed_date_owned"/);
-  assert.match(webEventLobby, /navigateAfterPrepare\(`?\$\{source\}_prepare_failed_date_owned`?\)/);
-  assert.match(webEventLobby, /navigateAfterPrepare\(`?\$\{source\}_prepare_exception_date_owned`?\)/);
-  assert.doesNotMatch(
-    webEventLobby,
-    /\$\{source\}_prepare_failed_ready_gate_recovery/,
-  );
-  assert.doesNotMatch(
-    webEventLobby,
-    /\$\{source\}_prepare_exception_ready_gate_recovery/,
-  );
+test("both-ready prepare failures hand off to /date only on routeable truth (single prepare-owner)", () => {
+  // Web Event Lobby is no longer a competing prepare owner: it mounts/routes the
+  // Ready Gate overlay but never runs its own prepare_date_entry or date-owned nav.
+  assert.doesNotMatch(webEventLobby, /prepareAndNavigateToDateSession/);
+  assert.doesNotMatch(webEventLobby, /prepareVideoDateEntry/);
+  assert.doesNotMatch(webEventLobby, /navigateAfterPrepare/);
+  assert.match(webEventLobby, /Single prepare-owner/);
 
+  // Web overlay stays the canonical prepare owner, but only hands off to /date on
+  // an exhausted/exception prepare failure when backend truth proves it routeable.
   assert.match(
     webReadyGateOverlay,
     /source_action: "prepare_entry_failed_date_owned"/,
@@ -98,6 +95,14 @@ test("both-ready prepare failures remain date-owned across web and native client
   );
   assert.match(
     webReadyGateOverlay,
+    /isRouteableVideoDateTruth\(exhaustedTruth\)/,
+  );
+  assert.match(
+    webReadyGateOverlay,
+    /isRouteableVideoDateTruth\(exceptionTruth\)/,
+  );
+  assert.match(
+    webReadyGateOverlay,
     /navigateToDate\("both_ready_prepare_failed_date_owned"\)/,
   );
   assert.match(
@@ -105,6 +110,10 @@ test("both-ready prepare failures remain date-owned across web and native client
     /navigateToDate\("both_ready_prepare_exception_date_owned"\)/,
   );
 
+  // Native Event Lobby keeps the overlay as the prepare owner: the overlay handoff
+  // skips the lobby re-prepare but still passes the startable (routeable-truth) gate.
+  assert.match(nativeEventLobby, /Single prepare-owner/);
+  assert.match(nativeEventLobby, /skipPrepare: true/);
   assert.match(
     nativeEventLobby,
     /"date_navigation_prepare_entry_failed_date_owned"/,
@@ -114,9 +123,15 @@ test("both-ready prepare failures remain date-owned across web and native client
     /markVideoDateRouteOwned\(sessionIdToOpen, user\.id\);/,
   );
 
+  // Native overlay already gates retryable failures on routeable truth; its
+  // exhausted/exception handoffs route through the lobby startable gate above.
   assert.match(
     nativeReadyGateOverlay,
     /source_action: 'prepare_entry_failed_date_owned'/,
+  );
+  assert.match(
+    nativeReadyGateOverlay,
+    /isRouteableVideoDateTruth\(latestTruth\)/,
   );
   assert.match(
     nativeReadyGateOverlay,

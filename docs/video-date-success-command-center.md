@@ -64,6 +64,27 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-10 Implementation Update: Ready Gate Single Prepare-Owner
+
+Consolidated Ready Gate entry ownership so there is one canonical `prepare_date_entry` owner per platform. Golden flow unchanged: Event Lobby -> mutual match -> Ready Gate -> both_ready -> `prepare_date_entry`/`prepare_entry` -> `/date/:sessionId`. Ready Gate and the Daily room creation inside `prepare_date_entry` are untouched.
+
+Before, prepare was owned in competing places: web `EventLobby` ran its own `prepareVideoDateEntry` from a `ready_gate_both_ready` broadcast while the mounted `ReadyGateOverlay` also prepared; native re-ran prepare in `navigateToDateSession` after the overlay had already prepared. The web overlay's exhausted/exception prepare-failure paths blind-navigated to `/date`, which could cause `/date`<->lobby bounce churn for non-routeable sessions.
+
+Implementation:
+
+- Web `src/pages/EventLobby.tsx`: removed `prepareAndNavigateToDateSession`, the `prepareNavigationInFlightRef` latch, and the `prepareVideoDateEntry` import. `reconcileLobbyBroadcastEvent` no longer prepares on `ready_gate_both_ready`; it only runs the convergence refresh, after which the mounted overlay owns the single prepare/navigate. The lobby still dedupes date navigation.
+- Native `apps/mobile/app/event/[eventId]/lobby.tsx`: the overlay handoff passes `{ skipPrepare: true }` so the lobby does not re-run prepare; `navigateToDateSession`'s `startable` (routeable-truth) gate still runs before any `/date` nav.
+- Web `src/components/lobby/ReadyGateOverlay.tsx`: the `exhausted` and exception prepare-failure handoffs now navigate to `/date` only when `isRouteableVideoDateTruth(latestTruth)` is proven, mirroring the overlay's existing retryable-failure gate and native's lobby `startable` gate; otherwise the overlay shows a failed/ended state instead of blind-navigating.
+- Standalone `/ready/:id` (web `ReadyRedirect`, native `app/ready/[id].tsx`) remains a canonical host/owner; deep links still work.
+- Branch delta: `docs/branch-deltas/ready-gate-single-prepare-owner.md`.
+- Tests updated to the single-owner invariant: `readyGatePartialReadyDefinitiveClosure`, `videoDateEndToEndHardening`, `realtimeSubscriptionTightening`.
+
+Verification: typecheck, lint, `test:video-date-v4`, `test:video-date:red-flags`, `test:event-lobby-regression` all pass; the broad matching/observability sweep's still-red files were confirmed pre-existing on clean `main`.
+
+Proof boundary: client ownership simplification, not Video Date acceptance. No two-user end-to-end run was possible in this environment; acceptance still requires a real run from mutual swipe through survey plus a `/ready/:id` deep-link check.
+
+---
+
 ## 2026-06-10 Implementation Update: Queued-Session Branch Removed At The Swipe Source
 
 Current source removes the last live remnant of the match-queue subsystem: the swipe path no longer creates a queued `video_sessions` row or returns `match_queued`. This finishes the cleanup that began with the post-date instant-next removal (`20260610000100`) and the `match_queued` -> Ready Gate conversion wrapper (`20260610022531`). Those earlier changes already dropped `drain_match_queue`, `drain_match_queue_v2`, `get_video_date_queue_hint_v1`, and `promote_ready_gate_if_eligible`, and ensured no queued session was ever persisted (the wrapper promoted any queued result to `ready` in the same transaction). This change moves that guarantee to the source so the queued branch no longer exists at all.

@@ -117,12 +117,13 @@ test("duplicate navigation and terminal latches remain session-scoped in web Rea
   assert.match(webReadyGateOverlay, /duplicateTerminalSuppressionKeysRef/);
   assert.match(webReadyGateOverlay, /terminalToastKeyRef/);
   assert.match(webEventLobby, /dateNavigationSessionIdRef/);
-  assert.match(webEventLobby, /prepareNavigationInFlightRef/);
 });
 
 test("date navigation remains gated by backend prepare-entry truth", () => {
+  // Single prepare-owner: the Ready Gate overlay (and standalone /ready) own
+  // prepare_date_entry; the web Event Lobby no longer calls it directly.
   assert.match(webReadyGateOverlay, /prepareVideoDateEntry\(sessionId/);
-  assert.match(webEventLobby, /prepareVideoDateEntry\(sessionId/);
+  assert.doesNotMatch(webEventLobby, /prepareVideoDateEntry/);
   assert.match(nativeReadyGateOverlay, /prepareVideoDateEntry\(sessionId/);
   assert.match(nativeEventLobby, /ensureVideoDateStartableBeforeNavigation/);
 });

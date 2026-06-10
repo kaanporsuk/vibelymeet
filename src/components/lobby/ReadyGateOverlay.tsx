@@ -1867,22 +1867,57 @@ const ReadyGateOverlay = ({
                   video_date_trace_id: result.entryAttemptId ?? undefined,
                 },
               });
-              if (user?.id) {
-                updateVideoDateEntryOwnerState({
-                  sessionId,
-                  userId: user.id,
-                  state: "navigating",
-                  source: "ready_gate_prepare_failed_date_owned",
-                  entryAttemptId: result.entryAttemptId ?? null,
-                  videoDateTraceId: result.entryAttemptId ?? null,
-                  failureCode: result.code,
-                  failureMessage: result.message ?? null,
-                });
+              // Single prepare-owner gate: only hand off to /date when backend
+              // truth proves the session is routeable. A blind navigate after an
+              // exhausted prepare caused /date<->lobby bounce churn for sessions
+              // that were not actually date-capable.
+              const exhaustedTruth =
+                await fetchVideoSessionDateEntryTruthCoalesced(sessionId);
+              if (isRouteableVideoDateTruth(exhaustedTruth)) {
+                if (user?.id) {
+                  updateVideoDateEntryOwnerState({
+                    sessionId,
+                    userId: user.id,
+                    state: "navigating",
+                    source: "ready_gate_prepare_failed_date_owned",
+                    entryAttemptId: result.entryAttemptId ?? null,
+                    videoDateTraceId: result.entryAttemptId ?? null,
+                    failureCode: result.code,
+                    failureMessage: result.message ?? null,
+                  });
+                }
+                setPrepareEntryStatus("idle");
+                setPrepareEntryFailure(null);
+                prepareEntryHandoffStartedRef.current = true;
+                navigateToDate("both_ready_prepare_failed_date_owned");
+                return;
               }
-              setPrepareEntryStatus("idle");
-              setPrepareEntryFailure(null);
-              prepareEntryHandoffStartedRef.current = true;
-              navigateToDate("both_ready_prepare_failed_date_owned");
+              if (!dateNavigationStartedRef.current) {
+                prepareEntryHandoffStartedRef.current = false;
+              }
+              if (isTerminalReadyGateTruth(exhaustedTruth)) {
+                setIsTransitioning(false);
+                setPrepareEntryStatus("failed");
+                setPrepareEntryFailure({
+                  code: "SESSION_ENDED",
+                  message: prepareEntryFailureMessage("SESSION_ENDED"),
+                  retryable: false,
+                });
+                closedRef.current = true;
+                toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, {
+                  duration: 3600,
+                });
+                onClose();
+                return;
+              }
+              setIsTransitioning(false);
+              setPrepareEntryStatus("failed");
+              setPrepareEntryFailure({
+                code: result.code,
+                message: prepareEntryFailureMessage(result.code),
+                retryable: true,
+                httpStatus: result.httpStatus,
+              });
               return;
             }
 
@@ -1924,22 +1959,39 @@ const ReadyGateOverlay = ({
             !closedRef.current &&
             !dateNavigationStartedRef.current
           ) {
-            if (user?.id) {
-              const failureMessage =
-                error instanceof Error ? error.message : String(error);
-              updateVideoDateEntryOwnerState({
-                sessionId,
-                userId: user.id,
-                state: "navigating",
-                source: "ready_gate_prepare_exception_date_owned",
-                failureCode: "PREPARE_ENTRY_CLIENT_EXCEPTION",
-                failureMessage,
+            // Single prepare-owner gate: confirm routeable backend truth before
+            // handing off to /date on a client exception instead of blind-navigating.
+            const exceptionTruth =
+              await fetchVideoSessionDateEntryTruthCoalesced(sessionId);
+            if (isRouteableVideoDateTruth(exceptionTruth)) {
+              if (user?.id) {
+                const failureMessage =
+                  error instanceof Error ? error.message : String(error);
+                updateVideoDateEntryOwnerState({
+                  sessionId,
+                  userId: user.id,
+                  state: "navigating",
+                  source: "ready_gate_prepare_exception_date_owned",
+                  failureCode: "PREPARE_ENTRY_CLIENT_EXCEPTION",
+                  failureMessage,
+                });
+              }
+              setPrepareEntryStatus("idle");
+              setPrepareEntryFailure(null);
+              prepareEntryHandoffStartedRef.current = true;
+              navigateToDate("both_ready_prepare_exception_date_owned");
+            } else {
+              prepareEntryHandoffStartedRef.current = false;
+              setIsTransitioning(false);
+              setPrepareEntryStatus("failed");
+              setPrepareEntryFailure({
+                code: "PREPARE_ENTRY_CLIENT_EXCEPTION",
+                message: prepareEntryFailureMessage(
+                  "PREPARE_ENTRY_CLIENT_EXCEPTION",
+                ),
+                retryable: true,
               });
             }
-            setPrepareEntryStatus("idle");
-            setPrepareEntryFailure(null);
-            prepareEntryHandoffStartedRef.current = true;
-            navigateToDate("both_ready_prepare_exception_date_owned");
           }
         } finally {
           window.clearTimeout(slowWaitTimer);

@@ -4246,10 +4246,15 @@ export default function EventLobbyScreen() {
                 setActiveSessionId(null);
                 setActiveSessionPartnerName(null);
                 setActiveSessionPartnerImage(null);
+                // Single prepare-owner: the overlay already ran prepare_date_entry
+                // before handing off, so the lobby must not re-run it. skipPrepare
+                // still passes through navigateToDateSession's startable
+                // (routeable-truth) gate before any /date navigation.
                 navigateToDateSession(
                   sessionIdToOpen,
                   "ready_gate_overlay",
                   "replace",
+                  { skipPrepare: true },
                 );
               }}
               onManualExitConfirmed={suppressReadyGateAfterManualExit}

@@ -1043,17 +1043,15 @@ test("web ready-gate paths keep date ownership after both-ready prepare failures
   assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_failed_date_owned"\)/);
   assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_exception_date_owned"\)/);
 
+  // Single prepare-owner: the web Event Lobby no longer runs its own
+  // prepare_date_entry handoff or date-owned failure navigation; the Ready Gate
+  // overlay (and standalone /ready) own prepare.
   assert.doesNotMatch(eventLobby, /PREPARE_ENTRY_NAV_GRACE_MS/);
   assert.doesNotMatch(eventLobby, /prepare_grace/);
-  assert.match(eventLobby, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
-  assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_done`\)/);
-  assert.match(eventLobby, /source_action: "prepare_entry_failed_date_owned"/);
-  assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_failed_date_owned`\)/);
-  assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_exception_date_owned`\)/);
-  assert.doesNotMatch(
-    eventLobby,
-    /\$\{source\}_prepare_failed_ready_gate_recovery/,
-  );
+  assert.doesNotMatch(eventLobby, /prepareVideoDateEntry/);
+  assert.doesNotMatch(eventLobby, /navigateAfterPrepare/);
+  assert.doesNotMatch(eventLobby, /prepareAndNavigateToDateSession/);
+  assert.match(eventLobby, /Single prepare-owner/);
 });
 
 test("web lobby opens returned swipe session id immediately", () => {
@@ -1520,23 +1518,15 @@ test("direct client updates cannot overwrite server-owned registration lifecycle
   );
 });
 
-test("web lobby dedupes same-runtime prepare handoffs before date navigation", () => {
-  assert.match(eventLobby, /const prepareNavigationInFlightRef = useRef<Set<string>>\(new Set\(\)\)/);
+test("web lobby is not a prepare owner and dedupes only date navigation", () => {
+  // Single prepare-owner: the lobby no longer keeps a prepare-in-flight latch or
+  // its own prepare_date_entry retry/catch; the overlay (and standalone /ready)
+  // own prepare. The lobby still dedupes date *navigation* via the nav claim.
+  assert.doesNotMatch(eventLobby, /prepareNavigationInFlightRef/);
+  assert.doesNotMatch(eventLobby, /prepare_entry_already_in_flight/);
   assert.match(eventLobby, /isDateEntryTransitionActive/);
-  assert.match(eventLobby, /date_entry_pipeline_active/);
-  assert.match(eventLobby, /date_navigation_already_claimed/);
-  assert.ok(
-    eventLobby.indexOf("date_entry_pipeline_active") < eventLobby.indexOf("prepare_entry_already_in_flight"),
-    "lobby should suppress prepare-entry when /date already owns the handoff before checking only local in-flight state",
-  );
-  assert.match(eventLobby, /prepareNavigationInFlightRef\.current\.has\(sessionId\)/);
-  assert.match(eventLobby, /prepare_entry_already_in_flight/);
-  assert.match(eventLobby, /prepareNavigationInFlightRef\.current\.add\(sessionId\)/);
-  assert.match(eventLobby, /\.catch\(\(error\) => \{[\s\S]*PREPARE_ENTRY_EXCEPTION[\s\S]*openReadyGateSession/s);
-  assert.match(
-    eventLobby,
-    /\.finally\(\(\) => \{\s*prepareNavigationInFlightRef\.current\.delete\(sessionId\);\s*\}\)/s,
-  );
+  assert.match(eventLobby, /claimDateNavigation/);
+  assert.match(eventLobby, /dateNavigationSessionIdRef\.current === sessionId/);
 });
 
 test("native date entry reuses same-session Daily joins across remounts and rescue timers", () => {
@@ -3643,12 +3633,10 @@ test("Sprint 1H journey trace map covers critical Video Date release signals", (
 });
 
 test("Sprint 1H added recovery trace points are wired with safe correlation metadata", () => {
-  assert.match(eventLobby, /READY_GATE_HANDOFF_RECOVERY/);
-  assert.match(eventLobby, /source_surface: "event_lobby"/);
-  assert.match(eventLobby, /source_action: `\$\{source\}_prepare_failed_date_owned`/);
-  assert.match(eventLobby, /outcome: "date_owned"/);
-  assert.match(eventLobby, /reason_code: result\.code/);
-  assert.match(eventLobby, /retryable: result\.retryable/);
+  // Single prepare-owner: the lobby no longer emits READY_GATE_HANDOFF_RECOVERY
+  // (its competing prepare-failure handoff was removed). Prepare-failure recovery
+  // telemetry now originates from the Ready Gate overlay below.
+  assert.doesNotMatch(eventLobby, /READY_GATE_HANDOFF_RECOVERY/);
 
   for (const readyGateSource of [readyGateOverlay, nativeReadyGateOverlay]) {
     assert.match(readyGateSource, /READY_GATE_TERMINAL_ACTION_SUCCESS/);
