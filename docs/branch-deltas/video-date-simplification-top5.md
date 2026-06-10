@@ -50,14 +50,14 @@ Golden flow preserved and unchanged: Event Lobby -> pass/vibe -> immediate mutua
 - **Verdict v1/v2 RPC drop + flag-row delete** — after Edge deploy + release boundary (audit PR-6).
 - **handshake→entry Phase D/E** — unchanged, separately gated.
 
-## Required follow-up deploys (not performed in this pass)
+## Follow-up deploys — COMPLETED 2026-06-10 (close-out after merge)
 
-Edge Function source changed but was **not deployed**; deployed behavior is unchanged and remains compatible with the new clients (the deployed `post-date-verdict` already dispatches v3 when clients send `transition_version: "v3"`, which they now always do). When deploying deliberately:
+PR #1286 squash-merged to `main` as `93e73c9948bf2ffb3bb40327b9139b91e16290b1` with all CI checks green; the feature branch was deleted locally and remotely. Both changed Edge Functions were then deployed to project `schdyxcunwcvddlcshwd`:
 
-```bash
-npx supabase functions deploy post-date-verdict        # v3 coercion + single RPC path
-npx supabase functions deploy video-date-outbox-drainer # canonical kinds only
-```
+- `post-date-verdict` → active version `600`, updated 2026-06-10 18:51:03 UTC (v3 coercion + single RPC path)
+- `video-date-outbox-drainer` → active version `47`, updated 2026-06-10 18:52:33 UTC (canonical kinds only)
+
+Post-deploy alignment evidence: `supabase migration list --linked` shows local == remote through `20260610182520`; `supabase db push --linked --dry-run` returns "Remote database is up to date"; `npm run regen:supabase-types` reproduces the committed generated types byte-identically; parent workspace gitlink committed at the merge commit. The verdict v1/v2 RPC drop can now proceed after a release boundary (audit PR-6).
 
 ## Tests / contracts updated
 
