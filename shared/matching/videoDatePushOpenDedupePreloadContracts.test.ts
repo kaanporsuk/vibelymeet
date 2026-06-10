@@ -121,8 +121,8 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
 
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload\(data, 'native_click'/);
   assert.match(nativeDeepLink, /markNotificationOpenedV2FromPayload\(data\)/);
-  assert.match(nativeDeepLink, /useFeatureFlag\('video_date\.push_open_dedupe_v1'\)/);
-  assert.match(nativeDeepLink, /isFeatureFlagEnabledWithAlias\(multiDeviceDedupV2, pushOpenDedupeAliasV1\)/);
+  assert.match(nativeDeepLink, /useFeatureFlag\('video_date\.multi_device_dedup_v2'\)/);
+  assert.doesNotMatch(nativeDeepLink, /push_open_dedupe_v1|isFeatureFlagEnabledWithAlias/);
   assert.match(nativeDeepLink, /multiDeviceDedupEnabled && hasDispatchGroupPayload\(raw\)/);
   assert.match(nativeDeepLink, /allowOneShotSideEffects/);
   assert.match(nativeDeepLink, /NOTIFICATION_OPEN_ACK_TIMEOUT_MS = 1200/);

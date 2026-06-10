@@ -8782,62 +8782,6 @@ export type Database = {
       }
     }
     Views: {
-      v_event_loop_drain_events: {
-        Row: {
-          actor_id: string | null
-          created_at: string | null
-          detail: Json | null
-          detail_found: boolean | null
-          detail_queued: boolean | null
-          event_id: string | null
-          id: string | null
-          latency_ms: number | null
-          outcome: string | null
-          reason_code: string | null
-          session_id: string | null
-        }
-        Insert: {
-          actor_id?: string | null
-          created_at?: string | null
-          detail?: Json | null
-          detail_found?: never
-          detail_queued?: never
-          event_id?: string | null
-          id?: string | null
-          latency_ms?: number | null
-          outcome?: string | null
-          reason_code?: string | null
-          session_id?: string | null
-        }
-        Update: {
-          actor_id?: string | null
-          created_at?: string | null
-          detail?: Json | null
-          detail_found?: never
-          detail_queued?: never
-          event_id?: string | null
-          id?: string | null
-          latency_ms?: number | null
-          outcome?: string | null
-          reason_code?: string | null
-          session_id?: string | null
-        }
-        Relationships: []
-      }
-      v_event_loop_drain_outcomes_hourly: {
-        Row: {
-          avg_latency_ms: number | null
-          bucket_utc: string | null
-          n: number | null
-          n_found_true: number | null
-          n_queued_wait: number | null
-          outcome: string | null
-          p50_latency_ms: number | null
-          p95_latency_ms: number | null
-          reason_code: string | null
-        }
-        Relationships: []
-      }
       v_event_loop_expire_activity_hourly: {
         Row: {
           avg_latency_ms: number | null

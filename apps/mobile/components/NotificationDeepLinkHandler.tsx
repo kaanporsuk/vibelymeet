@@ -47,7 +47,6 @@ import { classifyPushDeepLink, recordPushDeliveryTelemetry } from '@/lib/pushDel
 import { resolveNotificationActionRoute } from '@/lib/notificationActions';
 import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from '@/lib/notificationDispatchAck';
 import { preloadVideoDatePushTargetsFromPayload } from '@/lib/videoDatePushPreload';
-import { isFeatureFlagEnabledWithAlias } from '@clientShared/featureFlags/featureFlagAliasResolution';
 import {
   normalizeNotificationAppPath,
   normalizeNotificationRouteSegment,
@@ -614,11 +613,7 @@ export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
   const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
   const multiDeviceDedupV2 = useFeatureFlag('video_date.multi_device_dedup_v2');
-  const pushOpenDedupeAliasV1 = useFeatureFlag('video_date.push_open_dedupe_v1');
-  const multiDeviceDedupEnabled = useMemo(
-    () => isFeatureFlagEnabledWithAlias(multiDeviceDedupV2, pushOpenDedupeAliasV1),
-    [multiDeviceDedupV2, pushOpenDedupeAliasV1],
-  );
+  const multiDeviceDedupEnabled = multiDeviceDedupV2.enabled;
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
   const entryReady = isEntryReadyForNotificationDeepLink(

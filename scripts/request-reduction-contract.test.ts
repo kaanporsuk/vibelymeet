@@ -9,7 +9,7 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
-test("active session hydration is coalesced and EventLobby can use the provider owner", () => {
+test("active session hydration is coalesced with a single lobby hydration owner", () => {
   const useActiveSession = read("src/hooks/useActiveSession.ts");
   const sessionContext = read("src/contexts/SessionHydrationContext.tsx");
   const eventLobby = read("src/pages/EventLobby.tsx");
@@ -18,12 +18,13 @@ test("active session hydration is coalesced and EventLobby can use the provider 
   assert.match(useActiveSession, /checkInFlightRef/);
   assert.match(useActiveSession, /checkQueuedRef/);
   assert.match(useActiveSession, /enabled\s*=\s*options\?\.enabled\s*\?\?\s*true/);
-  assert.match(useActiveSession, /get_active_session_context/);
-  assert.match(sessionContext, /useEventActiveSession/);
-  assert.match(eventLobby, /useEventActiveSession\(eventId\)/);
-  assert.match(eventLobby, /enabled:\s*!singleOwnerActiveSessionEnabled/);
-  assert.match(runtimeFlags, /VITE_ACTIVE_SESSION_SINGLE_OWNER[\s\S]{0,120}false/);
-  assert.doesNotMatch(eventLobby, /useActiveSession\(user\?\.id,\s*\{\s*eventId\s*\}\)/);
+  // The dual-hydration / shadow-context experiment is removed: one hydration
+  // owner in the lobby, no runtime-flag-selected alternates.
+  assert.doesNotMatch(useActiveSession, /get_active_session_context|ContextShadow|shadowCompareKeyRef/);
+  assert.doesNotMatch(sessionContext, /useEventActiveSession/);
+  assert.match(eventLobby, /useActiveSession\(user\?\.id,\s*\{\s*eventId\s*\}\)/);
+  assert.doesNotMatch(eventLobby, /useEventActiveSession|singleOwnerActiveSessionEnabled|isActiveSessionSingleOwnerEnabled/);
+  assert.doesNotMatch(runtimeFlags, /ACTIVE_SESSION_SINGLE_OWNER|ACTIVE_SESSION_CONTEXT_SHADOW/);
 });
 
 test("focused web hot-path count queries no longer use HEAD or queue hints", () => {

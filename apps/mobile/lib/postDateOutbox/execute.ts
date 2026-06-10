@@ -48,7 +48,7 @@ function bodyForItem(item: PostDateOutboxItem): Record<string, unknown> {
     liked: item.payload.liked,
     idempotency_key: item.id,
     safety_report: item.payload.report ?? null,
-    transition_version: item.payload.backendVersion ?? 'v2',
+    transition_version: 'v3',
   };
 }
 

@@ -124,9 +124,7 @@ export const PostDateSurvey = ({
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
   const microVerdictV2 = useFeatureFlag("video_date.micro_verdict_v2");
-  const submitVerdictV3 = useFeatureFlag("video_date.outbox_v2.submit_verdict");
   const verdictConfirmV2 = useFeatureFlag("video_date.verdict_confirm_v2");
-  const verdictConfirmV1 = useFeatureFlag("video_date.verdict_confirm_v1");
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -158,8 +156,8 @@ export const PostDateSurvey = ({
   const verdictOpenedAtMsRef = useRef(Date.now());
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
   const verdictConfirmEnabled = useMemo(
-    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2, verdictConfirmV1),
-    [verdictConfirmV1, verdictConfirmV2],
+    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2),
+    [verdictConfirmV2],
   );
 
   useEffect(() => {
@@ -691,7 +689,6 @@ export const PostDateSurvey = ({
           payload: {
             kind: "verdict",
             liked,
-            backendVersion: submitVerdictV3.enabled ? "v3" : "v2",
           },
         });
 
@@ -802,7 +799,6 @@ export const PostDateSurvey = ({
       verdictUiState,
       logJourney,
       verdictConfirmEnabled,
-      submitVerdictV3.enabled,
       waitForVerdictConfirmation,
       applyConfirmedVerdictStep,
       confirmActorFeedbackRow,
@@ -820,7 +816,6 @@ export const PostDateSurvey = ({
           kind: "verdict",
           liked: false,
           report: report ?? null,
-          backendVersion: submitVerdictV3.enabled ? "v3" : "v2",
         },
       });
       if (result.success === false) {
@@ -862,7 +857,6 @@ export const PostDateSurvey = ({
       confirmActorFeedbackRow,
       eventId,
       sessionId,
-      submitVerdictV3.enabled,
       user?.id,
       verdictConfirmEnabled,
       waitForVerdictConfirmation,

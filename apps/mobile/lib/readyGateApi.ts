@@ -231,16 +231,13 @@ export function useReadyGate(
 ) {
   const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
   const timelineV2 = useFeatureFlag('video_date.timeline_v2');
-  const readyGateResilientClockAlias = useFeatureFlag('video_date.ready_gate_resilient_clock_v1');
   const markReadyV2 = useFeatureFlag('video_date.outbox_v2.mark_ready');
   const forfeitV2 = useFeatureFlag('video_date.outbox_v2.forfeit');
   const readyGateClockEnabled = isReadyGateResilientClockEnabled({
     timelineV2Enabled: timelineV2.enabled,
-    aliasEnabled: readyGateResilientClockAlias.enabled,
   });
   const readyGateBroadcastEnabled = isReadyGateResilientBroadcastEnabled({
     broadcastV2Enabled: broadcastV2.enabled,
-    aliasEnabled: readyGateResilientClockAlias.enabled,
   });
   const [state, setState] = useState<ReadyGateState>(() => ({
     ...createInitialReadyGateState(),

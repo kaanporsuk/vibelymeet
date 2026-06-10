@@ -226,9 +226,7 @@ export function PostDateSurvey({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const microVerdictV2 = useFeatureFlag('video_date.micro_verdict_v2');
-  const submitVerdictV3 = useFeatureFlag('video_date.outbox_v2.submit_verdict');
   const verdictConfirmV2 = useFeatureFlag('video_date.verdict_confirm_v2');
-  const verdictConfirmV1 = useFeatureFlag('video_date.verdict_confirm_v1');
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
   const [verdictUiState, setVerdictUiState] = useState<PostDateVerdictUiState>('idle');
@@ -278,8 +276,8 @@ export function PostDateSurvey({
   const safetyReportInFlightRef = useRef(false);
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
   const verdictConfirmEnabled = useMemo(
-    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2, verdictConfirmV1),
-    [verdictConfirmV1, verdictConfirmV2],
+    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2),
+    [verdictConfirmV2],
   );
 
   const clearVerdictConfirmTimeout = useCallback(() => {
@@ -1019,7 +1017,6 @@ export function PostDateSurvey({
             kind: 'verdict',
             liked: false,
             report,
-            backendVersion: submitVerdictV3.enabled ? 'v3' : 'v2',
           },
         })
       : await onSubmitVerdict(false);

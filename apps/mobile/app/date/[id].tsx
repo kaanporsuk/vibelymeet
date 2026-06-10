@@ -1221,7 +1221,6 @@ export default function VideoDateScreen() {
     "video_date.outbox_v2.handshake_auto_promote",
   );
   const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
-  const submitVerdictV3 = useFeatureFlag("video_date.outbox_v2.submit_verdict");
   const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
   const extensionMutualV2 = useFeatureFlag("video_date.extension_mutual_v2");
   const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
@@ -12170,10 +12169,8 @@ export default function VideoDateScreen() {
 
   const handleSurveySubmit = useCallback(
     (liked: boolean) =>
-      submitVerdictAndCheckMutual(sessionId!, user!.id, partnerId, liked, {
-        submitVerdictV3: submitVerdictV3.enabled,
-      }),
-    [sessionId, user, partnerId, submitVerdictV3.enabled],
+      submitVerdictAndCheckMutual(sessionId!, user!.id, partnerId, liked),
+    [sessionId, user, partnerId],
   );
 
   const handleSurveyMutualMatch = useCallback(() => {

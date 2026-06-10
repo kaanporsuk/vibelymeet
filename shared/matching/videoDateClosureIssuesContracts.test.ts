@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import {
-  VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS,
-} from "../featureFlags/videoDateV4Flags";
 import {
   VIDEO_DATE_READINESS_PENDING_COPY,
   resolveVideoDateReadinessDiagnostic,
@@ -60,7 +57,6 @@ const phase8Runbook = readFileSync("docs/video-date-v4-phase8-certification-roll
 const monitoringRunbook = readFileSync("docs/video-date-post-release-monitoring-runbook.md", "utf8");
 const requiredCertificationTemplate = readFileSync("docs/video-date-required-certification-template.json", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
-const aliasHelper = readFileSync("shared/featureFlags/featureFlagAliasResolution.ts", "utf8");
 
 function sqlFunctionSection(source: string, functionName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${functionName}`;
@@ -334,36 +330,20 @@ test("handle_swipe_v2 does not use runtime media readiness as deck swipe eligibi
   assert.doesNotMatch(handleSwipeV2, /readiness_status|record_readiness_check_v2|camera|microphone/i);
 });
 
-test("canonical video-date rollout flags and compatibility aliases are documented and typed", () => {
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.readyGateResilientClock.canonical, [
-    "video_date.timeline_v2",
-    "video_date.broadcast_v2",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.readyGateResilientClock.aliases, [
+test("compatibility alias machinery is retired in favor of canonical v2 flags", () => {
+  // The v1 alias keys and the dual-read helper were removed 2026-06-10
+  // (docs/branch-deltas/video-date-simplification-top5.md). Canonical flags
+  // only; clients read .enabled directly.
+  assert.doesNotMatch(videoDateFlags, /VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS/);
+  for (const alias of [
     "video_date.ready_gate_resilient_clock_v1",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.pushOpenDedupe.canonical, [
-    "video_date.multi_device_dedup_v2",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.pushOpenDedupe.aliases, [
     "video_date.push_open_dedupe_v1",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.verdictConfirmation.canonical, [
-    "video_date.verdict_confirm_v2",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.verdictConfirmation.aliases, [
     "video_date.verdict_confirm_v1",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.deckOptimisticPolish.canonical, [
-    "video_date.deck_prefetch_polish_v2",
-  ]);
-  assert.deepEqual(VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS.deckOptimisticPolish.aliases, [
     "video_date.deck_optimistic_v1",
-  ]);
-  assert.match(videoDateFlags, /VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS/);
-  assert.match(aliasHelper, /canonical\?\.source === "kill_switched"/);
-  assert.match(phase8Runbook, /v1 names are compatibility aliases/);
-  assert.match(phase8Runbook, /canonical kill switch wins over an enabled alias/);
+  ]) {
+    assert.doesNotMatch(videoDateFlags, new RegExp(alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.equal(existsSync("shared/featureFlags/featureFlagAliasResolution.ts"), false);
 });
 
 test("required certification template keeps original acceptance criteria explicit", () => {

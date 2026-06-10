@@ -19,7 +19,7 @@ const flags = read("shared/featureFlags/videoDateV4Flags.ts");
 const packageJson = read("package.json");
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-test("Phase 5 seeds shared operational flags for all client surfaces", () => {
+test("Phase 5 operational flags stay seeded server-side and out of the client flag list", () => {
   for (const flag of [
     "video_date.outbox_lease_refresh_v2",
     "video_date.deadline_partial_unique_v2",
@@ -27,7 +27,9 @@ test("Phase 5 seeds shared operational flags for all client surfaces", () => {
     "video_date.circuit_breaker_v2",
   ]) {
     assert.match(migration, new RegExp(`'${escapeRegExp(flag)}', false, 0`));
-    assert.match(flags, new RegExp(`"${escapeRegExp(flag)}"`));
+    // These are read only by DB functions; they are intentionally not part of
+    // VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS.
+    assert.doesNotMatch(flags, new RegExp(`"${escapeRegExp(flag)}"`));
   }
 });
 

@@ -2,10 +2,6 @@ import {
   normalizeServerPostDateNextSurface,
   type ServerPostDateNextSurface,
 } from "./postDateContinuity";
-import {
-  isFeatureFlagEnabledWithAlias,
-  type FeatureFlagAliasLike,
-} from "../featureFlags/featureFlagAliasResolution";
 
 export const POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS = 2_500;
 
@@ -43,10 +39,9 @@ type VerdictBroadcastLike = {
 };
 
 export function isVideoDateVerdictConfirmEnabled(
-  v2: FeatureFlagAliasLike | null | undefined,
-  v1: FeatureFlagAliasLike | null | undefined,
+  v2: { enabled?: boolean } | null | undefined,
 ): boolean {
-  return isFeatureFlagEnabledWithAlias(v2, v1);
+  return v2?.enabled === true;
 }
 
 export function normalizePostDateVerdictConfirmationResult(

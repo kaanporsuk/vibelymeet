@@ -125,7 +125,6 @@ import {
   shouldSuppressVideoDateDeckProfile,
   type VideoDateDeckRecentSwipeEntry,
 } from "@clientShared/matching/videoDateDeckPrefetch";
-import { isFeatureFlagEnabledWithAlias } from "@clientShared/featureFlags/featureFlagAliasResolution";
 import {
   getSwipeFailureUserMessage,
   videoSessionIdFromSwipePayload,
@@ -336,11 +335,10 @@ function useCountdown(endTime: Date | null, enabled = true): string {
 }
 
 export default function EventLobbyScreen() {
-  const { eventId, pendingVideoSession, pendingMatch, postSurveyComplete } =
+  const { eventId, pendingVideoSession, postSurveyComplete } =
     useLocalSearchParams<{
       eventId: string;
       pendingVideoSession?: string;
-      pendingMatch?: string;
       postSurveyComplete?: string | string[];
     }>();
   const insets = useSafeAreaInsets();
@@ -482,16 +480,8 @@ export default function EventLobbyScreen() {
   const deckPrefetchPolishV2 = useFeatureFlag(
     "video_date.deck_prefetch_polish_v2",
   );
-  const deckOptimisticAliasV1 = useFeatureFlag("video_date.deck_optimistic_v1");
   const lobbyTimelineV2 = useFeatureFlag("video_date.lobby_timeline_v2");
-  const deckPrefetchPolishEnabled = useMemo(
-    () =>
-      isFeatureFlagEnabledWithAlias(
-        deckPrefetchPolishV2,
-        deckOptimisticAliasV1,
-      ),
-    [deckOptimisticAliasV1, deckPrefetchPolishV2],
-  );
+  const deckPrefetchPolishEnabled = deckPrefetchPolishV2.enabled;
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const {
     activeSession: scopedSession,
@@ -646,19 +636,15 @@ export default function EventLobbyScreen() {
     const pendingA = Array.isArray(pendingVideoSession)
       ? pendingVideoSession[0]
       : pendingVideoSession;
-    const pendingB = Array.isArray(pendingMatch)
-      ? pendingMatch[0]
-      : pendingMatch;
     const nextParams = new URLSearchParams();
     if (pendingA) nextParams.set("pendingVideoSession", pendingA);
-    if (pendingB) nextParams.set("pendingMatch", pendingB);
     const nextQuery = nextParams.toString();
     router.replace(
       `${eventLobbyHref(id)}${nextQuery ? `?${nextQuery}` : ""}` as Href,
     );
     const tid = setTimeout(() => setPostSurveyLobbyBanner(false), 2000);
     return () => clearTimeout(tid);
-  }, [id, pendingMatch, pendingVideoSession, postSurveyComplete]);
+  }, [id, pendingVideoSession, postSurveyComplete]);
 
   useEffect(() => {
     if (!readyGateLobbyToast) return;
@@ -2103,17 +2089,11 @@ export default function EventLobbyScreen() {
     const a = Array.isArray(pendingVideoSession)
       ? pendingVideoSession[0]
       : pendingVideoSession;
-    const b = Array.isArray(pendingMatch) ? pendingMatch[0] : pendingMatch;
-    const pending =
-      typeof a === "string" && a
-        ? a
-        : typeof b === "string" && b
-          ? b
-          : undefined;
+    const pending = typeof a === "string" && a ? a : undefined;
     if (pending) {
       openReadyGateWithSession(pending, "pending_deep_link");
     }
-  }, [id, pendingVideoSession, pendingMatch, openReadyGateWithSession]);
+  }, [id, pendingVideoSession, openReadyGateWithSession]);
 
   useEffect(() => {
     if (id && user?.id && lobbySideEffectsEnabled)

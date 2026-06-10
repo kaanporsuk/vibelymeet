@@ -25,22 +25,6 @@ function readBooleanFlag(envName: string, storageKey: string, defaultValue: bool
   return defaultValue;
 }
 
-export function isActiveSessionSingleOwnerEnabled(): boolean {
-  return readBooleanFlag(
-    "VITE_ACTIVE_SESSION_SINGLE_OWNER",
-    "vibely.active_session_single_owner",
-    false,
-  );
-}
-
-export function isActiveSessionContextShadowEnabled(): boolean {
-  return readBooleanFlag(
-    "VITE_ACTIVE_SESSION_CONTEXT_SHADOW",
-    "vibely.active_session_context_shadow",
-    false,
-  );
-}
-
 export function isSpeedInsightsDateRouteSuppressed(): boolean {
   return readBooleanFlag(
     "VITE_SUPPRESS_SPEED_INSIGHTS_ON_DATE_ROUTE",

@@ -32,15 +32,3 @@ export function useSessionHydration() {
   }
   return ctx;
 }
-
-export function useEventActiveSession(eventId: string | null | undefined) {
-  const { activeSession, hydrated, refetch } = useSessionHydration();
-  const scopedSession =
-    hydrated && eventId && activeSession?.eventId === eventId ? activeSession : null;
-
-  return {
-    activeSession: scopedSession,
-    hydrated,
-    refetch,
-  };
-}

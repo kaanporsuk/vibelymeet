@@ -113,13 +113,13 @@ function runLocalChecks() {
   checkSource("src/hooks/useReadyGate.ts", [
     "ready_gate_transition",
     "video_date.outbox_v2.mark_ready",
-    "video_date.ready_gate_resilient_clock_v1",
+    "video_date.timeline_v2",
   ], "web Ready Gate hook");
 
   checkSource("apps/mobile/lib/readyGateApi.ts", [
     "ready_gate_transition",
     "video_date.outbox_v2.mark_ready",
-    "video_date.ready_gate_resilient_clock_v1",
+    "video_date.timeline_v2",
   ], "native Ready Gate hook");
 }
 

@@ -95,8 +95,7 @@ test("deck buffer and top-up rules remain the shipped 5/2 server-dealt contract"
 test("web and native lobbies prefetch leading deck media, track paint/cache/top-up, and refetch stale deck state", () => {
   for (const source of [webLobby, nativeLobby]) {
     assert.match(source, /useFeatureFlag\(\s*["']video_date\.deck_prefetch_polish_v2["']\s*,?\s*\)/);
-    assert.match(source, /useFeatureFlag\(\s*["']video_date\.deck_optimistic_v1["']\s*,?\s*\)/);
-    assert.match(source, /isFeatureFlagEnabledWithAlias/);
+    assert.doesNotMatch(source, /deck_optimistic_v1|isFeatureFlagEnabledWithAlias/);
     assert.match(source, /getVideoDateDeckPrefetchItems\(sortedProfiles\)/);
     assert.match(source, /video_date_deck_prefetch_cache_hit/);
     assert.match(source, /video_date_deck_prefetch_cache_miss/);
@@ -270,15 +269,26 @@ test("historical match ETA hint was gated by the removed post-date instant-next 
 });
 
 test("new instant premium flags are default-off", () => {
-  for (const flag of [
+  const clientFlags = [
     "video_date.deck_prefetch_polish_v2",
     "video_date.lobby_timeline_v2",
     "video_date.daily_call_singleton_v2",
-    "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",
+  ];
+  // broadcast_batched_v2 is server-read only; deck_optimistic_v1 was a retired
+  // compatibility alias. Both stay seeded in the historical migrations but are
+  // no longer declared as client flags.
+  const seededButNotClient = [
+    "video_date.broadcast_batched_v2",
     "video_date.deck_optimistic_v1",
-  ]) {
+  ];
+  for (const flag of clientFlags) {
     assert.match(flags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  }
+  for (const flag of seededButNotClient) {
+    assert.doesNotMatch(flags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  }
+  for (const flag of [...clientFlags, ...seededButNotClient]) {
     assert.match(
       instantPremiumMigrations,
       new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'[\\s\\S]{0,120}false[\\s\\S]{0,40}0`),
