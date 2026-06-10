@@ -107,8 +107,8 @@ test("Phase 5 early-continue handshake is an explicit UX affordance on web and n
   }
   assert.match(webDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["']\s*,?\s*\)/);
   assert.match(nativeDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["']\s*,?\s*\)/);
-  assert.match(webDate, /video_session_continue_handshake_v2/);
-  assert.match(nativeVideoDateApi, /video_session_continue_handshake_v2/);
+  assert.match(webDate, /video_session_continue_entry_v2/);
+  assert.match(nativeVideoDateApi, /video_session_continue_entry_v2/);
   assert.match(webDate, /action === "vibe"[\s\S]+setShowMutualToast\(true\)/);
   assert.match(nativeDate, /action === ['"]vibe['"][\s\S]+setShowMutualToast\(true\)/);
 });

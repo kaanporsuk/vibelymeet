@@ -1154,7 +1154,7 @@ export async function recordEntryDecision(
       });
       const { data, error } =
         action === 'vibe' && options?.continueHandshakeV2 === true
-          ? await supabase.rpc('video_session_continue_handshake_v2' as never, {
+          ? await supabase.rpc('video_session_continue_entry_v2' as never, {
               p_session_id: args.p_session_id,
               p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
                 args.p_session_id,
@@ -1240,7 +1240,7 @@ export async function completeEntry(
   });
   vdbg('video_date_transition_before', { action: 'complete_handshake', args });
   const { data, error } = options?.handshakeAutoPromoteV2 === true
-    ? await supabase.rpc('video_session_handshake_auto_promote_v2' as never, {
+    ? await supabase.rpc('video_session_entry_auto_promote_v2' as never, {
         p_session_id: args.p_session_id,
         p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
           args.p_session_id,

@@ -64,6 +64,26 @@ A successful Video Date run means:
 
 ---
 
+## 2026-06-10 Implementation Update: handshake → entry, Phase B/C (additive DB compat + client readers)
+
+Delta: `docs/branch-deltas/handshake-to-entry-phase-bc.md`. **Additive and behavior-preserving** — nothing renamed or dropped.
+
+Phase B (deployed to `schdyxcunwcvddlcshwd` via `supabase db push`, migration `20260610130000_video_date_handshake_to_entry_compat.sql`):
+- `video_sessions.entry_started_at` / `entry_grace_expires_at` as `GENERATED ALWAYS AS (handshake_*) STORED` mirror columns (read-only, auto-synced, cannot desync).
+- Entry-named RPC wrappers delegating to the handshake functions (same signatures/grants): `video_session_entry_auto_promote_v2`, `video_session_continue_entry_v2`, `finalize_video_date_entry_deadline`, `expire_due_joined_video_date_entries_bounded`.
+- `video_date_transition` accepts `complete_entry` / `continue_entry` as aliases for `complete_handshake` / `continue_handshake` (old actions and the failsoft body unchanged).
+- Types regenerated.
+
+Phase C (client readers): migrated the client RPC call sites (`src/pages/VideoDate.tsx`, `apps/mobile/lib/videoDateApi.ts`) to the entry wrappers, exercising the compat over the real client→backend path; updated the client-code contract assertions. Feature flag (`video_date.outbox_v2.continue_handshake`) and transition action strings stay on handshake.
+
+Phase C Edge-Function migration **deferred deliberately**: it would be behavior-neutral (`entry_started_at` === `handshake_started_at`; `phase`/`state === 'handshake'` can't change until Phase D), would risk the output payload keys consumers depend on, and would require deploying `daily-room` and the other critical functions to production with no two-user verification — real risk for zero behavior benefit, and the handshake column is not dropped for several phases. Recommend doing it in lockstep with the column-drop/enum-rename phase behind a real e2e window.
+
+Verification: typecheck, lint, `test:video-date-v4`, `test:video-date:red-flags`, persistence test 18/18; `db push --dry-run` "Remote database is up to date".
+
+Proof boundary: additive compat, not Video Date acceptance. No two-user run was possible here.
+
+---
+
 ## 2026-06-10 Implementation Update: handshake → entry, Phase A (client vocabulary)
 
 First pass of the handshake → entry terminology migration: **client-facing TS identifiers only**, DB/wire unchanged. Audit map: `docs/branch-deltas/handshake-to-entry-audit.md`; delta: `docs/branch-deltas/handshake-to-entry-phase-a.md`.

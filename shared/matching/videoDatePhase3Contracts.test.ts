@@ -166,12 +166,12 @@ test("web and native route Phase 3 transitions behind the same default-off flags
     webVideoDate,
     /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["'],?\s*\)/,
   );
-  assert.match(webVideoDate, /video_session_continue_handshake_v2/);
+  assert.match(webVideoDate, /video_session_continue_entry_v2/);
   assert.match(webVideoDate, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+["']continue_handshake["']/);
   assert.match(webVideoDate, /supabase\.rpc\("video_date_transition", args\)/);
 
   assert.match(nativeVideoDateApi, /continueHandshakeV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /video_session_continue_handshake_v2/);
+  assert.match(nativeVideoDateApi, /video_session_continue_entry_v2/);
   assert.match(nativeVideoDateApi, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+['"]continue_handshake['"]/);
   assert.match(nativeVideoDateApi, /supabase\.rpc\('video_date_transition', args\)/);
   assert.match(

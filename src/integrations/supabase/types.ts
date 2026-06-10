@@ -8506,6 +8506,8 @@ export type Database = {
           duration_seconds: number | null
           ended_at: string | null
           ended_reason: string | null
+          entry_grace_expires_at: string | null
+          entry_started_at: string | null
           event_id: string
           handshake_grace_expires_at: string | null
           handshake_started_at: string | null
@@ -8573,6 +8575,8 @@ export type Database = {
           duration_seconds?: number | null
           ended_at?: string | null
           ended_reason?: string | null
+          entry_grace_expires_at?: string | null
+          entry_started_at?: string | null
           event_id: string
           handshake_grace_expires_at?: string | null
           handshake_started_at?: string | null
@@ -8640,6 +8644,8 @@ export type Database = {
           duration_seconds?: number | null
           ended_at?: string | null
           ended_reason?: string | null
+          entry_grace_expires_at?: string | null
+          entry_started_at?: string | null
           event_id?: string
           handshake_grace_expires_at?: string | null
           handshake_started_at?: string | null
@@ -11487,6 +11493,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      expire_due_joined_video_date_entries_bounded: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       expire_due_joined_video_date_handshakes_bounded: {
         Args: { p_limit?: number }
         Returns: Json
@@ -11578,6 +11588,15 @@ export type Database = {
         Returns: Json
       }
       finalize_vd_handshake_deadline_20260605115657_base: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
+      finalize_video_date_entry_deadline: {
         Args: {
           p_actor?: string
           p_reason?: string
@@ -14253,6 +14272,14 @@ export type Database = {
         }
         Returns: Json
       }
+      video_session_continue_entry_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       video_session_continue_handshake_v2: {
         Args: {
           p_idempotency_key?: string
@@ -14270,6 +14297,14 @@ export type Database = {
         Returns: Json
       }
       video_session_date_timeout_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_entry_auto_promote_v2: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string

@@ -4314,7 +4314,9 @@ const VideoDate = () => {
             const { data, error } =
               action === "vibe" && continueHandshakeV2.enabled
                 ? await supabase.rpc(
-                    "video_session_continue_handshake_v2" as never,
+                    // Phase C: entry-vocabulary wrapper (delegates to the legacy
+                    // video_session_continue_handshake_v2).
+                    "video_session_continue_entry_v2" as never,
                     {
                       p_session_id: args.p_session_id,
                       p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
@@ -4597,7 +4599,9 @@ const VideoDate = () => {
         });
         const { data: result, error } = handshakeAutoPromoteV2.enabled
           ? await supabase.rpc(
-              "video_session_handshake_auto_promote_v2" as never,
+              // Phase C: entry-vocabulary wrapper (delegates to the legacy
+              // video_session_handshake_auto_promote_v2).
+              "video_session_entry_auto_promote_v2" as never,
               {
                 p_session_id: args.p_session_id,
                 p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
