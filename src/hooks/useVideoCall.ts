@@ -4290,7 +4290,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   );
 
   const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
-    const { data, error } = await fetchVideoDateSessionRow(sessionId);
+    const { data, error } = await fetchVideoDateSessionRow(sessionId, { fresh: true });
     return {
       truth: (data as VideoDateTruthRow | null) ?? null,
       error,

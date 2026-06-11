@@ -87,12 +87,20 @@ const SESSION_ROW_REUSE_MS = 300;
 const rowInFlight = new Map<string, Promise<VideoDateSessionRowResult>>();
 const rowRecent = new Map<string, { at: number; result: VideoDateSessionRowResult }>();
 
+// options.fresh bypasses the 300ms reuse window for one-shot terminal/recovery
+// truth reads (review P2 on PR #1292): a recovery decision must never act on a
+// pre-terminal row another mount-path reader cached moments earlier. Fresh
+// reads still coalesce with an in-flight request (it is hitting the DB now)
+// and refresh the memo for mount-path readers.
 export async function fetchVideoDateSessionRow(
   sessionId: string,
+  options?: { fresh?: boolean },
 ): Promise<VideoDateSessionRowResult> {
-  const recent = rowRecent.get(sessionId);
-  if (recent && Date.now() - recent.at <= SESSION_ROW_REUSE_MS) {
-    return recent.result;
+  if (!options?.fresh) {
+    const recent = rowRecent.get(sessionId);
+    if (recent && Date.now() - recent.at <= SESSION_ROW_REUSE_MS) {
+      return recent.result;
+    }
   }
 
   const existing = rowInFlight.get(sessionId);

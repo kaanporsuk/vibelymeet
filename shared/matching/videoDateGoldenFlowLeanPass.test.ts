@@ -116,6 +116,12 @@ test("date-path session row reads go through the single-owner coalescing reader"
   const reader = read("src/lib/videoDateSessionRow.ts");
   assert.match(reader, /VIDEO_DATE_SESSION_ROW_COLUMNS/);
   assert.match(reader, /SESSION_ROW_REUSE_MS = 300/);
+  // Recovery/terminal truth reads must bypass the reuse window (PR #1292 P2).
+  assert.match(reader, /options\?\.fresh/);
+  assert.match(
+    read("src/hooks/useVideoCall.ts"),
+    /fetchVideoDateSessionRow\(sessionId, \{ fresh: true \}\)/,
+  );
   for (const path of [
     "src/components/session/SessionRouteHydration.tsx",
     "src/components/video-date/IceBreakerCard.tsx",
