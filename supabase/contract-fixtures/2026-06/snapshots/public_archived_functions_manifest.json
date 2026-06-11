@@ -1,0 +1,457 @@
+[
+    {
+        "proname": "claim_video_date_surface_20260604093000_failsoft_base",
+        "args": "p_session_id uuid, p_surface text, p_client_instance_id text, p_takeover boolean, p_ttl_seconds integer",
+        "def_md5": "edd1cce576e48b6c18f6c9bf127ec3e4"
+    },
+    {
+        "proname": "claim_video_date_surface_20260605170249_outer_base",
+        "args": "p_session_id uuid, p_surface text, p_client_instance_id text, p_takeover boolean, p_ttl_seconds integer",
+        "def_md5": "5b17edcfb3d20b5fde7fcf47e68bb5b4"
+    },
+    {
+        "proname": "claim_video_date_surface_20260605232304_single_owner_base",
+        "args": "p_session_id uuid, p_surface text, p_client_instance_id text, p_takeover boolean, p_ttl_seconds integer",
+        "def_md5": "12326eb58ed90d35fccceb7b5f3fd5df"
+    },
+    {
+        "proname": "claim_video_date_surface_20260607155414_lifecycle_base",
+        "args": "p_session_id uuid, p_surface text, p_client_instance_id text, p_takeover boolean, p_ttl_seconds integer",
+        "def_md5": "9d80bd1434ba36fa327f783689ce58af"
+    },
+    {
+        "proname": "claim_video_date_surface_20260608080938_last_resort_base",
+        "args": "p_session_id uuid, p_surface text, p_client_instance_id text, p_takeover boolean, p_ttl_seconds integer",
+        "def_md5": "dfaf86b31bee3fe8dcf9b057700600e5"
+    },
+    {
+        "proname": "confirm_vde_prepared_202605031300_base",
+        "args": "p_session_id uuid, p_room_name text, p_room_url text, p_entry_attempt_id text",
+        "def_md5": "1fbca0a862fef5fb8d0becfdbfd16452"
+    },
+    {
+        "proname": "date_suggestion_apply_legacy_dispatch_20260512",
+        "args": "p_action text, p_payload jsonb",
+        "def_md5": "c5ec4b503a67be004f4484c4753865c3"
+    },
+    {
+        "proname": "date_suggestion_apply_v2_legacy_dispatch_20260512",
+        "args": "p_action text, p_payload jsonb",
+        "def_md5": "84c5b4fe9a24042ce5dec850b4df22e0"
+    },
+    {
+        "proname": "date_suggestion_apply_v2_stale_window_dispatch_20260517",
+        "args": "p_action text, p_payload jsonb",
+        "def_md5": "7fbf536cbcaff9357eedf0e5963da0ac"
+    },
+    {
+        "proname": "expire_stale_video_sessions_20260501103000_unbounded",
+        "args": "",
+        "def_md5": "a89c3cc6e28e9016ebe8b467613b9134"
+    },
+    {
+        "proname": "expire_stale_video_sessions_bounded_202605031300_base",
+        "args": "p_limit integer",
+        "def_md5": "40c59efb04b6217dbe0096bffe82ca8d"
+    },
+    {
+        "proname": "expire_stale_vsessions_bounded_202605060900_base",
+        "args": "p_limit integer",
+        "def_md5": "ac60b5acfe9e640673fe63127ac5bd2f"
+    },
+    {
+        "proname": "expire_stale_vsessions_bounded_202605232020_base",
+        "args": "p_limit integer",
+        "def_md5": "4f4caa2732a22b9a02bfd2458fb235e6"
+    },
+    {
+        "proname": "expire_vd_phases_base_20260501133000",
+        "args": "p_limit integer",
+        "def_md5": "c0b5a76974278787a26c7993f6098e8f"
+    },
+    {
+        "proname": "expire_vd_phases_base_20260502143000",
+        "args": "p_limit integer",
+        "def_md5": "39b049625597e2874b2a32ce11d2c2de"
+    },
+    {
+        "proname": "expire_vd_reconnect_graces_202606071031_base",
+        "args": "",
+        "def_md5": "d526ede6b48c450fef6312fcf42ee021"
+    },
+    {
+        "proname": "finalize_vd_handshake_deadline_20260603090000_base",
+        "args": "p_session_id uuid, p_actor uuid, p_source text, p_reason text",
+        "def_md5": "c0b8b310812addbd603ed7a8b3c4ad76"
+    },
+    {
+        "proname": "finalize_vd_handshake_deadline_20260605085010_base",
+        "args": "p_session_id uuid, p_actor uuid, p_source text, p_reason text",
+        "def_md5": "106a0df75880dac650e3ed97d29b6f7a"
+    },
+    {
+        "proname": "finalize_vd_handshake_deadline_20260605115657_base",
+        "args": "p_session_id uuid, p_actor uuid, p_source text, p_reason text",
+        "def_md5": "0ee1fe64362e02000998e7fb893d71f0"
+    },
+    {
+        "proname": "finalize_video_date_handshake_deadline_20260603215948_handoff_b",
+        "args": "p_session_id uuid, p_actor uuid, p_source text, p_reason text",
+        "def_md5": "fb4b25dcb6ca7a232bd96b264dc1e156"
+    },
+    {
+        "proname": "get_event_deck_20260501180000_active_base",
+        "args": "p_event_id uuid, p_user_id uuid, p_limit integer",
+        "def_md5": "a8d7bb28627b6198ec3b95356e4c08f9"
+    },
+    {
+        "proname": "get_or_seed_video_session_vibe_questions_20260607155414_lifecyc",
+        "args": "p_session_id uuid, p_questions jsonb",
+        "def_md5": "42d7dd33e770569879d97e301f6de69c"
+    },
+    {
+        "proname": "get_profile_for_viewer_20260603150106_start_base",
+        "args": "p_target_id uuid",
+        "def_md5": "f5396ad917de84a1e64573ac45c4c10e"
+    },
+    {
+        "proname": "get_video_date_sprint7_ops_health_20260610000100_auto_next_base",
+        "args": "p_event_id uuid",
+        "def_md5": "feff8622f793c39bfe02913d7c09d9c7"
+    },
+    {
+        "proname": "handle_swipe_20260501180000_active_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "a3630cd1e87d68056206acbd50c0b963"
+    },
+    {
+        "proname": "handle_swipe_20260501210000_idempotency_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "010b48f2fbfd770e81ec7d21bdea81bc"
+    },
+    {
+        "proname": "handle_swipe_20260502083000_ready_queue_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "375587db399f24b18488bb05405fa188"
+    },
+    {
+        "proname": "handle_swipe_20260503090000_encounter_guard_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "07abd08bb7abfaf29e18e35c904ca156"
+    },
+    {
+        "proname": "handle_swipe_20260505220000_queued_browse_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "a30be73fd9fdeaeba1e0dde31fe7992b"
+    },
+    {
+        "proname": "handle_swipe_20260506090000_stale_room_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "bd589b3ed8682d987d3a0c52e2538690"
+    },
+    {
+        "proname": "handle_swipe_20260507190000_tier_authority_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "f79584e275871f00d558559feec1915d"
+    },
+    {
+        "proname": "handle_swipe_20260508140000_block_race_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "7386a70148357c196980c480822239a8"
+    },
+    {
+        "proname": "handle_swipe_20260601183000_deck_authority_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "c320cf4c548212d952aacb75db893c5e"
+    },
+    {
+        "proname": "handle_swipe_20260607103000_mutual_match_source_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "2a663e46adad38920e09a4eb0b218240"
+    },
+    {
+        "proname": "handle_swipe_20260610000100_auto_next_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text",
+        "def_md5": "d44a7f2a480c372834367543227c1840"
+    },
+    {
+        "proname": "handle_swipe_v2_20260607103000_actor_bound_base",
+        "args": "p_event_id uuid, p_actor_id uuid, p_target_id uuid, p_swipe_type text, p_deck_token text",
+        "def_md5": "c8605769cb4bfecc79f1dc85517d5906"
+    },
+    {
+        "proname": "mark_video_date_daily_alive_20260607155414_lifecycle_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "03675260cd5bffe15f54844502d23a1a"
+    },
+    {
+        "proname": "mark_video_date_daily_alive_20260607222923_definitive_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "e6646e8788f92042346dd3939d932c3a"
+    },
+    {
+        "proname": "mark_video_date_daily_alive_20260608080938_last_resort_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "41562ed6fb7961bccdf724a0c08e50dd"
+    },
+    {
+        "proname": "mark_video_date_daily_joined_20260604093000_failsoft_base",
+        "args": "p_session_id uuid",
+        "def_md5": "58a9d625dd6e36cc983dc8399e0bd972"
+    },
+    {
+        "proname": "mark_video_date_daily_joined_20260605170249_outer_base",
+        "args": "p_session_id uuid",
+        "def_md5": "5eb2062d0d9cc3825a1ad51c6b5afc24"
+    },
+    {
+        "proname": "mark_video_date_daily_joined_20260607155414_lifecycle_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "e3bd8f8ef26af2fa150b0bd79ffe3a10"
+    },
+    {
+        "proname": "mark_video_date_daily_joined_20260607222923_definitive_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "f8c23f130e615bd21639230154ab3ea5"
+    },
+    {
+        "proname": "mark_video_date_daily_joined_20260608080938_last_resort_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "456cb578707671daebe61d2d4176efa9"
+    },
+    {
+        "proname": "mark_video_date_daily_joined_20260609105249_active_entry_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "ec75e17eb3b2ea7ad51c1ee950d193bd"
+    },
+    {
+        "proname": "mark_video_date_remote_seen_20260605115657_base",
+        "args": "p_session_id uuid",
+        "def_md5": "46013269a15ee4981ceddcdd742a52c6"
+    },
+    {
+        "proname": "mark_video_date_remote_seen_20260605170249_outer_base",
+        "args": "p_session_id uuid",
+        "def_md5": "8e5e9c9983817016828abf95927793eb"
+    },
+    {
+        "proname": "mark_video_date_remote_seen_20260605200729_grace_base",
+        "args": "p_session_id uuid",
+        "def_md5": "4ac6f87629953ef108a78d75273b54ae"
+    },
+    {
+        "proname": "mark_video_date_remote_seen_20260607155414_lifecycle_base",
+        "args": "p_session_id uuid",
+        "def_md5": "66a23ff048551fd71801a914e901c172"
+    },
+    {
+        "proname": "mark_video_date_remote_seen_20260608120000_provider_base",
+        "args": "p_session_id uuid",
+        "def_md5": "b87c8924d9d82324e5519785e910f49f"
+    },
+    {
+        "proname": "ready_gate_transition_20260501135000_observability_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "dd20cabdd611c13bdefe5501c863efba"
+    },
+    {
+        "proname": "ready_gate_transition_20260501170000_both_ready_grace_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "5e4ca874bdc50b1f9d28003bd16bc6b4"
+    },
+    {
+        "proname": "ready_gate_transition_20260501190000_expiry_rowcount_prior",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "63e09b16e19947635e2896679b254c99"
+    },
+    {
+        "proname": "ready_gate_transition_20260501200000_event_inactive_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "c70e02d61ac4b3539b4e47af0e2004a2"
+    },
+    {
+        "proname": "ready_gate_transition_20260505203000_registration_desync_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "76ef6ced181473d19826d306e781ac48"
+    },
+    {
+        "proname": "ready_gate_transition_20260505214500_result_status_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "89fae3d419727188086b2fbb05a61898"
+    },
+    {
+        "proname": "ready_gate_transition_20260524120000_clock_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "df770554bd22c9642c8d36b8f9c57b35"
+    },
+    {
+        "proname": "ready_gate_transition_20260602231752_57014_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "bebb041496ceaced17532dce3cbd8adc"
+    },
+    {
+        "proname": "ready_gate_transition_20260603150106_start_snapshot_base",
+        "args": "p_session_id uuid, p_action text, p_reason text",
+        "def_md5": "ea0cf047bff1ad92d603e2b7af1dc696"
+    },
+    {
+        "proname": "record_vd_daily_webhook_v2_202606071031_base",
+        "args": "p_provider_event_id text, p_event_type text, p_room_name text, p_provider_participant_id text, p_provider_user_id text, p_occurred_at timestamp with time zone, p_payload jsonb, p_signature_timestamp timestamp with time zone",
+        "def_md5": "be5bf335e73920f3c7e4e8b3548c75e4"
+    },
+    {
+        "proname": "record_vd_launch_lat_20260609105249_active_base",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "cb6587e4ff7a3bf18d8ca80c9b37f71b"
+    },
+    {
+        "proname": "record_vd_launch_latency_202605061020_base",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "c6580e544ac9009a7a3db7d1b39d3b42"
+    },
+    {
+        "proname": "record_vd_launch_latency_202605220240_base",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "cba032bd9f47a257f9d1e6f19c8eb721"
+    },
+    {
+        "proname": "record_vd_launch_latency_202605252340_base",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "6598a010016e105f35dea74b80832e1e"
+    },
+    {
+        "proname": "record_vd_launch_latency_20260603150106_start_base",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "9f52b9f35f53e469881aaaf160244dc9"
+    },
+    {
+        "proname": "record_video_date_daily_webhook_event_v2_20260603215948_handoff",
+        "args": "p_provider_event_id text, p_event_type text, p_room_name text, p_provider_participant_id text, p_provider_user_id text, p_occurred_at timestamp with time zone, p_payload jsonb, p_signature_timestamp timestamp with time zone",
+        "def_md5": "0c6a5c67f9d5c0f4bbd350dd2d241137"
+    },
+    {
+        "proname": "record_video_date_daily_webhook_event_v2_20260604193140_latest_",
+        "args": "p_provider_event_id text, p_event_type text, p_room_name text, p_provider_participant_id text, p_provider_user_id text, p_occurred_at timestamp with time zone, p_payload jsonb, p_signature_timestamp timestamp with time zone",
+        "def_md5": "b8a747d4b15cce42cd786022a1125415"
+    },
+    {
+        "proname": "record_video_date_launch_latency_checkpoint_20260505214500_rpc_",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "60545620898cea60b3612005ceaf3310"
+    },
+    {
+        "proname": "register_for_event_20260601143000_terminal_base",
+        "args": "p_event_id uuid",
+        "def_md5": "29fcd835a8521b2591d743db66a39824"
+    },
+    {
+        "proname": "settle_event_ticket_checkout_20260523200000_phase2_base",
+        "args": "p_checkout_session_id text, p_profile_id uuid, p_event_id uuid",
+        "def_md5": "c549f2a14e1448cb98b303638dd18dca"
+    },
+    {
+        "proname": "settle_event_ticket_checkout_20260601143000_terminal_base",
+        "args": "p_checkout_session_id text, p_profile_id uuid, p_event_id uuid",
+        "def_md5": "57cf9495e47e1638925e84a4648509c7"
+    },
+    {
+        "proname": "submit_video_date_safety_report_v2_20260522011000_error_base",
+        "args": "p_session_id uuid, p_reason text, p_details text, p_also_block boolean, p_end_session boolean, p_idempotency_key text",
+        "def_md5": "f5f23a50201d2c440efe91e9143128bd"
+    },
+    {
+        "proname": "vd_claim_surface_20260609130139_hot_base",
+        "args": "p_session_id uuid, p_surface text, p_client_instance_id text, p_takeover boolean, p_ttl_seconds integer",
+        "def_md5": "8a7e21e0fb8d7a67a5159041870ddcc9"
+    },
+    {
+        "proname": "vd_daily_alive_20260609130139_hot_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "f1e9dff24d950bb1ee2eb30e8f9e3faf"
+    },
+    {
+        "proname": "vd_daily_joined_20260609130139_hot_base",
+        "args": "p_session_id uuid, p_owner_id text, p_call_instance_id text, p_provider_session_id text, p_entry_attempt_id text, p_owner_state text",
+        "def_md5": "14a5ccba9591590b9351ff3af788bf52"
+    },
+    {
+        "proname": "vd_launch_latency_20260609130139_hot_base",
+        "args": "p_session_id uuid, p_checkpoint text, p_payload jsonb, p_latency_ms integer",
+        "def_md5": "777c3759fd9a61381485e47c8d1142d1"
+    },
+    {
+        "proname": "vd_mark_ready_20260609130139_hot_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "a07a0b3ee9cf778b363eefb8cd399a74"
+    },
+    {
+        "proname": "vd_promote_ce_auth_20260605221535_base",
+        "args": "p_session_id uuid, p_actor uuid, p_source text, p_reason text, p_require_participant boolean",
+        "def_md5": "90abbbcf2e67159bf4a636eb3ac90182"
+    },
+    {
+        "proname": "vd_vibe_q_outer_20260605170249_base",
+        "args": "p_session_id uuid, p_questions jsonb",
+        "def_md5": "877638b6a27cb04eab4e6c0a6fe784b5"
+    },
+    {
+        "proname": "video_date_outbox_enqueue_v2_20260607103000_failsoft_base",
+        "args": "p_session_id uuid, p_kind text, p_payload jsonb, p_dedupe_key text, p_next_attempt_at timestamp with time zone",
+        "def_md5": "810c963628ac67b25b941fe971de7c01"
+    },
+    {
+        "proname": "video_session_continue_handshake_v2_20260603090000_remote_seen_",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "ac44c41e1bedbf77c173556cf19879fc"
+    },
+    {
+        "proname": "video_session_extend_date_v2_20260522011000_replay_base",
+        "args": "p_session_id uuid, p_credit_type text, p_idempotency_key text, p_request_hash text",
+        "def_md5": "27f75f6cfd5d88bbe9a840b256ec4e50"
+    },
+    {
+        "proname": "video_session_handshake_auto_promote_v2_20260603090000_remote_s",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "8967e64ef5163dc0f5f578251d7879ca"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260603150106_start_snapshot_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "217894d2f8e9b5443d4ff1ebd89a197f"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260604104154_grace_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "715998e389cca228cd3a00b396f62430"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260604131708_event_active_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "ce81cbf54e74e7139b322640cc8c20df"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260606212727_event_cleanup_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "fb08c716d2d76630a8971789af7787fe"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260607123952_routeable_entry_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "98ab55a78ea4b8797a1e7be2776ba143"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260608114500_review_comments_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "41b332f1670dd1ce00d9413fb359ca8d"
+    },
+    {
+        "proname": "video_session_mark_ready_v2_20260609105249_active_entry_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "1d43c0b565e7882605839fe2e5c22ef5"
+    },
+    {
+        "proname": "vs_handshake_auto_promote_20260605115657_base",
+        "args": "p_session_id uuid, p_idempotency_key text, p_request_hash text",
+        "def_md5": "44af12bf3779f17730e1ee46333d7488"
+    }
+]

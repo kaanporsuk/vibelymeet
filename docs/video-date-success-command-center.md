@@ -62,6 +62,17 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: Backend Truth Pin (Rebuild PR 1 of 10)
+
+First PR of the staged Video Date re-foundation. No behavior change, no migrations, no Edge deploys: this pins the current observable backend contract so every later rebuild PR can prove behavior preservation against live truth instead of migration history.
+
+- **Live contract fixtures:** `supabase/contract-fixtures/2026-06/` now holds raw `pg_get_functiondef()` dumps of all 25 `private_video_date.vdt_*` functions and 16 public RPC heads (the 14 canonical heads plus `video_session_forfeit_v2` / `video_session_date_timeout_v2`, which front the forfeit and date-timeout flows), captured 2026-06-11 from linked project `schdyxcunwcvddlcshwd`. Snapshots pin the 91 dated archived public functions (name + args + body md5), all live `cron.job` rows, the 4 `video_sessions` triggers, and the `video_sessions` column list. The fixtures README marks the directory reference-only and never executable.
+- **Vocabulary truth correction:** `forfeit` is not a `video_date_transition` action — `video_session_forfeit_v2` normalizes the reason vocabulary and delegates to `ready_gate_transition(p_session_id, 'forfeit', ...)`; `date_timeout` reaches the backend as `video_session_date_timeout_v2` (flag-gated) or `video_date_transition('end', reason 'date_timeout')` fallback. `ready_gate_transition` still delegates to dated archive `ready_gate_transition_20260603150106_start_snapshot_base`, so the archived-function manifest is load-bearing, not dead inventory.
+- **New pinned contracts:** `shared/matching/videoDateBackendTruthPinContracts.test.ts` (17 tests, fixture-backed: transition head aliases + `ENTER_HANDSHAKE_REMOVED` rejection, prepare-entry 90s lease layer, forfeit/date-timeout v2 command semantics, the three evidence RPC payloads incl. render-evidence vocabulary, claim/release surface, `ready_gate_transition('sync')` fast path + mark_ready bridge, `video_session_mark_ready_v2` shells, verdict v3 idempotency/terminal/command result, confirm-prepared lease clearing, deadline-head delegation map) is wired into both `test:video-date-v4` and `test:video-date:red-flags`. `supabase/functions/daily-room/dailyRoomContracts.test.ts` gains 3 service-path ordering pins (actionability precheck → `prepare_entry` transition → service-client `confirm_video_date_entry_prepared` → token mint; retryable→409 typed rejection mapping).
+- **Verification:** new suite 17/17, daily-room contract 13/13; full battery results recorded in the PR description.
+
+This is contract pinning, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
 ## 2026-06-11 Implementation Update: Native Phase Ownership Single Prepare Owner
 
 Current source now enforces the single prepare-owner model across the remaining native handoff gaps. Branch delta: `docs/branch-deltas/video-date-phase-ownership-single-owner.md`.

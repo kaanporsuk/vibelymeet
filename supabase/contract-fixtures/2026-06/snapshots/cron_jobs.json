@@ -1,0 +1,198 @@
+[
+    {
+        "jobid": 4,
+        "jobname": "event-reminders-enqueue",
+        "schedule": "* * * * *",
+        "command": "SELECT public.send_event_reminders()",
+        "active": true
+    },
+    {
+        "jobid": 6,
+        "jobname": "date-suggestion-expiry-every-15m",
+        "schedule": "*/15 * * * *",
+        "command": "\n  select\n    net.http_post(\n      url := (select decrypted_secret\n              from vault.decrypted_secrets\n              where name = 'project_url')\n             || '/functions/v1/date-suggestion-expiry',\n      headers := jsonb_build_object(\n        'Content-type', 'application/json',\n        'Authorization', 'Bearer ' || (\n          select decrypted_secret\n          from vault.decrypted_secrets\n          where name = 'date_suggestion_cron_secret'\n        )\n      ),\n      body := '{}'::jsonb\n    ) as request_id;\n  ",
+        "active": true
+    },
+    {
+        "jobid": 12,
+        "jobname": "waitlist-promotion-notify-queue",
+        "schedule": "* * * * *",
+        "command": "\n      SELECT net.http_post(\n        url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))\n          || '/functions/v1/process-waitlist-promotion-notify-queue',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))\n        ),\n        body := '{}'::jsonb\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 14,
+        "jobname": "expire-stale-video-sessions",
+        "schedule": "* * * * *",
+        "command": "SELECT public.expire_stale_video_sessions()",
+        "active": true
+    },
+    {
+        "jobid": 18,
+        "jobname": "media-delete-worker-every-15m",
+        "schedule": "*/15 * * * *",
+        "command": "\n  SELECT net.http_post(\n    url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))\n      || '/functions/v1/process-media-delete-jobs',\n    headers := jsonb_build_object(\n      'Content-Type', 'application/json',\n      'Authorization', 'Bearer ' || trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))\n    ),\n    body := '{\"batch_size\": 200}'::jsonb\n  );\n  ",
+        "active": true
+    },
+    {
+        "jobid": 21,
+        "jobname": "post-date-half-verdict-timeout-detection",
+        "schedule": "17 * * * *",
+        "command": "SELECT public.detect_post_date_half_verdict_timeouts(interval '24 hours', 100)",
+        "active": true
+    },
+    {
+        "jobid": 22,
+        "jobname": "post-date-verdict-reminders",
+        "schedule": "*/5 * * * *",
+        "command": "\n          SELECT net.http_post(\n            url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))\n              || '/functions/v1/post-date-verdict-reminders',\n            headers := jsonb_build_object(\n              'Content-Type', 'application/json',\n              'Authorization', 'Bearer ' || trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))\n            ),\n            body := '{}'::jsonb\n          );\n          ",
+        "active": true
+    },
+    {
+        "jobid": 24,
+        "jobname": "video-date-room-cleanup",
+        "schedule": "* * * * *",
+        "command": "\n      SELECT net.http_post(\n        url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))\n          || '/functions/v1/video-date-room-cleanup',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))\n        ),\n        body := '{}'::jsonb\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 25,
+        "jobname": "daily-room-keepwarm",
+        "schedule": "*/5 * * * *",
+        "command": "\n    SELECT net.http_post(\n      url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))\n        || '/functions/v1/daily-room',\n      headers := jsonb_build_object(\n        'Content-Type', 'application/json',\n        'Authorization', 'Bearer ' || trim((\n          SELECT decrypted_secret\n          FROM vault.decrypted_secrets\n          WHERE name IN ('anon_key', 'supabase_anon_key', 'service_role_key')\n          ORDER BY CASE name\n            WHEN 'anon_key' THEN 1\n            WHEN 'supabase_anon_key' THEN 2\n            ELSE 3\n          END\n          LIMIT 1\n        )),\n        'x-cron-secret', trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))\n      ),\n      body := jsonb_build_object('action', 'health_ping', 'source', 'pg_cron_keepwarm')\n    );\n    ",
+        "active": true
+    },
+    {
+        "jobid": 27,
+        "jobname": "event-lifecycle-auto-finalize",
+        "schedule": "* * * * *",
+        "command": "SELECT public.finalize_due_events(100, now())",
+        "active": true
+    },
+    {
+        "jobid": 28,
+        "jobname": "event-reminders-sweep-stale-claims",
+        "schedule": "* * * * *",
+        "command": "SELECT public.unclaim_stale_event_reminder_queue_rows(120, 500)",
+        "active": true
+    },
+    {
+        "jobid": 29,
+        "jobname": "generate-daily-drops",
+        "schedule": "0 18 * * *",
+        "command": "\n    SELECT net.http_post(\n      url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')\n             || '/functions/v1/generate-daily-drops',\n      headers := jsonb_build_object(\n        'Content-Type', 'application/json',\n        'Authorization', 'Bearer ' || (\n          select decrypted_secret from vault.decrypted_secrets where name = 'date_suggestion_cron_secret'\n        )\n      ),\n      body := '{}'::jsonb\n    );\n    ",
+        "active": true
+    },
+    {
+        "jobid": 30,
+        "jobname": "generate-daily-drops-retry",
+        "schedule": "5 18 * * *",
+        "command": "\n    SELECT net.http_post(\n      url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')\n             || '/functions/v1/generate-daily-drops',\n      headers := jsonb_build_object(\n        'Content-Type', 'application/json',\n        'Authorization', 'Bearer ' || (\n          select decrypted_secret from vault.decrypted_secrets where name = 'date_suggestion_cron_secret'\n        )\n      ),\n      body := '{}'::jsonb\n    );\n    ",
+        "active": true
+    },
+    {
+        "jobid": 39,
+        "jobname": "monthly-credit-replenish",
+        "schedule": "5 0 1 * *",
+        "command": "\n      SELECT net.http_post(\n        url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/credit-replenish',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')\n        ),\n        body := '{}'::jsonb\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 40,
+        "jobname": "date-reminder-cron",
+        "schedule": "* * * * *",
+        "command": "\n      SELECT net.http_post(\n        url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/date-reminder-cron',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')\n        ),\n        body := '{}'::jsonb\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 42,
+        "jobname": "daily-drop-health-alert",
+        "schedule": "30 18 * * *",
+        "command": "\n      SELECT net.http_post(\n        url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/check-daily-drop-health',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')\n        ),\n        body := '{}'::jsonb\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 43,
+        "jobname": "bunny-cdn-health-minutely",
+        "schedule": "* * * * *",
+        "command": "\n    SELECT net.http_post(\n      url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/check-bunny-cdn-health',\n      headers := jsonb_build_object(\n        'Content-Type', 'application/json',\n        'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')\n      ),\n      body := jsonb_build_object('source', 'pg_cron')\n    );\n    ",
+        "active": true
+    },
+    {
+        "jobid": 44,
+        "jobname": "synthetic-video-date-monitor",
+        "schedule": "*/5 * * * *",
+        "command": "\n      SELECT net.http_post(\n        url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))\n          || '/functions/v1/synthetic-video-date-monitor',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))\n        ),\n        body := jsonb_build_object('mode', 'status')\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 47,
+        "jobname": "video-date-orphan-room-cleanup",
+        "schedule": "*/10 * * * *",
+        "command": "\n        SELECT net.http_post(\n          url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')\n            || '/functions/v1/video-date-orphan-room-cleanup',\n          headers := jsonb_build_object(\n            'Content-Type', 'application/json',\n            'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')\n          ),\n          body := jsonb_build_object('source', 'pg_cron', 'batch_size', 100)\n        );\n        ",
+        "active": true
+    },
+    {
+        "jobid": 48,
+        "jobname": "video-date-recovery-alert-dispatcher",
+        "schedule": "*/5 * * * *",
+        "command": "\n        SELECT net.http_post(\n          url := (select trim(decrypted_secret) from vault.decrypted_secrets where name = 'project_url' limit 1)\n            || '/functions/v1/video-date-recovery-alert-dispatcher',\n          headers := jsonb_build_object(\n            'Content-Type', 'application/json',\n            'Authorization', 'Bearer ' || (select trim(decrypted_secret) from vault.decrypted_secrets where name = 'cron_secret' limit 1)\n          ),\n          body := jsonb_build_object('source', 'pg_cron')\n        );\n        ",
+        "active": true
+    },
+    {
+        "jobid": 51,
+        "jobname": "video-date-outbox-drainer",
+        "schedule": "* * * * *",
+        "command": "\n        SELECT net.http_post(\n          url := btrim((select decrypted_secret from vault.decrypted_secrets where name = 'project_url' limit 1), E' \\t\\n\\r')\n            || '/functions/v1/video-date-outbox-drainer',\n          headers := jsonb_build_object(\n            'Content-Type', 'application/json',\n            'Authorization', 'Bearer ' || btrim((select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret' limit 1), E' \\t\\n\\r')\n          ),\n          body := jsonb_build_object('source', 'pg_cron', 'batch_size', 25)\n        );\n        ",
+        "active": true
+    },
+    {
+        "jobid": 52,
+        "jobname": "video-date-deadline-finalizer",
+        "schedule": "* * * * *",
+        "command": "\n        SELECT net.http_post(\n          url := btrim((select decrypted_secret from vault.decrypted_secrets where name = 'project_url' limit 1), E' \\t\\n\\r')\n            || '/functions/v1/video-date-deadline-finalizer',\n          headers := jsonb_build_object(\n            'Content-Type', 'application/json',\n            'Authorization', 'Bearer ' || btrim((select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret' limit 1), E' \\t\\n\\r')\n          ),\n          body := jsonb_build_object('source', 'pg_cron', 'batch_size', 25)\n        );\n        ",
+        "active": true
+    },
+    {
+        "jobid": 53,
+        "jobname": "media-placeholder-backfill-hourly",
+        "schedule": "17 * * * *",
+        "command": "\n    SELECT net.http_post(\n      url := rtrim(btrim((select decrypted_secret from vault.decrypted_secrets where name = 'project_url' limit 1), E' \\t\\n\\r'), '/')\n        || '/functions/v1/backfill-media-placeholders',\n      headers := jsonb_build_object(\n        'Content-Type', 'application/json',\n        'Authorization', 'Bearer ' || btrim((select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret' limit 1), E' \\t\\n\\r')\n      ),\n      body := jsonb_build_object('source', 'pg_cron', 'limit', 25, 'dryRun', false)\n    );\n    ",
+        "active": true
+    },
+    {
+        "jobid": 54,
+        "jobname": "event-ticket-refund-worker",
+        "schedule": "* * * * *",
+        "command": "\n        SELECT net.http_post(\n          url := (select btrim(decrypted_secret, E' \\t\\n\\r') from vault.decrypted_secrets where name = 'project_url' limit 1)\n            || '/functions/v1/process-event-ticket-refunds',\n          headers := jsonb_build_object(\n            'Content-Type', 'application/json',\n            'Authorization', 'Bearer ' || btrim((select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret' limit 1), E' \\t\\n\\r')\n          ),\n          body := jsonb_build_object('source', 'pg_cron', 'batch_size', 25)\n        );\n        ",
+        "active": true
+    },
+    {
+        "jobid": 55,
+        "jobname": "process-admin-durable-jobs",
+        "schedule": "* * * * *",
+        "command": "\n      SELECT net.http_post(\n        url := btrim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1), E' \\t\\n\\r')\n          || '/functions/v1/process-admin-durable-jobs',\n        headers := jsonb_build_object(\n          'Content-Type', 'application/json',\n          'Authorization', 'Bearer ' || btrim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1), E' \\t\\n\\r')\n        ),\n        body := jsonb_build_object('source', 'pg_cron', 'action', 'all', 'batch_size', 25)\n      );\n      ",
+        "active": true
+    },
+    {
+        "jobid": 56,
+        "jobname": "purge-old-admin-session-invalidation-events",
+        "schedule": "17 3 * * *",
+        "command": "\n      SELECT public.purge_old_admin_session_invalidation_events(90, 5000);\n      ",
+        "active": true
+    },
+    {
+        "jobid": 57,
+        "jobname": "cleanup-event-deck-card-reservations-hourly",
+        "schedule": "17 * * * *",
+        "command": "SELECT public.cleanup_event_deck_card_reservations(interval '1 day', 50000);",
+        "active": true
+    },
+    {
+        "jobid": 58,
+        "jobname": "expire-video-date-reconnect-graces",
+        "schedule": "* * * * *",
+        "command": "SELECT public.expire_video_date_reconnect_graces()",
+        "active": true
+    }
+]

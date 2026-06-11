@@ -1,0 +1,386 @@
+[
+    {
+        "column_name": "id",
+        "data_type": "uuid",
+        "is_nullable": "NO",
+        "column_default": "gen_random_uuid()"
+    },
+    {
+        "column_name": "event_id",
+        "data_type": "uuid",
+        "is_nullable": "NO",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_1_id",
+        "data_type": "uuid",
+        "is_nullable": "NO",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_id",
+        "data_type": "uuid",
+        "is_nullable": "NO",
+        "column_default": null
+    },
+    {
+        "column_name": "started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "column_default": "now()"
+    },
+    {
+        "column_name": "ended_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_1_liked",
+        "data_type": "boolean",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_liked",
+        "data_type": "boolean",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "duration_seconds",
+        "data_type": "integer",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "ready_gate_status",
+        "data_type": "text",
+        "is_nullable": "NO",
+        "column_default": "'waiting'::text"
+    },
+    {
+        "column_name": "ready_participant_1_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "ready_participant_2_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "ready_gate_expires_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "snoozed_by",
+        "data_type": "uuid",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "snooze_expires_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "vibe_questions",
+        "data_type": "jsonb",
+        "is_nullable": "YES",
+        "column_default": "'[]'::jsonb"
+    },
+    {
+        "column_name": "daily_room_name",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "daily_room_url",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "handshake_started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "date_started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "phase",
+        "data_type": "text",
+        "is_nullable": "NO",
+        "column_default": "'ready_gate'::text"
+    },
+    {
+        "column_name": "state",
+        "data_type": "USER-DEFINED",
+        "is_nullable": "NO",
+        "column_default": "'ready_gate'::video_date_state"
+    },
+    {
+        "column_name": "state_updated_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "column_default": "now()"
+    },
+    {
+        "column_name": "ended_reason",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "reconnect_grace_ends_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_1_away_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_away_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "date_extra_seconds",
+        "data_type": "integer",
+        "is_nullable": "NO",
+        "column_default": "0"
+    },
+    {
+        "column_name": "participant_1_joined_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_joined_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "handshake_grace_expires_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_1_decided_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_decided_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "vibe_question_index",
+        "data_type": "integer",
+        "is_nullable": "NO",
+        "column_default": "0"
+    },
+    {
+        "column_name": "vibe_question_anchor_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "prepare_entry_started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "prepare_entry_expires_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "prepare_entry_attempt_id",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "prepare_entry_actor_id",
+        "data_type": "uuid",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "daily_room_verified_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "daily_room_expires_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "daily_room_provider_verify_reason",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "refund_status",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "refund_granted_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "refund_breakdown",
+        "data_type": "jsonb",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "session_seq",
+        "data_type": "bigint",
+        "is_nullable": "NO",
+        "column_default": "0"
+    },
+    {
+        "column_name": "participant_1_remote_seen_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_remote_seen_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "daily_room_provider_deleted_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "daily_room_provider_delete_reason",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "terminal_generation",
+        "data_type": "integer",
+        "is_nullable": "NO",
+        "column_default": "0"
+    },
+    {
+        "column_name": "terminal_audit_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "terminal_audit_reason",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "terminal_audit_source",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "terminal_audit_detail",
+        "data_type": "jsonb",
+        "is_nullable": "NO",
+        "column_default": "'{}'::jsonb"
+    },
+    {
+        "column_name": "participant_1_provider_joined_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_provider_joined_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_1_provider_left_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "participant_2_provider_left_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "stable_bilateral_media_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "stable_bilateral_media_source",
+        "data_type": "text",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "stable_bilateral_media_detail",
+        "data_type": "jsonb",
+        "is_nullable": "NO",
+        "column_default": "'{}'::jsonb"
+    },
+    {
+        "column_name": "entry_started_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    },
+    {
+        "column_name": "entry_grace_expires_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES",
+        "column_default": null
+    }
+]
