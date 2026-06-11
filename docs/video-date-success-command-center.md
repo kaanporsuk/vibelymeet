@@ -62,6 +62,17 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: `video_date_transition` Public RPC Family Flattened
+
+Current source adds a forward migration that reduces the exposed `video_date_transition` RPC family to the stable public signature `public.video_date_transition(uuid, text, text)`.
+
+- **Public contract:** active web, native, and Edge callers continue to call only `video_date_transition`. The public RPC preserves `SECURITY DEFINER`, `SET search_path TO 'public', 'pg_catalog'`, and `authenticated` / `service_role` execute grants.
+- **Behavior contract:** `prepare_entry`, `complete_entry`, `continue_entry`, `end`, reconnect/sync actions, and terminal-survey recovery continue through the same deployed implementation. `complete_entry` / `continue_entry` remain aliases to the current legacy internals while the DB still has handshake-backed state, and `enter_handshake` remains rejected with `ENTER_HANDSHAKE_REMOVED`.
+- **Catalog contract:** migration `20260611130225_flatten_video_date_transition_rpc_family.sql` copies the deployed helper behavior behind the private `private_video_date` compatibility schema, then drops the timestamped public helper RPCs such as `video_date_transition_20260608080938_last_resort_base`, `video_date_transition_20260609105249_active_entry_base`, `vd_transition_20260609130139_hot_base`, and `vd_transition_20260609202707_enter_hs_base`. Generated public schema types should expose the stable public RPC after the migration is applied/regenerated from the linked project.
+- **Tests/docs:** branch delta `docs/branch-deltas/flatten-video-date-transition-rpc-family.md` and `shared/matching/videoDateTransitionRpcFlatteningContracts.test.ts` document and enforce the public flattening. Follow-up flattening is intentionally left for `ready_gate_transition_*`, `video_session_mark_ready_v2_*`, and `handle_swipe_*`.
+
+This is a backend/catalog simplification, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
 ## 2026-06-11 Implementation Update: Handshake -> Entry Phase D/E Active Contract
 
 Current source now presents the active Video Date pre-date decision window as **entry**, not handshake. The golden flow remains unchanged: mutual swipe -> Ready Gate -> both ready -> `prepare_date_entry` -> `/date`/native date -> Daily media -> post-date survey -> persisted `date_feedback`.
