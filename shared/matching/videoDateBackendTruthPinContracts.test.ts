@@ -194,7 +194,10 @@ test("video_date_transition head pins entry aliases and the enter_handshake reje
   // Entry vocabulary stays aliased onto the legacy handshake machine.
   assert.match(head, /WHEN 'complete_entry' THEN 'complete_handshake'/);
   assert.match(head, /WHEN 'continue_entry' THEN 'continue_handshake'/);
-  assert.match(head, /private_video_date\.vdt_current_base\(/);
+  // Rebuild PR 2: the head is a single body; the private chain is gone and
+  // the fixture was re-dumped from live after that migration.
+  assert.doesNotMatch(head, /private_video_date/);
+  assert.match(head, /'single_body_rpc', true/);
 
   // Standalone enter_handshake is a stable non-terminal, non-retryable rejection.
   assert.match(head, /'code', 'ENTER_HANDSHAKE_REMOVED'/);
