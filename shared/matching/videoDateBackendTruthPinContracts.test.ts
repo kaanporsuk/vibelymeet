@@ -348,7 +348,9 @@ test("ready_gate_transition pins the sync fast path, mark_ready bridge, and retr
     assert.match(gate, new RegExp(`${key}, v_(status|snapshot)`), `sync payload must pin ${key}`);
   }
 
-  assert.match(gate, /public\.ready_gate_transition_20260603150106_start_snapshot_base\(/);
+  // Rebuild PR 4: the generation chain is inlined; the head is a single body.
+  assert.match(gate, /ready_gate_transition\.single_body_core/);
+  assert.doesNotMatch(gate, /ready_gate_transition_20260603150106_start_snapshot_base/);
 
   assert.match(gate, /'code', 'READY_GATE_TRANSITION_FAILED'/);
   assert.match(gate, /'retryable', true/);
@@ -363,7 +365,9 @@ test("video_session_mark_ready_v2 pins the hot base delegation and rejected comm
     markReady,
     /CREATE OR REPLACE FUNCTION public\.video_session_mark_ready_v2\(p_session_id uuid, p_idempotency_key text DEFAULT NULL::text, p_request_hash text DEFAULT NULL::text\)/,
   );
-  assert.match(markReady, /public\.vd_mark_ready_20260609130139_hot_base\(/);
+  // Rebuild PR 4: the hot-base chain is inlined; the head is a single body.
+  assert.match(markReady, /video_session_mark_ready_v2\.single_body_core/);
+  assert.doesNotMatch(markReady, /vd_mark_ready_20260609130139_hot_base/);
   assert.match(markReady, /'code', 'MARK_READY_UNAVAILABLE'/);
   assert.match(markReady, /'retryable', true/);
   assert.match(markReady, /'commandStatus', 'rejected'/);

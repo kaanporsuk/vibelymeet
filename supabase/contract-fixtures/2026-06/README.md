@@ -79,6 +79,23 @@ client/Edge-facing Video Date surface:
   unchanged. The dropped generations' identities remain pinned in
   `snapshots/public_archived_functions_manifest.json`.
 
+- `functions/public-heads/ready_gate_transition.sql` and
+  `video_session_mark_ready_v2.sql` were re-dumped on 2026-06-11 after rebuild
+  PR 4 (migration `20260611201927_video_date_ready_gate_single_bodies.sql`)
+  replaced each delegation chain with a single self-contained body and dropped
+  the 23 historical Ready Gate family functions (including the chain-private
+  layers `rgt_preserve_warmup_base_v1`, `rgt_pre_ready_room_meta_base_v1`,
+  `vd_mark_ready_20260609130139_hot_base`, `vd_mark_ready_both_ready_owner_base`,
+  `vd_mark_ready_terminal_truth_base`, `vd_mark_ready_partial_base`, and
+  `vd_ready_gate_actionability_owner_eligibility_base`, which were inlined).
+  `video_date_ready_gate_actionability_v1` absorbed its owner-eligibility base
+  with an unchanged signature. The maintenance helpers
+  (`terminalize_event_ready_gates`, `terminalize_stale_pre_date_ready_gate_blockers`,
+  `recover_ready_gate_missing_rooms_v1`, `video_date_terminalize_ready_gate_session_v1`,
+  `video_session_mark_ready_grace_extend_v1`) were verified already-single-body
+  and untouched. The dropped generations' identities remain pinned in
+  `snapshots/public_archived_functions_manifest.json`.
+
 ## Re-verifying against live
 
 Dump the same queries again and `diff` against this directory. Any difference
