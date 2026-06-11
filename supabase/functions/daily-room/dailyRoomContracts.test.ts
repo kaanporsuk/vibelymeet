@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   buildMeetingTokenProperties,
   buildVideoDateRoomProperties,
@@ -225,5 +227,61 @@ test("delete_room safety delegates video-date room deletion to cron", () => {
       code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON",
       outcome: "skipped_active_session",
     },
+  );
+});
+
+// 2026-06 rebuild truth pins: the prepare_entry service path is the only
+// allowed room/token mint route. These pins read the Edge source directly so
+// later rebuild PRs cannot silently reorder the precheck → prepare → confirm
+// → token sequence or weaken the typed rejection semantics.
+const dailyRoomSource = readFileSync(
+  fileURLToPath(new URL("./index.ts", import.meta.url)),
+  "utf8",
+);
+
+test("prepare_date_entry runs the Ready Gate actionability precheck before the prepare transition", () => {
+  assert.match(dailyRoomSource, /source: "daily_room\.prepare_date_entry"/);
+  const precheckIndex = dailyRoomSource.indexOf('source: "daily_room.prepare_date_entry"');
+  const prepareRpcIndex = dailyRoomSource.indexOf('p_action: "prepare_entry"');
+  assert.ok(precheckIndex > 0, "actionability precheck must exist");
+  assert.ok(prepareRpcIndex > precheckIndex, "actionability precheck must run before the prepare transition RPC");
+  assert.match(
+    dailyRoomSource,
+    /p_reason: entryAttemptId \? `entry_attempt:\$\{entryAttemptId\}` : null/,
+    "prepare transition must carry the entry attempt id in the reason channel",
+  );
+});
+
+test("prepare transition rejections preserve typed code and retryable semantics", () => {
+  assert.match(
+    dailyRoomSource,
+    /status: preparePayload\?\.retryable === true \? 409 : statusForPrepareEntryCode\(code\)/,
+    "retryable prepare rejections must map to 409, terminal ones to their typed status",
+  );
+  assert.match(dailyRoomSource, /retryAfterSeconds: preparePayload\?\.retry_after_seconds \?\? null/);
+  assert.match(dailyRoomSource, /retry_after_ms: preparePayload\?\.retry_after_ms \?\? null/);
+  assert.match(dailyRoomSource, /"create_date_room_blocked_session_ended"/);
+  assert.match(dailyRoomSource, /"create_date_room_blocked_access_denied"/);
+});
+
+test("prepared rooms are confirmed on the service client before any token is minted", () => {
+  assert.match(
+    dailyRoomSource,
+    /serviceClient\.rpc\("confirm_video_date_entry_prepared", \{\s*p_session_id: params\.sessionId,\s*p_room_name: params\.roomName,\s*p_room_url: params\.roomUrl,\s*p_entry_attempt_id: params\.entryAttemptId \?\? null,\s*\}\)/,
+    "confirm_video_date_entry_prepared must be a service-client call with the full room proof",
+  );
+  assert.match(
+    dailyRoomSource,
+    /const roomName = preparePayload\.daily_room_name \?\? videoDateRoomNameForSession\(sessionId\);/,
+    "room naming must stay deterministic from the session id",
+  );
+  const confirmCallIndex = dailyRoomSource.indexOf("await confirmVideoDateEntryPrepared(serviceClient");
+  const tokenCallIndex = dailyRoomSource.indexOf("const token = await createMeetingToken(");
+  assert.ok(confirmCallIndex > 0, "prepare handler must confirm prepared entry");
+  assert.ok(tokenCallIndex > confirmCallIndex, "token mint must come after entry confirmation");
+  assert.match(
+    dailyRoomSource,
+    /status: confirmPayload\?\.retryable === true \? 409 : statusForPrepareEntryCode\(code\)/,
+    "confirm rejections must keep the same typed retryable mapping as prepare rejections",
   );
 });
