@@ -280,13 +280,15 @@ test("date-timeout v2 only opens terminal UX after backend confirms the session 
 
 test("post-date outbox is hard-coded to verdict v3 without changing report-only safety path", () => {
   // The flag-gated v2/v3 selection was collapsed 2026-06-10: clients always
-  // send v3, and the Edge Function coerces stale v2/keyless callers onto v3.
+  // send v3, and the Edge Function now rejects stale or keyless verdict callers.
   assert.doesNotMatch(outboxTypes, /backendVersion/);
   assert.doesNotMatch(webSurvey, /outbox_v2\.submit_verdict|backendVersion/);
   assert.match(webPostDateOutbox, /transition_version: "v3"/);
   assert.match(nativePostDateOutbox, /transition_version: ['"]v3['"]/);
   assert.doesNotMatch(nativeVideoDateScreen, /submitVerdictV3/);
-  assert.match(postDateVerdictEdge, /deprecated_version_coerced_to_v3/);
+  assert.match(postDateVerdictEdge, /unsupported_transition_version/);
+  assert.match(postDateVerdictEdge, /missing_idempotency_key/);
+  assert.doesNotMatch(postDateVerdictEdge, /deprecated_version_coerced_to_v3|verdict-legacy-keyless/);
   assert.match(postDateVerdictEdge, /submit_post_date_verdict_v3/);
   assert.doesNotMatch(postDateVerdictEdge, /submit_post_date_verdict_v2|"submit_post_date_verdict"/);
   assert.match(postDateVerdictEdge, /action === "report"[\s\S]+submit_post_date_safety_report_v1/);
