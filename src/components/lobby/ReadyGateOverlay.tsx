@@ -1971,6 +1971,20 @@ const ReadyGateOverlay = ({
               setPrepareEntryFailure(null);
               prepareEntryHandoffStartedRef.current = true;
               navigateToDate("both_ready_prepare_exception_date_owned");
+            } else if (isTerminalReadyGateTruth(exceptionTruth)) {
+              prepareEntryHandoffStartedRef.current = false;
+              setIsTransitioning(false);
+              setPrepareEntryStatus("failed");
+              setPrepareEntryFailure({
+                code: "SESSION_ENDED",
+                message: prepareEntryFailureMessage("SESSION_ENDED"),
+                retryable: false,
+              });
+              closedRef.current = true;
+              toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, {
+                duration: 3600,
+              });
+              onClose();
             } else {
               prepareEntryHandoffStartedRef.current = false;
               setIsTransitioning(false);

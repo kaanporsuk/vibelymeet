@@ -18,6 +18,10 @@ export type VideoDatePartnerProfileResult = {
 const cache = new Map<string, { at: number; data: unknown }>();
 const inFlight = new Map<string, Promise<VideoDatePartnerProfileResult>>();
 
+function getVideoDatePartnerProfileCacheKey(viewerId: string | null, partnerId: string): string {
+  return `${viewerId ?? 'anonymous'}:${partnerId}`;
+}
+
 function pruneCache(now: number): void {
   for (const [key, entry] of cache) {
     if (now - entry.at > PARTNER_PROFILE_TTL_MS) cache.delete(key);
@@ -32,13 +36,17 @@ function pruneCache(now: number): void {
 export async function fetchVideoDatePartnerProfile(
   partnerId: string,
 ): Promise<VideoDatePartnerProfileResult> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const cacheKey = getVideoDatePartnerProfileCacheKey(session?.user?.id ?? null, partnerId);
   const now = Date.now();
-  const cached = cache.get(partnerId);
+  const cached = cache.get(cacheKey);
   if (cached && now - cached.at <= PARTNER_PROFILE_TTL_MS) {
     return { data: cached.data, error: null };
   }
 
-  const existing = inFlight.get(partnerId);
+  const existing = inFlight.get(cacheKey);
   if (existing) return existing;
 
   const request = (async (): Promise<VideoDatePartnerProfileResult> => {
@@ -49,7 +57,7 @@ export async function fetchVideoDatePartnerProfile(
       if (error) {
         return { data: null, error: { code: error.code ?? undefined, message: error.message } };
       }
-      cache.set(partnerId, { at: Date.now(), data });
+      cache.set(cacheKey, { at: Date.now(), data });
       pruneCache(Date.now());
       return { data, error: null };
     } catch (error) {
@@ -60,11 +68,11 @@ export async function fetchVideoDatePartnerProfile(
     }
   })();
 
-  inFlight.set(partnerId, request);
+  inFlight.set(cacheKey, request);
   try {
     return await request;
   } finally {
-    if (inFlight.get(partnerId) === request) inFlight.delete(partnerId);
+    if (inFlight.get(cacheKey) === request) inFlight.delete(cacheKey);
   }
 }
 

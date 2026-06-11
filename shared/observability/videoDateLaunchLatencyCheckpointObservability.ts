@@ -324,6 +324,12 @@ function shouldFlushImmediately(checkpoint: string): boolean {
   return checkpoint.endsWith("_failure") || checkpoint === "first_remote_frame";
 }
 
+function isLaunchLatencyBatchFailure(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const payload = data as { ok?: unknown; success?: unknown };
+  return payload.ok === false || payload.success === false;
+}
+
 async function flushCheckpointBuffer(sessionId: string): Promise<void> {
   const buffer = checkpointBuffers.get(sessionId);
   if (!buffer || buffer.items.length === 0) return;
@@ -332,11 +338,11 @@ async function flushCheckpointBuffer(sessionId: string): Promise<void> {
 
   const items = buffer.items;
   try {
-    const { error } = await buffer.client.rpc(CHECKPOINT_BATCH_RPC, {
+    const { data, error } = await buffer.client.rpc(CHECKPOINT_BATCH_RPC, {
       p_session_id: sessionId,
       p_checkpoints: items,
     });
-    if (!error) return;
+    if (!error && !isLaunchLatencyBatchFailure(data)) return;
   } catch {
     /* fall through to single-call fallback */
   }

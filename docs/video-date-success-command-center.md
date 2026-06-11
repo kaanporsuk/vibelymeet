@@ -62,6 +62,20 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: Review Comments #1281-#1290 Follow-ups
+
+Current source addresses the thread-aware Codex review comments from merged PRs #1281 through #1290. No Copilot-authored review comments were present in that scan.
+
+- **Ready Gate exception truth:** web `ReadyGateOverlay` now handles terminal truth fetched after a `prepare_date_entry` client exception as non-retryable and closes the stale Ready Gate, matching the exhausted-failure terminal handling instead of leaving users in a retry loop.
+- **Entry RPC schema cache:** forward migration `20260611135321_review_comments_1281_1290_followups.sql` validates `video_session_continue_entry_v2(uuid,text,text)` and `video_session_entry_auto_promote_v2(uuid,text,text)` exist, then sends `NOTIFY pgrst, 'reload schema'` so warm PostgREST deployments can discover the PR #1285 entry wrappers without rewriting applied history.
+- **Viewer-scoped profile memoization:** web and native `videoDatePartnerProfile` helpers key cache and in-flight entries by current viewer plus partner, preserving `get_profile_for_viewer` auth/block semantics in shared browser/app runtimes while keeping the short launch-path memo.
+- **Launch-latency batch fallback:** the batch checkpoint flusher now falls back to single-checkpoint RPCs when the batch RPC returns fail-soft JSON with `ok: false` or `success: false`, not only when PostgREST returns a transport error.
+- **Removed queue dashboards:** operator docs now mark Survey -> Next Ready Gate queue-drain reporting as historical/removed alongside Queue Drain Failures. Current survey health must be based on `date_feedback` persistence and normal lobby/deck return, not removed `useMatchQueue` / `enableSurveyPhaseDrain` behavior.
+- **#1281 boundary:** the queued fallback review comments are superseded by the later direct-ready source removal and physical queued-state purge. Active source does not return `match_queued`, `queued_expires_at` is dropped, and this follow-up intentionally does not restore queued-style TTL behavior.
+- **Tests/docs:** branch delta `docs/branch-deltas/review-comments-1281-1290-followups.md` and `shared/matching/reviewComments1281_1290Followups.test.ts` document and enforce the follow-up.
+
+This is review-comment hardening and cloud-alignment work, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
 ## 2026-06-11 Implementation Update: `video_date_transition` Public RPC Family Flattened
 
 Current source adds a forward migration that reduces the exposed `video_date_transition` RPC family to the stable public signature `public.video_date_transition(uuid, text, text)`.
