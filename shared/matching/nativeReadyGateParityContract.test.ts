@@ -318,12 +318,7 @@ test("standalone native ready route syncs backend truth and has session-scoped r
   assert.match(nativeReadyRoute, /AppState\.addEventListener/);
 });
 
-test("standalone native ready route records entry proof and leaves provider entry to prepare-date-entry", () => {
-  assert.match(nativeReadyRoute, /recordReadyGateEntered/);
-  assert.match(nativeReadyRoute, /readyGateEntryProofKeyRef/);
-  assert.match(nativeReadyRoute, /standalone_ready_gate_entry_proof_recorded/);
-  assert.match(nativeReadyRoute, /isReadyGateEntryProofStatus\(status\)/);
-
+test("standalone native ready route leaves provider entry to prepare-date-entry", () => {
   assert.doesNotMatch(nativeReadyRoute, /startRoomWarmupAfterReady/);
   assert.doesNotMatch(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
   assert.doesNotMatch(nativeReadyRoute, /ensureVideoDateRoomWarmup/);

@@ -7874,105 +7874,6 @@ export type Database = {
         }
         Relationships: []
       }
-      video_date_ready_gate_entries: {
-        Row: {
-          both_participants_entered: boolean
-          client_instance_id: string | null
-          client_ready_gate_status: string | null
-          event_id: string
-          first_entry_for_participant: boolean
-          id: string
-          inserted_at: string
-          participant_slot: number
-          platform: string
-          profile_id: string
-          ready_gate_expires_at_after: string | null
-          ready_gate_expires_at_before: string | null
-          ready_gate_status: string
-          route_path: string | null
-          source: string | null
-          surface: string
-          ttl_extended: boolean
-          video_session_id: string
-        }
-        Insert: {
-          both_participants_entered?: boolean
-          client_instance_id?: string | null
-          client_ready_gate_status?: string | null
-          event_id: string
-          first_entry_for_participant?: boolean
-          id?: string
-          inserted_at?: string
-          participant_slot: number
-          platform: string
-          profile_id: string
-          ready_gate_expires_at_after?: string | null
-          ready_gate_expires_at_before?: string | null
-          ready_gate_status: string
-          route_path?: string | null
-          source?: string | null
-          surface: string
-          ttl_extended?: boolean
-          video_session_id: string
-        }
-        Update: {
-          both_participants_entered?: boolean
-          client_instance_id?: string | null
-          client_ready_gate_status?: string | null
-          event_id?: string
-          first_entry_for_participant?: boolean
-          id?: string
-          inserted_at?: string
-          participant_slot?: number
-          platform?: string
-          profile_id?: string
-          ready_gate_expires_at_after?: string | null
-          ready_gate_expires_at_before?: string | null
-          ready_gate_status?: string
-          route_path?: string | null
-          source?: string | null
-          surface?: string
-          ttl_extended?: boolean
-          video_session_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_date_ready_gate_entries_video_session_id_fkey"
-            columns: ["video_session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_ready_gate_entries_video_session_id_fkey"
-            columns: ["video_session_id"]
-            isOneToOne: false
-            referencedRelation: "video_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_ready_gate_entries_video_session_id_fkey"
-            columns: ["video_session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_ready_gate_entries_video_session_id_fkey"
-            columns: ["video_session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_ready_gate_entries_video_session_id_fkey"
-            columns: ["video_session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
       video_date_recovery_alert_dispatches: {
         Row: {
           alert_payload: Json
@@ -8535,8 +8436,6 @@ export type Database = {
           prepare_entry_started_at: string | null
           queued_expires_at: string | null
           ready_gate_expires_at: string | null
-          ready_gate_participant_1_entered_at: string | null
-          ready_gate_participant_2_entered_at: string | null
           ready_gate_status: string
           ready_participant_1_at: string | null
           ready_participant_2_at: string | null
@@ -8604,8 +8503,6 @@ export type Database = {
           prepare_entry_started_at?: string | null
           queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
-          ready_gate_participant_1_entered_at?: string | null
-          ready_gate_participant_2_entered_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
           ready_participant_2_at?: string | null
@@ -8673,8 +8570,6 @@ export type Database = {
           prepare_entry_started_at?: string | null
           queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
-          ready_gate_participant_1_entered_at?: string | null
-          ready_gate_participant_2_entered_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
           ready_participant_2_at?: string | null
@@ -12923,18 +12818,6 @@ export type Database = {
           p_notes?: string
           p_report?: Json
           p_rollout_bps: number
-        }
-        Returns: Json
-      }
-      record_video_date_ready_gate_entered_v1: {
-        Args: {
-          p_client_instance_id?: string
-          p_client_ready_gate_status?: string
-          p_platform?: string
-          p_route_path?: string
-          p_session_id: string
-          p_source?: string
-          p_surface?: string
         }
         Returns: Json
       }
