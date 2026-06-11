@@ -77,6 +77,7 @@ import {
 } from '@clientShared/matching/postDateContinuity';
 import type { PostDateVerdictState } from '@clientShared/matching/postDateVerdictConfirmation';
 import type { PostDateSafetyReportPayload } from '@clientShared/postDateOutbox/types';
+import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 
 export type VideoDateSession = {
   id: string;
@@ -427,9 +428,7 @@ export function useVideoDateSession(
       }
 
       const partnerId = s.participant_1_id === userId ? s.participant_2_id : s.participant_1_id;
-      const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
-        p_target_id: partnerId,
-      });
+      const { data: profile } = await fetchVideoDatePartnerProfile(partnerId);
 
       if (profile) {
         const row = profile as { id?: string; name?: string | null; age?: number | null; avatar_url?: string | null };
@@ -1342,9 +1341,7 @@ export async function fetchPartnerProfile(
 
   const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
-  const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
-    p_target_id: partnerId,
-  });
+  const { data: profile } = await fetchVideoDatePartnerProfile(partnerId);
   if (!profile) return { ok: false, reason: 'not_found' };
   const row = profile as Record<string, unknown>;
   const tags = Array.isArray(row.vibes)

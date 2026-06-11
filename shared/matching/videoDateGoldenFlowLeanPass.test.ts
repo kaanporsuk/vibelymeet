@@ -22,6 +22,14 @@ const batchedFlagFetcher = read("shared/featureFlags/batchedFlagDetailFetcher.ts
 const webFlagWrapper = read("src/lib/clientFeatureFlags.ts");
 const nativeFlagWrapper = read("apps/mobile/lib/clientFeatureFlags.ts");
 const partnerProfileHelper = read("src/lib/videoDatePartnerProfile.ts");
+const nativePartnerProfileHelper = read("apps/mobile/lib/videoDatePartnerProfile.ts");
+const nativeVideoDateProfileCallers = [
+  "apps/mobile/lib/useActiveSession.ts",
+  "apps/mobile/lib/videoDateApi.ts",
+  "apps/mobile/lib/readyGateSharedVibes.ts",
+  "apps/mobile/lib/readyGateApi.ts",
+  "apps/mobile/components/video-date/PostDateSurvey.tsx",
+].map((path) => [path, read(path)] as const);
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoDatePage = read("src/pages/VideoDate.tsx");
@@ -87,6 +95,19 @@ test("video-date partner profile is fetched through the memoized helper only", (
       source,
       /rpc\(\s*"get_profile_for_viewer"/,
       `${label} must not call get_profile_for_viewer directly`,
+    );
+  }
+});
+
+test("native video-date partner profile parity uses the memoized helper only", () => {
+  assert.match(nativePartnerProfileHelper, /get_profile_for_viewer/);
+  assert.match(nativePartnerProfileHelper, /PARTNER_PROFILE_TTL_MS = 5 \* 60_000/);
+  for (const [path, source] of nativeVideoDateProfileCallers) {
+    assert.match(source, /fetchVideoDatePartnerProfile/, `${path} should use the memoized helper`);
+    assert.doesNotMatch(
+      source,
+      /rpc\('get_profile_for_viewer'/,
+      `${path} must not call get_profile_for_viewer directly`,
     );
   }
 });

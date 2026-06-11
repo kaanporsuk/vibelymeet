@@ -58,6 +58,7 @@ import {
   normalizePostDateVerdictConfirmationResult,
   type PostDateVerdictUiState,
 } from '../../../../shared/matching/postDateVerdictConfirmation';
+import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
@@ -511,7 +512,7 @@ export function PostDateSurvey({
       try {
         const [{ data: myVibes }, { data: partnerProfile }] = await Promise.all([
           supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', userId),
-          supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId }),
+          fetchVideoDatePartnerProfile(partnerId),
         ]);
         if (cancelled) return;
 

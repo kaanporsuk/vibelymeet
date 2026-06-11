@@ -29,6 +29,7 @@ import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { isDateNavigationSuppressedAfterManualExit } from '@/lib/dateNavigationGuard';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
+import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
@@ -93,7 +94,7 @@ async function isReadyGateSuppressedForSession(
 }
 
 async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
-  const { data: profile, error } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+  const { data: profile, error } = await fetchVideoDatePartnerProfile(partnerId);
   if (error) {
     if (__DEV__) console.warn('[useActiveSession] partner query failed:', error.message);
     return null;
@@ -329,7 +330,7 @@ async function findDirectVideoSessionFallback(
       : (candidate.participant_1_id as string | null);
   let partnerName: string | null = null;
   if (partnerId) {
-    const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+    const { data: profile } = await fetchVideoDatePartnerProfile(partnerId);
     const partnerProfile = profile as { name?: string | null } | null;
     partnerName = partnerProfile?.name ?? null;
   }
