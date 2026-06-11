@@ -8277,8 +8277,6 @@ export type Database = {
           entry_grace_expires_at: string | null
           entry_started_at: string | null
           event_id: string
-          handshake_grace_expires_at: string | null
-          handshake_started_at: string | null
           id: string
           participant_1_away_at: string | null
           participant_1_decided_at: string | null
@@ -8343,8 +8341,6 @@ export type Database = {
           entry_grace_expires_at?: string | null
           entry_started_at?: string | null
           event_id: string
-          handshake_grace_expires_at?: string | null
-          handshake_started_at?: string | null
           id?: string
           participant_1_away_at?: string | null
           participant_1_decided_at?: string | null
@@ -8409,8 +8405,6 @@ export type Database = {
           entry_grace_expires_at?: string | null
           entry_started_at?: string | null
           event_id?: string
-          handshake_grace_expires_at?: string | null
-          handshake_started_at?: string | null
           id?: string
           participant_1_away_at?: string | null
           participant_1_decided_at?: string | null
@@ -8942,8 +8936,8 @@ export type Database = {
           bucket_utc: string | null
           date_sessions: number | null
           ended_sessions: number | null
+          entry_sessions: number | null
           event_id: string | null
-          handshake_sessions: number | null
           is_test_event: boolean | null
           ready_gate_sessions: number | null
           sample_class: string | null
@@ -8975,8 +8969,8 @@ export type Database = {
           date_started_at: string | null
           ended_at: string | null
           ended_reason: string | null
+          entry_started_at: string | null
           event_id: string | null
-          handshake_started_at: string | null
           is_test_event: boolean | null
           last_state_at: string | null
           participant_1_id: string | null
@@ -10798,15 +10792,6 @@ export type Database = {
         }
         Returns: Json
       }
-      confirm_vde_prepared_202605031300_base: {
-        Args: {
-          p_entry_attempt_id?: string
-          p_room_name: string
-          p_room_url: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       confirm_video_date_entry_prepared: {
         Args: {
           p_entry_attempt_id?: string
@@ -11061,7 +11046,7 @@ export type Database = {
         Args: {
           p_date_started_at: string
           p_ended_at: string
-          p_handshake_started_at: string
+          p_entry_started_at: string
           p_phase: string
           p_ready_gate_status: string
           p_state: string
@@ -11072,53 +11057,16 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: Json
       }
-      expire_due_joined_video_date_handshakes_bounded: {
-        Args: { p_limit?: number }
-        Returns: Json
-      }
       expire_pending_daily_drops: { Args: never; Returns: Json }
       expire_stale_video_date_partial_joins_bounded: {
         Args: { p_limit?: number }
         Returns: Json
       }
-      expire_stale_video_date_phases: { Args: never; Returns: Json }
       expire_stale_video_date_phases_bounded: {
         Args: { p_limit?: number }
         Returns: Json
       }
       expire_stale_video_sessions: { Args: never; Returns: number }
-      expire_stale_video_sessions_20260501103000_unbounded: {
-        Args: never
-        Returns: number
-      }
-      expire_stale_video_sessions_bounded: {
-        Args: { p_limit?: number }
-        Returns: number
-      }
-      expire_stale_video_sessions_bounded_202605031300_base: {
-        Args: { p_limit?: number }
-        Returns: number
-      }
-      expire_stale_vsessions_bounded_202605060900_base: {
-        Args: { p_limit?: number }
-        Returns: number
-      }
-      expire_stale_vsessions_bounded_202605232020_base: {
-        Args: { p_limit?: number }
-        Returns: number
-      }
-      expire_vd_phases_base_20260501133000: {
-        Args: { p_limit?: number }
-        Returns: Json
-      }
-      expire_vd_phases_base_20260502143000: {
-        Args: { p_limit?: number }
-        Returns: Json
-      }
-      expire_vd_reconnect_graces_202606071031_base: {
-        Args: never
-        Returns: number
-      }
       expire_video_date_reconnect_graces: { Args: never; Returns: number }
       extract_chat_image_path_from_content: {
         Args: { p_content: string }
@@ -11144,52 +11092,7 @@ export type Database = {
         Args: { p_final_data?: Json; p_user_id: string }
         Returns: Json
       }
-      finalize_vd_handshake_deadline_20260603090000_base: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
-      }
-      finalize_vd_handshake_deadline_20260605085010_base: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
-      }
-      finalize_vd_handshake_deadline_20260605115657_base: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
-      }
       finalize_video_date_entry_deadline: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
-      }
-      finalize_video_date_handshake_deadline: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
-      }
-      finalize_video_date_handshake_deadline_20260603215948_handoff_b: {
         Args: {
           p_actor?: string
           p_reason?: string
@@ -11439,10 +11342,6 @@ export type Database = {
         Args: { p_questions: Json; p_session_id: string }
         Returns: Json
       }
-      get_or_seed_video_session_vibe_questions_20260607155414_lifecyc: {
-        Args: { p_questions: Json; p_session_id: string }
-        Returns: Json
-      }
       get_other_city_events: {
         Args: { p_user_id: string; p_user_lat?: number; p_user_lng?: number }
         Returns: {
@@ -11633,10 +11532,6 @@ export type Database = {
         Returns: Json
       }
       get_video_date_sprint7_ops_health: {
-        Args: { p_event_id?: string }
-        Returns: Json
-      }
-      get_video_date_sprint7_ops_health_20260610000100_auto_next_base: {
         Args: { p_event_id?: string }
         Returns: Json
       }
@@ -12215,64 +12110,6 @@ export type Database = {
         }
         Returns: Json
       }
-      record_vd_daily_webhook_v2_202606071031_base: {
-        Args: {
-          p_event_type: string
-          p_occurred_at?: string
-          p_payload?: Json
-          p_provider_event_id: string
-          p_provider_participant_id?: string
-          p_provider_user_id?: string
-          p_room_name?: string
-          p_signature_timestamp?: string
-        }
-        Returns: Json
-      }
-      record_vd_launch_lat_20260609105249_active_base: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_vd_launch_latency_202605061020_base: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_vd_launch_latency_202605220240_base: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_vd_launch_latency_202605252340_base: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_vd_launch_latency_20260603150106_start_base: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
       record_video_date_client_stuck_observability: {
         Args: {
           p_event_name: string
@@ -12295,42 +12132,7 @@ export type Database = {
         }
         Returns: Json
       }
-      record_video_date_daily_webhook_event_v2_20260603215948_handoff: {
-        Args: {
-          p_event_type: string
-          p_occurred_at?: string
-          p_payload?: Json
-          p_provider_event_id: string
-          p_provider_participant_id?: string
-          p_provider_user_id?: string
-          p_room_name?: string
-          p_signature_timestamp?: string
-        }
-        Returns: Json
-      }
-      record_video_date_daily_webhook_event_v2_20260604193140_latest_: {
-        Args: {
-          p_event_type: string
-          p_occurred_at?: string
-          p_payload?: Json
-          p_provider_event_id: string
-          p_provider_participant_id?: string
-          p_provider_user_id?: string
-          p_room_name?: string
-          p_signature_timestamp?: string
-        }
-        Returns: Json
-      }
       record_video_date_launch_latency_checkpoint: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_video_date_launch_latency_checkpoint_20260505214500_rpc_: {
         Args: {
           p_checkpoint: string
           p_latency_ms?: number
@@ -12482,10 +12284,6 @@ export type Database = {
       repair_event_cover_media_lifecycle: {
         Args: { p_limit?: number }
         Returns: Json
-      }
-      repair_stale_vd_prepare_both_join_v1: {
-        Args: { p_limit?: number }
-        Returns: number
       }
       repair_stale_video_date_prepare_entries: {
         Args: { p_limit?: number }
@@ -12690,17 +12488,6 @@ export type Database = {
         }
         Returns: Json
       }
-      submit_video_date_safety_report_v2_20260522011000_error_base: {
-        Args: {
-          p_also_block?: boolean
-          p_details?: string
-          p_end_session?: boolean
-          p_idempotency_key?: string
-          p_reason: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       summarize_media_lifecycle_health: { Args: never; Returns: Json }
       summarize_media_lifecycle_snapshot: { Args: never; Returns: Json }
       sync_chat_message_media: { Args: { p_message_id: string }; Returns: Json }
@@ -12895,25 +12682,6 @@ export type Database = {
         }
         Returns: Json
       }
-      vd_launch_latency_20260609130139_hot_base: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_promote_ce_auth_20260605221535_base: {
-        Args: {
-          p_actor?: string
-          p_reason?: string
-          p_require_participant?: boolean
-          p_session_id: string
-          p_source?: string
-        }
-        Returns: Json
-      }
       vd_promote_ce_stable_media_base: {
         Args: {
           p_actor?: string
@@ -12950,10 +12718,6 @@ export type Database = {
       }
       vd_start_snapshot_partial_base: {
         Args: { p_session_id: string }
-        Returns: Json
-      }
-      vd_vibe_q_outer_20260605170249_base: {
-        Args: { p_questions: Json; p_session_id: string }
         Returns: Json
       }
       verify_event_ticket_checkout_intent: {
@@ -13215,16 +12979,6 @@ export type Database = {
         }
         Returns: Json
       }
-      video_date_outbox_enqueue_v2_20260607103000_failsoft_base: {
-        Args: {
-          p_dedupe_key?: string
-          p_kind: string
-          p_next_attempt_at?: string
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
       video_date_pair_has_terminal_encounter: {
         Args: {
           p_event_id: string
@@ -13391,8 +13145,8 @@ export type Database = {
         Args: {
           p_date_started_at: string
           p_ended_at: string
+          p_entry_started_at: string
           p_event_id: string
-          p_handshake_started_at: string
           p_participant_1_joined_at: string
           p_participant_2_joined_at: string
           p_phase: string
@@ -13432,22 +13186,6 @@ export type Database = {
         }
         Returns: Json
       }
-      video_session_continue_handshake_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_continue_handshake_v2_20260603090000_remote_seen_: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       video_session_date_timeout_v2: {
         Args: {
           p_idempotency_key?: string
@@ -13473,35 +13211,10 @@ export type Database = {
         }
         Returns: Json
       }
-      video_session_extend_date_v2_20260522011000_replay_base: {
-        Args: {
-          p_credit_type: string
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       video_session_forfeit_v2: {
         Args: {
           p_idempotency_key?: string
           p_reason?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_handshake_auto_promote_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_handshake_auto_promote_v2_20260603090000_remote_s: {
-        Args: {
-          p_idempotency_key?: string
           p_request_hash?: string
           p_session_id: string
         }
@@ -13538,14 +13251,6 @@ export type Database = {
         Args: { p_other_profile_id: string }
         Returns: boolean
       }
-      vs_handshake_auto_promote_20260605115657_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
@@ -13559,12 +13264,7 @@ export type Database = {
         | "clicked"
         | "failed"
         | "bounced"
-      video_date_state:
-        | "ready_gate"
-        | "handshake"
-        | "date"
-        | "post_date"
-        | "ended"
+      video_date_state: "ready_gate" | "entry" | "date" | "post_date" | "ended"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -13704,13 +13404,7 @@ export const Constants = {
         "failed",
         "bounced",
       ],
-      video_date_state: [
-        "ready_gate",
-        "handshake",
-        "date",
-        "post_date",
-        "ended",
-      ],
+      video_date_state: ["ready_gate", "entry", "date", "post_date", "ended"],
     },
   },
 } as const

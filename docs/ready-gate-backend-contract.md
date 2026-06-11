@@ -171,11 +171,11 @@ Clients must only navigate to `/date/:id` or native date screen after one of the
 
 Date-capable/provider-prepared fields are:
 
-- `state IN ('handshake', 'date')`
-- `phase IN ('handshake', 'date')`
+- `state IN ('entry', 'date')`
+- `phase IN ('entry', 'date')`
 - `daily_room_name IS NOT NULL`
 - `daily_room_url IS NOT NULL`
-- `handshake_started_at IS NOT NULL`
+- `entry_started_at IS NOT NULL`
 - `date_started_at IS NOT NULL`
 - Daily joined stamps such as `participant_1_joined_at` / `participant_2_joined_at`
 

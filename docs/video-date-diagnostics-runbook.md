@@ -88,8 +88,8 @@ Expected behavior after the current recovery migrations:
 - Daily provider `participant.joined` repairs latest joined evidence and can clear reconnect grace; stale provider `participant.left` cannot override a newer join.
 - The visible handshake starts only when both participants' latest Daily presence is active.
 - If the partner's latest Daily provider event is missing or is a later `participant.left`, the RPC should stay in waiting posture and emit `daily_join_waiting_for_active_partner`.
-- `handshake_started_after_active_daily_copresence` should appear only after both latest presences are active.
-- After `20260606205211` is applied, `handshake_started_after_active_daily_copresence` is legacy evidence only. New sessions should wait for `waiting_for_stable_copresence=false` from `mark_video_date_daily_joined` / `mark_video_date_daily_alive` and should log handshake start only after both actors have current provider-backed presence plus stable owner heartbeats, or canonical remote-seen evidence that is not contradicted by later provider leave evidence.
+- `entry_started_after_active_daily_copresence` should appear only after both latest presences are active.
+- After `20260606205211` is applied, `entry_started_after_active_daily_copresence` is legacy evidence only. New sessions should wait for `waiting_for_stable_copresence=false` from `mark_video_date_daily_joined` / `mark_video_date_daily_alive` and should log handshake start only after both actors have current provider-backed presence plus stable owner heartbeats, or canonical remote-seen evidence that is not contradicted by later provider leave evidence.
 - `mark_video_date_daily_alive` should append owner heartbeat evidence with `owner_id`, `call_instance_id`, `provider_session_id`, `entry_attempt_id`, and `owner_state`. Only `owner_state='joined'` heartbeats with a current provider session id and no matching later Daily `participant.left` may clear away state or advance joined evidence. Provider-null, `joining`, or `lost` heartbeats are telemetry; they can keep diagnostics alive but must not revive copresence.
 - Daily provider identity checks should use `video_date_daily_webhook_events.provider_participant_id` first. Sanitized payload fields are fallback for legacy rows only, and payload-only `session_id` matching is not enough for current provider presence.
 - If Daily emits `left-meeting` while the route/session owner is still joined, client observability should include `daily_owner_provider_left_unexpected`; that is a restart-through-owner signal, not a reason for lobby/Ready Gate to start a second call.
@@ -101,7 +101,7 @@ Expected behavior after the current recovery migrations:
 - Route ownership should be singular after Ready Gate handoff or `date_started_at`: `/date/:sessionId` owns active date/survey state, and `/ready/:sessionId` or lobby should not restart Daily or queue work for that same session.
 - Native notification deep links are part of that same route-owner contract. Snapshot and fallback truth recovery must mark `/date/:sessionId` ownership for `go_date` and `go_survey`; fallback `go_survey` should emit `pending_survey_terminal_encounter` diagnostics and return `/date/:sessionId`, not lobby/tabs.
 - Current production observability after `20260605232304` should preserve Daily singleton continuity and parking fields such as `same_session_daily_continuity_latched`, `parked_singleton`, `singleton_parking_mode`, `route_owned`, `active_call_session_id_matches`, `truth_refresh_attempt`, and `historical_remote_seen_truth`.
-- If both sides have confirmed remote-media/date-entry evidence and neither side has passed or both-decided, `mark_video_date_remote_seen` or `video_session_handshake_auto_promote_v2` should promote the session to `date` immediately; deadline finalization is only a fallback and must never end that encounter as `handshake_timeout`.
+- If both sides have confirmed remote-media/date-entry evidence and neither side has passed or both-decided, `mark_video_date_remote_seen` or `video_session_entry_auto_promote_v2` should promote the session to `date` immediately; deadline finalization is only a fallback and must never end that encounter as `entry_timeout`.
 - After `date_started_at`, a missing peer is a post-encounter absence, not a pre-date partial join. Web/native/mobile should not auto-end solely from first-remote peer-missing when historical encounter truth exists; provider/server absence reconciliation owns automatic terminalization, while explicit user exits may still use `partner_absent_after_confirmed_encounter`.
 - `update_participant_status` must not overwrite `in_survey` to `offline`/`idle`/`browsing` while the user still has a survey-eligible ended session and no `date_feedback` row.
 - Terminal timeout/replay/already-ended paths should preserve or repair deterministic `daily_room_name` and `daily_room_url` for support forensics.
@@ -129,7 +129,7 @@ select
   participant_2_away_at,
   participant_1_remote_seen_at,
   participant_2_remote_seen_at,
-  handshake_started_at,
+  entry_started_at,
   date_started_at,
   ended_at,
   ended_reason,
@@ -253,7 +253,7 @@ where session_id = '<video_session_id>'
       'daily_call_cleanup',
       'daily_call_busy_internal_retry',
       'daily_join_waiting_for_active_partner',
-      'handshake_started_after_active_daily_copresence',
+      'entry_started_after_active_daily_copresence',
       'mark_reconnect_self_away_suppressed_active_daily_presence',
       'reconnect_grace_cleared_by_daily_join',
       'reconnect_grace_cleared_by_provider_join',
@@ -262,7 +262,7 @@ where session_id = '<video_session_id>'
       'terminal_confirmed_encounter_survey'
     )
     or detail::text like '%daily_join_waiting_for_active_partner%'
-    or detail::text like '%handshake_started_after_active_daily_copresence%'
+    or detail::text like '%entry_started_after_active_daily_copresence%'
     or detail::text like '%daily_call_cleanup%'
     or detail::text like '%daily_call_reuse%'
     or detail::text like '%same_session_daily_continuity%'
@@ -365,9 +365,9 @@ Hardening sprint product events added/verified in `shared/analytics/lobbyToPostD
 - `video_date_daily_token_failure`
 - `video_date_daily_joined`
 - `video_date_remote_seen`
-- `video_date_handshake_grace_started`
-- `video_date_handshake_completed_mutual`
-- `video_date_handshake_not_mutual`
+- `video_date_entry_grace_started`
+- `video_date_entry_completed_mutual`
+- `video_date_entry_not_mutual`
 - `video_date_extension_attempted`
 - `video_date_extension_succeeded`
 - `video_date_extension_failed`

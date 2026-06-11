@@ -48,7 +48,6 @@ test("identifier hygiene migration uses explicit short bases instead of overlong
 test("generated Supabase types mirror the short internal function names", () => {
   for (const identifier of [
     "confirm_vde_event_inactive_base_v1",
-    "repair_stale_vd_prepare_both_join_v1",
   ]) {
     assert.match(supabaseTypes, new RegExp(`${identifier}: \\{`));
   }
@@ -58,6 +57,9 @@ test("generated Supabase types mirror the short internal function names", () => 
     // heads and dropped them; their short names must stay out of the types.
     "rgt_pre_ready_room_meta_base_v1",
     "rgt_preserve_warmup_base_v1",
+    // Rebuild PR 5 folded the stale-prepare both-join repair into
+    // repair_stale_video_date_prepare_entries and dropped the short base.
+    "repair_stale_vd_prepare_both_join_v1",
     "ready_gate_transition_20260505140000_pre_ready_room_metadata_ba",
     "ready_gate_transition_20260505154500_preserve_after_ready_room_",
     "confirm_video_date_entry_prepared_20260501200000_event_inactive",
