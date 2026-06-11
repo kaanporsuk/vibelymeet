@@ -66,6 +66,18 @@ client/Edge-facing Video Date surface:
   delegation shell with a single self-contained body and dropped schema
   `private_video_date`. The 25 `functions/private_video_date/` dumps remain as
   the pre-rebuild history of the dropped chain.
+- `functions/public-heads/claim_video_date_surface.sql`,
+  `mark_video_date_daily_alive.sql`, `mark_video_date_daily_joined.sql`, and
+  `mark_video_date_remote_seen.sql` were re-dumped on 2026-06-11 after rebuild
+  PR 3 (migration `20260611190852_video_date_evidence_single_bodies.sql`)
+  replaced each delegation shell with a single self-contained body and dropped
+  the 26 historical public generations of these families (including
+  `vd_alive_strict_provider_base`, a live chain layer surfaced during the
+  rebuild inventory). `vd_daily_webhook_terminal_truth_base` is intentionally
+  retained (Daily webhook ledger family).
+  `release_video_date_surface_claim.sql` was already a single body and is
+  unchanged. The dropped generations' identities remain pinned in
+  `snapshots/public_archived_functions_manifest.json`.
 
 ## Re-verifying against live
 

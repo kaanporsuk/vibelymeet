@@ -78,7 +78,12 @@ test("PR 1295 Sprint 7 ops health restores real counts without queue-drain count
 test("PR 1297 validation scripts inspect private transition helpers after public flattening", () => {
   assert.match(prepareEntryValidation, /private_video_date\.vdt_prepare_lease/);
   assert.match(eventEndedValidation, /private_video_date\.vdt_event_inactive/);
-  assert.match(endToEndValidation, /private_video_date\.vdt_pre_date_end_cleanup/);
+  // Rebuild PR 2 dropped the private chain; the end-to-end pack now checks the
+  // single-body public.video_date_transition for the cleanup markers.
+  assert.match(
+    endToEndValidation,
+    /pg_get_functiondef\('public\.video_date_transition\(uuid,text,text\)'::regprocedure\) like '%pre_date_end_cleanup%'/,
+  );
   assert.match(endToEndValidation, /private_video_date\.vdt_core_legacy_01/);
 
   for (const source of [prepareEntryValidation, eventEndedValidation, endToEndValidation]) {

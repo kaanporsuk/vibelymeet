@@ -277,7 +277,9 @@ test("evidence truth: mark_video_date_remote_seen pins render-evidence vocabular
   assert.match(remoteSeen, /'remote_seen_stamp_accepted', false/);
   assert.match(remoteSeen, /'render_evidence_required', true/);
   assert.match(remoteSeen, /'render_evidence_accepted', true/);
-  assert.match(remoteSeen, /public\.vd_remote_seen_render_base\(/);
+  // Rebuild PR 3: the render/provider-proof chain is inlined into the head.
+  assert.match(remoteSeen, /'remote_seen_rejected_stale_provider_session', true/);
+  assert.match(remoteSeen, /mark_video_date_remote_seen\.single_body_core/);
   assert.match(remoteSeen, /'REMOTE_SEEN_STAMP_FAILED'/);
 });
 
@@ -286,12 +288,16 @@ test("evidence truth: daily joined/alive heads pin provider-presence failure pay
   const alive = fixture("functions/public-heads/mark_video_date_daily_alive.sql");
 
   assert.match(joined, /p_owner_state text DEFAULT 'joined'::text/);
-  assert.match(joined, /public\.vd_daily_joined_20260609130139_hot_base\(/);
+  // Rebuild PR 3: joined delegates to the canonical heartbeat owner.
+  assert.match(joined, /public\.mark_video_date_daily_alive\(/);
+  assert.match(joined, /'joined_delegated_to_daily_alive', true/);
   assert.match(joined, /'code', 'DAILY_JOIN_STAMP_FAILED'/);
   assert.match(joined, /'join_stamp_accepted', false/);
 
   assert.match(alive, /p_owner_state text DEFAULT NULL::text/);
-  assert.match(alive, /public\.vd_daily_alive_20260609130139_hot_base\(/);
+  // Rebuild PR 3: eligibility + provider proof prechecks are inlined.
+  assert.match(alive, /video_date_session_lifecycle_eligibility_v1\(/);
+  assert.match(alive, /video_date_current_provider_session_proof_v1\(/);
   assert.match(alive, /'code', 'DAILY_ALIVE_FAILED'/);
 
   for (const [name, head] of [
@@ -312,7 +318,9 @@ test("surface truth: claim/release pin defaults, failsoft, and own-claim-only re
   const release = fixture("functions/public-heads/release_video_date_surface_claim.sql");
 
   assert.match(claim, /p_takeover boolean DEFAULT false, p_ttl_seconds integer DEFAULT 12/);
-  assert.match(claim, /public\.vd_claim_surface_20260609130139_hot_base\(/);
+  // Rebuild PR 3: the claim chain is inlined; the terminal-truth audit stays.
+  assert.match(claim, /'claim_terminal_audit'/);
+  assert.match(claim, /'code', 'SURFACE_CLAIM_CONFLICT'/);
   assert.match(claim, /'code', 'SURFACE_CLAIM_FAILED'/);
   assert.match(claim, /'retryable', true/);
   assert.match(claim, /'terminal', false/);
