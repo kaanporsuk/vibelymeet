@@ -1,0 +1,6 @@
+-- Intentionally empty.
+--
+-- This migration version was applied to the linked project before its
+-- intended content was written (tooling race). The actual fix ships in
+-- 20260611222200_video_date_entry_deadline_result_scope_fix_v2.sql.
+-- Kept as an empty placeholder so local and remote migration histories match.

@@ -2190,8 +2190,12 @@ test("transition wrapper cannot open survey from failed or one-sided date starts
   assert.match(remoteSeenEncounterGuardMigration, /RENAME TO video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
   assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_continue_handshake_v2_20260603090000_remote_seen_base/);
   assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
-  assert.match(supabaseTypes, /video_session_continue_handshake_v2_20260603090000_remote_seen_/);
-  assert.match(supabaseTypes, /video_session_handshake_auto_promote_v2_20260603090000_remote_s/);
+  // PR-5 vocabulary flip: the dated remote-seen generations are folded into
+  // the entry-vocabulary single bodies and dropped from the live schema.
+  assert.match(supabaseTypes, /video_session_continue_entry_v2/);
+  assert.match(supabaseTypes, /video_session_entry_auto_promote_v2/);
+  assert.doesNotMatch(supabaseTypes, /video_session_continue_handshake_v2/);
+  assert.doesNotMatch(supabaseTypes, /video_session_handshake_auto_promote_v2/);
   assert.match(remoteSeenEncounterGuardMigration, /NOT public\.video_date_session_has_confirmed_encounter[\s\S]*'video_session_continue_handshake_v2'/s);
   assert.match(remoteSeenEncounterGuardMigration, /NOT public\.video_date_session_has_confirmed_encounter[\s\S]*'video_session_handshake_auto_promote_v2'/s);
   assert.match(remoteSeenEncounterGuardMigration, /GRANT EXECUTE ON FUNCTION public\.video_session_continue_handshake_v2\(uuid, text, text\)[\s\S]*TO authenticated, service_role/);

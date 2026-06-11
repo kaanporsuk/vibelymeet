@@ -88,8 +88,8 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
-| `daily-room` | Edge Function | prepare_date_entry, video_date_leave, delete_room | **Token issuance:** `prepare_date_entry` requires `both_ready` **or** session already in handshake/date (`handshake_started_at` / `state` / `phase`) so rejoin works; **410** + `SESSION_ENDED` if `ended_at` set. Errors return JSON `{ error, code }` (no secrets). Legacy/non-golden public Video Date entry actions `create_date_room`, `join_date_room`, `ensure_date_room`, `prepare_diagnostic_entry`, and `prepare_solo_entry` were removed from the active action contract on 2026-06-09. |
-| `video_date_transition` | RPC | prepare_entry, vibe, complete_handshake, end, reconnect actions | **prepare_entry:** owned by `prepare_date_entry` for routeable entry/timing setup. Standalone `enter_handshake` is removed as a client-visible action and returns `ENTER_HANDSHAKE_REMOVED`; use `prepare_date_entry` / `prepare_entry`. |
+| `daily-room` | Edge Function | prepare_date_entry, video_date_leave, delete_room | **Token issuance:** `prepare_date_entry` requires `both_ready` **or** session already in entry/date (`entry_started_at` / `state` / `phase`) so rejoin works; **410** + `SESSION_ENDED` if `ended_at` set. Errors return JSON `{ error, code }` (no secrets). Legacy/non-golden public Video Date entry actions `create_date_room`, `join_date_room`, `ensure_date_room`, `prepare_diagnostic_entry`, and `prepare_solo_entry` were removed from the active action contract on 2026-06-09. |
+| `video_date_transition` | RPC | prepare_entry, vibe, complete_entry, end, reconnect actions (legacy `complete_handshake`/`continue_handshake` accepted as aliases) | **prepare_entry:** owned by `prepare_date_entry` for routeable entry/timing setup. Standalone `enter_handshake` is removed as a client-visible action and returns `ENTER_HANDSHAKE_REMOVED`; use `prepare_date_entry` / `prepare_entry`. |
 | `video_sessions` | Table | Session state, ended_at | Same |
 
 ---

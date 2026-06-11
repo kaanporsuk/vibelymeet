@@ -63,13 +63,13 @@ Current recovery status: the 2026-04-30 handshake release was deployed, but acti
 
 Durable contract for web and native:
 
-- `confirm_video_date_entry_prepared(...)` is the provider-atomic routeability step. It persists Daily metadata and makes the session routeable without starting `handshake_started_at`.
-- `mark_video_date_daily_joined(...)` stamps the authenticated participant's latest Daily join, clears that actor's away state, and clears reconnect grace when return is proven. It starts `handshake_started_at` only after both participants' latest Daily presence is active. `participant_*_joined_at` is not proof if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
+- `confirm_video_date_entry_prepared(...)` is the provider-atomic routeability step. It persists Daily metadata and makes the session routeable without starting `entry_started_at`.
+- `mark_video_date_daily_joined(...)` stamps the authenticated participant's latest Daily join, clears that actor's away state, and clears reconnect grace when return is proven. It starts `entry_started_at` only after both participants' latest Daily presence is active. `participant_*_joined_at` is not proof if a later Daily `participant.left` / `participant_*_away_at` marks that participant away.
 - `mark_video_date_daily_alive(...)` records owner heartbeat telemetry, but joined/away lifecycle authority requires `owner_state='joined'`, a local provider session id, current Daily provider proof, and no matching later provider leave. Provider-null or provider-stale client heartbeats must not revive a participant.
 - Daily webhook provider identity is `video_date_daily_webhook_events.provider_participant_id` first, with sanitized payload fields only as fallbacks.
 - Daily provider joins must advance latest joined evidence and clear reconnect grace when they prove return; stale provider leaves must not override newer joins.
 - Canonical `mark_video_date_remote_seen(...)` advances latest remote-seen evidence only when the authenticated participant supplies current Daily owner/call/provider proof: `owner_state = 'joined'`, a current local provider session id, and a latest Daily webhook `participant.joined` for that same provider session. Session-only or stale-provider calls are structured no-ops and must not mutate encounter truth.
-- Confirmed bilateral remote-media/date-entry encounters are authoritative before handshake timeout: `mark_video_date_remote_seen` and `video_session_handshake_auto_promote_v2` should promote active confirmed encounters to `date` immediately, while the deadline finalizer remains fallback-only and launch-evidence deadline extensions must grant positive time instead of returning a zero-second extension.
+- Confirmed bilateral remote-media/date-entry encounters are authoritative before handshake timeout: `mark_video_date_remote_seen` and `video_session_entry_auto_promote_v2` should promote active confirmed encounters to `date` immediately, while the deadline finalizer remains fallback-only and launch-evidence deadline extensions must grant positive time instead of returning a zero-second extension.
 - Web/native Daily `participant-left` uses local transport grace before backend partner-away. Only explicit `daily_transport_grace_expired` should start backend reconnect grace for partner absence.
 - Browser `visibilitychange` is soft telemetry during active Daily handoff/warm-up/date and should not mark self away while Daily is joining/joined.
 - A same-session, same-room Daily call in joining/joined state is a durable owner resource. Web remount parking is non-expiring for live same-session calls, and native/mobile may preserve Daily only through explicit `preserve_active_handoff` cleanup before any `leave()`/destroy call. Manual abort, date end, app background, and timeout cleanup remain destructive.
@@ -82,7 +82,7 @@ Durable contract for web and native:
 - Survey state is sticky: client presence writes should not clear `in_survey` before that user submits `date_feedback`.
 - Terminal timeout/replay/already-ended paths should preserve or repair deterministic Daily room metadata.
 - Ready Gate `both_ready` provider handoff is `45s`, and expired Ready Gates are not reopened.
-- Web and native warm-up timers and Vibe/Pass controls wait for server-owned `handshake_started_at`.
+- Web and native warm-up timers and Vibe/Pass controls wait for server-owned `entry_started_at`.
 - Daily room identity remains deterministic and session-scoped; both participants must target the same `video_sessions.id` and Daily room.
 - Each participant receives a distinct user-scoped Daily token. Non-participants must not receive tokens or write join stamps.
 - Critical video-date lifecycle state remains backend-owned through RPCs/state-machine functions; clients render and route from server truth.

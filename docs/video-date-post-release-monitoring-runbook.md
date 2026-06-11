@@ -164,7 +164,7 @@ select
   participant_2_away_at,
   participant_1_remote_seen_at,
   participant_2_remote_seen_at,
-  handshake_started_at,
+  entry_started_at,
   date_started_at,
   state,
   phase,
@@ -253,10 +253,10 @@ Monitor Supabase active-presence evidence:
 - `video_sessions.participant_2_away_at`
 - `video_sessions.participant_1_remote_seen_at`
 - `video_sessions.participant_2_remote_seen_at`
-- `video_sessions.handshake_started_at`
+- `video_sessions.entry_started_at`
 - `video_sessions.date_started_at`
 - `video_date_daily_webhook_events.event_type`
-- `event_loop_observability_events.reason_code` / `detail` values `daily_join_waiting_for_active_partner` and `handshake_started_after_active_daily_copresence`
+- `event_loop_observability_events.reason_code` / `detail` values `daily_join_waiting_for_active_partner` and `entry_started_after_active_daily_copresence`
 - `event_loop_observability_events.reason_code` / `detail` values `reconnect_grace_cleared_by_daily_join`, `reconnect_grace_cleared_by_provider_join`, `reconnect_grace_cleared_by_return`, `reconnect_grace_expiry_suppressed_latest_presence`, `mark_reconnect_self_away_suppressed_active_daily_presence`, and `daily_transport_grace_expired`
 - `event_loop_observability_events.detail` values `same_session_daily_continuity_latched`, `parked_singleton`, `truth_refresh_attempt`, `route_owned`, and `active_call_session_id_matches`
 - `video_date_surface_claim_events` rows for `claim` / `claim_exception`, ordered by `created_at`
@@ -297,7 +297,7 @@ Red-alert signals:
 - Users join different Daily room names for the same `session_id`.
 - `/date/:sessionId`, `/ready/:sessionId`, and event lobby cycle repeatedly for an already active `in_handshake` / `in_date` / `in_survey` session.
 - A native notification tap for an ended survey-eligible session with no feedback opens lobby/tabs instead of `/date/:sessionId`.
-- `handshake_started_at` advances when one participant's latest provider event is `participant.left`.
+- `entry_started_at` advances when one participant's latest provider event is `participant.left`.
 - After `20260606205211`, handshake/date promotion starts while `video_date_stable_copresence_v1` would still return `waiting_for_stable_copresence=true`, one actor lacks current provider-backed presence, or no current canonical remote-seen exists.
 - Repeated owner heartbeat rows show multiple active `owner_id` / `call_instance_id` values for the same `{session_id,user_id,room_name}` without terminal/failed/lost release evidence.
 - `web_visibilitychange` or native background creates backend away while Daily is active.
@@ -324,7 +324,7 @@ Immediate action for no remote participant:
 1. Search both users by `session_id`.
 2. Check `video_date_daily_join_success` for both.
 3. Check `video_date_daily_webhook_events` in timestamp order for both `participant.joined` and later `participant.left`.
-4. Check `participant_*_away_at`, `participant_*_remote_seen_at`, `handshake_started_at`, and `date_started_at`.
+4. Check `participant_*_away_at`, `participant_*_remote_seen_at`, `entry_started_at`, and `date_started_at`.
 5. Check `video_date_remote_seen` and `video_date_no_remote_wait_started`.
 6. Check Daily cleanup/reuse diagnostics before asking users to retry; normal joining/joined state should not route users into a user-facing retry loop.
 7. Ask the missing user to reopen only once if their latest join is absent or stale/away.
@@ -399,7 +399,7 @@ select
   vs.phase,
   vs.ready_gate_status,
   vs.started_at,
-  vs.handshake_started_at,
+  vs.entry_started_at,
   vs.date_started_at,
   vs.ended_at,
   vs.ended_reason,
