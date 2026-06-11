@@ -2815,6 +2815,30 @@ Open risk, stated honestly: this hardening removes one convoy participant and ra
 
 ---
 
+### 2026-06-11 First Confirmed Golden-Flow Success + Lean Pass
+
+**The 2026-06-10 ~23:40 UTC two-user run on event `a91c362f-6815-4cd3-8721-135ff9fb2b4c` (session `d0b93d6d-05ac-4ec1-b56b-313a9f8d1a92`) reached a live date**: match -> Ready Gate (all checks green) -> both ready -> /date route -> Daily join -> bilateral video with warm-up timer and rotating vibe questions ("You're both here. Starting gently."). This is the first observed end-to-end date start since the recovery program opened. It ran on the convoy-hardened backend (migration `20260610201512`) with zero RPC 500s in the trace. Survey completion was not captured in the evidence, so this is still not full acceptance proof, but the launch path is now demonstrably sound.
+
+The successful trace exposed three redundant client traffic patterns that made the launch slow and noisy on the current Micro compute (critical RPCs still took seconds: `claim_video_date_surface` 4.46s, `mark_video_date_remote_seen` 6.14s):
+
+1. ~30 single `record_video_date_launch_latency_checkpoint` RPCs per launch (telemetry; #2 cumulative DB consumer).
+2. A 12-call `evaluate_client_feature_flag_detail` burst on /date mount (shared 60s TTL expiring together; the batch RPC existed but the single-flag path never used it).
+3. ~15 duplicate `get_profile_for_viewer` calls for the same partner across ReadyGateOverlay, useReadyGate, and VideoDate (#1 cumulative DB consumer).
+
+Lean pass implemented (branch `perf/video-date-golden-flow-lean-pass`):
+
+- Migration `20260610235546_video_date_launch_latency_batch_checkpoints.sql` (applied to cloud): additive `record_video_date_launch_latency_checkpoints_v1(uuid, jsonb)` that loops each item through the EXISTING fail-soft single shell (identical validation/failure semantics), capped at 40 items, granted to authenticated + service_role. Live-probed: null session -> `INVALID_BATCH`; one-item array -> count 1.
+- `shared/observability/videoDateLaunchLatencyCheckpointObservability.ts`: checkpoints now buffer per session and flush in ONE batch RPC at 1.5s / 10 items; `*_failure` checkpoints and `first_remote_frame` flush immediately; failed batch flush falls back to per-item single RPCs. Worst case on abrupt tab close: <=1.5s of non-critical checkpoints lost. ~30 RPCs/launch -> ~4-6.
+- `shared/featureFlags/batchedFlagDetailFetcher.ts` + web/native wrappers: concurrent single-flag cache misses coalesce (25ms window) into one `evaluate_client_feature_flags` call; batch failure falls back to per-flag detail fetch. Core evaluation/caching/sequencing semantics untouched. 12 RPCs at /date mount -> 1.
+- `src/lib/videoDatePartnerProfile.ts` + 3 web call sites: partner profile shared through one in-flight request + 5-min TTL memo; errors never cached. ~15 RPCs/launch -> 1-2. Native call sites are a parity follow-up.
+- Contract test `shared/matching/videoDateGoldenFlowLeanPass.test.ts` (wired into `test:video-date-v4` and `test:video-date:red-flags`) pins all of the above; `videoDateEndToEndHardening.test.ts` profile assertion updated to track the memoized helper while preserving its after-access-allowed intent.
+
+Verification on 2026-06-11: full `npm run typecheck` (web + native) clean; new contract test 4/4; touched-module contract tests 194 pass / 1 pre-existing failure; red-flags suite green except the known stale Sprint 5 `submit_post_date_verdict_v2` assertion (pre-existing on main, still open); types regenerated (+4 lines, exactly the new RPC); migration live-probed.
+
+Still open after this pass: compute upgrade (deferred 2026-06-10) remains the dominant latency driver; duplicate `video_sessions` row reads with 4+ select shapes on /date mount (needs a single-owner session-truth read, larger refactor); overlapping `get_video_date_start_snapshot_v1` pollers; native partner-profile memo parity; Realtime `postgres_changes` WAL audit.
+
+---
+
 ## Fresh Session Handoff Prompt
 
 Use this prompt when starting a new Codex/agent session:

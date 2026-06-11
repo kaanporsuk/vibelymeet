@@ -7,6 +7,7 @@ import { trackEvent } from "@/lib/analytics";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
+import { fetchVideoDatePartnerProfile } from "@/lib/videoDatePartnerProfile";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   EventLobbyObservabilityEvents,
@@ -591,9 +592,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const fetchPartnerName = useCallback(async (partnerId: string | null): Promise<string | null> => {
     if (!partnerId) return null;
     try {
-      const { data: profile, error } = await supabase.rpc("get_profile_for_viewer", {
-        p_target_id: partnerId,
-      });
+      const { data: profile, error } = await fetchVideoDatePartnerProfile(partnerId);
       if (error) {
         readyGateDebug("partner profile display lookup degraded", {
           sessionId,

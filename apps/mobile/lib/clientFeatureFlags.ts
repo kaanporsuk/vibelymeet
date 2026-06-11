@@ -35,6 +35,7 @@ export {
   type ClientFeatureFlagEvaluation,
   type ClientFeatureFlagKey,
 } from '@clientShared/featureFlags/clientFeatureFlagCore';
+import { createBatchedFlagDetailFetcher } from '@clientShared/featureFlags/batchedFlagDetailFetcher';
 
 const nativeFeatureFlagStorage: ClientFeatureFlagStorage = {
   getItem: (key) => AsyncStorage.getItem(key),
@@ -94,6 +95,13 @@ async function fetchFlagsBatch(flags: readonly ClientFeatureFlagKey[], userId: s
   return data;
 }
 
+// Concurrent cache misses (e.g. the /date mount burst) coalesce into one
+// evaluate_client_feature_flags call instead of one detail RPC per flag.
+const fetchFlagDetailBatched = createBatchedFlagDetailFetcher({
+  fetchBatch: fetchFlagsBatch,
+  fetchDetail: fetchFlagDetail,
+});
+
 export async function fetchClientFeatureFlag(
   flag: ClientFeatureFlagKey,
   userId: string,
@@ -104,7 +112,7 @@ export async function fetchClientFeatureFlag(
     flag,
     userId,
     force,
-    fetchDetail: fetchFlagDetail,
+    fetchDetail: fetchFlagDetailBatched,
     storage: nativeFeatureFlagStorage,
     emitEvaluation: emitFlagEvaluation,
   });

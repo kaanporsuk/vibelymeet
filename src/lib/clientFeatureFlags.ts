@@ -20,6 +20,7 @@ import {
   type ClientFeatureFlagStorage,
   type ClientFeatureFlagTelemetryEvent,
 } from "@clientShared/featureFlags/clientFeatureFlagCore";
+import { createBatchedFlagDetailFetcher } from "@clientShared/featureFlags/batchedFlagDetailFetcher";
 
 export {
   ALL_CLIENT_FEATURE_FLAGS,
@@ -104,6 +105,13 @@ async function fetchFlagsBatch(flags: readonly ClientFeatureFlagKey[], userId: s
   return data;
 }
 
+// Concurrent cache misses (e.g. the /date mount burst) coalesce into one
+// evaluate_client_feature_flags call instead of one detail RPC per flag.
+const fetchFlagDetailBatched = createBatchedFlagDetailFetcher({
+  fetchBatch: fetchFlagsBatch,
+  fetchDetail: fetchFlagDetail,
+});
+
 export async function fetchClientFeatureFlag(
   flag: ClientFeatureFlagKey,
   userId: string,
@@ -114,7 +122,7 @@ export async function fetchClientFeatureFlag(
     flag,
     userId,
     force,
-    fetchDetail: fetchFlagDetail,
+    fetchDetail: fetchFlagDetailBatched,
     storage: getWebFeatureFlagStorage(),
     emitEvaluation: emitFlagEvaluation,
   });

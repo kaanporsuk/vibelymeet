@@ -12,13 +12,8 @@ export type VideoDateLaunchLatencyPayload = Record<string, VideoDateLaunchLatenc
 
 type SupabaseRpcClient = {
   rpc: (
-    fn: "record_video_date_launch_latency_checkpoint",
-    args: {
-      p_session_id: string;
-      p_checkpoint: string;
-      p_payload: VideoDateLaunchLatencyPayload;
-      p_latency_ms: number | null;
-    },
+    fn: "record_video_date_launch_latency_checkpoint" | "record_video_date_launch_latency_checkpoints_v1",
+    args: Record<string, unknown>,
   ) => PromiseLike<{ data: unknown; error: { message?: string; code?: string } | null }>;
 };
 
@@ -29,7 +24,7 @@ export type EmitVideoDateLaunchLatencyCheckpointInput = {
 };
 
 export type EmitVideoDateLaunchLatencyCheckpointResult =
-  | { ok: true; inserted?: boolean }
+  | { ok: true; inserted?: boolean; queued?: boolean }
   | { ok: false; skipped?: boolean; reason: string };
 
 const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
@@ -298,6 +293,100 @@ function latencyMsForCheckpoint(
   return typeof payload.duration_ms === "number" ? payload.duration_ms : null;
 }
 
+// Golden-flow lean pass: checkpoints are operational telemetry, not critical
+// state. A single launch emits ~30 checkpoints; firing one RPC per checkpoint
+// made this the #2 cumulative DB consumer and added ~30 round trips to every
+// launch. Checkpoints are now buffered per session and flushed in ONE batch
+// RPC (record_video_date_launch_latency_checkpoints_v1) when the buffer is
+// 1.5s old or reaches 10 items. Failure checkpoints and first_remote_frame
+// flush immediately so incident forensics stay prompt. A failed batch flush
+// falls back to the original single-checkpoint RPC per item. Worst case on
+// abrupt tab close: <=1.5s of non-critical checkpoints are lost.
+const CHECKPOINT_FLUSH_DELAY_MS = 1_500;
+const CHECKPOINT_FLUSH_MAX_BUFFER = 10;
+const CHECKPOINT_BATCH_RPC = "record_video_date_launch_latency_checkpoints_v1" as const;
+
+type BufferedCheckpoint = {
+  checkpoint: string;
+  payload: VideoDateLaunchLatencyPayload;
+  latency_ms: number | null;
+};
+
+type CheckpointBuffer = {
+  client: SupabaseRpcClient;
+  items: BufferedCheckpoint[];
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+const checkpointBuffers = new Map<string, CheckpointBuffer>();
+
+function shouldFlushImmediately(checkpoint: string): boolean {
+  return checkpoint.endsWith("_failure") || checkpoint === "first_remote_frame";
+}
+
+async function flushCheckpointBuffer(sessionId: string): Promise<void> {
+  const buffer = checkpointBuffers.get(sessionId);
+  if (!buffer || buffer.items.length === 0) return;
+  checkpointBuffers.delete(sessionId);
+  if (buffer.timer) clearTimeout(buffer.timer);
+
+  const items = buffer.items;
+  try {
+    const { error } = await buffer.client.rpc(CHECKPOINT_BATCH_RPC, {
+      p_session_id: sessionId,
+      p_checkpoints: items,
+    });
+    if (!error) return;
+  } catch {
+    /* fall through to single-call fallback */
+  }
+
+  for (const item of items) {
+    try {
+      await buffer.client.rpc("record_video_date_launch_latency_checkpoint", {
+        p_session_id: sessionId,
+        p_checkpoint: item.checkpoint,
+        p_payload: item.payload,
+        p_latency_ms: item.latency_ms,
+      });
+    } catch {
+      /* observability must never throw into the golden flow */
+    }
+  }
+}
+
+export async function flushVideoDateLaunchLatencyCheckpoints(sessionId?: string): Promise<void> {
+  if (sessionId) {
+    await flushCheckpointBuffer(sessionId);
+    return;
+  }
+  await Promise.all([...checkpointBuffers.keys()].map((key) => flushCheckpointBuffer(key)));
+}
+
+function enqueueCheckpoint(
+  client: SupabaseRpcClient,
+  sessionId: string,
+  item: BufferedCheckpoint,
+): void {
+  let buffer = checkpointBuffers.get(sessionId);
+  if (!buffer) {
+    buffer = { client, items: [], timer: null };
+    checkpointBuffers.set(sessionId, buffer);
+  }
+  buffer.client = client;
+  buffer.items.push(item);
+
+  if (shouldFlushImmediately(item.checkpoint) || buffer.items.length >= CHECKPOINT_FLUSH_MAX_BUFFER) {
+    void flushCheckpointBuffer(sessionId);
+    return;
+  }
+  if (!buffer.timer) {
+    buffer.timer = setTimeout(() => {
+      void flushCheckpointBuffer(sessionId);
+    }, CHECKPOINT_FLUSH_DELAY_MS);
+  }
+}
+
 export async function emitVideoDateLaunchLatencyCheckpointObservability({
   client,
   eventName,
@@ -322,15 +411,12 @@ export async function emitVideoDateLaunchLatencyCheckpointObservability({
 
   const payload = sanitizeVideoDateLaunchLatencyPayload(properties);
   try {
-    const { data, error } = await client.rpc("record_video_date_launch_latency_checkpoint", {
-      p_session_id: sessionId,
-      p_checkpoint: checkpoint,
-      p_payload: payload,
-      p_latency_ms: latencyMsForCheckpoint(checkpoint, payload),
+    enqueueCheckpoint(client, sessionId, {
+      checkpoint,
+      payload,
+      latency_ms: latencyMsForCheckpoint(checkpoint, payload),
     });
-    if (error) return { ok: false, reason: error.code ?? error.message ?? "rpc_error" };
-    const result = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
-    return { ok: true, inserted: result.inserted === true };
+    return { ok: true, queued: true };
   } catch {
     return { ok: false, reason: "exception" };
   }
