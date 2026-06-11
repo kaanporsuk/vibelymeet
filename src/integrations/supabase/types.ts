@@ -13270,22 +13270,6 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
-      vd_transition_20260609130139_hot_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      vd_transition_20260609202707_enter_hs_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      vd_transition_both_ready_owner_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      vd_transition_partial_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
       vd_vibe_q_outer_20260605170249_base: {
         Args: { p_questions: Json; p_session_id: string }
         Returns: Json
@@ -13714,90 +13698,6 @@ export type Database = {
         Returns: Json
       }
       video_date_transition: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260430180000_last_chance_grace_10s: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260501091000_pre_date_end_cleanup: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260501103000_prepare_entry_queue_guard: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260501110000_provider_atomic_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260501145000_peer_missing_end_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260501200000_event_inactive_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260502143000_handshake_deadline_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260503110000_survey_continuity_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260503130000_prepare_lease_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260505153000_prepare_payload_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260603090000_remote_seen_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260604093000_failsoft_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260604170438_warmup_stability_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260604193140_latest_presence_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260605200729_lifecycle_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260605232304_single_owner_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260607123952_routeable_entry_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260607155414_lifecycle_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260607222923_definitive_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260608080938_last_resort_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      video_date_transition_20260609105249_active_entry_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
