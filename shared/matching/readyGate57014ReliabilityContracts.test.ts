@@ -233,9 +233,7 @@ test("Ready Gate clients preserve retryable fail-soft mark-ready payloads into s
   }
 });
 
-test("native standalone Ready route records proof without partial-ready provider warmup", () => {
-  assert.match(nativeReadyRoute, /recordReadyGateEntered/);
-  assert.match(nativeReadyRoute, /surface:\s*'ready_gate_standalone'/);
+test("native standalone Ready route keeps partial-ready provider warmup out of the mount path", () => {
   assert.doesNotMatch(nativeReadyRoute, /ensureVideoDateRoomWarmup/);
   assert.doesNotMatch(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
   assert.doesNotMatch(nativeReadyRoute, /const startRoomWarmupAfterReady = useCallback/);

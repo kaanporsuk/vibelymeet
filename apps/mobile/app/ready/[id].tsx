@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useReadyGate } from '@/lib/readyGateApi';
-import { recordReadyGateEntered } from '@/lib/readyGateEntryProof';
 import { avatarUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
@@ -126,14 +125,6 @@ function isReadyGateReadyProgressStatus(status?: string | null): boolean {
   );
 }
 
-function isReadyGateEntryProofStatus(status?: string | null): boolean {
-  return (
-    status === 'ready' ||
-    status === 'ready_a' ||
-    status === 'ready_b' ||
-    status === 'snoozed'
-  );
-}
 
 export default function ReadyGateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -210,7 +201,6 @@ export default function ReadyGateScreen() {
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const readyGateOpenedAtMsRef = useRef(Date.now());
-  const readyGateEntryProofKeyRef = useRef<string | null>(null);
   const activeSessionIdRef = useRef<string | null>(
     sessionId ? String(sessionId) : null,
   );
@@ -671,7 +661,6 @@ export default function ReadyGateScreen() {
     dateNavigationStartedRef.current = false;
     terminalRecoveryKeyRef.current = null;
     nonRetryablePrepareBlockerRef.current = null;
-    readyGateEntryProofKeyRef.current = null;
     guardedSyncCooldownUntilMsRef.current = 0;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
@@ -689,55 +678,6 @@ export default function ReadyGateScreen() {
       defaultNativeReadyGatePermissionDiagnostics(),
     );
   }, [sessionId, user?.id]);
-
-  useEffect(() => {
-    if (!sessionLookupDone || !sessionId || !user?.id) return;
-    if (!isReadyGateEntryProofStatus(status)) return;
-
-    const proofKey = `${String(sessionId)}:${user.id}`;
-    if (readyGateEntryProofKeyRef.current === proofKey) return;
-    readyGateEntryProofKeyRef.current = proofKey;
-
-    void recordReadyGateEntered({
-      sessionId: String(sessionId),
-      platform: 'native',
-      surface: 'ready_gate_standalone',
-      source: 'mounted_active_ready_gate',
-      readyGateStatus: status,
-      routePath: pathname ?? null,
-    }).then((result) => {
-      if (result.ok || result.success) {
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_ready_gate_entry_proof_recorded', {
-          session_id: sessionId,
-          event_id: eventId,
-          ready_gate_status: result.ready_gate_status ?? status,
-          participant_slot: result.participant_slot ?? null,
-          ttl_extended: Boolean(result.ttl_extended),
-          first_entry_for_participant: Boolean(result.first_entry_for_participant),
-          both_participants_entered: Boolean(result.both_participants_entered),
-        });
-        if (result.ttl_extended) {
-          void syncSession();
-        }
-        return;
-      }
-
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_ready_gate_entry_proof_failed', {
-        session_id: sessionId,
-        event_id: eventId,
-        ready_gate_status: status,
-        code: result.code ?? 'unknown',
-      });
-    });
-  }, [
-    eventId,
-    pathname,
-    sessionId,
-    sessionLookupDone,
-    status,
-    syncSession,
-    user?.id,
-  ]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !permissionRequestEligible) return;

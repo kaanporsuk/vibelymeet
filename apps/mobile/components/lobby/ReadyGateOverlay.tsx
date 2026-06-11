@@ -56,7 +56,6 @@ import {
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
-import { recordReadyGateEntered } from '@/lib/readyGateEntryProof';
 import {
   getReadyGateCountdownProgress,
   getReadyGateCountdownFromServerClock,
@@ -190,14 +189,6 @@ function isReadyGateReadyProgressStatus(status?: string | null): boolean {
   );
 }
 
-function isReadyGateEntryProofStatus(status?: string | null): boolean {
-  return (
-    status === 'ready' ||
-    status === 'ready_a' ||
-    status === 'ready_b' ||
-    status === 'snoozed'
-  );
-}
 
 export type ReadyGateOverlayProps = {
   sessionId: string;
@@ -227,7 +218,6 @@ export function ReadyGateOverlay({
   const dateNavigationStartedRef = useRef(false);
   const invalidSessionNotifiedRef = useRef(false);
   const rgImpressionRef = useRef(false);
-  const readyGateEntryProofKeyRef = useRef<string | null>(null);
   const permissionBlockedRef = useRef(false);
   const permissionSettingsOpenedRef = useRef(false);
   const openingPartnerWaitRef = useRef(false);
@@ -1280,58 +1270,6 @@ export function ReadyGateOverlay({
   });
 
   useEffect(() => {
-    if (readyGateStateSessionId !== sessionId) return;
-    if (!isReadyGateEntryProofStatus(readyGateStatus)) return;
-
-    const proofKey = `${sessionId}:${userId}`;
-    if (readyGateEntryProofKeyRef.current === proofKey) return;
-    readyGateEntryProofKeyRef.current = proofKey;
-
-    void recordReadyGateEntered({
-      sessionId,
-      platform: 'native',
-      surface: 'ready_gate_overlay',
-      source: 'mounted_active_ready_gate',
-      readyGateStatus,
-      routePath: null,
-    }).then((result) => {
-      if (result.ok || result.success) {
-        trackEvent('native_ready_gate_entry_proof_recorded', {
-          platform: 'native',
-          session_id: sessionId,
-          event_id: eventId,
-          source_surface: 'ready_gate_overlay',
-          participant_slot: result.participant_slot ?? null,
-          ready_gate_status: result.ready_gate_status ?? readyGateStatus,
-          ttl_extended: Boolean(result.ttl_extended),
-          first_entry_for_participant: Boolean(result.first_entry_for_participant),
-          both_participants_entered: Boolean(result.both_participants_entered),
-        });
-        if (result.ttl_extended) {
-          void syncSession();
-        }
-        return;
-      }
-
-      trackEvent('native_ready_gate_entry_proof_failed', {
-        platform: 'native',
-        session_id: sessionId,
-        event_id: eventId,
-        source_surface: 'ready_gate_overlay',
-        code: result.code ?? 'unknown',
-        ready_gate_status: readyGateStatus,
-      });
-    });
-  }, [
-    eventId,
-    readyGateStateSessionId,
-    readyGateStatus,
-    sessionId,
-    syncSession,
-    userId,
-  ]);
-
-  useEffect(() => {
     let cancelled = false;
     setSharedVibes([]);
     void fetchReadyGateSharedVibes({ sessionId, userId })
@@ -1351,7 +1289,6 @@ export function ReadyGateOverlay({
     dateNavigationStartedRef.current = false;
     invalidSessionNotifiedRef.current = false;
     rgImpressionRef.current = false;
-    readyGateEntryProofKeyRef.current = null;
     permissionBlockedRef.current = false;
     openingPartnerWaitRef.current = false;
     openingPermissionWaitRef.current = false;

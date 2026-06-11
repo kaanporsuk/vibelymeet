@@ -2852,6 +2852,18 @@ Verification 2026-06-11: web tsc clean, red-flags suite 0 failures, lean-pass co
 
 ---
 
+### 2026-06-11 Simplification PR 1: Ready Gate Entry-Proof Telemetry Removed
+
+Branch `codex/remove-ready-gate-entry-proof-telemetry`. First PR of the aggressive-simplification plan (remove obsolete owners/telemetry/compat paths without weakening the golden flow).
+
+Audit findings (live catalog + repo, 2026-06-11): `video_sessions.ready_gate_participant_*_entered_at` had NO readers besides the entry-proof RPC itself; `video_date_ready_gate_entries` was read only by `video_date_partial_ready_diagnostics_v1` (operator diagnostics, zero DB/client/Edge callers); no route decision, expiry, or acceptance behavior consumed entry-proof state. The RPC's 45s TTL extension was deliberately NOT relocated — Ready Gate timing is owned by session creation and mark_ready.
+
+Removed: web helper `src/lib/readyGateEntryProof.ts`, native helper `apps/mobile/lib/readyGateEntryProof.ts`, the mount-telemetry effects + `isReadyGateEntryProofStatus` predicates + proof-key refs from web ReadyGateOverlay, native ReadyGateOverlay, and native `/ready/[id]`, and the obsolete `readyGateEntryProofContracts.test.ts` (its live `statement_timeout=15s` config pin moved to the new removal contract). Forward migration `20260611091620_remove_ready_gate_entry_proof.sql` (cloud-applied): redefines `video_date_partial_ready_diagnostics_v1` without the entries laterals, then drops the RPC, the ledger table, and both stamp columns in one pass. Parity/reliability tests updated to keep their warmup/prepare-entry-ownership intent without the proof assertions. New `readyGateEntryProofRemovalContracts.test.ts` (wired into `test:video-date-v4`) proves: no platform calls entry proof, helpers deleted, migration drops all four objects, no TTL relocation.
+
+Verification 2026-06-11: live markers confirm RPC/table/columns gone and diagnostics redefined + executing (`ok:true` probe); types regenerated (117 pure deletions); full `npm run typecheck` 0 errors; lint clean; `test:video-date-v4` 0 failures; red-flags 0 failures; `test:event-lobby-regression` 0 failures; linked DB lint clean at error level; post-push dry-run up to date. Acceptance criteria met: Ready Gate mount performs no session-row mutation; `video_session_mark_ready_v2` + `prepare_date_entry` remain the only hot Ready Gate mutations. Static proof only — the standing bar remains a fresh two-user run through persisted `date_feedback`.
+
+---
+
 ## Fresh Session Handoff Prompt
 
 Use this prompt when starting a new Codex/agent session:
