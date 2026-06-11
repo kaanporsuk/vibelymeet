@@ -81,26 +81,6 @@ type VideoSessionRow = {
   participant_2_joined_at?: string | null;
 };
 
-type QueueFairnessHealthRow = {
-  event_id: string | null;
-  queued_session_count: number | null;
-  queued_participant_slots: number | null;
-  oldest_wait_seconds: number | null;
-  p95_wait_seconds: number | null;
-  starved_slots_120s: number | null;
-  starved_slots_300s: number | null;
-  both_hot_ready_slots: number | null;
-  not_both_hot_ready_slots: number | null;
-  reliability_penalized_slots: number | null;
-  max_candidate_score: number | null;
-  avg_candidate_score: number | null;
-  actor_platform_slots: Record<string, number> | null;
-  actor_gender_slots: Record<string, number> | null;
-  no_match_attempts_15m: number | null;
-  runtime_blocked_attempts_15m: number | null;
-  fairness_status: MetricStatus | null;
-};
-
 type DailyPerformanceDecisionRow = {
   window_id: string | null;
   window_label: string | null;
@@ -753,13 +733,6 @@ async function getSwipeRecovery(
   };
 }
 
-function worstMetricStatus(statuses: Array<MetricStatus | null | undefined>): MetricStatus {
-  if (statuses.includes("critical")) return "critical";
-  if (statuses.includes("warning")) return "warning";
-  if (statuses.includes("unknown")) return "unknown";
-  return "healthy";
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -768,102 +741,6 @@ function normalizeSprint7OpsStatus(value: unknown): MetricStatus {
   return value === "healthy" || value === "warning" || value === "critical"
     ? value
     : "unknown";
-}
-
-async function getQueueFairnessHealth(
-  service: SupabaseClientLike,
-  eventId: string | null,
-) {
-  let query = service
-    .from("v_video_date_queue_fairness_event_health")
-    .select(
-      "event_id,queued_session_count,queued_participant_slots,oldest_wait_seconds,p95_wait_seconds,starved_slots_120s,starved_slots_300s,both_hot_ready_slots,not_both_hot_ready_slots,reliability_penalized_slots,max_candidate_score,avg_candidate_score,actor_platform_slots,actor_gender_slots,no_match_attempts_15m,runtime_blocked_attempts_15m,fairness_status",
-    )
-    .order("oldest_wait_seconds", { ascending: false })
-    .limit(MAX_ROWS);
-
-  if (eventId) query = query.eq("event_id", eventId);
-
-  const result = await fetchRows<QueueFairnessHealthRow>(query);
-  if (result.error) {
-    return {
-      event_count: 0,
-      queued_session_count: 0,
-      queued_participant_slots: 0,
-      starved_slots_120s: 0,
-      starved_slots_300s: 0,
-      starvation_rate_120s: null,
-      oldest_wait_seconds: null,
-      p95_wait_seconds: null,
-      both_hot_ready_slots: 0,
-      not_both_hot_ready_slots: 0,
-      reliability_penalized_slots: 0,
-      no_match_attempts_15m: 0,
-      runtime_blocked_attempts_15m: 0,
-      top_events: [] as QueueFairnessHealthRow[],
-      status: "unknown" as MetricStatus,
-      source_error: result.error,
-      truncated: result.truncated,
-    };
-  }
-
-  const totals = result.rows.reduce(
-    (acc, row) => {
-      const queuedParticipantSlots = Number(row.queued_participant_slots ?? 0);
-      acc.queued_session_count += Number(row.queued_session_count ?? 0);
-      acc.queued_participant_slots += queuedParticipantSlots;
-      acc.starved_slots_120s += Number(row.starved_slots_120s ?? 0);
-      acc.starved_slots_300s += Number(row.starved_slots_300s ?? 0);
-      acc.both_hot_ready_slots += Number(row.both_hot_ready_slots ?? 0);
-      acc.not_both_hot_ready_slots += Number(row.not_both_hot_ready_slots ?? 0);
-      acc.reliability_penalized_slots += Number(row.reliability_penalized_slots ?? 0);
-      acc.no_match_attempts_15m += Number(row.no_match_attempts_15m ?? 0);
-      acc.runtime_blocked_attempts_15m += Number(row.runtime_blocked_attempts_15m ?? 0);
-      acc.oldest_wait_seconds = Math.max(acc.oldest_wait_seconds, Number(row.oldest_wait_seconds ?? 0));
-      if (typeof row.p95_wait_seconds === "number" && Number.isFinite(row.p95_wait_seconds)) {
-        acc.p95_wait_values.push(row.p95_wait_seconds);
-      }
-      if (queuedParticipantSlots > 0) acc.active_event_count += 1;
-      return acc;
-    },
-    {
-      queued_session_count: 0,
-      queued_participant_slots: 0,
-      starved_slots_120s: 0,
-      starved_slots_300s: 0,
-      both_hot_ready_slots: 0,
-      not_both_hot_ready_slots: 0,
-      reliability_penalized_slots: 0,
-      no_match_attempts_15m: 0,
-      runtime_blocked_attempts_15m: 0,
-      oldest_wait_seconds: 0,
-      p95_wait_values: [] as number[],
-      active_event_count: 0,
-    },
-  );
-
-  const starvationRate = safeRate(totals.starved_slots_120s, totals.queued_participant_slots);
-  const status = worstMetricStatus(result.rows.map((row) => row.fairness_status));
-
-  return {
-    event_count: result.rows.length,
-    active_event_count: totals.active_event_count,
-    queued_session_count: totals.queued_session_count,
-    queued_participant_slots: totals.queued_participant_slots,
-    starved_slots_120s: totals.starved_slots_120s,
-    starved_slots_300s: totals.starved_slots_300s,
-    starvation_rate_120s: starvationRate,
-    oldest_wait_seconds: totals.oldest_wait_seconds || null,
-    p95_wait_seconds: percentile(totals.p95_wait_values, 0.95),
-    both_hot_ready_slots: totals.both_hot_ready_slots,
-    not_both_hot_ready_slots: totals.not_both_hot_ready_slots,
-    reliability_penalized_slots: totals.reliability_penalized_slots,
-    no_match_attempts_15m: totals.no_match_attempts_15m,
-    runtime_blocked_attempts_15m: totals.runtime_blocked_attempts_15m,
-    top_events: result.rows.slice(0, 8),
-    status,
-    truncated: result.truncated,
-  };
 }
 
 async function getNotificationOutboxHealth(
@@ -1276,7 +1153,6 @@ function emptySprint7SafetyPrivacyOpsHealth(
     stuck_ready_gate_count: 0,
     stuck_handshake_count: 0,
     overdue_date_count: 0,
-    silently_queued_count: 0,
     pending_survey_recovery_count: 0,
     prepare_entry_failure_count: 0,
     daily_join_failure_count: 0,
@@ -1399,7 +1275,6 @@ async function buildWindowMetrics(
     readyTapToFirstRemoteFrame,
     readyGateLatency,
     simultaneousSwipeRecovery,
-    queueFairness,
     dailyPerformanceDecision,
     dailyPerformanceEmissionHealth,
     notificationOutboxHealth,
@@ -1407,7 +1282,6 @@ async function buildWindowMetrics(
     getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
     getSwipeRecovery(service, sinceIso, eventId),
-    getQueueFairnessHealth(service, eventId),
     getDailyPerformanceDecision(service, window, eventId),
     getDailyPerformanceEmissionHealth(service, window, eventId),
     getNotificationOutboxHealth(service, sinceIso, eventId),
@@ -1421,7 +1295,6 @@ async function buildWindowMetrics(
     ready_tap_to_first_remote_frame_latency: readyTapToFirstRemoteFrame,
     ready_gate_open_to_date_join_latency: readyGateLatency,
     simultaneous_swipe_recovery: simultaneousSwipeRecovery,
-    queue_fairness: queueFairness,
     daily_performance_decision: dailyPerformanceDecision,
     daily_performance_emission_health: dailyPerformanceEmissionHealth,
     notification_outbox_health: notificationOutboxHealth,

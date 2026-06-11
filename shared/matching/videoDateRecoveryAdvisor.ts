@@ -69,7 +69,7 @@ export type VideoDateRecoveryAdvisorDecision =
       action: "go_lobby";
       sessionId: string | null;
       eventId: string;
-      reason: "ended" | "queued" | "not_date_ready" | "truth_lobby";
+      reason: "ended" | "not_date_ready" | "truth_lobby";
       platform?: VideoDateRecoveryPlatform;
       surface?: VideoDateRecoverySurface;
     }
@@ -178,26 +178,6 @@ export function adviseVideoDateSnapshotRecovery(
         sessionId: snapshot.sessionId,
         eventId: snapshot.eventId,
         reason: "ready_gate",
-        platform: options.platform,
-        surface: options.surface,
-      };
-    }
-    return {
-      action: "go_home",
-      sessionId: snapshot.sessionId,
-      reason: "missing_event",
-      platform: options.platform,
-      surface: options.surface,
-    };
-  }
-
-  if (snapshot.phase === "queued") {
-    if (snapshot.eventId) {
-      return {
-        action: "go_lobby",
-        sessionId: snapshot.sessionId,
-        eventId: snapshot.eventId,
-        reason: "queued",
         platform: options.platform,
         surface: options.surface,
       };

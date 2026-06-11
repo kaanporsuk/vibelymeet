@@ -122,7 +122,6 @@ export function normalizeReadyGateServerNowMs(
 
 export function getReadyGateStatusOrdinal(status: string | null | undefined): number {
   switch (normalizeStatusKey(status)) {
-    case "queued":
     case "waiting":
     case "open":
       return 0;

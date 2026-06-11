@@ -33,7 +33,7 @@ export type VideoDateDeepLinkRecovery =
   | { action: "date"; sessionId: string; eventId: string | null; reason: "handshake" | "date" | "already_joined" }
   | { action: "survey"; sessionId: string; eventId: string | null; reason: "verdict" | "terminal_encounter" }
   | { action: "ready_gate"; sessionId: string; eventId: string; reason: "ready_gate" }
-  | { action: "lobby"; sessionId: string; eventId: string; reason: "ended" | "queued" | "not_date_ready" }
+  | { action: "lobby"; sessionId: string; eventId: string; reason: "ended" | "not_date_ready" }
   | { action: "home"; sessionId: string | null; reason: "missing_event" | "snapshot_retryable" }
   | { action: "invalid"; sessionId: string | null; reason: string };
 

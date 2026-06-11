@@ -42,11 +42,10 @@ Golden flow preserved and unchanged: Event Lobby -> pass/vibe -> immediate mutua
 
 - Forward migration `supabase/migrations/20260610182520_remove_dead_event_loop_drain_views.sql` drops `v_event_loop_drain_outcomes_hourly` and `v_event_loop_drain_events` — observability over the removed drain/promotion subsystem. Live pre-checks: zero pg_depend dependents, zero repo readers. **Applied to linked cloud**; post-apply dry-run returns "Remote database is up to date". Generated types regenerated via `npm run regen:supabase-types` (−56 lines, exactly the two views).
 
-## Deferred (explicitly, with reasons)
+## Deferred / Superseded Follow-Ups
 
-- **Audit #5 (base-function onion flattening)** and the **physical queued purge** (`video_sessions.queued_expires_at` drop, `p_queued_expires_at` signature change): live catalog shows 15 functions still referencing `queued_expires_at`, including the `enforce_one_active_video_session` trigger that runs on every session write. Dropping the column requires rewriting those bodies from live `pg_get_functiondef` in one migration — the same risk class as onion flattening. Gated behind a successful two-user acceptance run.
-- **Queue-fairness views**: live `pg_depend` shows 26 dependents on `v_video_date_queue_fairness_candidates` (more entangled than the audit assumed); folded into the deferred backend pass.
-- **Client `'queued'` placeholder vocabulary**: live inspection shows `ReadyGateStatus.Queued` / `'queued'` in `useReadyGate`/`readyGateApi`/route-decision is the client-side *pre-hydration placeholder state*, not dead parsing of removed server values. Renaming the placeholder is a behavior-adjacent Ready Gate refactor and joins the deferred queued purge.
+- **Physical queued purge completed on 2026-06-11:** `supabase/migrations/20260611104830_purge_video_date_queued_residue.sql` is the coordinated backend/source pass that drops `video_sessions.queued_expires_at`, removes `p_queued_expires_at`, deletes Video Date queue-fairness views/RPC/operator metrics, and removes the client `'queued'` placeholder fallback. It preserves direct mutual swipe -> Ready Gate `ready` creation and does not remove generic non-Video-Date queued statuses.
+- **Audit #5 (base-function onion flattening)** remains separate. The queued-residue purge rewrites only the bodies required to drop the column and obsolete operator surface; it does not flatten unrelated wrapper layers.
 - **Flag-row delete for `video_date.outbox_v2.submit_verdict`** — still deferred as a separate flag-row cleanup. The verdict v1/v2/base RPC drop itself was completed on 2026-06-11 by `20260611094913_remove_legacy_post_date_verdict_rpcs.sql`.
 - **handshake→entry Phase D/E** — unchanged, separately gated.
 

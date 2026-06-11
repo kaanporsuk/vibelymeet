@@ -87,7 +87,7 @@ export type ReadyGateState = {
 
 const createInitialReadyGateState = (): ReadyGateState => ({
   stateSessionId: null,
-  status: 'queued',
+  status: 'ready',
   iAmReady: initialReadyGateReadinessState.iAmReady,
   partnerReady: initialReadyGateReadinessState.partnerReady,
   iAmReadyKnown: initialReadyGateReadinessState.iAmReadyKnown,
@@ -264,7 +264,7 @@ export function useReadyGate(
     clockSkewMs: number | null;
     phaseDeadlineAtMs: number | null;
   }>({
-    status: 'queued',
+    status: 'ready',
     sessionSeq: null,
     expiresAt: null,
     serverNowMs: null,
@@ -300,7 +300,7 @@ export function useReadyGate(
     broadcastRefetchInFlightRef.current = false;
     broadcastGapRecoveryRef.current = null;
     readyGateTruthRef.current = {
-      status: 'queued',
+      status: 'ready',
       sessionSeq: null,
       expiresAt: null,
       serverNowMs: null,
@@ -383,7 +383,7 @@ export function useReadyGate(
       truth.status ??
       truth.result_ready_gate_status ??
       truth.result_status ??
-      'queued';
+      'ready';
     const hasSnoozedBy = Object.prototype.hasOwnProperty.call(truth, 'snoozed_by');
     const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'snooze_expires_at');
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'ready_gate_expires_at');
@@ -1029,7 +1029,7 @@ export function useReadyGate(
         payload.status ??
         payload.result_ready_gate_status ??
         payload.result_status ??
-        'queued';
+        'ready';
       const result = applyReadyGateTruth({
         ...payload,
         ready_gate_status:

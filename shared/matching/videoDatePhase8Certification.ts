@@ -124,7 +124,6 @@ export type VideoDatePhase8CertificationInput = {
   firstFrameSampleCount: number;
   firstFrameP95Ms: number | null;
   firstFrameP99Ms: number | null;
-  queueFairnessStatus: "healthy" | "warning" | "critical" | "unknown";
   dailyProductionConfigReady: boolean;
   dailyWebhookSecretReady: boolean;
   dailyCleanupCronReady: boolean;
@@ -165,7 +164,6 @@ export function evaluateVideoDatePhase8RolloutStep(
   addBlocker(blockers, !input.dailyCleanupCronReady, "daily_cleanup_cron_not_ready");
   addBlocker(blockers, input.recoveryPageAlerts > 0, "recovery_page_alerts_active");
   addBlocker(blockers, input.stuckActiveSessionsOver2m > 0, "stuck_active_sessions_over_2m");
-  addBlocker(blockers, input.queueFairnessStatus === "critical", "queue_fairness_critical");
   addBlocker(
     blockers,
     step.targetRolloutBps >= 1000 && !input.rollout1PctPassed,

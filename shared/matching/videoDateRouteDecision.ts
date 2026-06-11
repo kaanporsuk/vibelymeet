@@ -1,5 +1,4 @@
 export type CanonicalReadyGateStatus =
-  | "queued"
   | "waiting"
   | "open"
   | "ready"
@@ -146,7 +145,6 @@ export function normalizeVideoDateReadyGateStatus(
   if (!normalized) return null;
   if (normalized === "one_ready") return "ready";
   if (
-    normalized === "queued" ||
     normalized === "waiting" ||
     normalized === "open" ||
     normalized === "ready" ||

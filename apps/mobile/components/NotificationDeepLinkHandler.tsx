@@ -450,8 +450,8 @@ async function reconcileHrefWithRegistration(
       });
       return tabsRootHref();
     }
-    // Retryable failures, queued rescue, and non-survey terminal states fall
-    // through to legacy truth so queue drain and stale-ended recovery stay intact.
+    // Retryable failures and non-survey terminal states fall through to
+    // legacy truth so stale-ended recovery stays intact.
   }
 
   const { data: vs } = await supabase

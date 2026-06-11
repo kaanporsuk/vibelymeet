@@ -62,6 +62,21 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: Video Date Queued-State Residue Physically Purged
+
+Current source and linked Supabase cloud now remove the remaining physical Video Date queued-state residue. The golden flow stays direct: mutual swipe creates a Ready Gate session as `ready`, both users mark ready, `prepare_date_entry` opens the date, and post-date survey writes `date_feedback`.
+
+- **Live precondition:** linked read-only checks returned zero rows for `video_sessions.ready_gate_status = 'queued'`, zero non-null `video_sessions.queued_expires_at`, and zero `event_registrations.queue_status = 'queued'`. Generic non-Video-Date queued statuses are intentionally left alone.
+- **Database contract:** forward migration `20260611104830_purge_video_date_queued_residue.sql` is applied to linked project `schdyxcunwcvddlcshwd`. It drops the Video Date queue indexes, removes `video_sessions.queued_expires_at`, replaces `video_session_blocks_global_active_conflict(...)` without `p_queued_expires_at`, rewrites active Ready Gate/swipe/stale-cleanup functions so they no longer read or write the column, and preserves the swipe source as direct `ready` Ready Gate creation.
+- **Operator surface:** Video Date queue-fairness views/RPC/helper (`v_video_date_queue_fairness_candidates`, `v_video_date_queue_fairness_event_health`, `get_video_date_queue_fairness_health(...)`, `video_date_queue_participant_reliability_penalty(...)`) are removed because they only observed the deleted match-queue/drain behavior. The Phase 8 readiness and release-closure views no longer gate on queue-fairness/drain markers.
+- **Client/source contract:** web and native Ready Gate fallbacks no longer use a `queued` placeholder; active admin metrics and operator UI no longer request or render Video Date queue-fairness. Active source has no `queued_expires_at` dependency outside old migrations/tests that assert removal.
+- **Types/catalog proof:** `npm run regen:supabase-types` regenerated linked types; `src/integrations/supabase/types.ts` no longer exposes `video_sessions.queued_expires_at`. Live catalog markers confirm the column, queue-fairness views/RPC/helper, old 13-argument conflict helper, and public function/view definitions containing the removed residue are absent.
+- **Verification:** `npm run typecheck`, `npm run lint`, `npm run test:video-date-v4`, `npm run test:video-date:red-flags`, `npm run test:event-lobby-regression`, linked dry-run/lint/advisors, and `git diff --check` passed.
+
+This is a schema/source simplification pass, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
+---
+
 ## 2026-06-11 Implementation Update: Legacy Post-Date Verdict RPC Compatibility Removed
 
 Current source and linked Supabase cloud now keep only `submit_post_date_verdict_v3` as the active post-date verdict persistence RPC.
@@ -84,7 +99,7 @@ Delta: `docs/branch-deltas/video-date-simplification-top5.md`. Source audit: `do
 - **One web lobby hydration owner.** The default-false single-owner/shadow experiment is deleted (`runtimeFlags` entries, `useEventActiveSession`, shadow compare in `useActiveSession`); `EventLobby.tsx` uses `useActiveSession(user?.id, { eventId })` only. `SessionHydrationProvider` stays (live app-shell usage).
 - **Legacy sweeps:** `pendingMatch` deep-link param consumers removed (zero producers verified); unconsumed `videoDateLeanRuntimeContract` module/test/wiring deleted (doc tombstoned); outbox drainer dispatches canonical kinds only.
 - **Cloud change:** migration `20260610182520_remove_dead_event_loop_drain_views.sql` applied to `schdyxcunwcvddlcshwd` (drops `v_event_loop_drain_events`/`v_event_loop_drain_outcomes_hourly`; zero dependents/readers verified live); post-apply dry-run clean; types regenerated (−56 lines).
-- **Deferred with live-evidence reasons:** physical queued purge (15 live functions incl. the `enforce_one_active_video_session` trigger still reference `queued_expires_at`), queue-fairness views (26 live dependents), client `'queued'` pre-hydration placeholder rename, onion flattening, handshake→entry Phase D/E.
+- **Deferred with live-evidence reasons at the time:** physical queued purge, queue-fairness views, and client `'queued'` placeholder rename were deferred out of the 2026-06-10 pass because they required one coordinated catalog/source migration. The 2026-06-11 queued-state purge above supersedes that deferred state. Onion flattening and handshake→entry Phase D/E remain separate follow-ups.
 - **Edge deploys completed (2026-06-10 close-out):** after PR #1286 squash-merged to `main` as `93e73c9948bf2ffb3bb40327b9139b91e16290b1` (all CI checks green), `post-date-verdict` was deployed as active version `600` (2026-06-10 18:51:03 UTC) and `video-date-outbox-drainer` as active version `47` (2026-06-10 18:52:33 UTC) on project `schdyxcunwcvddlcshwd`. Post-merge alignment evidence: linked migration list and dry-run show local == remote through `20260610182520` ("Remote database is up to date"); `npm run regen:supabase-types` against the linked project reproduces the committed `src/integrations/supabase/types.ts` byte-identically; local `main` == `origin/main`; feature branch deleted locally and remotely; parent workspace gitlink committed at the merge commit.
 
 This is a behavior-preserving simplification pass, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
@@ -155,16 +170,16 @@ Current source removes the last live remnant of the match-queue subsystem: the s
 Implementation added:
 
 - Forward migration `supabase/migrations/20260610120000_remove_match_queue_source_always_ready.sql`:
-  - `CREATE OR REPLACE public.handle_swipe_20260506090000_stale_room_base(...)` now inserts a single `ready` Ready Gate session for every mutual match (`ready_gate_status = 'ready'`, `ready_gate_expires_at = now() + 30s`, `queued_expires_at = NULL`) and returns `result = 'match'` with `immediate = true`. The `v_create_queued` / `v_has_queued_session` / actor-target presence computation and the entire queued branch (the `match_queued` return and `ready_gate_status = 'queued'` insert) are removed.
+  - `CREATE OR REPLACE public.handle_swipe_20260506090000_stale_room_base(...)` now inserts a single `ready` Ready Gate session for every mutual match (`ready_gate_status = 'ready'`, `ready_gate_expires_at = now() + 30s`) and returns `result = 'match'` with `immediate = true`. The `v_create_queued` / `v_has_queued_session` / actor-target presence computation and the entire queued branch (the `match_queued` return and `ready_gate_status = 'queued'` insert) are removed. The later 2026-06-11 purge removes the now-unused `queued_expires_at` column that this migration still nulled.
   - `CREATE OR REPLACE public.handle_swipe_20260601183000_deck_authority_base(...)` collapses to a pass-through over `handle_swipe_20260610000100_auto_next_base(...)`; the now-dead `match_queued` -> Ready Gate promotion logic is gone. Super Vibe consumed truth is still preserved by the inner auto-next/super-vibe base.
 - Dead admin queue-drain analytics removed from `supabase/functions/_shared/admin-video-date-ops.ts` (`summarizeQueueDrain`, `QueueDrainSummary`/`QueueDrainInputRow`/`QueueDrainReasonCount`, `EXPECTED_QUEUE_DRAIN_NO_OP_REASON_CODES`, helpers) plus their tests; the drain command kind they summarized no longer exists. `summarizeSwipeRecovery` and the rest of operator metrics are untouched.
 - Regression coverage: `shared/matching/matchQueueSourceRemovalContracts.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
 - Branch delta: `docs/branch-deltas/remove-match-queue-source.md`.
 
-Intentionally left in place (inert, documented):
+Superseded follow-up completed on 2026-06-11:
 
-- `video_sessions.queued_expires_at` column, the `p_queued_expires_at` parameter of `video_session_blocks_global_active_conflict(...)`, and the `'queued'` value in the `ready_gate_status` / `queue_status` vocabularies are kept as vestigial. After this change they have no live writer (always NULL / never set). Physically dropping them cascades into the shared global-active-conflict guard signature and generated types, which cannot be end-to-end verified in this environment; it is recorded as a clean follow-up rather than bundled into this change.
-- Phase 6 queue-fairness views (`v_video_date_queue_fairness_candidates`, `v_video_date_queue_fairness_event_health`) and `get_video_date_queue_fairness_health(...)` are kept: they are an operator-observability surface read by the `admin-video-date-ops` Edge Function and `shared/observability/videoDateOperatorMetrics.ts`, independent of the matching queue flow. With no queued sessions they simply report empty/healthy.
+- `video_sessions.queued_expires_at`, the `p_queued_expires_at` conflict-helper argument, and the Video Date queue-fairness operator surface are removed by `20260611104830_purge_video_date_queued_residue.sql`.
+- The generic `queue_status` vocabulary remains for non-Video-Date event registration lifecycle compatibility; this purge does not remove unrelated queued statuses.
 
 Schema-shape note:
 

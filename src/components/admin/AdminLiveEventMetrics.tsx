@@ -251,25 +251,6 @@ interface VideoDateOpsWindow {
     source_error?: string;
     truncated?: boolean;
   };
-  queue_fairness: {
-    event_count: number;
-    active_event_count?: number;
-    queued_session_count: number;
-    queued_participant_slots: number;
-    starved_slots_120s: number;
-    starved_slots_300s: number;
-    starvation_rate_120s: number | null;
-    oldest_wait_seconds: number | null;
-    p95_wait_seconds: number | null;
-    both_hot_ready_slots: number;
-    not_both_hot_ready_slots: number;
-    reliability_penalized_slots: number;
-    no_match_attempts_15m: number;
-    runtime_blocked_attempts_15m: number;
-    status: VideoDateOpsStatus;
-    source_error?: string;
-    truncated?: boolean;
-  };
   daily_performance_decision: {
     first_frame_sample_count: number;
     first_frame_p95_ms: number | null;
@@ -760,7 +741,6 @@ const AdminLiveEventMetrics = () => {
                   const readyTapToFrame = window.ready_tap_to_first_remote_frame_latency;
                   const latency = window.ready_gate_open_to_date_join_latency;
                   const swipe = window.simultaneous_swipe_recovery;
-                  const fairness = window.queue_fairness;
                   const dailyDecision = window.daily_performance_decision;
                   const dailyEmission = window.daily_performance_emission_health;
                   const timer = window.timer_drift_recovered_by_server_truth;
@@ -768,7 +748,6 @@ const AdminLiveEventMetrics = () => {
                     readyTapToFrame.truncated,
                     latency.truncated,
                     swipe.truncated,
-                    fairness?.truncated,
                     dailyDecision?.truncated,
                     dailyEmission?.truncated,
                   ].some(Boolean);
@@ -777,8 +756,6 @@ const AdminLiveEventMetrics = () => {
                     rawFirstFrameCount > readyTapToFrame.sample_count
                       ? `${readyTapToFrame.sample_count} deduped first-frame samples (${rawFirstFrameCount} raw)`
                       : `${readyTapToFrame.sample_count} first-frame samples`;
-                  const queueFairnessDetail = fairness?.source_error
-                    || `${fairness?.queued_session_count ?? 0} queued sessions, ${fairness?.starved_slots_120s ?? 0}/${fairness?.queued_participant_slots ?? 0} slots over 120s, ${fairness?.no_match_attempts_15m ?? 0} no-match attempts in 15m`;
                   const dailyPoolDetail = dailyDecision?.source_error
                     || `${dailyDecision?.decision_reason ?? "unknown"}; frame ${formatMs(dailyDecision?.first_frame_p95_ms)} p95 / ${formatMs(dailyDecision?.first_frame_p99_ms)} p99 (${dailyDecision?.first_frame_sample_count ?? 0} samples), room ${formatMs(dailyDecision?.room_p95_ms)} p95 / ${formatMs(dailyDecision?.room_p99_ms)} p99`;
                   const dailyEmissionDetail = dailyEmission?.source_error || (
@@ -832,12 +809,6 @@ const AdminLiveEventMetrics = () => {
                             `${swipe.recovered_rows}/${swipe.collision_rows} collisions recovered, ${formatRate(swipe.collision_rate)} collision rate`
                           }
                           status={swipe.recovery_status}
-                        />
-                        <VideoDateOpsTile
-                          label="Queue fairness"
-                          value={`${formatMs((fairness?.oldest_wait_seconds ?? 0) * 1000)} oldest`}
-                          detail={queueFairnessDetail}
-                          status={fairness?.status ?? "unknown"}
                         />
                         <VideoDateOpsTile
                           label="Daily pool decision"

@@ -16,16 +16,16 @@ Aggressively simplify the Vibely Video Date golden flow by fully removing the re
 ## Implemented In This Branch
 
 - New forward migration `supabase/migrations/20260610120000_remove_match_queue_source_always_ready.sql`:
-  - `handle_swipe_20260506090000_stale_room_base(...)` (the deepest INSERT-bearing base) now always inserts a single `ready` Ready Gate session for a mutual match (`ready_gate_status = 'ready'`, `ready_gate_expires_at = now() + 30s`, `queued_expires_at = NULL`) and returns `result = 'match'`, `immediate = true`. The `v_create_queued`/`v_has_queued_session`/presence computation and the entire queued branch (`match_queued` return, `ready_gate_status = 'queued'` insert, 10-minute `queued_expires_at`) are removed. All other guards (auth, registration, event-active, terminal-encounter/block/report/discoverability, advisory locks, idempotency, Super Vibe caps, already-matched ON CONFLICT path) are preserved verbatim.
+  - `handle_swipe_20260506090000_stale_room_base(...)` (the deepest INSERT-bearing base) now always inserts a single `ready` Ready Gate session for a mutual match (`ready_gate_status = 'ready'`, `ready_gate_expires_at = now() + 30s`) and returns `result = 'match'`, `immediate = true`. The `v_create_queued`/`v_has_queued_session`/presence computation and the entire queued branch (`match_queued` return, `ready_gate_status = 'queued'` insert, 10-minute queue TTL) are removed. All other guards (auth, registration, event-active, terminal-encounter/block/report/discoverability, advisory locks, idempotency, Super Vibe caps, already-matched ON CONFLICT path) are preserved verbatim. The 2026-06-11 queued-residue purge later drops the physical `queued_expires_at` column that this branch still nulled.
   - `handle_swipe_20260601183000_deck_authority_base(...)` collapses to a pass-through over `handle_swipe_20260610000100_auto_next_base(...)`; the dead `match_queued` -> Ready Gate promotion is removed.
 - Removes dead queue-drain admin analytics from `supabase/functions/_shared/admin-video-date-ops.ts` (`summarizeQueueDrain`, `QueueDrainSummary`/`QueueDrainInputRow`/`QueueDrainReasonCount`, `EXPECTED_QUEUE_DRAIN_NO_OP_REASON_CODES`, helpers) and the matching tests. Drain commands no longer exist, so nothing produced its input. `summarizeSwipeRecovery` and the rest of operator metrics are untouched.
 - Adds `shared/matching/matchQueueSourceRemovalContracts.test.ts`, wired into `npm run test:video-date:red-flags` and `npm run test:video-date-v4`.
 - Updates `docs/video-date-success-command-center.md` with a dated implementation entry.
 
-## Intentionally Left In Place (inert / documented follow-up)
+## Superseded Follow-Up Completed 2026-06-11
 
-- `video_sessions.queued_expires_at` column, the `p_queued_expires_at` parameter of `video_session_blocks_global_active_conflict(...)`, and the `'queued'` value in `ready_gate_status` / `queue_status`. After this change they have no live writer (always NULL / never set). Physically dropping them cascades into the shared global-active-conflict guard signature and generated types and cannot be end-to-end verified here; tracked as a clean follow-up.
-- Phase 6 queue-fairness views and `get_video_date_queue_fairness_health(...)` are kept: they are an operator-observability surface read by the `admin-video-date-ops` Edge Function and `shared/observability/videoDateOperatorMetrics.ts`, independent of the matching queue flow. With no queued sessions they report empty/healthy.
+- `supabase/migrations/20260611104830_purge_video_date_queued_residue.sql` drops `video_sessions.queued_expires_at`, replaces `video_session_blocks_global_active_conflict(...)` without `p_queued_expires_at`, and removes the Video Date queue-fairness views/RPC/operator metrics.
+- Generic non-Video-Date queued statuses are intentionally preserved.
 
 ## Behavior Note
 
@@ -33,11 +33,11 @@ This is behavior-preserving relative to current production: post-`20260610022531
 
 ## Schema-Shape Note
 
-No tables, columns, views, or function signatures were added or removed; only two function bodies changed. Generated `src/integrations/supabase/types.ts` is unchanged and was not regenerated.
+This branch itself changed only function bodies. The later 2026-06-11 queued-residue purge is the schema-shape change that removes the column/views/function signature and requires regenerating `src/integrations/supabase/types.ts`.
 
 ## Verification
 
-- `rg "useMatchQueue|drain_match_queue|promote_ready_gate_if_eligible|get_video_date_queue_hint|match_queued|queued_expires_at|queue_drain" src apps/mobile shared supabase/functions` — only expected residue: kept-inert `queued_expires_at` in generated types, the kept fairness operator surface, and absence-asserting tests.
+- `rg "useMatchQueue|drain_match_queue|promote_ready_gate_if_eligible|get_video_date_queue_hint|match_queued|queued_expires_at|queue_drain" src apps/mobile shared supabase/functions` — after the 2026-06-11 queued-residue purge, no active source should depend on `queued_expires_at` or Video Date queue-fairness; remaining hits should be old migrations, historical docs, generated types before regeneration, or absence-asserting tests.
 - `npm run typecheck`, `npm run lint`.
 - `npm run test:video-date-v4`, `npm run test:video-date:red-flags`, `npm run test:event-lobby-regression`, `shared/matching/matchQueueSourceRemovalContracts.test.ts`.
 - `supabase db lint --linked --schema public --fail-on error`, `supabase db push --linked --dry-run`.

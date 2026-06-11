@@ -9,6 +9,12 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const followupMigration = read(
   "supabase/migrations/20260610022531_review_comments_1262_1280_followups.sql",
 );
+const sourceRemovalMigration = read(
+  "supabase/migrations/20260610120000_remove_match_queue_source_always_ready.sql",
+);
+const queuedPurgeMigration = read(
+  "supabase/migrations/20260611104830_purge_video_date_queued_residue.sql",
+);
 const backendAudit = read("docs/supabase-live-backend-audit.md");
 const matchCallsDelta = read("docs/branch-deltas/remove-match-calls.md");
 const designAudit = read("scripts/audit-video-date-ultimate-design.mjs");
@@ -23,7 +29,7 @@ function sqlFunctionBody(source: string, functionName: string): string {
   return source.slice(start, end);
 }
 
-test("match_queued fallback is promoted to Ready Gate instead of expiring reciprocal swipes", () => {
+test("historical match_queued fallback conversion is superseded by direct-ready source and physical purge", () => {
   const wrapper = sqlFunctionBody(
     followupMigration,
     "handle_swipe_20260601183000_deck_authority_base",
@@ -37,6 +43,13 @@ test("match_queued fallback is promoted to Ready Gate instead of expiring recipr
   assert.match(wrapper, /'queue_removed_conversion', 'match_queued_promoted_to_ready_gate'/);
   assert.doesNotMatch(wrapper, /queued_auto_promotion_removed/);
   assert.doesNotMatch(wrapper, /ready_gate_status = 'expired'/);
+
+  const activeWrapper = sqlFunctionBody(
+    sourceRemovalMigration,
+    "handle_swipe_20260601183000_deck_authority_base",
+  );
+  assert.doesNotMatch(activeWrapper, /match_queued|queue_removed_conversion|queued_expires_at/);
+  assert.match(queuedPurgeMigration, /DROP COLUMN IF EXISTS queued_expires_at/);
 });
 
 test("stale Mystery Match suppression repair preserves unrelated active sessions", () => {
