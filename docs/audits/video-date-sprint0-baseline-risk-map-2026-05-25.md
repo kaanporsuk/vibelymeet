@@ -82,8 +82,8 @@ Sprint 0 records the source-declared flags and aliases that shape the current Vi
 | `video_date.multi_device_v2` | Multi-device handling | Verify latest session wins and duplicate clients are deduped. |
 | `video_date.outbox_v2.mark_ready` | Ready action durability | Verify retry and idempotent ready actions. |
 | `video_date.outbox_v2.forfeit` | Ready/date forfeit durability | Verify terminal state and queue recovery. |
-| `video_date.outbox_v2.continue_handshake` | Continue flow | Verify post-date continuation does not stall. |
-| `video_date.outbox_v2.handshake_auto_promote` | Automatic promotion | Verify server promotion cannot strand one client. |
+| `video_date.outbox_v2.continue_entry` | Entry continue flow | Verify date-entry continuation does not stall. |
+| `video_date.outbox_v2.entry_auto_promote` | Entry automatic promotion | Verify server entry promotion cannot strand one client. |
 | `video_date.outbox_v2.date_timeout` | Deadline finalization | Verify backend finalizer wins over client timers. |
 | `video_date.outbox_v2.submit_verdict` | Verdict durability | Verify idempotent feedback and match formation. |
 | `video_date.outbox_v2.extension` | Extension durability | Verify extension decisions reconcile after reconnect. |

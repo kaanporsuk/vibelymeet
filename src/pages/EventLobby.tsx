@@ -193,7 +193,7 @@ function logVdbgSessionStage(
   void supabase
     .from("video_sessions")
     .select(
-      "id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url",
+      "id, event_id, ready_gate_status, state, phase, entry_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url",
     )
     .eq("id", sessionId)
     .maybeSingle()

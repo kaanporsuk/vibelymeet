@@ -278,7 +278,7 @@ test("web date pre-date failure exits use the manual server-end path", () => {
 
   for (const [block, source] of [
     [mediaPermissionBlock, "camera_permission_denied_exit"],
-    [handshakeFailureBlock, "handshake_start_failed_back"],
+    [handshakeFailureBlock, "entry_start_failed_back"],
     [retryableStartFailureBlock, "retryable_call_start_back"],
   ] as const) {
     assert.match(block, /handlePreDateExit\(/, source);

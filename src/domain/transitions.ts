@@ -21,10 +21,10 @@ export const ReadyGateQueueTransitions: Record<
     ReadyGateQueueStatus.Browsing,
   ],
   [ReadyGateQueueStatus.InReadyGate]: [
-    ReadyGateQueueStatus.InHandshake,
+    ReadyGateQueueStatus.InEntry,
     ReadyGateQueueStatus.Browsing,
   ],
-  [ReadyGateQueueStatus.InHandshake]: [
+  [ReadyGateQueueStatus.InEntry]: [
     ReadyGateQueueStatus.InDate,
     ReadyGateQueueStatus.Browsing,
   ],

@@ -244,7 +244,7 @@ export function SessionRouteHydration() {
             sessionId: sessionIdFromUrl,
             state: vs.state,
             phase: vs.phase,
-            handshakeStarted: Boolean(vs.handshake_started_at),
+            entryStarted: Boolean(vs.entry_started_at),
             canAttemptDaily,
           },
         );
@@ -254,7 +254,7 @@ export function SessionRouteHydration() {
           eventId: activeSession.eventId,
           reason: canAttemptDaily
             ? "video_session_daily_startable"
-            : "video_session_handshake_or_date",
+            : "video_session_entry_or_date",
           ...canonicalLog,
           canonicalTarget: canonicalRoute.target,
           canonicalReason: canonicalRoute.reason,
@@ -262,7 +262,7 @@ export function SessionRouteHydration() {
           routed_to: "date",
           state: vs.state,
           phase: vs.phase,
-          handshakeStarted: Boolean(vs.handshake_started_at),
+          entryStarted: Boolean(vs.entry_started_at),
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
           latchActive: latchActiveAtStart,
@@ -286,7 +286,7 @@ export function SessionRouteHydration() {
           latchActive: true,
           state: vs.state,
           phase: vs.phase,
-          handshakeStarted: Boolean(vs.handshake_started_at),
+          entryStarted: Boolean(vs.entry_started_at),
         });
         return;
       }
@@ -319,7 +319,7 @@ export function SessionRouteHydration() {
           latchActive: latchActiveAtStart,
           state: vs.state,
           phase: vs.phase,
-          handshakeStarted: Boolean(vs.handshake_started_at),
+          entryStarted: Boolean(vs.entry_started_at),
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         });
@@ -351,7 +351,7 @@ export function SessionRouteHydration() {
         latchActive: false,
         state: vs.state,
         phase: vs.phase,
-        handshakeStarted: Boolean(vs.handshake_started_at),
+        entryStarted: Boolean(vs.entry_started_at),
       });
       navigate(target, { replace: true });
     })();

@@ -10,7 +10,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { resolveVideoDatePartnerWaitMaxState } from '@clientShared/matching/videoDatePhase4';
 
-/** `joining` = token/handshake/Daily connect; `waiting_peer` = local in room, peer not yet observed. */
+/** `joining` = token/entry/Daily connect; `waiting_peer` = local in room, peer not yet observed. */
 export type ConnectionOverlayMode = 'joining' | 'waiting_peer';
 
 type Props = {

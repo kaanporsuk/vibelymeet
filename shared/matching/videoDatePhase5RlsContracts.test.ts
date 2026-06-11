@@ -108,7 +108,8 @@ test("Phase 5 token refresh keeps Daily tokens inside authenticated active-sessi
   assert.match(tokenRefreshFunction, /UUID_PATTERN\.test\(sessionId\)/);
   assert.match(tokenRefreshFunction, /supabase\.rpc\("get_video_date_snapshot_core"/);
   assert.match(tokenRefreshFunction, /snapshot\?\.error === "not_participant" \? 403/);
-  assert.match(tokenRefreshFunction, /phase !== "handshake" && phase !== "date"/);
+  assert.match(tokenRefreshFunction, /rawPhase === "handshake" \? "entry" : rawPhase/);
+  assert.match(tokenRefreshFunction, /phase !== "entry" && phase !== "date"/);
   assert.match(tokenRefreshFunction, /error: "session_not_active"/);
   assert.match(tokenRefreshFunction, /error: "room_not_ready"/);
   assert.match(tokenRefreshFunction, /"Cache-Control": "no-store"/);

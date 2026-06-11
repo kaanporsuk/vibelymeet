@@ -584,7 +584,7 @@ test("date remaining time is recomputed from server date_extra_seconds", () => {
   );
 });
 
-test("started-at countdown recomputes handshake time from server timestamp", () => {
+test("started-at countdown recomputes entry time from server timestamp", () => {
   const startedAtIso = "2026-04-24T10:00:00.000Z";
   assert.equal(
     remainingStartedAtCountdownSeconds({
@@ -608,8 +608,8 @@ test("started-at countdown recomputes handshake time from server timestamp", () 
   );
 });
 
-test("handshake truth select carries server date timing for timer reconciliation", () => {
-  assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /handshake_started_at/);
+test("entry truth select carries server date timing for timer reconciliation", () => {
+  assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /entry_started_at/);
   assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /date_started_at/);
   assert.match(VIDEO_DATE_ENTRY_TRUTH_SELECT, /date_extra_seconds/);
 });
@@ -2116,13 +2116,13 @@ test("web date route opens ended-session survey only when feedback is missing", 
   assert.match(webVideoDatePage, /const hydrateTerminalSurveyContext/);
   assert.match(webVideoDatePage, /setVideoDateAccess\("allowed"\)/);
   assert.match(webVideoDatePage, /terminal_survey_context_hydrated/);
-  assert.match(webVideoDatePage, /participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
+  assert.match(webVideoDatePage, /participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, entry_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
   assert.match(webVideoDatePage, /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", id\)[\s\S]*\.eq\("user_id", user\.id\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\(\s*["']session_load_terminal["'],\s*sessionRow/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("timing_terminal"\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("realtime_terminal", row\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\(\s*`\$\{source\}_sync_reconnect_terminal`/);
-  assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\([\s\S]*"complete_handshake_survey_required"/);
+  assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\([\s\S]*"complete_entry_survey_required"/);
   assert.match(webVideoDatePage, /reconcileTerminalSurvey\("peer_wait_terminal_reconcile_initial"\)/);
   assert.match(webVideoDatePage, /TERMINAL_SURVEY_RECONCILE_INTERVAL_MS = 2_500/);
   assert.match(webVideoDatePage, /\(isConnecting \|\| !isConnected \|\| remotePlayback\.playRejected\)[\s\S]*!showFeedback/);
@@ -2246,7 +2246,7 @@ test("same-event terminal encounter pairs are blocked from deck swipe and ready-
 
 test("web and native ice breakers render as floating session chrome", () => {
   assert.match(webVideoDatePage, /dismissIceBreakerTemporarily/);
-  assert.match(webVideoDatePage, /phase === "handshake" \|\| phase === "date"/);
+  assert.match(webVideoDatePage, /phase === "entry" \|\| phase === "date"/);
   assert.match(webVideoDatePage, /remotePlayback\.participantPresent/);
   assert.match(webVideoDatePage, /data-video-date-stage/);
   assert.match(webVideoDatePage, /bottom-\[14rem\][\s\S]*IceBreakerCard/);
@@ -2466,7 +2466,7 @@ test("mobile terminal survey recovery uses server survey truth instead of local 
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\(['"]sync_reconnect['"]\)/);
   assert.match(nativeVideoDateRoute, /if \(!reconnectEndedHandledRef\.current\) \{/);
   assert.doesNotMatch(nativeVideoDateRoute, /if \(!reconnectEndedHandledRef\.current && partnerEverJoinedRef\.current\)/);
-  assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\([\s\S]*['"]complete_handshake_survey_required['"]/);
+  assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\([\s\S]*['"]complete_entry_survey_required['"]/);
   assert.match(nativeVideoDateRoute, /participant_1_remote_seen_at\?: string \| null/);
   assert.match(nativeVideoDateRoute, /participant_2_remote_seen_at\?: string \| null/);
   assert.match(nativeVideoDateApi, /survey_required\?: boolean/);
@@ -2601,7 +2601,7 @@ test("notification date deep links require provider-prepared truth before routin
   assert.match(notificationDeepLinkHandler, /adviseVideoSessionTruthRecovery/);
   assert.match(notificationDeepLinkHandler, /if \(!vs\) return tabsRootHref\(\);/);
   assert.match(notificationDeepLinkHandler, /if \(!isParticipant\) return tabsRootHref\(\);/);
-  assert.match(notificationDeepLinkHandler, /ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
+  assert.match(notificationDeepLinkHandler, /ended_reason, state, phase, entry_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at/);
   assert.match(notificationDeepLinkHandler, /videoSessionHasPostDateSurveyTruth\(vs\)/);
   assert.match(notificationDeepLinkHandler, /pending_survey_terminal_encounter/);
   assert.match(notificationDeepLinkHandler, /return videoDateHref\(sid\);/);
@@ -2657,7 +2657,7 @@ test("video-date Daily room and token TTL use explicit finite phase-bounded cons
 
 test("prepare-entry documents durable route confirmation before provider-idempotent token work", () => {
   assert.match(dailyRoomFunction, /Durable entry contract/);
-  assert.match(dailyRoomFunction, /persist routeable handshake/);
+  assert.match(dailyRoomFunction, /persist routeable entry/);
   assert.match(dailyRoomFunction, /Provider-idempotent room\/token contract/);
   assert.match(dailyRoomFunction, /already exists/);
   assert.match(dailyRoomFunction, /same room_name\/room_url/);
@@ -2758,12 +2758,12 @@ test("handshake deadline cleanup polish removes accidental identifier truncation
   assert.match(videoDateValidationSql, /handshake_deadline_cleanup_helper_has_intentional_name/);
 });
 
-test("web and native countdown-zero paths complete handshake and last-10s urgency is bounded to handshake", () => {
-  assert.match(webVideoDatePage, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: "complete_handshake"/);
+test("web and native countdown-zero paths complete entry and last-10s urgency is bounded to entry", () => {
+  assert.match(webVideoDatePage, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: "complete_entry"/);
   assert.match(webVideoDatePage, /checkMutualVibeRef\.current\?\.\(\s*["']entry_visible_countdown_elapsed["']/);
   assert.match(webVideoDatePage, /countdownCompletionKeyRef/);
   assert.doesNotMatch(webVideoDatePage, /handshake_grace_expiry/);
-  assert.match(nativeVideoDateRoute, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: ["']complete_handshake["']/);
+  assert.match(nativeVideoDateRoute, /entry_visible_countdown_elapsed[\s\S]{0,220}trigger: ["']complete_entry["']/);
   assert.match(nativeVideoDateRoute, /completeEntryFromServerDeadline\(\s*["']entry_visible_countdown_elapsed["']/);
   assert.match(nativeVideoDateRoute, /countdownCompletionKeyRef/);
   assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
@@ -2772,7 +2772,7 @@ test("web and native countdown-zero paths complete handshake and last-10s urgenc
   assert.doesNotMatch(webVibeCheckButton, /Soft nudge/);
   assert.doesNotMatch(webVibeCheckButton, /Choose from the feeling/);
   assert.match(webEntryPhaseTimer, /const isUrgent = timeLeft <= 10/);
-  assert.match(nativeVideoDateRoute, /phase === ['"]handshake['"] && entryTimerStarted && displayTimeLeft <= 10/);
+  assert.match(nativeVideoDateRoute, /phase === ['"]entry['"] && entryTimerStarted && displayTimeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /Continue when ready/);
   assert.doesNotMatch(nativeVibeCheckButton, /Your choice only continues after it saves/);
@@ -3410,7 +3410,7 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /daily_remote_first_frame_rendered/);
   assert.match(webVideoDatePage, /MIN_DECISION_WINDOW_AFTER_REMOTE_FRAME_MS = 15_000/);
   assert.match(webVideoDatePage, /firstRemoteFrameAtMsRef = useRef<number \| null>\(null\)/);
-  assert.match(webVideoDatePage, /complete_handshake_deferred_for_remote_frame_window/);
+  assert.match(webVideoDatePage, /complete_entry_deferred_for_remote_frame_window/);
 
   assert.match(nativeVideoDateRoute, /const remoteSeenInFlightSessionRef = useRef<string \| null>\(null\)/);
   assert.match(

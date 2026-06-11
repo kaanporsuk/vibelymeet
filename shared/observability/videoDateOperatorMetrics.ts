@@ -641,7 +641,7 @@ export type VideoDateTimerDriftRecoverySource =
   | "realtime"
   | "route_hydration";
 
-export type VideoDateTimerDriftPhase = "handshake" | "date" | "ended";
+export type VideoDateTimerDriftPhase = "entry" | "date" | "ended";
 
 export type VideoDateTimerDriftDirection = "client_ahead" | "client_behind" | "aligned";
 

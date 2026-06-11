@@ -65,7 +65,7 @@ const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONT
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 const DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180;
-const DAILY_VIDEO_DATE_HANDSHAKE_SECONDS = 60;
+const DAILY_VIDEO_DATE_ENTRY_SECONDS = 60;
 const DAILY_VIDEO_DATE_BASE_DATE_SECONDS = 300;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
@@ -100,7 +100,7 @@ type VideoDateRoomGateSession = {
   daily_room_provider_verify_reason?: string | null;
   ended_at: string | null;
   ended_reason?: string | null;
-  handshake_started_at: string | null;
+  entry_started_at: string | null;
   date_started_at?: string | null;
   date_extra_seconds?: number | null;
   ready_gate_status: string | null;
@@ -619,7 +619,7 @@ function logDateRoomReject(params: {
       participant_2_id: session?.participant_2_id ?? null,
       state: session?.state ?? null,
       phase: session?.phase ?? null,
-      handshake_started_at: session?.handshake_started_at ?? null,
+      entry_started_at: session?.entry_started_at ?? null,
       ready_gate_status: session?.ready_gate_status ?? null,
       ready_gate_expires_at: session?.ready_gate_expires_at ?? null,
       ended_at: session?.ended_at ?? null,
@@ -837,7 +837,7 @@ async function persistVideoDateRoomMetadata(
     const { data: latest, error: readError } = await serviceClient
       .from("video_sessions")
       .select(
-        "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, ended_reason, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+        "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, ended_reason, entry_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
       )
       .eq("id", params.sessionId)
       .maybeSingle();
@@ -1028,9 +1028,9 @@ function videoDatePhaseDeadlineAtMs(session: VideoDateRoomGateSession): number |
       return startedAtMs + (DAILY_VIDEO_DATE_BASE_DATE_SECONDS + extraSeconds) * 1000;
     }
   }
-  if ((phase === "handshake" || session.handshake_started_at) && session.handshake_started_at) {
-    const startedAtMs = Date.parse(session.handshake_started_at);
-    if (Number.isFinite(startedAtMs)) return startedAtMs + DAILY_VIDEO_DATE_HANDSHAKE_SECONDS * 1000;
+  if ((phase === "entry" || phase === "handshake" || session.entry_started_at) && session.entry_started_at) {
+    const startedAtMs = Date.parse(session.entry_started_at);
+    if (Number.isFinite(startedAtMs)) return startedAtMs + DAILY_VIDEO_DATE_ENTRY_SECONDS * 1000;
   }
   if ((phase === "ready_gate" || session.ready_gate_status) && session.ready_gate_expires_at) {
     const expiresAtMs = Date.parse(session.ready_gate_expires_at);
@@ -1606,6 +1606,7 @@ type PrepareEntryTransitionPayload = {
   event_id?: string | null;
   participant_1_id?: string | null;
   participant_2_id?: string | null;
+  entry_started_at?: string | null;
   handshake_started_at?: string | null;
   date_started_at?: string | null;
   date_extra_seconds?: number | null;
@@ -1769,7 +1770,7 @@ async function requireVideoDateReadyGateActionability(params: {
         participant_2_id: payloadText(payload.participant_2_id),
         daily_room_name: null,
         ended_at: payloadText(payload.ended_at),
-        handshake_started_at: null,
+        entry_started_at: null,
         ready_gate_status: payloadText(payload.ready_gate_status) ?? payloadText(payload.status),
         ready_gate_expires_at: payloadText(payload.ready_gate_expires_at),
         state: payloadText(payload.state),
@@ -2087,7 +2088,7 @@ serve(async (req) => {
               participant_2_id: preparePayload.participant_2_id ?? null,
               daily_room_name: null,
               ended_at: preparePayload.state === "ended" ? new Date().toISOString() : null,
-              handshake_started_at: preparePayload.handshake_started_at ?? null,
+              entry_started_at: preparePayload.entry_started_at ?? preparePayload.handshake_started_at ?? null,
               ready_gate_status: preparePayload.ready_gate_status ?? null,
               ready_gate_expires_at: preparePayload.ready_gate_expires_at ?? null,
               state: preparePayload.state ?? null,
@@ -2215,7 +2216,7 @@ serve(async (req) => {
           daily_room_provider_verify_reason: preparePayload.daily_room_provider_verify_reason ?? null,
           ended_at: preparePayload.ended_at ?? (preparePayload.state === "ended" ? new Date().toISOString() : null),
           ended_reason: preparePayload.ended_reason ?? null,
-          handshake_started_at: preparePayload.handshake_started_at ?? null,
+          entry_started_at: preparePayload.entry_started_at ?? preparePayload.handshake_started_at ?? null,
           date_started_at: preparePayload.date_started_at ?? null,
           date_extra_seconds: preparePayload.date_extra_seconds ?? null,
           ready_gate_status: preparePayload.ready_gate_status ?? null,
@@ -2259,7 +2260,7 @@ serve(async (req) => {
         }
 
         // Durable entry contract: once both participants are ready and the
-        // server owns deterministic room identity, persist routeable handshake
+        // server owns deterministic room identity, persist routeable entry
         // state before outbound provider work. Slow Daily verification/token
         // minting must not leave clients stranded in Ready Gate until cleanup
         // terminalizes the session.
@@ -2296,7 +2297,7 @@ serve(async (req) => {
           daily_room_url: confirmPayload.daily_room_url ?? roomUrl,
           state: confirmPayload.state ?? null,
           phase: confirmPayload.phase ?? null,
-          handshake_started_at: confirmPayload.handshake_started_at ?? null,
+          entry_started_at: confirmPayload.entry_started_at ?? confirmPayload.handshake_started_at ?? null,
           date_started_at: confirmPayload.date_started_at ?? sessionRow.date_started_at ?? null,
           date_extra_seconds: confirmPayload.date_extra_seconds ?? sessionRow.date_extra_seconds ?? null,
           ready_gate_status: confirmPayload.ready_gate_status ?? null,
@@ -2416,7 +2417,7 @@ serve(async (req) => {
             token_expiry_reason: tokenWindow.reason,
             session_state: confirmPayload.state ?? null,
             session_phase: confirmPayload.phase ?? null,
-            handshake_started_at: confirmPayload.handshake_started_at ?? null,
+            entry_started_at: confirmPayload.entry_started_at ?? confirmPayload.handshake_started_at ?? null,
             ready_gate_status: confirmPayload.ready_gate_status ?? null,
             ready_gate_expires_at: confirmPayload.ready_gate_expires_at ?? null,
             participant_1_id: confirmPayload.participant_1_id ?? participant1,

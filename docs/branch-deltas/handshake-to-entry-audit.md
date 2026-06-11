@@ -1,9 +1,22 @@
 # Audit Map — "handshake" → "entry" Vocabulary Migration
 
 Date: 2026-06-10
-Status: **AUDIT ONLY — no handshake surface edited.** Prerequisite cleanups landed: queue/drain removal (#1282) and Ready Gate single prepare-owner (#1283).
+Status: **SUPERSEDED BY PHASE D/E ACTIVE CONTRACT PASS (2026-06-11).** This file remains the pre-edit inventory. Current outcome is recorded below and in `docs/video-date-success-command-center.md`.
 
 Goal: replace legacy "handshake" terminology/state with clearer "entry" terminology across the Video Date stack. This document lists every **active** handshake surface before any edit, per the implementation plan's gate ("Do not edit until every active handshake surface is listed").
+
+## 2026-06-11 Phase D/E outcome
+
+The active web/native/shared contract now uses `entry` vocabulary:
+
+- current clients call `complete_entry` / `continue_entry`;
+- current clients call `video_session_continue_entry_v2` / `video_session_entry_auto_promote_v2`;
+- current flag keys are `video_date.outbox_v2.continue_entry` and `video_date.outbox_v2.entry_auto_promote`;
+- current readers use `entry_started_at` / `entry_grace_expires_at`;
+- snapshot, token-refresh, push-preload, public API, recovery, route-decision, timeline, and active-session boundaries normalize legacy server `handshake` phase to canonical `entry`;
+- migration `20260611114354_video_date_entry_contract_phase_de.sql` seeds entry-named flags and replaces `get_video_date_snapshot_core(uuid)` so the public snapshot emits `phase = 'entry'`.
+
+Physical enum/column/function-name purge was deferred inside this same safety pass. Linked preflight found one live `video_sessions` row still in `state='handshake'` / `phase='handshake'` and broad live catalog dependencies, so `public.video_date_state = 'handshake'`, the underlying `handshake_*` storage, and old server implementation names remain a contained compatibility layer until a later DB-only purge can be done safely. Active `handshake` references should now be limited to that compatibility layer, persisted `in_handshake` registration status handling, old applied migrations, historical docs, and tests that assert old migrations or compatibility normalization.
 
 ## 0. Scale (reference density)
 

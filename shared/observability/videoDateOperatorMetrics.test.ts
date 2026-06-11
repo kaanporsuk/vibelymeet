@@ -103,7 +103,7 @@ test("timer drift payload emits only meaningful date-phase corrections", () => {
       previousTimeLeftSeconds: 60,
       correctedTimeLeftSeconds: 300,
       recoverySource: "session_reload",
-      phase: "handshake",
+      phase: "entry",
     }),
     null,
   );

@@ -405,7 +405,7 @@ export default function ReadyGateScreen() {
         current_room_id: reg?.current_room_id ?? null,
         vs_state: vs?.state ?? null,
         vs_phase: vs?.phase ?? null,
-        handshake_started_at: Boolean(vs?.handshake_started_at),
+        entry_started_at: Boolean(vs?.entry_started_at),
         ready_gate_status: vs?.ready_gate_status ?? null,
         ready_gate_expires_at:
           vs?.ready_gate_expires_at == null
@@ -525,7 +525,7 @@ export default function ReadyGateScreen() {
           .then((prewarm) => {
             if (prewarm.ok) {
               // Pre-authenticate only — do NOT join Daily from the ready route. The
-              // real join (which starts the backend handshake clock) is owned by
+              // real join (which starts the backend entry clock) is owned by
               // /date (useVideoCall.startCall) so the warm-up window starts there.
               void preAuthNativeVideoDateDailyPrewarm({
                 sessionId: sid,

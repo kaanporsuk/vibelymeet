@@ -18,7 +18,7 @@ const baseSnapshot: VideoDateSnapshotOk = {
   eventId: "22222222-2222-4222-8222-222222222222",
   seq: 8,
   serverNow: nowMs,
-  phase: "handshake",
+  phase: "entry",
   phaseStartedAt: nowMs - 30_000,
   phaseDeadlineAt: nowMs + 30_000,
   allowedActions: ["continue", "pass", "end_call"],
@@ -37,7 +37,7 @@ test("advisor resolves snapshot recovery without leaking token state", () => {
     action: "go_date",
     sessionId: baseSnapshot.sessionId,
     eventId: baseSnapshot.eventId,
-    reason: "handshake",
+    reason: "entry",
     platform: undefined,
     surface: undefined,
   });
@@ -73,7 +73,7 @@ test("legacy snapshot recovery adapter delegates to advisor-compatible outcomes"
     action: "date",
     sessionId: baseSnapshot.sessionId,
     eventId: baseSnapshot.eventId,
-    reason: "handshake",
+    reason: "entry",
   });
 
   assert.deepEqual(
@@ -158,7 +158,7 @@ test("advisor classifies session truth recovery for date, ready gate, terminal, 
       nowMs,
       truth: {
         event_id: baseSnapshot.eventId,
-        state: "handshake",
+        state: "entry",
         daily_room_name: "date-room",
         daily_room_url: "https://example.daily.co/date-room",
       },

@@ -4,7 +4,7 @@ export const ReadyGateQueueStatus = {
   Searching: "searching",
   Matched: "matched",
   InReadyGate: "in_ready_gate",
-  InHandshake: "in_handshake",
+  InEntry: "in_handshake",
   InDate: "in_date",
   InSurvey: "in_survey",
   Completed: "completed",

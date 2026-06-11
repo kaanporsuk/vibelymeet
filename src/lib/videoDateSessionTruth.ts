@@ -12,7 +12,7 @@ export type VideoSessionDateEntryTruth = {
   phase: string | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | number | null;
-  handshake_started_at: string | null;
+  entry_started_at: string | null;
   date_started_at: string | null;
   daily_room_name: string | null;
   daily_room_url: string | null;
@@ -39,7 +39,7 @@ export async function fetchVideoSessionDateEntryTruth(
   const { data, error } = await supabase
     .from("video_sessions")
     .select(
-      "event_id, participant_1_id, participant_2_id, ended_at, ended_reason, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at",
+      "event_id, participant_1_id, participant_2_id, ended_at, ended_reason, state, phase, ready_gate_status, ready_gate_expires_at, entry_started_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at",
     )
     .eq("id", sessionId)
     .maybeSingle();

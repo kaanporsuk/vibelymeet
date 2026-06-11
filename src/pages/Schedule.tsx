@@ -114,7 +114,7 @@ const SchedulePage = () => {
 
       const { data: session } = await supabase
         .from("video_sessions")
-        .select("id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at")
+        .select("id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, entry_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at")
         .eq("id", reg.current_room_id)
         .maybeSingle();
 

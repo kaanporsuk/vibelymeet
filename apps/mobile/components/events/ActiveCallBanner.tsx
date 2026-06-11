@@ -14,7 +14,7 @@ import { spacing, radius } from '@/constants/theme';
 type ActiveCallBannerProps = {
   sessionId: string;
   partnerName?: string | null;
-  /** video = in_handshake / in_date; ready_gate = still on Ready Gate; survey = post-date verdict pending */
+  /** video = active entry/date; ready_gate = still on Ready Gate; survey = post-date verdict pending */
   mode?: 'video' | 'ready_gate' | 'survey';
   onRejoin: () => void;
   onEnd?: () => void;

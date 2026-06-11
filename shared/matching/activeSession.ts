@@ -2,7 +2,7 @@
  * Shared active-session resolution for web + native (Stage 1 / Stream 1).
  * Lives under repo-root `shared/` (client-neutral), not Edge function bundles.
  * Registration `queue_status` drives routing; `video_sessions` confirms the row is live and can
- * override stale `in_ready_gate` when the session already entered handshake/date.
+ * override stale `in_ready_gate` when the session already entered entry/date.
  *
  * Lobby hydration normally uses `current_room_id`; post-date survey recovery also checks ended
  * date sessions with no verdict for the current participant so close/reopen can resume `/date/:id`.
@@ -20,6 +20,7 @@ import {
   videoDateRouteTruthIsEnded,
   videoDateRouteTruthReadyGateEligible,
 } from "./videoDateRouteDecision";
+import { isVideoDateEntryPhase } from "./videoDateEntryCompatibility";
 
 export { POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS };
 
@@ -62,7 +63,7 @@ type VideoSessionDailyRoomTruth = {
   date_started_at?: string | null;
   ended_at?: string | null;
   ended_reason?: string | null;
-  handshake_started_at?: string | null;
+  entry_started_at?: string | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
   participant_1_remote_seen_at?: string | null;
@@ -77,7 +78,7 @@ type VideoSessionDailyRoomTruth = {
 };
 
 export const POST_DATE_SURVEY_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const ACTIVE_SESSION_HANDSHAKE_FRESH_MS = 90 * 1000;
+export const ACTIVE_SESSION_ENTRY_FRESH_MS = 90 * 1000;
 export const ACTIVE_SESSION_DATE_BASE_SECONDS = 300;
 export const ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS = 60;
 export const ACTIVE_SESSION_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000;
@@ -226,8 +227,8 @@ export function canPrepareDailyRoomFromReadyGateTruth(
 
 /**
  * Canonical client mirror of the Daily room server gate for date-route entry.
- * Legacy `phase` is intentionally ignored: mixed rows can still carry
- * `phase = "handshake"` while the canonical state remains `ready_gate`.
+ * Legacy `phase` is intentionally ignored: mixed rows can still carry an old
+ * entry-phase value while the canonical state remains `ready_gate`.
  */
 export function canAttemptDailyRoomFromVideoSessionTruth(
   row: VideoSessionDailyRoomTruth | null,
@@ -248,7 +249,7 @@ function videoSessionRowIsBothReadyDateOwner(
   );
 }
 
-/** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
+/** Prefer in-date / entry / survey over ready gate when multiple rows exist (stale data guard). */
 export function pickRegistrationForActiveSession<
   T extends { queue_status: string | null; current_room_id: string | null; event_id: string },
 >(regs: T[]): T | null {
@@ -263,7 +264,7 @@ export function pickRegistrationForActiveSession<
 }
 
 /**
- * True when `video_sessions` already reflects an authoritative handshake/date transition.
+ * True when `video_sessions` already reflects an authoritative entry/date transition.
  * Do not trust legacy `phase` alone here.
  */
 export function videoSessionRowIndicatesEntryOrDate(
@@ -272,7 +273,7 @@ export function videoSessionRowIndicatesEntryOrDate(
     daily_room_url?: string | null;
     date_started_at?: string | null;
     state?: string | null;
-    handshake_started_at?: string | null;
+    entry_started_at?: string | null;
   } | null
 ): boolean {
   return Boolean(row && videoSessionHasProviderRoom(row) && videoDateRouteTruthIndicatesDate(row));
@@ -452,14 +453,14 @@ export function isActiveSessionDirectFallbackFresh(
     );
   }
 
-  if (row.handshake_started_at) {
-    return isTimestampFresh(row.handshake_started_at, nowMs, ACTIVE_SESSION_HANDSHAKE_FRESH_MS);
+  if (row.entry_started_at) {
+    return isTimestampFresh(row.entry_started_at, nowMs, ACTIVE_SESSION_ENTRY_FRESH_MS);
   }
 
-  if (row.state === "handshake") {
+  if (isVideoDateEntryPhase(row.state)) {
     return (
-      isTimestampFresh(row.state_updated_at, nowMs, ACTIVE_SESSION_HANDSHAKE_FRESH_MS) ||
-      isTimestampFresh(row.started_at, nowMs, ACTIVE_SESSION_HANDSHAKE_FRESH_MS)
+      isTimestampFresh(row.state_updated_at, nowMs, ACTIVE_SESSION_ENTRY_FRESH_MS) ||
+      isTimestampFresh(row.started_at, nowMs, ACTIVE_SESSION_ENTRY_FRESH_MS)
     );
   }
 

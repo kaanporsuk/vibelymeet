@@ -1151,7 +1151,7 @@ function emptySprint7SafetyPrivacyOpsHealth(
     generated_at: null,
     privacy_contract: SPRINT7_PRIVACY_CONTRACT_FALLBACK,
     stuck_ready_gate_count: 0,
-    stuck_handshake_count: 0,
+    stuck_entry_count: 0,
     overdue_date_count: 0,
     pending_survey_recovery_count: 0,
     prepare_entry_failure_count: 0,

@@ -80,7 +80,8 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(snapshotFunction, /"Cache-Control": "no-store"/);
   assert.match(snapshotFunction, /UUID_PATTERN/);
   assert.match(snapshotFunction, /invalid_session_id/);
-  assert.match(snapshotFunction, /phase !== "handshake" && phase !== "date"/);
+  assert.match(snapshotFunction, /rawPhase === "handshake" \? "entry" : rawPhase/);
+  assert.match(snapshotFunction, /phase !== "entry" && phase !== "date"/);
   assert.doesNotMatch(snapshotFunction, /\.from\(/);
   assert.doesNotMatch(snapshotFunction, /outbox/i);
   assert.doesNotMatch(phase1Migration, /token/i);
@@ -335,6 +336,7 @@ test("snapshot normalization rejects malformed ok payloads instead of hydrating 
   if (normalized.ok) {
     assert.equal(normalized.sessionId, "11111111-1111-4111-8111-111111111111");
     assert.equal(normalized.eventId, "22222222-2222-4222-8222-222222222222");
+    assert.equal(normalized.phase, "entry");
     assert.deepEqual(normalized.allowedActions, ["continue", "end_call"]);
     assert.equal(normalized.room?.token, null);
   }

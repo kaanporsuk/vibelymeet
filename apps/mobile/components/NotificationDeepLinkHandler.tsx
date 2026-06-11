@@ -456,7 +456,7 @@ async function reconcileHrefWithRegistration(
 
   const { data: vs } = await supabase
     .from('video_sessions')
-    .select('event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url, participant_1_id, participant_2_id')
+    .select('event_id, ended_at, ended_reason, state, phase, entry_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url, participant_1_id, participant_2_id')
     .eq('id', sid)
     .maybeSingle();
 
@@ -554,7 +554,7 @@ async function reconcileHrefWithRegistration(
       current_room_id: reg?.current_room_id ?? null,
       vs_state: truth?.state ?? null,
       vs_phase: truth?.phase ?? null,
-      handshake_started_at: Boolean(truth?.handshake_started_at),
+      entry_started_at: Boolean(truth?.entry_started_at),
       ready_gate_status: truth?.ready_gate_status ?? null,
       ready_gate_expires_at: truth?.ready_gate_expires_at == null ? null : String(truth.ready_gate_expires_at),
     });

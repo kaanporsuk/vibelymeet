@@ -13,7 +13,7 @@
  * |------------------------------|-------|-------|
  * | *(null)* | — | No session CTA; deep links use async server reconcile. |
  * | `ready_gate` | `/ready/[sessionId]` | Ready Gate surface. |
- * | `video` | `/date/[sessionId]` | Handshake, `in_date`, or terminal `in_survey` recovery — Date stack owns Daily and survey. |
+ * | `video` | `/date/[sessionId]` | Entry, `in_date`, or terminal `in_survey` recovery — Date stack owns Daily and survey. |
  *
  * **Ended / terminal:** `in_survey` is modeled as `ActiveSession.kind === 'video'` so the Date
  * stack can recover the post-date survey. Non-survey ended rows are still handled by route guards.

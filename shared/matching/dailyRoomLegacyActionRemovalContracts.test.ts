@@ -118,7 +118,7 @@ test("video_date_transition rejects public enter_handshake and preserves prepare
   assert.match(standaloneEnterHandshakeMigration, /COMMENT ON FUNCTION public\.video_date_transition/);
   assert.match(dailyRoomFunction, /p_action:\s*"prepare_entry"/);
   assert.match(nativeVideoDateApi, /p_action:\s*'end'/);
-  assert.match(nativeVideoDateApi, /p_action:\s*'complete_handshake'/);
+  assert.match(nativeVideoDateApi, /p_action:\s*'complete_entry'/);
 });
 
 test("shared provider-room lifecycle internals remain available to prepare_date_entry", () => {

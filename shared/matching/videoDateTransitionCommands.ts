@@ -1,8 +1,8 @@
 import { generateIdempotencyKey } from "./idempotentRpc";
 import { buildVideoDateSignalIdempotencyKey } from "./videoDateSignalRetry";
 
-export type VideoDatePhase3TransitionAction = "mark_ready" | "forfeit" | "continue_handshake";
-export type VideoDatePhase3DeadlineAction = "handshake_auto_promote" | "date_timeout";
+export type VideoDatePhase3TransitionAction = "mark_ready" | "forfeit" | "continue_entry";
+export type VideoDatePhase3DeadlineAction = "entry_auto_promote" | "date_timeout";
 export type VideoDatePhase3CreditExtensionType = "extra_time" | "extended_vibe";
 export type VideoDatePhase3SafetyAction = "report" | "end_report";
 

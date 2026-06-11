@@ -135,8 +135,8 @@ test("Phase 3 events are visibility-safe, sequence-aware, and token-free", () =>
 });
 
 test("web and native route Phase 3 transitions behind the same default-off flags", () => {
-  assert.match(transitionCommands, /VideoDatePhase3TransitionAction = "mark_ready" \| "forfeit" \| "continue_handshake"/);
-  assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "handshake_auto_promote" \| "date_timeout"/);
+  assert.match(transitionCommands, /VideoDatePhase3TransitionAction = "mark_ready" \| "forfeit" \| "continue_entry"/);
+  assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "entry_auto_promote" \| "date_timeout"/);
   assert.match(transitionCommands, /buildVideoDateSignalIdempotencyKey\(sessionId, `phase3:\$\{action\}`\)/);
   assert.match(migration, /p_session_id::text \|\| ':phase3:mark_ready'/);
   assert.match(migration, /p_session_id::text \|\| ':phase3:forfeit'/);
@@ -164,21 +164,21 @@ test("web and native route Phase 3 transitions behind the same default-off flags
 
   assert.match(
     webVideoDate,
-    /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["'],?\s*\)/,
+    /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["'],?\s*\)/,
   );
   assert.match(webVideoDate, /video_session_continue_entry_v2/);
-  assert.match(webVideoDate, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+["']continue_handshake["']/);
+  assert.match(webVideoDate, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+["']continue_entry["']/);
   assert.match(webVideoDate, /supabase\.rpc\("video_date_transition", args\)/);
 
-  assert.match(nativeVideoDateApi, /continueHandshakeV2\?: boolean/);
+  assert.match(nativeVideoDateApi, /continueEntryV2\?: boolean/);
   assert.match(nativeVideoDateApi, /video_session_continue_entry_v2/);
-  assert.match(nativeVideoDateApi, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+['"]continue_handshake['"]/);
+  assert.match(nativeVideoDateApi, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+['"]continue_entry['"]/);
   assert.match(nativeVideoDateApi, /supabase\.rpc\('video_date_transition', args\)/);
   assert.match(
     nativeVideoDateScreen,
-    /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["'],?\s*\)/,
+    /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["'],?\s*\)/,
   );
-  assert.match(nativeVideoDateScreen, /continueHandshakeV2: continueHandshakeV2\.enabled/);
+  assert.match(nativeVideoDateScreen, /continueEntryV2: continueEntryV2\.enabled/);
 });
 
 test("Phase 3 contracts are included in the v4 verification script", () => {

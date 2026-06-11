@@ -132,13 +132,13 @@ export function NativeSessionRouteHydration() {
           session_id: sid,
           reason: canAttemptDaily
             ? "video_sessions_daily_startable"
-            : "video_sessions_handshake_or_date",
+            : "video_sessions_entry_or_date",
           ...canonicalLog,
           canonical_target: canonicalRoute.target,
           canonical_reason: canonicalRoute.reason,
           can_attempt_daily: canAttemptDaily,
           routed_to: "date",
-          handshake_started_at: Boolean(vs?.handshake_started_at),
+          entry_started_at: Boolean(vs?.entry_started_at),
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
           ready_gate_status: vs?.ready_gate_status ?? null,

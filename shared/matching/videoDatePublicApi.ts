@@ -1,3 +1,5 @@
+import { normalizeVideoDateEntryPhase } from "./videoDateEntryCompatibility";
+
 export const VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME = "video-date-token-refresh";
 export const VIDEO_DATE_TOKEN_JOIN_REFRESH_WINDOW_MS = 2 * 60 * 1000;
 export const VIDEO_DATE_TOKEN_ACTIVE_REFRESH_WINDOW_MS = 90 * 1000;
@@ -6,7 +8,7 @@ export type VideoDateTokenRefreshOk = {
   ok: true;
   sessionId: string;
   eventId: string | null;
-  phase: "handshake" | "date" | string;
+  phase: "entry" | "date" | string;
   roomName: string;
   roomUrl: string;
   token: string;
@@ -240,7 +242,7 @@ export function normalizeVideoDateTokenRefresh(payload: unknown): VideoDateToken
     ok: true,
     sessionId,
     eventId: nullableString(record.event_id) ?? nullableString(record.eventId),
-    phase: stringOrDefault(record.phase, "handshake"),
+    phase: normalizeVideoDatePublicPhase(record.phase),
     roomName,
     roomUrl,
     token,
@@ -520,6 +522,12 @@ async function readInvokeErrorPayload(error: unknown): Promise<unknown> {
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeVideoDatePublicPhase(value: unknown): string {
+  const entryPhase = normalizeVideoDateEntryPhase(value);
+  if (entryPhase === "entry") return "entry";
+  return stringOrDefault(value, "entry");
 }
 
 function objectOrNull(value: unknown): Record<string, unknown> | null {

@@ -1,3 +1,8 @@
+import {
+  LEGACY_VIDEO_DATE_ENTRY_GRACE_EXPIRED_REASON,
+  isVideoDateEntryPhase,
+} from "./videoDateEntryCompatibility";
+
 export type CanonicalReadyGateStatus =
   | "waiting"
   | "open"
@@ -56,7 +61,7 @@ export type VideoDateRouteSessionTruth = {
   date_started_at?: string | null;
   ended_at?: string | null;
   ended_reason?: string | null;
-  handshake_started_at?: string | null;
+  entry_started_at?: string | null;
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
   participant_1_remote_seen_at?: string | null;
@@ -110,7 +115,8 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "ready_gate_forfeit",
   "ready_gate_expired",
   "queued_ttl_expired",
-  "handshake_grace_expired",
+  "entry_grace_expired",
+  LEGACY_VIDEO_DATE_ENTRY_GRACE_EXPIRED_REASON,
   "partial_join_peer_timeout",
   "peer_missing_timeout",
   "prepare_entry_daily_join_missing",
@@ -127,6 +133,10 @@ function normalizeString(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function videoDateStateIndicatesEntry(value: string | null | undefined): boolean {
+  return isVideoDateEntryPhase(normalizeString(value)?.toLowerCase());
 }
 
 function expiryMs(rawExpiry: string | number | null | undefined): number | null {
@@ -191,15 +201,15 @@ export function videoDateRouteTruthIsEnded(
 export function videoDateRouteTruthIndicatesDate(
   row: Pick<
     VideoDateRouteSessionTruth,
-    "daily_room_name" | "daily_room_url" | "date_started_at" | "handshake_started_at" | "state"
+    "daily_room_name" | "daily_room_url" | "date_started_at" | "entry_started_at" | "state"
   > | null,
 ): boolean {
   return Boolean(
     row &&
       videoDateRouteTruthHasProviderRoom(row) &&
-      (row.state === "handshake" ||
+      (videoDateStateIndicatesEntry(row.state) ||
         row.state === "date" ||
-        row.handshake_started_at ||
+        row.entry_started_at ||
         row.date_started_at),
   );
 }

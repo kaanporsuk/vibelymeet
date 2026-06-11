@@ -778,7 +778,7 @@ type VideoDateTruthRow = {
   ended_reason?: string | null;
   state: string | null;
   phase: string | null;
-  handshake_started_at: string | null;
+  entry_started_at: string | null;
   date_started_at?: string | null;
   daily_room_name: string | null;
   daily_room_url?: string | null;
@@ -4904,10 +4904,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           sessionId,
           userId,
           eventId: truthRow.event_id ?? eventId,
-          reason: "prepare_date_entry_owns_reconnect_and_handshake",
+          reason: "prepare_date_entry_owns_reconnect_and_entry",
           state: truthRow.state,
           phase: truthRow.phase,
-          handshakeStarted: Boolean(truthRow.handshake_started_at),
+          entryStarted: Boolean(truthRow.entry_started_at),
         });
 
         const skipMediaPreflightForSingleton = userId

@@ -84,8 +84,8 @@ test("Sprint 1 canonical contract routes direct date links only when provider ro
     truth: session({
       ...PROVIDER_ROOM,
       state: "handshake",
-      phase: "handshake",
-      handshake_started_at: "2026-05-25T11:59:50.000Z",
+      phase: "entry",
+      entry_started_at: "2026-05-25T11:59:50.000Z",
       ready_gate_status: "both_ready",
     }),
     webPath: `/date/${SESSION_ID}`,
@@ -185,9 +185,9 @@ test("Sprint 1 canonical contract blocks no-provider-room date entry from stale 
     expectedTarget: "lobby",
     truth: session({
       state: "handshake",
-      phase: "handshake",
+      phase: "entry",
       ready_gate_status: "queued",
-      handshake_started_at: "2026-05-25T11:59:50.000Z",
+      entry_started_at: "2026-05-25T11:59:50.000Z",
     }),
     registration: {
       event_id: EVENT_ID,
@@ -250,9 +250,9 @@ test("Sprint 1 server next-surface video routes cannot override contradictory fe
     expectedTarget: "lobby",
     truth: session({
       state: "handshake",
-      phase: "handshake",
+      phase: "entry",
       ready_gate_status: "queued",
-      handshake_started_at: "2026-05-25T11:59:50.000Z",
+      entry_started_at: "2026-05-25T11:59:50.000Z",
     }),
     serverNextSurface: {
       action: "video_date",
