@@ -54,10 +54,16 @@ export function videoDateStartSnapshotToDateEntryTruth(
     event_id: snapshot.eventId,
     daily_room_name: nullableString(raw.daily_room_name),
     daily_room_url: nullableString(raw.daily_room_url),
-    entry_started_at: nullableString(raw.entry_started_at),
+    entry_started_at:
+      nullableString(raw.entry_started_at) ?? nullableString(raw.handshake_started_at),
+    entry_grace_expires_at:
+      nullableString(raw.entry_grace_expires_at) ??
+      nullableString(raw.handshake_grace_expires_at),
     date_started_at: nullableString(raw.date_started_at),
     state: nullableString(raw.state),
-    phase: nullableString(raw.normalized_phase) ?? nullableString(raw.phase),
+    phase: normalizeVideoDateStartSnapshotPhase(
+      nullableString(raw.normalized_phase) ?? nullableString(raw.phase),
+    ),
     ready_gate_status: snapshot.readyGateStatus,
     ready_gate_expires_at: nullableString(raw.ready_gate_expires_at) ?? nullableNumber(raw.phaseDeadlineAt),
     participant_1_joined_at: nullableString(raw.participant_1_joined_at),
@@ -69,6 +75,10 @@ export function videoDateStartSnapshotToDateEntryTruth(
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeVideoDateStartSnapshotPhase(phase: string | null): string | null {
+  return phase === "handshake" ? "entry" : phase;
 }
 
 function nullableBoolean(value: unknown): boolean | null {

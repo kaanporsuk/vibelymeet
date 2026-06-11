@@ -31,7 +31,7 @@ select
 
 with fn as (
   select
-    pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) as def,
+    pg_get_functiondef('private_video_date.vdt_prepare_lease(uuid,text,text)'::regprocedure) as def,
     has_function_privilege('authenticated', 'public.video_date_transition(uuid,text,text)', 'EXECUTE') as auth_exec
 )
 select
@@ -44,7 +44,7 @@ select
   and def like '%prepare_entry_lease_started%'
   and def like '%prepare_entry_lease_refreshed%'
   and def like '%''routeable'', false%'
-  and def like '%video_date_transition_20260503130000_prepare_lease_base%'
+  and def like '%private_video_date.vdt_prepare_lease%'
   and auth_exec as ok
 from fn;
 
@@ -76,7 +76,7 @@ from fn;
 
 with bases as (
   select unnest(array[
-    to_regprocedure('public.video_date_transition_20260503130000_prepare_lease_base(uuid,text,text)'),
+    to_regprocedure('private_video_date.vdt_prepare_lease(uuid,text,text)'),
     to_regprocedure('public.confirm_vde_prepared_202605031300_base(uuid,text,text,text)'),
     to_regprocedure('public.expire_stale_video_sessions_bounded_202605031300_base(integer)')
   ]) as oid

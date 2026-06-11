@@ -62,6 +62,19 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: Review Comments #1291-#1298 Follow-ups
+
+Current source addresses the thread-aware Codex review comments from merged PRs #1291 through #1298. No Copilot-authored review threads were present in that scan.
+
+- **#1291 partner-profile memoization:** native viewer-scoped partner-profile memoization was already addressed by the #1281-#1290 follow-up now on `main`; native caches and in-flight requests are keyed by viewer plus partner.
+- **#1292 fresh session-row truth:** `fetchVideoDateSessionRow(..., { fresh: true })` now bypasses non-fresh in-flight mount reads as well as the 300ms recent cache, so terminal/prejoin recovery does not coalesce onto a stale active-row request started by normal mount logging/access guards.
+- **#1295 Sprint 7 ops health:** forward migration `20260611141603_review_comments_1291_1298_followups.sql` restores real service-role-only health counts for stuck Ready Gate, stuck entry/date, pending survey recovery, safety reports/blocks, webhook DLQ, and orphan-room cleanup after the queued-residue purge accidentally returned zero-only healthy windows. Queue/drain counters remain intentionally removed.
+- **#1296 startup snapshot compatibility:** `videoDateStartSnapshotToDateEntryTruth` now falls back from legacy `handshake_started_at` / `handshake_grace_expires_at` payload keys and normalizes legacy `handshake` phase to canonical `entry` until the startup snapshot RPC is physically updated.
+- **#1297 validation flattening:** Supabase validation packs now inspect `private_video_date` transition helpers after the public `video_date_transition` helper-family flatten, avoiding false failures or regprocedure cast errors on dropped public helper RPCs.
+- **Tests/docs:** branch delta `docs/branch-deltas/review-comments-1291-1298-followups.md` and `shared/matching/reviewComments1291_1298Followups.test.ts` document and enforce the follow-up.
+
+This is review-comment hardening and cloud-alignment work, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
 ## 2026-06-11 Implementation Update: Review Comments #1281-#1290 Follow-ups
 
 Current source addresses the thread-aware Codex review comments from merged PRs #1281 through #1290. No Copilot-authored review comments were present in that scan.

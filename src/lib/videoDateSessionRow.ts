@@ -89,21 +89,26 @@ const rowRecent = new Map<string, { at: number; result: VideoDateSessionRowResul
 
 // options.fresh bypasses the 300ms reuse window for one-shot terminal/recovery
 // truth reads (review P2 on PR #1292): a recovery decision must never act on a
-// pre-terminal row another mount-path reader cached moments earlier. Fresh
-// reads still coalesce with an in-flight request (it is hitting the DB now)
-// and refresh the memo for mount-path readers.
+// pre-terminal row another mount-path reader cached moments earlier.
 export async function fetchVideoDateSessionRow(
   sessionId: string,
   options?: { fresh?: boolean },
 ): Promise<VideoDateSessionRowResult> {
+  const freshKey = `${sessionId}:fresh`;
+  const defaultKey = `${sessionId}:default`;
+
   if (!options?.fresh) {
     const recent = rowRecent.get(sessionId);
     if (recent && Date.now() - recent.at <= SESSION_ROW_REUSE_MS) {
       return recent.result;
     }
+
+    const existingFresh = rowInFlight.get(freshKey);
+    if (existingFresh) return existingFresh;
   }
 
-  const existing = rowInFlight.get(sessionId);
+  const inFlightKey = options?.fresh ? freshKey : defaultKey;
+  const existing = rowInFlight.get(inFlightKey);
   if (existing) return existing;
 
   const request = (async (): Promise<VideoDateSessionRowResult> => {
@@ -133,10 +138,10 @@ export async function fetchVideoDateSessionRow(
     return result;
   })();
 
-  rowInFlight.set(sessionId, request);
+  rowInFlight.set(inFlightKey, request);
   try {
     return await request;
   } finally {
-    if (rowInFlight.get(sessionId) === request) rowInFlight.delete(sessionId);
+    if (rowInFlight.get(inFlightKey) === request) rowInFlight.delete(inFlightKey);
   }
 }

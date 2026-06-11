@@ -259,10 +259,10 @@ test("Sprint 7 RLS and payload privacy boundaries cover sessions, feedback, repo
 test("Sprint 7 dashboards, runbooks, launch checklist, and final certification are documented", () => {
   for (const dashboard of [
     "Stuck Ready Gate",
+    "Stuck Entry",
     "Prepare Entry Failures",
     "Daily Join Failures",
     "Survey Recovery",
-    "Queue Drain Misses",
     "Webhook DLQ",
     "Orphan Rooms",
     "Safety Actions",
@@ -273,7 +273,7 @@ test("Sprint 7 dashboards, runbooks, launch checklist, and final certification a
   for (const runbook of [
     "Daily Outage",
     "Webhook Failure",
-    "Queue Backlog",
+    "Entry And Date Backlog",
     "Stuck Session",
     "Missed Survey",
     "Event-End Cleanup",
