@@ -138,9 +138,9 @@ test("native prepare-entry terminal failures do not create date-route ownership"
   assert.match(nativeReadyRoute, /clearDateEntryTransition\(sid\)/);
   assert.match(nativeReadyRoute, /setTerminalActionError\(recovery\.body\)/);
 
-  assert.match(nativeLobby, /isReadyGatePrepareEntryNonRetryable/);
-  assert.match(nativeLobby, /clearDateEntryTransition\(sessionIdToOpen\)/);
-  assert.match(nativeLobby, /void refetchActiveSession\(\)/);
+  assert.doesNotMatch(nativeLobby, /isReadyGatePrepareEntryNonRetryable/);
+  assert.doesNotMatch(nativeLobby, /prepareVideoDateEntry/);
+  assert.match(nativeLobby, /ensureVideoDateStartableBeforeNavigation/);
 });
 
 test("web parked Daily singleton transfers stale heartbeat cleanup on consume", () => {

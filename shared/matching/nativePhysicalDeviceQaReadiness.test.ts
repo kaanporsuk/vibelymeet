@@ -106,14 +106,15 @@ test("native latches and prepare-entry gates remain present", () => {
   assert.match(nativeReadyRoute, /ensureVideoDateStartableBeforeNavigation/);
   assert.match(nativeReadyRoute, /dateNavigationStartedRef/);
   assert.match(nativeReadyRoute, /terminalRecoveryKeyRef/);
-  assert.match(nativeEntryStartable, /prepareVideoDateEntry\(sessionId/);
+  assert.match(nativeEntryStartable, /ensureVideoDateStartableBeforeNavigation/);
+  assert.doesNotMatch(nativeEntryStartable, /prepareVideoDateEntry/);
   for (const marker of [
     "hasStartedJoinRef",
     "prejoinAttemptRef",
     "joinAttemptNonce",
     "reconnectEndedHandledRef",
-    "handshakeCompletionInFlightRef",
-    "handshakeCompletionDeadlineKeyRef",
+    "entryCompletionInFlightRef",
+    "entryCompletionDeadlineKeyRef",
   ]) {
     assert.match(nativeDateRoute, new RegExp(marker));
   }

@@ -102,13 +102,13 @@ test("Sprint 3 token refresh verifies provider room state before minting a repla
 
 test("Sprint 3 web and native recover token-refresh room_not_ready through prepare_date_entry", () => {
   assert.match(webVideoCall, /refresh\.ok === false[\s\S]*refresh\.error === "room_not_ready"[\s\S]*prepareVideoDateEntry\(sessionId/);
-  assert.match(webVideoCall, /source: `\$\{sourceAction\}_room_recovery`/);
+  assert.match(webVideoCall, /source: `\$\{sourceAction\}_date_route_room_recovery`/);
   assert.match(webVideoCall, /prepared\.data\.room_name === roomData\.room_name/);
   assert.match(webVideoCall, /prepared\.data\.room_url === roomData\.room_url/);
   assert.match(webVideoCall, /recovered_via_prepare_entry: true/);
 
   assert.match(nativeDate, /refreshed\.ok === false[\s\S]*refreshed\.error === ['"]room_not_ready['"][\s\S]*prepareVideoDateEntry\(sessionId/);
-  assert.match(nativeDate, /source: `\$\{sourceAction\}_room_recovery`/);
+  assert.match(nativeDate, /source: `\$\{sourceAction\}_native_date_route_room_recovery`/);
   assert.match(nativeDate, /prepared\.data\.room_name === tokenResult\.room_name/);
   assert.match(nativeDate, /prepared\.data\.room_url === tokenResult\.room_url/);
   assert.match(nativeDate, /recovered_via_prepare_entry: true/);

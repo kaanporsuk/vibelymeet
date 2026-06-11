@@ -185,18 +185,16 @@ test("native lobby treats in_survey as date-stack owned across active session, r
   );
   assert.match(
     nativeLobby,
-    /options:\s*\{[\s\S]{0,80}force\?: boolean;[\s\S]{0,80}forceSurvey\?: boolean;[\s\S]{0,80}skipPrepare\?: boolean;/,
+    /options:\s*\{[\s\S]{0,80}force\?: boolean;[\s\S]{0,80}forceSurvey\?: boolean;/,
   );
   assert.match(nativeLobby, /const forceSurvey = options\.forceSurvey === true/);
   assert.match(
     nativeLobby,
     /const forceNavigation = options\.force === true \|\| forceSurvey/,
   );
-  assert.match(
-    nativeLobby,
-    /const skipPrepare = options\.skipPrepare === true \|\| forceSurvey/,
-  );
-  assert.match(nativeLobby, /skipPrepare: true/);
+  assert.doesNotMatch(nativeLobby, /skipPrepare/);
+  assert.doesNotMatch(nativeLobby, /prepareVideoDateEntry/);
+  assert.match(nativeLobby, /ensureVideoDateStartableBeforeNavigation/);
   assert.match(
     nativeLobby,
     /ready_gate_open_suppressed_by_video_session_ownership/,
@@ -207,7 +205,7 @@ test("native lobby treats in_survey as date-stack owned across active session, r
   );
   assert.match(
     nativeLobby,
-    /registration_realtime_active_date[\s\S]{0,120}skipPrepare: true/s,
+    /registration_realtime_active_date[\s\S]{0,160}["']replace["']/s,
   );
   assert.match(
     nativeLobby,
@@ -215,7 +213,7 @@ test("native lobby treats in_survey as date-stack owned across active session, r
   );
   assert.match(
     nativeLobby,
-    /registration_realtime_refetch_active_date[\s\S]{0,120}skipPrepare: true/s,
+    /registration_realtime_refetch_active_date[\s\S]{0,160}["']replace["']/s,
   );
   assert.match(
     nativeLobby,
@@ -227,11 +225,11 @@ test("native lobby treats in_survey as date-stack owned across active session, r
   );
   assert.match(
     nativeLobby,
-    /video_session_update_active_date[\s\S]{0,120}skipPrepare: true/s,
+    /video_session_update_active_date[\s\S]{0,160}["']replace["']/s,
   );
   assert.match(
     nativeLobby,
-    /video_session_insert_active_date[\s\S]{0,120}skipPrepare: true/s,
+    /video_session_insert_active_date[\s\S]{0,160}["']replace["']/s,
   );
   assert.match(
     nativeLobby,

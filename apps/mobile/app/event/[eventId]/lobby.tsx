@@ -90,7 +90,6 @@ import {
   markVideoDateRouteOwned,
 } from "@/lib/dateEntryTransitionLatch";
 import { ensureVideoDateStartableBeforeNavigation } from "@/lib/videoDateEntryStartable";
-import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import {
   persistReadyGateSuppressionV2,
   useNonBlockingVideoDateReadiness,
@@ -104,7 +103,6 @@ import {
   decideCanonicalVideoDateRoute,
   isVideoDateReadyGateActiveStatus,
 } from "@clientShared/matching/videoDateRouteDecision";
-import { isReadyGatePrepareEntryNonRetryable } from "@clientShared/matching/readyGateTerminalRecovery";
 import {
   getPostDateLobbyContinuityDecision,
   secondsUntilPostDateEventEnd,
@@ -893,12 +891,10 @@ export default function EventLobbyScreen() {
       options: {
         force?: boolean;
         forceSurvey?: boolean;
-        skipPrepare?: boolean;
       } = {},
     ) => {
       const forceSurvey = options.forceSurvey === true;
       const forceNavigation = options.force === true || forceSurvey;
-      const skipPrepare = options.skipPrepare === true || forceSurvey;
       if (
         !forceNavigation &&
         isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)
@@ -1041,41 +1037,6 @@ export default function EventLobbyScreen() {
           }
           void refetchActiveSession();
           return;
-        }
-
-        if (user?.id && !skipPrepare) {
-          const prepared = await prepareVideoDateEntry(sessionIdToOpen, {
-            eventId: id,
-            userId: user.id,
-            source: `event_lobby_${trigger}`,
-          });
-          if (prepared.ok !== true) {
-            rcBreadcrumb(
-              RC_CATEGORY.lobbyDateEntry,
-              "date_navigation_prepare_entry_failed_date_owned",
-              {
-                session_id: sessionIdToOpen,
-                event_id: id,
-                trigger,
-                code: prepared.code,
-                retryable: prepared.retryable,
-              },
-            );
-            if (
-              isReadyGatePrepareEntryNonRetryable({
-                code: prepared.code,
-                errorCode: prepared.code,
-                httpStatus: prepared.httpStatus ?? null,
-                reason: prepared.message ?? null,
-                source: "prepare_entry",
-              })
-            ) {
-              clearDateEntryTransition(sessionIdToOpen);
-              void refetchActiveSession();
-              return;
-            }
-            markVideoDateRouteOwned(sessionIdToOpen, user.id);
-          }
         }
 
         trackEvent(EventLobbyObservabilityEvents.DATE_ENTERED_FROM_LOBBY, {
@@ -2064,7 +2025,6 @@ export default function EventLobbyScreen() {
         {
           force: sameEventActiveSessionQueueStatus === "in_survey",
           forceSurvey: sameEventActiveSessionQueueStatus === "in_survey",
-          skipPrepare: true,
         },
       );
       return;
@@ -2149,14 +2109,11 @@ export default function EventLobbyScreen() {
             (queueStatus === "in_handshake" || queueStatus === "in_date") &&
             currentRoomId
           ) {
-            navigateToDateSession(
-              currentRoomId,
-              "registration_realtime_active_date",
-              "replace",
-              {
-                skipPrepare: true,
-              },
-            );
+          navigateToDateSession(
+            currentRoomId,
+            "registration_realtime_active_date",
+            "replace",
+          );
             return;
           }
           if (queueStatus === "in_ready_gate" && currentRoomId) {
@@ -2215,9 +2172,6 @@ export default function EventLobbyScreen() {
                 latestReg.current_room_id,
                 "registration_realtime_refetch_active_date",
                 "replace",
-                {
-                  skipPrepare: true,
-                },
               );
               return;
             }
@@ -2292,9 +2246,6 @@ export default function EventLobbyScreen() {
           session.id as string,
           "video_session_update_active_date",
           "replace",
-          {
-            skipPrepare: true,
-          },
         );
         return;
       }
@@ -2350,9 +2301,6 @@ export default function EventLobbyScreen() {
           sid,
           "video_session_insert_active_date",
           "replace",
-          {
-            skipPrepare: true,
-          },
         );
         return;
       }
@@ -2423,18 +2371,15 @@ export default function EventLobbyScreen() {
       if (deckPrefetchPolishEnabled)
         scheduleDeckRefresh(`broadcast_${event.kind}_deck_invalidation`, 0);
       if (event.kind === "ready_gate_both_ready") {
-        navigateToDateSession(
-          event.sessionId,
-          "broadcast_ready_gate_both_ready",
-          "replace",
-        );
+        // Single prepare-owner: the broadcast is convergence evidence only.
+        // Ready Gate overlay or standalone /ready owns prepare_date_entry and
+        // the date-route handoff after the refresh settles.
       }
     },
     [
       deckPrefetchPolishEnabled,
       id,
       lobbyBroadcastSessionId,
-      navigateToDateSession,
       scheduleDeckRefresh,
       scheduleLobbyRefreshBurst,
       user?.id,
@@ -4227,14 +4172,12 @@ export default function EventLobbyScreen() {
                 setActiveSessionPartnerName(null);
                 setActiveSessionPartnerImage(null);
                 // Single prepare-owner: the overlay already ran prepare_date_entry
-                // before handing off, so the lobby must not re-run it. skipPrepare
-                // still passes through navigateToDateSession's startable
-                // (routeable-truth) gate before any /date navigation.
+                // before handing off, so the lobby only verifies routeable
+                // truth before any /date navigation.
                 navigateToDateSession(
                   sessionIdToOpen,
                   "ready_gate_overlay",
                   "replace",
-                  { skipPrepare: true },
                 );
               }}
               onManualExitConfirmed={suppressReadyGateAfterManualExit}

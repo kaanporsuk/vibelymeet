@@ -110,17 +110,18 @@ test("both-ready prepare failures hand off to /date only on routeable truth (sin
     /navigateToDate\("both_ready_prepare_exception_date_owned"\)/,
   );
 
-  // Native Event Lobby keeps the overlay as the prepare owner: the overlay handoff
-  // skips the lobby re-prepare but still passes the startable (routeable-truth) gate.
+  // Native Event Lobby keeps the overlay as the prepare owner: the overlay
+  // handoff passes the startable gate but never runs prepare_date_entry.
   assert.match(nativeEventLobby, /Single prepare-owner/);
-  assert.match(nativeEventLobby, /skipPrepare: true/);
+  assert.doesNotMatch(nativeEventLobby, /prepareVideoDateEntry/);
+  assert.match(nativeEventLobby, /ensureVideoDateStartableBeforeNavigation/);
   assert.match(
     nativeEventLobby,
-    /"date_navigation_prepare_entry_failed_date_owned"/,
+    /ready_gate_both_ready[\s\S]{0,220}convergence evidence only/,
   );
   assert.match(
     nativeEventLobby,
-    /markVideoDateRouteOwned\(sessionIdToOpen, user\.id\);/,
+    /navigateToDateSession\(\s*sessionIdToOpen,\s*"ready_gate_overlay",\s*"replace"/,
   );
 
   // Native overlay already gates retryable failures on routeable truth; its

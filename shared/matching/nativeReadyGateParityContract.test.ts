@@ -351,17 +351,18 @@ test("native Ready Gate overlay reconciles mark-ready timeouts before surfacing 
   assert.doesNotMatch(nativeReadyGateOverlay, /ensureVideoDateRoomWarmup/);
 });
 
-test("native pre-navigation helper treats event-inactive prepare-entry as terminal, not retry lag", () => {
-  assert.match(nativeEntryStartable, /isReadyGatePrepareEntryNonRetryable/);
-  assert.match(nativeEntryStartable, /prepare_entry_event_inactive/);
-  assert.match(nativeEntryStartable, /recommend: 'ended'/);
-  assert.match(nativeEntryStartable, /READY_GATE_RACE_RETRY_BACKOFFS_MS/);
+test("native pre-navigation helper is read-only and defers prepare to owners", () => {
+  assert.match(nativeEntryStartable, /must not[\s\S]{0,80}prepare_date_entry/);
+  assert.doesNotMatch(nativeEntryStartable, /prepareVideoDateEntry/);
+  assert.match(nativeEntryStartable, /peekPreparedVideoDateEntryHandoff/);
+  assert.match(nativeEntryStartable, /ready_gate_pre_nav_deferred_to_prepare_owner/);
+  assert.match(nativeEntryStartable, /reason:\s*'navigate_ready'/);
 });
 
 test("native lobby and date surfaces remain backend prepare-entry gated", () => {
   assert.match(nativeEventLobby, /ensureVideoDateStartableBeforeNavigation/);
-  assert.match(nativeEventLobby, /prepareVideoDateEntry\(sessionIdToOpen/);
-  assert.match(nativeEventLobby, /date_navigation_prepare_entry_failed/);
+  assert.doesNotMatch(nativeEventLobby, /prepareVideoDateEntry/);
+  assert.match(nativeEventLobby, /convergence evidence only/);
   assert.match(nativeEventLobby, /navigateToDateSessionGuarded/);
   assert.match(nativeDateRoute, /READY_GATE_NOT_READY/);
   assert.match(nativeDateRoute, /EVENT_NOT_ACTIVE/);

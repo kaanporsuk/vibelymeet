@@ -81,7 +81,8 @@ test("current web and native date entry calls daily-room prepare_date_entry only
   assert.match(webPrepareEntry, /action: PREPARE_VIDEO_DATE_ENTRY_ACTION/);
   assert.match(nativePrepareEntry, /action: PREPARE_VIDEO_DATE_ENTRY_ACTION/);
   assert.match(webVideoCall, /action:\s*"prepare_date_entry"/);
-  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
+  assert.match(nativeVideoDateApi, /recoverMissingPreparedEntryForNativeDateRoute/);
+  assert.match(nativeVideoDateApi, /source: 'native_date_route_recover_missing_prepared_entry'/);
 
   for (const [path, source] of activeClientSources) {
     for (const action of removedVideoDateEntryActions) {
