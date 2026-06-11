@@ -177,9 +177,11 @@ test("web and native date paths remain backend prepare-entry gated", () => {
   assert.match(webVideoCall, /action:\s*"prepare_date_entry"/);
   assert.match(nativePrepareEntry, /PREPARE_VIDEO_DATE_ENTRY_ACTION/);
   assert.match(nativePrepareEntry, /supabase\.functions\.invoke\('daily-room'/);
-  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
+  assert.match(nativeVideoDateApi, /recoverMissingPreparedEntryForNativeDateRoute/);
+  assert.match(nativeVideoDateApi, /source: 'native_date_route_recover_missing_prepared_entry'/);
   assert.match(nativeEntryStartable, /ensureVideoDateStartableBeforeNavigation/);
-  assert.match(nativeEntryStartable, /prepareVideoDateEntry\(sessionId/);
+  assert.doesNotMatch(nativeEntryStartable, /prepareVideoDateEntry/);
+  assert.match(nativeEntryStartable, /ready_gate_pre_nav_deferred_to_prepare_owner/);
 });
 
 test("web and native Daily runtime paths preserve join, reconnect, leave, and terminal contracts", () => {

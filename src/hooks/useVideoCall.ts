@@ -4377,6 +4377,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
       }
       let lastFailure: VideoCallStartFailure | null = null;
+      const recoverMissingPreparedEntryForDateRoute = (force: boolean) =>
+        prepareVideoDateEntry(sessionId, {
+          eventId: truthRow?.event_id ?? eventId,
+          userId,
+          source: "date_route_recover_missing_prepared_entry",
+          force,
+        });
 
       for (
         let attempt = 0;
@@ -4395,12 +4402,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         try {
           result = await withTimeout(
             "daily_room",
-            prepareVideoDateEntry(sessionId, {
-              eventId: truthRow?.event_id ?? eventId,
-              userId,
-              source: "use_video_call_start",
-              force: attempt > 0,
-            }),
+            recoverMissingPreparedEntryForDateRoute(attempt > 0),
             VIDEO_DATE_PREJOIN_TIMEOUT_MS,
           );
         } catch (error) {
@@ -5017,6 +5019,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             };
             lastDailyTokenRefreshFailure = refreshFailure;
             if (refresh.error === "room_not_ready") {
+              const recoverRoomNotReadyForDateRoute = () =>
+                prepareVideoDateEntry(sessionId, {
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  source: `${sourceAction}_date_route_room_recovery`,
+                  force: true,
+                });
               vdbg("daily_token_refresh_prepare_entry_recovery_started", {
                 sessionId,
                 eventId: truthRow.event_id ?? eventId,
@@ -5024,12 +5033,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 sourceAction,
                 roomName: roomData.room_name,
               });
-              const prepared = await prepareVideoDateEntry(sessionId, {
-                eventId: truthRow.event_id ?? eventId,
-                userId,
-                source: `${sourceAction}_room_recovery`,
-                force: true,
-              });
+              const prepared = await recoverRoomNotReadyForDateRoute();
               durationMs = Date.now() - refreshStartedAtMs;
               if (
                 prepared.ok === true &&

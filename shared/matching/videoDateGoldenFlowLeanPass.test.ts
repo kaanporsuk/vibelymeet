@@ -33,6 +33,9 @@ const nativeVideoDateProfileCallers = [
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoDatePage = read("src/pages/VideoDate.tsx");
+const nativeSessionReader = read("apps/mobile/lib/videoDateSessionRow.ts");
+const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
+const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 
 test("launch latency checkpoints are buffered and flushed through the batch RPC", () => {
   assert.match(checkpointModule, /record_video_date_launch_latency_checkpoints_v1/);
@@ -116,12 +119,17 @@ test("date-path session row reads go through the single-owner coalescing reader"
   const reader = read("src/lib/videoDateSessionRow.ts");
   assert.match(reader, /VIDEO_DATE_SESSION_ROW_COLUMNS/);
   assert.match(reader, /SESSION_ROW_REUSE_MS = 300/);
+  assert.match(nativeSessionReader, /VIDEO_DATE_SESSION_ROW_COLUMNS/);
+  assert.match(nativeSessionReader, /SESSION_ROW_REUSE_MS = 300/);
   // Recovery/terminal truth reads must bypass the reuse window (PR #1292 P2).
   assert.match(reader, /options\?\.fresh/);
+  assert.match(nativeSessionReader, /options\?\.fresh/);
   assert.match(
     read("src/hooks/useVideoCall.ts"),
     /fetchVideoDateSessionRow\(sessionId, \{ fresh: true \}\)/,
   );
+  assert.match(nativeVideoDateApi, /fetchVideoDateSessionRow\(sessionId\)/);
+  assert.match(nativeDateRoute, /fetchVideoDateSessionRow\(sessionId, \{ fresh: true \}\)/);
   for (const path of [
     "src/components/session/SessionRouteHydration.tsx",
     "src/components/video-date/IceBreakerCard.tsx",
@@ -140,6 +148,18 @@ test("date-path session row reads go through the single-owner coalescing reader"
   ]) {
     assert.doesNotMatch(read(path), /from\("video_sessions"\)/, `${path} must not query video_sessions directly`);
   }
+  assert.match(nativeDateRoute, /NATIVE_TERMINAL_SURVEY_SESSION_SELECT/);
+  assert.match(nativeDateRoute, /Survey-required terminal recovery intentionally uses this smaller projection/);
+  assert.equal(
+    (nativeDateRoute.match(/from\("video_sessions"\)/g) ?? []).length,
+    2,
+    "native date route should only keep the two terminal survey truth reads",
+  );
+  assert.equal(
+    (nativeVideoDateApi.match(/from\('video_sessions'\)/g) ?? []).length,
+    2,
+    "native videoDateApi should only keep partner-profile and icebreaker narrow reads",
+  );
 });
 
 test("start-snapshot pollers share in-flight requests on web and native", () => {

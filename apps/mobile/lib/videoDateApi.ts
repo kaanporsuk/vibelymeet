@@ -12,6 +12,7 @@ import { vdbg } from '@/lib/vdbg';
 import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { fetchVideoDateSessionRow } from '@/lib/videoDateSessionRow';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import {
@@ -59,7 +60,6 @@ import {
 import { resolveVideoDatePhaseCountdown } from '@clientShared/matching/videoDateCountdown';
 import { videoDateEntryStartedAtIso } from '@clientShared/matching/videoDateEntryTiming';
 import {
-  VIDEO_DATE_ENTRY_TRUTH_SELECT,
   entryTruthLogPayload,
   persistEntryDecisionWithVerification,
   type PersistEntryDecisionResult,
@@ -388,13 +388,7 @@ export function useVideoDateSession(
 
     let outcome: 'ok' | 'not_found' | 'forbidden' | 'ended' = 'ok';
     try {
-      const { data: row, error: e } = await supabase
-        .from('video_sessions')
-        .select(
-          'id, participant_1_id, participant_2_id, event_id, session_seq, state, phase, ended_at, ended_reason, entry_started_at, entry_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
-        )
-        .eq('id', sessionId)
-        .maybeSingle();
+      const { data: row, error: e } = await fetchVideoDateSessionRow(sessionId);
 
       if (e || !row) {
         outcome = 'not_found';
@@ -707,12 +701,19 @@ export function useVideoDateSession(
   return { session, partner, phase, timeLeft, timeline, loading, isRefreshing, error, refetch: fetchSession, retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery };
 }
 
+function recoverMissingPreparedEntryForNativeDateRoute(sessionId: string, userId?: string | null) {
+  return prepareVideoDateEntry(sessionId, {
+    userId,
+    source: 'native_date_route_recover_missing_prepared_entry',
+  });
+}
+
 /** Get Daily room token via daily-room Edge Function (prepare_date_entry). Same contract as web; returns classified errors. */
 export async function getDailyRoomToken(sessionId: string, userId?: string | null): Promise<GetDailyRoomTokenResult> {
   const args = { action: 'prepare_date_entry', sessionId, userId: userId ?? null };
   vdbg('daily_room_before', { action: 'prepare_date_entry', args });
   const invokeStarted = Date.now();
-  const result = await prepareVideoDateEntry(sessionId, { userId, source: 'native_video_date_token' });
+  const result = await recoverMissingPreparedEntryForNativeDateRoute(sessionId, userId);
   Sentry.addBreadcrumb({
     category: 'video-date-launch',
     message: 'daily_room_edge_invoke',
@@ -822,11 +823,7 @@ export async function fetchVideoSessionDateEntryTruth(
   const snapshotTruth = videoDateStartSnapshotToDateEntryTruth(snapshot);
   if (snapshotTruth) return snapshotTruth as VideoSessionDateEntryTruth;
 
-  const { data, error } = await supabase
-    .from('video_sessions')
-    .select(`${VIDEO_DATE_ENTRY_TRUTH_SELECT}, event_id, date_started_at, ready_gate_status, ready_gate_expires_at`)
-    .eq('id', sessionId)
-    .maybeSingle();
+  const { data, error } = await fetchVideoDateSessionRow(sessionId);
   if (error) {
     if (options?.throwOnError) {
       throw new Error(error.message || error.code || 'video_session_truth_query_failed');

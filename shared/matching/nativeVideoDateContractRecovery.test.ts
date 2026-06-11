@@ -74,7 +74,8 @@ test("native date route exists and gates bootstrap on backend video-date truth",
 });
 
 test("native date entry remains prepare-entry and Daily-room gated", () => {
-  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
+  assert.match(nativeVideoDateApi, /recoverMissingPreparedEntryForNativeDateRoute/);
+  assert.match(nativeVideoDateApi, /source: 'native_date_route_recover_missing_prepared_entry'/);
   assert.match(nativePrepareEntry, /supabase\.functions\.invoke\('daily-room'/);
   assert.match(nativePrepareEntry, /action:\s*PREPARE_VIDEO_DATE_ENTRY_ACTION/);
   assert.match(nativePrepareEntry, /VIDEO_DATE_PREPARE_ENTRY_STARTED/);
@@ -83,21 +84,20 @@ test("native date entry remains prepare-entry and Daily-room gated", () => {
   assert.match(dailyRoom, /prepare_date_entry/);
 });
 
-test("native pre-navigation helper refuses stale handoff before date navigation", () => {
+test("native pre-navigation helper is read-only before date navigation", () => {
   assert.match(nativeEntryStartable, /fetchVideoSessionDateEntryTruth\(sessionId\)/);
   assert.match(nativeEntryStartable, /decideVideoSessionRouteFromTruth\(truth\)/);
   assert.match(nativeEntryStartable, /canAttemptDailyRoomFromVideoSessionTruth\(truth\)/);
-  assert.match(nativeEntryStartable, /prepareVideoDateEntry\(sessionId/);
-  assert.match(nativeEntryStartable, /isReadyGatePrepareEntryNonRetryable/);
-  assert.match(nativeEntryStartable, /prepare_entry_event_inactive/);
-  assert.match(nativeEntryStartable, /recommend:\s*'ended'/);
-  assert.match(nativeEntryStartable, /READY_GATE_RACE_RETRY_BACKOFFS_MS/);
+  assert.doesNotMatch(nativeEntryStartable, /prepareVideoDateEntry/);
+  assert.match(nativeEntryStartable, /peekPreparedVideoDateEntryHandoff/);
+  assert.match(nativeEntryStartable, /ready_gate_pre_nav_deferred_to_prepare_owner/);
+  assert.match(nativeEntryStartable, /recommend:\s*'ready'/);
 });
 
 test("native video-date lifecycle uses backend RPC surfaces", () => {
   assert.match(nativeVideoDateApi, /Uses same contracts as web: daily-room Edge Function, video_date_transition RPC/);
   assert.match(nativeVideoDateApi, /supabase\.rpc\('video_date_transition'/);
-  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
+  assert.match(nativeVideoDateApi, /native_date_route_recover_missing_prepared_entry/);
   assert.doesNotMatch(nativeVideoDateApi, /export async function enterHandshake/);
   assert.doesNotMatch(nativeVideoDateApi, /enterHandshakeWithTimeout/);
   assert.doesNotMatch(nativeVideoDateApi, /p_action:\s*['"]enter_handshake['"]/);
@@ -105,7 +105,8 @@ test("native video-date lifecycle uses backend RPC surfaces", () => {
   assert.match(nativeVideoDateApi, /action:\s*'sync_reconnect'/);
   assert.match(nativeVideoDateApi, /action:\s*'mark_reconnect_return'/);
   assert.match(nativeVideoDateApi, /action:\s*'end'/);
-  assert.match(nativeVideoDateApi, /action:\s*'complete_handshake'/);
+  assert.match(nativeVideoDateApi, /action:\s*'complete_entry'/);
+  assert.doesNotMatch(nativeVideoDateApi, /action:\s*'complete_handshake'/);
   assert.match(nativeDateRoute, /markDailyJoinedWithBackoff/);
   assert.match(nativeDateRoute, /supabase\.rpc\(\s*["']mark_video_date_daily_joined["']/);
 });
@@ -128,8 +129,8 @@ test("native date route has session-scoped duplicate join and terminal recovery 
     "prejoinAttemptRef",
     "joinAttemptNonce",
     "reconnectEndedHandledRef",
-    "handshakeCompletionInFlightRef",
-    "handshakeCompletionDeadlineKeyRef",
+    "entryCompletionInFlightRef",
+    "entryCompletionDeadlineKeyRef",
     "loggedJourneyRef",
   ]) {
     assert.match(nativeDateRoute, new RegExp(marker));

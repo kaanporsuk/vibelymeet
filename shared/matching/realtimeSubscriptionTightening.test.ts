@@ -126,6 +126,7 @@ test("date navigation remains gated by backend prepare-entry truth", () => {
   assert.doesNotMatch(webEventLobby, /prepareVideoDateEntry/);
   assert.match(nativeReadyGateOverlay, /prepareVideoDateEntry\(sessionId/);
   assert.match(nativeEventLobby, /ensureVideoDateStartableBeforeNavigation/);
+  assert.doesNotMatch(nativeEventLobby, /prepareVideoDateEntry/);
 });
 
 test("native Ready Gate sync and current-session realtime remain backend-truth based", () => {

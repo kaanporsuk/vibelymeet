@@ -70,6 +70,7 @@ import {
   type VideoSessionDateEntryTruth,
   type VibeQuestionState,
 } from "@/lib/videoDateApi";
+import { fetchVideoDateSessionRow } from "@/lib/videoDateSessionRow";
 import {
   effectiveDateDurationSeconds,
   remainingDatePhaseSeconds,
@@ -1211,6 +1212,8 @@ type NativeTerminalSurveyRegistrationFallbackRow = {
 
 const NATIVE_TERMINAL_SURVEY_SESSION_SELECT =
   "id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, state, phase";
+// Survey-required terminal recovery intentionally uses this smaller projection
+// instead of the hot date-route session row owner.
 
 const NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT =
   "event_id, queue_status, current_room_id, current_partner_id, last_active_at";
@@ -3878,11 +3881,7 @@ export default function VideoDateScreen() {
     const userId = user.id;
     let cancelled = false;
     if (isVdbgEnabled() || __DEV__) {
-      void supabase
-        .from("video_sessions")
-        .select("*")
-        .eq("id", sessionId)
-        .maybeSingle()
+      void fetchVideoDateSessionRow(sessionId, { fresh: true })
         .then(({ data, error }) => {
           if (cancelled) return;
           vdbg("date_mount_session_row", {
@@ -8996,6 +8995,13 @@ export default function VideoDateScreen() {
           };
           lastDailyTokenRefreshFailure = refreshFailure;
           if (refreshed.error === "room_not_ready") {
+            const recoverNativeDateRouteRoomNotReadyWithPrepare = () =>
+              prepareVideoDateEntry(sessionId, {
+                eventId: eventId || null,
+                userId: user.id,
+                source: `${sourceAction}_native_date_route_room_recovery`,
+                force: true,
+              });
             vdbg("daily_token_refresh_prepare_entry_recovery_started", {
               sessionId,
               userId: user.id,
@@ -9003,12 +9009,7 @@ export default function VideoDateScreen() {
               sourceAction,
               roomName: tokenResult.room_name,
             });
-            const prepared = await prepareVideoDateEntry(sessionId, {
-              eventId: eventId || null,
-              userId: user.id,
-              source: `${sourceAction}_room_recovery`,
-              force: true,
-            });
+            const prepared = await recoverNativeDateRouteRoomNotReadyWithPrepare();
             durationMs = Date.now() - refreshStartedAtMs;
             if (
               prepared.ok === true &&

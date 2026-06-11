@@ -62,6 +62,19 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: Native Phase Ownership Single Prepare Owner
+
+Current source now enforces the single prepare-owner model across the remaining native handoff gaps. Branch delta: `docs/branch-deltas/video-date-phase-ownership-single-owner.md`.
+
+- **Native lobby is no longer a prepare owner:** `apps/mobile/app/event/[eventId]/lobby.tsx` has no direct `prepareVideoDateEntry` import/call. It still owns active-session discovery, Ready Gate mounting, and read-only route convergence, but `ready_gate_both_ready` broadcasts only refresh convergence/deck state instead of navigating directly to `/date`.
+- **Native pre-navigation is read-only:** `apps/mobile/lib/videoDateEntryStartable.ts` can return date/ready/survey/lobby/ended recommendations and can recognize a fresh prepared handoff, but it no longer calls `prepare_date_entry`.
+- **Date-route prepare is explicit recovery:** web and native date-route fallback prepares now use recovery-specific helpers/source strings for missing prepared handoff and token-refresh room recovery; normal Ready Gate handoff still uses the prepared cache.
+- **Native session-row read ownership:** `apps/mobile/lib/videoDateSessionRow.ts` mirrors the web single projection owner and routes native date session/truth fallback reads through it. Native terminal survey reads remain explicit narrow survey-truth projections.
+- **Ready Gate entry-proof status:** no new entry-proof migration was needed because current source already removes the mount-time entry-proof RPC/table stack via `20260611091620_remove_ready_gate_entry_proof.sql`.
+- **Verification:** `npm run typecheck`, `npm run lint`, `npm run test:event-lobby-regression`, `npm run test:video-date:red-flags`, and `npm run test:video-date-v4` passed locally.
+
+This is source/test ownership cleanup, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
 ## 2026-06-11 Implementation Update: Review Comments #1291-#1298 Follow-ups
 
 Current source addresses the thread-aware Codex review comments from merged PRs #1291 through #1298. No Copilot-authored review threads were present in that scan.
