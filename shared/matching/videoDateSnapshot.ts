@@ -1,5 +1,4 @@
 export type VideoDateSnapshotPhase =
-  | "queued"
   | "ready_gate"
   | "handshake"
   | "date"
@@ -80,7 +79,7 @@ export function normalizeVideoDateSnapshot(payload: unknown): VideoDateSnapshot 
     eventId: nullableString(record.eventId),
     seq: numberOrDefault(record.seq, 0),
     serverNow: numberOrDefault(record.serverNow, Date.now()),
-    phase: typeof record.phase === "string" ? record.phase : "queued",
+    phase: typeof record.phase === "string" ? record.phase : "ready_gate",
     phaseStartedAt: nullableNumber(record.phaseStartedAt),
     phaseDeadlineAt: nullableNumber(record.phaseDeadlineAt),
     allowedActions: Array.isArray(record.allowedActions)

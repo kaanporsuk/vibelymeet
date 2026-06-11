@@ -59,7 +59,6 @@ test("Sprint 7 service-role operator health RPC is aggregate-only and wired into
     "stuck_ready_gate_count",
     "stuck_handshake_count",
     "overdue_date_count",
-    "silently_queued_count",
     "pending_survey_recovery_count",
     "prepare_entry_failure_count",
     "daily_join_failure_count",
@@ -92,6 +91,7 @@ test("Sprint 7 service-role operator health RPC is aggregate-only and wired into
   assert.match(adminOps, /service\.rpc\("get_video_date_sprint7_ops_health"/);
   assert.match(adminOps, /safety_privacy_ops_health:\s*selectSprint7SafetyPrivacyOpsHealth/);
   assert.match(adminOps, /SPRINT7_PRIVACY_CONTRACT_FALLBACK/);
+  assert.doesNotMatch(adminOps, /silently_queued_count/);
   assert.match(adminShared, /SENSITIVE_TIMELINE_KEY_PATTERN/);
   assert.match(sprint7Migration, /COALESCE\(sa\.pending_report_count, 0\) > 0 THEN 'warning'/);
   assert.match(sprint7Migration, /public\.event_registrations er_reporter/);

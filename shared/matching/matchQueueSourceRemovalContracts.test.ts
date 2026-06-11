@@ -9,6 +9,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read(
   "supabase/migrations/20260610120000_remove_match_queue_source_always_ready.sql",
 );
+const purgeMigration = read(
+  "supabase/migrations/20260611104830_purge_video_date_queued_residue.sql",
+);
 const adminOps = read("supabase/functions/_shared/admin-video-date-ops.ts");
 const packageJson = read("package.json");
 
@@ -27,7 +30,7 @@ test("swipe source always opens a ready Ready Gate session and never creates a q
     "handle_swipe_20260506090000_stale_room_base",
   );
 
-  // Mutual match inserts a ready session with the standard 30s window, never queued.
+  // Mutual match inserts a ready session with the standard 30s window, never a queued status.
   assert.match(base, /ready_gate_status,\s+ready_gate_expires_at,\s+queued_expires_at\s+\)\s+VALUES \(/);
   assert.match(base, /'ready',\s+v_now \+ interval '30 seconds',\s+NULL/);
   assert.match(base, /'result', 'match'/);
@@ -41,6 +44,13 @@ test("swipe source always opens a ready Ready Gate session and never creates a q
   assert.doesNotMatch(base, /'result', 'match_queued'/);
   assert.doesNotMatch(base, /ready_gate_status', 'queued'/);
   assert.doesNotMatch(base, /interval '10 minutes'/);
+});
+
+test("physical queued residue purge removes the inert queued_expires_at column after source removal", () => {
+  assert.match(purgeMigration, /ALTER TABLE public\.video_sessions[\s\S]+DROP COLUMN IF EXISTS queued_expires_at/);
+  assert.match(purgeMigration, /handle_swipe_20260506090000_stale_room_base still contains queued_expires_at/);
+  assert.match(purgeMigration, /DROP VIEW IF EXISTS public\.v_video_date_queue_fairness_candidates/);
+  assert.match(purgeMigration, /DROP FUNCTION IF EXISTS public\.get_video_date_queue_fairness_health\(uuid\)/);
 });
 
 test("deck-authority wrapper is a pass-through after queued-session removal", () => {

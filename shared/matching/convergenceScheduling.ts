@@ -1,8 +1,8 @@
 /**
- * Bounded adaptive delay for convergence-style loops (queue drain polling, reconnect sync polling).
+ * Bounded adaptive delay for convergence-style reconnect sync loops.
  *
- * Same timing curve used by web `useReconnection` and native lobby queue-drain / video-date reconnect
- * sync — **do not change thresholds without explicit product parity review** (web is source of truth).
+ * Same timing curve used by web `useReconnection` and native video-date reconnect sync.
+ * Do not change thresholds without explicit product parity review.
  */
 export function nextConvergenceDelayMs(elapsedMs: number): number {
   if (elapsedMs < 5_000) return 1_000;

@@ -33,7 +33,6 @@ test("video date operator metric ids stay stable", () => {
     "ready_tap_to_first_remote_frame_latency",
     "ready_gate_open_to_date_join_latency",
     "simultaneous_swipe_collision_rate",
-    "queue_fairness_starvation_rate",
     "timer_drift_recovered_by_server_truth",
   ]);
 });

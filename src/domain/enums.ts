@@ -14,7 +14,6 @@ export type ReadyGateQueueStatus =
   (typeof ReadyGateQueueStatus)[keyof typeof ReadyGateQueueStatus];
 
 export const ReadyGateStatus = {
-  Queued: "queued",
   Ready: "ready",
   ReadyA: "ready_a",
   ReadyB: "ready_b",

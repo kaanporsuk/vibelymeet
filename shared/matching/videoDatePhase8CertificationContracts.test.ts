@@ -62,7 +62,6 @@ const cleanInput: VideoDatePhase8CertificationInput = {
   firstFrameSampleCount: 150,
   firstFrameP95Ms: 4200,
   firstFrameP99Ms: 7200,
-  queueFairnessStatus: "healthy",
   dailyProductionConfigReady: true,
   dailyWebhookSecretReady: true,
   dailyCleanupCronReady: true,
@@ -139,14 +138,12 @@ test("Phase 8 rollout decision blocks on missing proof and allows only clean ram
     dailyCleanupCronReady: false,
     firstFrameSampleCount: 10,
     firstFrameP95Ms: 6100,
-    queueFairnessStatus: "critical",
     deckDeal100PctBaked: false,
   });
   assert.equal(blocked[0].allowed, false);
   assert.ok(blocked[0].blockers.includes("daily_production_config_not_ready"));
   assert.ok(blocked[0].blockers.includes("daily_webhook_secret_not_ready"));
   assert.ok(blocked[0].blockers.includes("daily_cleanup_cron_not_ready"));
-  assert.ok(blocked[0].blockers.includes("queue_fairness_critical"));
   assert.ok(blocked[1].blockers.includes("insufficient_first_frame_samples"));
   assert.ok(blocked[1].blockers.includes("first_frame_p95_over_target"));
   assert.ok(blocked[3].blockers.includes("deck_deal_100pct_not_baked"));

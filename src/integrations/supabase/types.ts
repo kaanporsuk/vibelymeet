@@ -1215,13 +1215,6 @@ export type Database = {
             foreignKeyName: "date_feedback_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "date_feedback_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -2247,13 +2240,6 @@ export type Database = {
             foreignKeyName: "event_profile_impression_events_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "event_profile_impression_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -2351,13 +2337,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_synthetic_video_date_health"
             referencedColumns: ["event_id"]
-          },
-          {
-            foreignKeyName: "event_profile_impressions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "event_profile_impressions_session_id_fkey"
@@ -4445,13 +4424,6 @@ export type Database = {
             foreignKeyName: "post_date_client_submissions_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "post_date_client_submissions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -4528,13 +4500,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: true
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
             columns: ["session_id"]
@@ -4621,13 +4586,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
             columns: ["session_id"]
@@ -7032,13 +6990,6 @@ export type Database = {
             foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -7097,13 +7048,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
             columns: ["session_id"]
@@ -7191,13 +7135,6 @@ export type Database = {
           signature_timestamp?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
             columns: ["session_id"]
@@ -7303,13 +7240,6 @@ export type Database = {
             foreignKeyName: "video_date_extension_requests_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_extension_requests_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -7377,13 +7307,6 @@ export type Database = {
           session_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
             columns: ["session_id"]
@@ -7534,13 +7457,6 @@ export type Database = {
             foreignKeyName: "video_date_presence_events_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_presence_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -7618,13 +7534,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "video_date_provider_outbox"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
@@ -7709,13 +7618,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "video_date_provider_outbox_session_id_fkey"
             columns: ["session_id"]
@@ -7809,13 +7711,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "video_date_provider_outbox"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
@@ -8025,13 +7920,6 @@ export type Database = {
             foreignKeyName: "video_date_surface_claims_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_surface_claims_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -8197,13 +8085,6 @@ export type Database = {
             foreignKeyName: "video_session_commands_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_commands_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -8274,13 +8155,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "video_session_deadlines_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
           {
             foreignKeyName: "video_session_deadlines_session_id_fkey"
             columns: ["session_id"]
@@ -8360,13 +8234,6 @@ export type Database = {
             foreignKeyName: "video_session_events_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
           },
@@ -8434,7 +8301,6 @@ export type Database = {
           prepare_entry_attempt_id: string | null
           prepare_entry_expires_at: string | null
           prepare_entry_started_at: string | null
-          queued_expires_at: string | null
           ready_gate_expires_at: string | null
           ready_gate_status: string
           ready_participant_1_at: string | null
@@ -8501,7 +8367,6 @@ export type Database = {
           prepare_entry_attempt_id?: string | null
           prepare_entry_expires_at?: string | null
           prepare_entry_started_at?: string | null
-          queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
@@ -8568,7 +8433,6 @@ export type Database = {
           prepare_entry_attempt_id?: string | null
           prepare_entry_expires_at?: string | null
           prepare_entry_started_at?: string | null
-          queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
@@ -8989,76 +8853,6 @@ export type Database = {
         }
         Relationships: []
       }
-      v_video_date_queue_fairness_candidates: {
-        Row: {
-          actor_client_platform: string | null
-          actor_foreground: boolean | null
-          actor_gender: string | null
-          actor_hot_ready: boolean | null
-          actor_id: string | null
-          actor_last_heartbeat_at: string | null
-          actor_readiness_status: string | null
-          actor_recent_no_match_attempts: number | null
-          actor_recent_reliability_penalty: number | null
-          both_hot_ready: boolean | null
-          candidate_score: number | null
-          event_id: string | null
-          partner_client_platform: string | null
-          partner_foreground: boolean | null
-          partner_gender: string | null
-          partner_hot_ready: boolean | null
-          partner_id: string | null
-          partner_last_heartbeat_at: string | null
-          partner_readiness_status: string | null
-          partner_recent_reliability_penalty: number | null
-          queued_age_seconds: number | null
-          queued_at: string | null
-          queued_expires_at: string | null
-          recent_terminal_session_count: number | null
-          session_id: string | null
-          ttl_remaining_seconds: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
-          },
-        ]
-      }
-      v_video_date_queue_fairness_event_health: {
-        Row: {
-          actor_gender_slots: Json | null
-          actor_platform_slots: Json | null
-          avg_candidate_score: number | null
-          both_hot_ready_slots: number | null
-          drain_attempts_15m: number | null
-          drain_successes_15m: number | null
-          event_id: string | null
-          fairness_status: string | null
-          max_candidate_score: number | null
-          no_match_attempts_15m: number | null
-          not_both_hot_ready_slots: number | null
-          oldest_wait_seconds: number | null
-          p95_wait_seconds: number | null
-          queued_participant_slots: number | null
-          queued_session_count: number | null
-          reliability_penalized_slots: number | null
-          runtime_blocked_attempts_15m: number | null
-          starved_slots_120s: number | null
-          starved_slots_300s: number | null
-        }
-        Relationships: []
-      }
       video_session_participant_events: {
         Row: {
           actor: string | null
@@ -9100,13 +8894,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_session_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "v_video_date_queue_fairness_candidates"
-            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "video_session_events_session_id_fkey"
@@ -9563,7 +9350,6 @@ export type Database = {
           generated_at: string | null
           legacy_deck_cleanup_reason: string | null
           load_passed: boolean | null
-          queue_fairness_status: string | null
           recovery_page_alerts: number | null
           recovery_watch_alerts: number | null
           rls_negative_passed: boolean | null
@@ -11861,7 +11647,6 @@ export type Database = {
           generated_at: string
           legacy_deck_cleanup_reason: string
           load_passed: boolean
-          queue_fairness_status: string
           recovery_page_alerts: number
           recovery_watch_alerts: number
           rls_negative_passed: boolean
@@ -11876,30 +11661,6 @@ export type Database = {
           two_user_web_passed: boolean
           window_id: string
           window_label: string
-        }[]
-      }
-      get_video_date_queue_fairness_health: {
-        Args: { p_event_id?: string }
-        Returns: {
-          actor_gender_slots: Json
-          actor_platform_slots: Json
-          avg_candidate_score: number
-          both_hot_ready_slots: number
-          drain_attempts_15m: number
-          drain_successes_15m: number
-          event_id: string
-          fairness_status: string
-          max_candidate_score: number
-          no_match_attempts_15m: number
-          not_both_hot_ready_slots: number
-          oldest_wait_seconds: number
-          p95_wait_seconds: number
-          queued_participant_slots: number
-          queued_session_count: number
-          reliability_penalized_slots: number
-          runtime_blocked_attempts_15m: number
-          starved_slots_120s: number
-          starved_slots_300s: number
         }[]
       }
       get_video_date_session_timeline: {
@@ -13855,10 +13616,6 @@ export type Database = {
         }
         Returns: Json
       }
-      video_date_queue_participant_reliability_penalty: {
-        Args: { p_event_id: string; p_now?: string; p_participant_id: string }
-        Returns: number
-      }
       video_date_ready_gate_actionability_v1: {
         Args: {
           p_actor_id?: string
@@ -14058,7 +13815,6 @@ export type Database = {
           p_participant_2_joined_at: string
           p_phase: string
           p_prepare_entry_expires_at: string
-          p_queued_expires_at: string
           p_ready_gate_expires_at: string
           p_ready_gate_status: string
           p_snooze_expires_at: string

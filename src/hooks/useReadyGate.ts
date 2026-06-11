@@ -72,7 +72,7 @@ interface ReadyGateState {
 
 const createInitialReadyGateState = (): ReadyGateState => ({
   stateSessionId: null,
-  status: ReadyGateStatus.Queued,
+  status: ReadyGateStatus.Ready,
   iAmReady: initialReadyGateReadinessState.iAmReady,
   partnerReady: initialReadyGateReadinessState.partnerReady,
   iAmReadyKnown: initialReadyGateReadinessState.iAmReadyKnown,
@@ -222,7 +222,7 @@ function isTerminalReadyGateStatus(status: ReadyGateStatus): status is TerminalR
 function normalizeReadyGateStatus(value: unknown): ReadyGateStatus {
   return READY_GATE_STATUS_VALUES.includes(value as ReadyGateStatus)
     ? (value as ReadyGateStatus)
-    : ReadyGateStatus.Queued;
+    : ReadyGateStatus.Ready;
 }
 
 function normalizeReadyGateTimestamp(value: unknown): string | null {
@@ -347,7 +347,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     clockSkewMs: number | null;
     phaseDeadlineAtMs: number | null;
   }>({
-    status: ReadyGateStatus.Queued,
+    status: ReadyGateStatus.Ready,
     sessionSeq: null,
     expiresAt: null,
     serverNowMs: null,
@@ -384,7 +384,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     broadcastRefetchInFlightRef.current = false;
     broadcastGapRecoveryRef.current = null;
     readyGateTruthRef.current = {
-      status: ReadyGateStatus.Queued,
+      status: ReadyGateStatus.Ready,
       sessionSeq: null,
       expiresAt: null,
       serverNowMs: null,

@@ -160,7 +160,7 @@ test("PR 5.3 push and deep-link recovery share one snapshot decision helper", ()
   assert.match(nativeNotificationDeepLink, /fetchVideoDateSnapshot\(sid, \{ includeToken: false \}\)/);
   assert.match(nativeNotificationDeepLink, /expectedSessionId: sid/);
   assert.match(nativeNotificationDeepLink, /snapshotRecoveryV2: snapshotV2\.enabled/);
-  assert.match(nativeNotificationDeepLink, /queue drain and stale-ended recovery stay intact/);
+  assert.match(nativeNotificationDeepLink, /stale-ended recovery stays intact/);
   assert.doesNotMatch(timeline, /token|DAILY_API_KEY|meeting[_-]?token/i);
 });
 
@@ -333,17 +333,17 @@ test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () =>
   assert.match(phase5AuditMigration, /GRANT SELECT ON public\.vw_video_date_multi_device_health TO service_role/);
 });
 
-test("PR 5.6 queued and retryable snapshots do not bypass queue/lobby recovery", () => {
-  const queuedRecovery = resolveVideoDateSnapshotRecovery({
+test("PR 5.6 removed queued snapshots and retryable failures do not bypass lobby recovery", () => {
+  const removedQueuedRecovery = resolveVideoDateSnapshotRecovery({
     ...baseSnapshot,
     phase: "queued",
     room: null,
   });
-  assert.deepEqual(queuedRecovery, {
+  assert.deepEqual(removedQueuedRecovery, {
     action: "lobby",
     sessionId: baseSnapshot.sessionId,
     eventId: baseSnapshot.eventId!,
-    reason: "queued",
+    reason: "not_date_ready",
   });
 
   const retryableRecovery = resolveVideoDateSnapshotRecovery({
@@ -357,7 +357,8 @@ test("PR 5.6 queued and retryable snapshots do not bypass queue/lobby recovery",
     reason: "snapshot_retryable",
   });
 
-  assert.match(nativeNotificationDeepLink, /Retryable failures, queued rescue, and non-survey terminal states/);
+  assert.match(nativeNotificationDeepLink, /Retryable failures and non-survey terminal states fall through/);
+  assert.doesNotMatch(nativeNotificationDeepLink, /queued rescue|queue drain/);
 });
 
 test("native ready keeps ambiguous active snapshots on canonical truth fallback", () => {

@@ -63,7 +63,7 @@ export function shouldOpenReadyGateFromSwipePayload(
 
 /**
  * When `handle_swipe` returns `participant_has_active_session_conflict`, the server refused a new
- * mutual session because a user is already in a non-queued Ready Gate / video date stage for this event.
+ * mutual session because a user is already in a live Ready Gate / video date stage for this event.
  * Surfacing this copy improves trust vs a silent no-op.
  */
 export const SWIPE_SESSION_CONFLICT_USER_MESSAGE =
