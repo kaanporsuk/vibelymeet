@@ -92,7 +92,7 @@ test("Phase 4 push preload is compact, routeable, and ack-deduped", () => {
   const payload = buildVideoDatePushPreloadData({
     sessionId: "22222222-2222-4222-8222-222222222222",
     eventId: "33333333-3333-4333-8333-333333333333",
-    state: "handshake",
+    state: "entry",
     phaseStartedAtMs: 1_000,
     phaseDeadlineAtMs: 61_000,
     partnerThumbUrl: "https://example.com/avatar.jpg",
@@ -104,7 +104,7 @@ test("Phase 4 push preload is compact, routeable, and ack-deduped", () => {
   const timeline = videoDateTimelineFromPushPreload(normalizeVideoDatePushPreload(payload.video_date_preload), {
     clientNowMs: 10_000,
   });
-  assert.equal(timeline?.phase, "handshake");
+  assert.equal(timeline?.phase, "entry");
   assert.equal(timeline?.phaseDeadlineAtMs, 61_000);
   const lateDeliveredTimeline = videoDateTimelineFromPushPreload(
     normalizeVideoDatePushPreload({

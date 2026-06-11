@@ -16,7 +16,7 @@ const STROKE = 3.5;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-type Phase = 'handshake' | 'date' | 'ended';
+type Phase = 'entry' | 'date' | 'ended';
 
 type Props = {
   timeLeft: number;
@@ -26,7 +26,7 @@ type Props = {
 
 function getTimerColor(phase: Phase, progress: number, isUrgent: boolean): string {
   if (phase === 'ended') return Colors.dark.mutedForeground;
-  if (phase === 'handshake') {
+  if (phase === 'entry') {
     return isUrgent ? 'hsl(330, 81%, 60%)' : 'hsl(263, 70%, 66%)';
   }
   return isUrgent ? 'hsl(330, 81%, 60%)' : 'hsl(263, 70%, 66%)';
@@ -43,7 +43,7 @@ export function EntryPhaseTimer({ timeLeft, totalTime, phase }: Props) {
   const theme = Colors[colorScheme];
   const progress = totalTime > 0 ? Math.max(0, Math.min(1, timeLeft / totalTime)) : 0;
   const isUrgent = timeLeft <= 10;
-  const shouldHeartbeat = phase === 'handshake' && isUrgent;
+  const shouldHeartbeat = phase === 'entry' && isUrgent;
   const color = getTimerColor(phase, progress, isUrgent);
   const offset = CIRCUMFERENCE * (1 - progress);
   const pulseAnim = useRef(new Animated.Value(1)).current;

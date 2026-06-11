@@ -1,5 +1,5 @@
 export const VIDEO_DATE_ENTRY_TRUTH_SELECT =
-  "id, participant_1_id, participant_2_id, session_seq, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url";
+  "id, participant_1_id, participant_2_id, session_seq, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, entry_started_at, entry_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url";
 
 export type EntryDecisionAction = "vibe" | "pass";
 
@@ -20,8 +20,8 @@ export type VideoDateEntryTruth = {
   phase?: string | null;
   ended_at?: string | null;
   ended_reason?: string | null;
-  handshake_started_at?: string | null;
-  handshake_grace_expires_at?: string | null;
+  entry_started_at?: string | null;
+  entry_grace_expires_at?: string | null;
   date_started_at?: string | null;
   date_extra_seconds?: number | null;
   daily_room_name?: string | null;
@@ -243,7 +243,7 @@ export function entryTruthLogPayload(truth: VideoDateEntryTruth | null): Record<
     phase: truth?.phase ?? null,
     ended_at: truth?.ended_at ?? null,
     ended_reason: truth?.ended_reason ?? null,
-    handshake_grace_expires_at: truth?.handshake_grace_expires_at ?? null,
+    entry_grace_expires_at: truth?.entry_grace_expires_at ?? null,
   };
 }
 
@@ -291,7 +291,7 @@ export async function persistEntryDecisionWithVerification(
       maxAttempts: delays.length + 1,
     };
 
-    input.log?.("handshake_decision_rpc_before", baseLog);
+    input.log?.("entry_decision_rpc_before", baseLog);
 
     try {
       const rpcResult = await input.rpc({
@@ -304,7 +304,7 @@ export async function persistEntryDecisionWithVerification(
       if (rpcResult.error) {
         lastReason = "rpc_error";
         const retryable = isRetryableError(rpcResult.error) && attempt <= delays.length;
-        input.log?.("handshake_decision_rpc_after", {
+        input.log?.("entry_decision_rpc_after", {
           ...baseLog,
           ok: false,
           retryable,
@@ -358,7 +358,7 @@ export async function persistEntryDecisionWithVerification(
         && persistedDecision !== expectedDecision
         && attempt <= delays.length;
 
-      input.log?.("handshake_decision_rpc_after", {
+      input.log?.("entry_decision_rpc_after", {
         ...baseLog,
         ok: !rpcRejected && persisted,
         retryable: rpcRejectedRetryable || truthUnavailable || retryableConsistencyMiss,
@@ -482,7 +482,7 @@ export async function persistEntryDecisionWithVerification(
       lastError = normalizedError;
       lastReason = "exception";
       const retryable = isRetryableError(normalizedError) && attempt <= delays.length;
-      input.log?.("handshake_decision_rpc_after", {
+      input.log?.("entry_decision_rpc_after", {
         ...baseLog,
         ok: false,
         retryable,

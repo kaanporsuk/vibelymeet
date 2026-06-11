@@ -151,11 +151,11 @@ function isTerminalReadyGateTruth(vs: VideoSessionDateEntryTruth): boolean {
 function isRouteableVideoDateTruth(vs: VideoSessionDateEntryTruth): boolean {
   if (!vs || isTerminalReadyGateTruth(vs)) return false;
   return (
-    vs.state === 'handshake' ||
+    vs.state === 'entry' ||
     vs.state === 'date' ||
-    vs.phase === 'handshake' ||
+    vs.phase === 'entry' ||
     vs.phase === 'date' ||
-    vs.handshake_started_at !== null ||
+    vs.entry_started_at !== null ||
     vs.date_started_at !== null
   );
 }
@@ -669,7 +669,7 @@ export function ReadyGateOverlay({
                   });
                   if (prewarm.ok === true) {
                     // Pre-authenticate only — do NOT join Daily from the lobby. The
-                    // real join (which starts the backend handshake clock) is owned by
+                    // real join (which starts the backend entry clock) is owned by
                     // /date (useVideoCall.startCall) so the full warm-up window only
                     // begins once the user is on the stable date route.
                     void preAuthNativeVideoDateDailyPrewarm({
@@ -1050,7 +1050,7 @@ export function ReadyGateOverlay({
         current_room_id: reg?.current_room_id ?? null,
         vs_state: vs?.state ?? null,
         vs_phase: vs?.phase ?? null,
-        handshake_started_at: Boolean(vs?.handshake_started_at),
+        entry_started_at: Boolean(vs?.entry_started_at),
         ready_gate_status: vs?.ready_gate_status ?? null,
         ready_gate_expires_at:
           vs?.ready_gate_expires_at == null

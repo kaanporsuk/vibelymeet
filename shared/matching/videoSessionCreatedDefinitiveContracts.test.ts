@@ -59,7 +59,7 @@ test("both_ready provider-pending truth is fresh date owner for active-session r
     phase: "ready_gate",
     daily_room_name: null,
     daily_room_url: null,
-    handshake_started_at: null,
+    entry_started_at: null,
     date_started_at: null,
   });
 

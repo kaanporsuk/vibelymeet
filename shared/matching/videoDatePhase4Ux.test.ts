@@ -55,11 +55,11 @@ test("Phase 4 handshake UI treats legacy liked=false without decided_at as undec
   });
 });
 
-test("Phase 4 icebreaker is hidden only after a persisted local handshake decision", () => {
-  assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: true, phase: "handshake", localHasDecided: true }), false);
-  assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: true, phase: "handshake", localHasDecided: false }), true);
+test("Phase 4 icebreaker is hidden only after a persisted local entry decision", () => {
+  assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: true, phase: "entry", localHasDecided: true }), false);
+  assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: true, phase: "entry", localHasDecided: false }), true);
   assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: true, phase: "date", localHasDecided: true }), true);
-  assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: false, phase: "handshake", localHasDecided: false }), false);
+  assert.equal(shouldShowVideoDateIceBreaker({ baseVisible: false, phase: "entry", localHasDecided: false }), false);
 });
 
 test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry states", () => {

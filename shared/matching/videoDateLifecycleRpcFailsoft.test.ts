@@ -507,8 +507,8 @@ test("web and native clients consume shared lifecycle terminal survey truth", ()
   assert.match(webDate, /recoverLifecycleRpcTerminalSurvey/);
   assert.match(webDate, /mark_reconnect_return_terminal_survey/);
   assert.match(webDate, /sync_reconnect_terminal_survey/);
-  assert.match(webDate, /handshake_decision_terminal_survey/);
-  assert.match(webDate, /complete_handshake_lifecycle_terminal_survey/);
+  assert.match(webDate, /entry_decision_terminal_survey/);
+  assert.match(webDate, /complete_entry_lifecycle_terminal_survey/);
 });
 
 test("lifecycle fail-soft contract stays in the v4 verification script", () => {

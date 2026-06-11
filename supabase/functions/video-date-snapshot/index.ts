@@ -142,7 +142,8 @@ function errorStatus(error: string | undefined): number {
 }
 
 function withoutToken(snapshot: SnapshotPayload): SnapshotPayload {
-  if (!snapshot.room) return snapshot;
+  const phase = snapshot.phase === "handshake" ? "entry" : snapshot.phase;
+  if (!snapshot.room) return { ...snapshot, phase };
   const {
     token: _token,
     tokenExpiresAt: _tokenExpiresAt,
@@ -152,6 +153,7 @@ function withoutToken(snapshot: SnapshotPayload): SnapshotPayload {
   } = snapshot.room;
   return {
     ...snapshot,
+    phase,
     room,
   };
 }
@@ -560,9 +562,10 @@ serve(async (req) => {
     return jsonResponse(corsHeaders, snapshot ?? { ok: false, error: "snapshot_not_found" }, errorStatus(snapshot?.error));
   }
 
-  const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
+  const rawPhase = typeof snapshot.phase === "string" ? snapshot.phase : null;
+  const phase = rawPhase === "handshake" ? "entry" : rawPhase;
   const roomName = snapshot.room?.name ?? null;
-  if (phase !== "handshake" && phase !== "date") {
+  if (phase !== "entry" && phase !== "date") {
     return jsonResponse(corsHeaders, withoutToken(snapshot));
   }
   if (!includeToken) {

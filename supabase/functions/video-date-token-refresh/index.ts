@@ -520,8 +520,9 @@ serve(async (req) => {
     return jsonResponse(corsHeaders, snapshot ?? { ok: false, error: "snapshot_not_found" }, status);
   }
 
-  const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
-  if (phase !== "handshake" && phase !== "date") {
+  const rawPhase = typeof snapshot.phase === "string" ? snapshot.phase : null;
+  const phase = rawPhase === "handshake" ? "entry" : rawPhase;
+  if (phase !== "entry" && phase !== "date") {
     return jsonResponse(corsHeaders, { ok: false, error: "session_not_active", phase, retryable: false }, 409);
   }
 

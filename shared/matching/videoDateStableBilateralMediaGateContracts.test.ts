@@ -164,7 +164,7 @@ test("native date route owns pre-join and preserves live Daily handoff before da
   );
   assert.match(
     nativeDateRoute,
-    /dateEntryPermissionEligible \|\|[\s\S]{0,180}phase === "handshake"[\s\S]{0,180}phase === "date"/,
+    /dateEntryPermissionEligible \|\|[\s\S]{0,180}phase === "entry"[\s\S]{0,180}phase === "date"/,
   );
 });
 

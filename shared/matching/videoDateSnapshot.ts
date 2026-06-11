@@ -1,6 +1,8 @@
+import { normalizeVideoDateEntryPhase } from "./videoDateEntryCompatibility";
+
 export type VideoDateSnapshotPhase =
   | "ready_gate"
-  | "handshake"
+  | "entry"
   | "date"
   | "verdict"
   | "ended"
@@ -79,7 +81,7 @@ export function normalizeVideoDateSnapshot(payload: unknown): VideoDateSnapshot 
     eventId: nullableString(record.eventId),
     seq: numberOrDefault(record.seq, 0),
     serverNow: numberOrDefault(record.serverNow, Date.now()),
-    phase: typeof record.phase === "string" ? record.phase : "ready_gate",
+    phase: normalizeVideoDateSnapshotPhase(record.phase),
     phaseStartedAt: nullableNumber(record.phaseStartedAt),
     phaseDeadlineAt: nullableNumber(record.phaseDeadlineAt),
     allowedActions: Array.isArray(record.allowedActions)
@@ -178,6 +180,12 @@ function normalizeParticipant(value: unknown): VideoDateSnapshotParticipant | nu
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function normalizeVideoDateSnapshotPhase(value: unknown): VideoDateSnapshotPhase {
+  const entryPhase = normalizeVideoDateEntryPhase(value);
+  if (entryPhase === "entry") return "entry";
+  return typeof value === "string" ? value : "ready_gate";
 }
 
 function nullableNumber(value: unknown): number | null {

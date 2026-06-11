@@ -24,7 +24,7 @@ test("prejoin cleanup can release the latch before server mutation starts", () =
     "effect_started",
     "initial_state",
     "permissions",
-    "handshake_guard",
+    "entry_guard",
   ];
 
   for (const step of releasableSteps) {

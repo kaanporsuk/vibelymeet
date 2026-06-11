@@ -11,7 +11,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 test("warm-up countdown derives from authoritative started-at timestamp", () => {
   const startedAt = "2026-05-03T18:55:36.000Z";
   const countdown = resolveVideoDatePhaseCountdown({
-    phase: "handshake",
+    phase: "entry",
     entryStartedAtIso: startedAt,
     entryDurationSeconds: 60,
     dateDurationSeconds: 300,
@@ -27,7 +27,7 @@ test("warm-up countdown derives from authoritative started-at timestamp", () => 
 
 test("final-ten state is computed from remaining server deadline time", () => {
   const countdown = resolveVideoDatePhaseCountdown({
-    phase: "handshake",
+    phase: "entry",
     entryStartedAtIso: "2026-05-03T18:55:36.000Z",
     entryDurationSeconds: 60,
     dateDurationSeconds: 300,
@@ -55,7 +55,7 @@ test("date countdown includes backend-confirmed extension seconds", () => {
 
 test("countdown model clamps invalid duration input to safe UI values", () => {
   const countdown = resolveVideoDatePhaseCountdown({
-    phase: "handshake",
+    phase: "entry",
     entryStartedAtIso: "2026-05-03T18:55:36.000Z",
     entryDurationSeconds: Number.NaN,
     dateDurationSeconds: 300,
@@ -71,8 +71,8 @@ test("countdown model clamps invalid duration input to safe UI values", () => {
 
 test("entry timing aliases keep legacy DB columns at the boundary", () => {
   const aliases = videoDateEntryTimingAliases({
-    handshake_started_at: "2026-05-03T18:55:36.000Z",
-    handshake_grace_expires_at: "2026-05-03T18:56:46.000Z",
+    entry_started_at: "2026-05-03T18:55:36.000Z",
+    entry_grace_expires_at: "2026-05-03T18:56:46.000Z",
     date_started_at: null,
   });
 

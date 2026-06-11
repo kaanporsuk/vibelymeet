@@ -94,7 +94,7 @@ export function shouldShowVideoDateIceBreaker(input: {
   phase: string | null | undefined;
   localHasDecided: boolean;
 }): boolean {
-  return input.baseVisible && !(input.phase === "handshake" && input.localHasDecided);
+  return input.baseVisible && !(input.phase === "entry" && input.localHasDecided);
 }
 
 function normalizeReason(value: unknown): string {

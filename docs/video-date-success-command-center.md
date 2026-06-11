@@ -62,6 +62,18 @@ A successful Video Date run means:
 11. No raw HTTP 500 is emitted from the active hot-path RPCs.
 12. Retryable backend contention shows syncing/retrying UX, not stale or changed Ready Gate copy.
 
+## 2026-06-11 Implementation Update: Handshake -> Entry Phase D/E Active Contract
+
+Current source now presents the active Video Date pre-date decision window as **entry**, not handshake. The golden flow remains unchanged: mutual swipe -> Ready Gate -> both ready -> `prepare_date_entry` -> `/date`/native date -> Daily media -> post-date survey -> persisted `date_feedback`.
+
+- **Active client contract:** web and native date routes use entry vocabulary for phase state, countdown completion, decision persistence, logs, and outbox idempotency. Current clients call `complete_entry` / `continue_entry` through the entry wrappers and use `video_date.outbox_v2.continue_entry` plus `video_date.outbox_v2.entry_auto_promote`; active source no longer calls `complete_handshake`, `continue_handshake`, `video_session_continue_handshake_v2`, or `video_session_handshake_auto_promote_v2`.
+- **Active data contract:** web/native/shared readers now consume `entry_started_at` / `entry_grace_expires_at` from generated DB columns. Snapshot, token-refresh, push-preload, public API, route-decision, recovery-advisor, active-session, and timeline helpers normalize any legacy server `handshake` phase to canonical `entry` before clients make routing or UI decisions.
+- **Database contract:** migration `20260611114354_video_date_entry_contract_phase_de.sql` seeds the entry-named feature flags from the old flag state and replaces `get_video_date_snapshot_core(uuid)` so it emits canonical `phase = 'entry'` while still reading the existing DB internals. The entry-named RPC wrappers remain the public contract.
+- **Compatibility boundary:** linked preflight found one live `video_sessions` row still in `state='handshake'` / `phase='handshake'` and 93 public functions containing handshake terminology. Because of that live state and catalog blast radius, this pass intentionally did **not** rename the enum value or drop/rename the underlying `handshake_*` DB internals. Compatibility is contained at server boundaries: legacy phase normalization in the snapshot/token Edge Functions, Daily-room fallback reads of old RPC payload keys, the persisted `in_handshake` registration status, and old applied migrations/tests. Those are not product-facing vocabulary.
+- **Tests updated:** current-facing contracts assert entry-only active client/source behavior, entry flag keys, entry RPC wrapper usage, `date_feedback` survey continuity, and legacy phase normalization. Historical migration assertions remain allowed to mention handshake because applied migrations are not rewritten.
+
+This is an active source/backend contract simplification, not product acceptance. The acceptance bar remains a fresh disposable two-user production run through both persisted `date_feedback` rows.
+
 ## 2026-06-11 Implementation Update: Video Date Queued-State Residue Physically Purged
 
 Current source and linked Supabase cloud now remove the remaining physical Video Date queued-state residue. The golden flow stays direct: mutual swipe creates a Ready Gate session as `ready`, both users mark ready, `prepare_date_entry` opens the date, and post-date survey writes `date_feedback`.

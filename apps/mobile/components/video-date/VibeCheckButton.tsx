@@ -1,5 +1,5 @@
 /**
- * Warm-up (handshake) Pass / Vibe strip. UI only acknowledges a choice after the
+ * Warm-up (entry) Pass / Vibe strip. UI only acknowledges a choice after the
  * caller confirms the decision persisted (`recordEntryDecision`).
  */
 

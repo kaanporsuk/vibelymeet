@@ -1,4 +1,5 @@
 import type { VideoDateTimelineState } from "./videoDateTimeline";
+import { isVideoDateEntryPhase, normalizeVideoDateEntryPhase } from "./videoDateEntryCompatibility";
 
 export const VIDEO_DATE_DAILY_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 export const VIDEO_DATE_DAILY_TOKEN_RECONNECT_REFRESH_WINDOW_MS = 90 * 1000;
@@ -180,7 +181,8 @@ export function normalizeVideoDatePushPreload(value: unknown): VideoDatePushPrel
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const sessionId = stringOrNull(record.sessionId ?? record.session_id);
-  const state = stringOrNull(record.state ?? record.phase);
+  const rawState = stringOrNull(record.state ?? record.phase);
+  const state = normalizeVideoDateEntryPhase(rawState);
   const correlationId = stringOrNull(record.correlationId ?? record.correlation_id);
   const dispatchGroupId = stringOrNull(record.dispatchGroupId ?? record.dispatch_group_id);
   if (!sessionId || !state || !correlationId) return null;
@@ -204,12 +206,12 @@ export function videoDateTimelineFromPushPreload(
   options: { clientNowMs?: number } = {},
 ): VideoDateTimelineState | null {
   if (!preload) return null;
-  const phase = preload.state === "date" ? "date" : preload.state === "handshake" ? "handshake" : null;
+  const phase = preload.state === "date" ? "date" : isVideoDateEntryPhase(preload.state) ? "entry" : null;
   if (!phase || preload.phaseDeadlineAtMs === null) return null;
   const clientNowMs = options.clientNowMs ?? Date.now();
   const serverNowMs = clientNowMs + preload.clockSkewHintMs;
   if (preload.phaseDeadlineAtMs <= serverNowMs) return null;
-  const fallbackDurationMs = phase === "handshake" ? 60_000 : 300_000;
+  const fallbackDurationMs = phase === "entry" ? 60_000 : 300_000;
   return {
     sessionId: preload.sessionId,
     eventId: preload.eventId,

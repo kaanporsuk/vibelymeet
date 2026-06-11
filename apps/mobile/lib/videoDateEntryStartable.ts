@@ -123,7 +123,7 @@ function snapshotTruth(truth: VideoSessionDateEntryTruth | null): Record<string,
     has_truth: Boolean(truth),
     vs_state: truth?.state ?? null,
     vs_phase: truth?.phase ?? null,
-    handshake_started_at: Boolean(truth?.handshake_started_at),
+    entry_started_at: Boolean(truth?.entry_started_at),
     ready_gate_status: truth?.ready_gate_status ?? null,
     ready_gate_expires_at:
       truth?.ready_gate_expires_at == null ? null : String(truth.ready_gate_expires_at),

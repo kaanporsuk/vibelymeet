@@ -3,13 +3,13 @@ import { motion } from "framer-motion";
 interface EntryPhaseTimerProps {
   timeLeft: number;
   totalTime: number;
-  phase: "handshake" | "date" | "ended";
+  phase: "entry" | "date" | "ended";
 }
 
 export const EntryPhaseTimer = ({ timeLeft, totalTime, phase }: EntryPhaseTimerProps) => {
   const progress = Math.max(0, Math.min(1, timeLeft / totalTime));
   const isUrgent = timeLeft <= 10;
-  const shouldHeartbeat = phase === "handshake" && isUrgent;
+  const shouldHeartbeat = phase === "entry" && isUrgent;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -25,7 +25,7 @@ export const EntryPhaseTimer = ({ timeLeft, totalTime, phase }: EntryPhaseTimerP
   const offset = circumference * (1 - progress);
 
   const getColor = () => {
-    if (phase === "handshake") {
+    if (phase === "entry") {
       return isUrgent ? "hsl(330, 81%, 60%)" : "hsl(263, 70%, 66%)";
     }
     if (phase === "date") {

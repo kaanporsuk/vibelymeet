@@ -3,7 +3,7 @@ export type PrejoinAttemptStep =
   | "initial_state"
   | "permissions"
   | "truth_fetch"
-  | "handshake_guard"
+  | "entry_guard"
   | "prepare_entry_routeable"
   | "refetch_video_session"
   | "daily_room_truth_guard"

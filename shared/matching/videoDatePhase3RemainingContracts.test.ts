@@ -205,12 +205,12 @@ test("extension v2 refuses charge when known Daily room expiry cannot cover max 
 });
 
 test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
-  assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "handshake_auto_promote" \| "date_timeout"/);
+  assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "entry_auto_promote" \| "date_timeout"/);
   assert.match(transitionCommands, /buildVideoDateExtensionIdempotencyKey/);
   assert.match(transitionCommands, /clientRequestId: string/);
   assert.match(transitionCommands, /`phase3:extension:\$\{creditType\}:\$\{clientRequestId\}`/);
 
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);
+  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.entry_auto_promote["'],?\s*\)/);
   assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
   assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
   assert.match(webVideoDate, /video_session_entry_auto_promote_v2/);
@@ -218,13 +218,13 @@ test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
   assert.match(webVideoDate, /video_session_extend_date_v2/);
   assert.match(webVideoDate, /handleCallEndRef\.current\?\.\("date_timeout"\)/);
 
-  assert.match(nativeVideoDateApi, /handshakeAutoPromoteV2\?: boolean/);
+  assert.match(nativeVideoDateApi, /entryAutoPromoteV2\?: boolean/);
   assert.match(nativeVideoDateApi, /dateTimeoutV2\?: boolean/);
   assert.match(nativeVideoDateApi, /extensionV2\?: boolean/);
   assert.match(nativeVideoDateApi, /video_session_entry_auto_promote_v2/);
   assert.match(nativeVideoDateApi, /video_session_date_timeout_v2/);
   assert.match(nativeVideoDateApi, /video_session_extend_date_v2/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.handshake_auto_promote["'],?\s*\)/);
+  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.entry_auto_promote["'],?\s*\)/);
   assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
   assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
   assert.match(nativeVideoDateScreen, /handleCallEnd\(["']local_end["'], ["']date_timeout["']\)/);

@@ -7,7 +7,7 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@clientShared/matching/videoDateDiagnostics";
 import { nextConvergenceDelayMs } from "@clientShared/matching/convergenceScheduling";
 
-export type VideoDatePhase = "handshake" | "date" | "ended";
+export type VideoDatePhase = "entry" | "date" | "ended";
 
 interface UseReconnectionOptions {
   sessionId: string | undefined;

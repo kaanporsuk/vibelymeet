@@ -30,7 +30,7 @@ export type VideoDateTimelineSnapshotDecision =
   | { action: "invalid"; timeline: VideoDateTimelineState | null; reason: string };
 
 export type VideoDateDeepLinkRecovery =
-  | { action: "date"; sessionId: string; eventId: string | null; reason: "handshake" | "date" | "already_joined" }
+  | { action: "date"; sessionId: string; eventId: string | null; reason: "entry" | "date" | "already_joined" }
   | { action: "survey"; sessionId: string; eventId: string | null; reason: "verdict" | "terminal_encounter" }
   | { action: "ready_gate"; sessionId: string; eventId: string; reason: "ready_gate" }
   | { action: "lobby"; sessionId: string; eventId: string; reason: "ended" | "not_date_ready" }
@@ -197,7 +197,7 @@ function timelineDurationMs(timeline: VideoDateTimelineState): number {
 }
 
 function invalidVideoDateTimelineSnapshotReason(snapshot: VideoDateSnapshotOk): string | null {
-  if (snapshot.phase !== "handshake" && snapshot.phase !== "date") return null;
+  if (snapshot.phase !== "entry" && snapshot.phase !== "date") return null;
   const startedAtMs = nullableFiniteNumber(snapshot.phaseStartedAt);
   const deadlineMs = nullableFiniteNumber(snapshot.phaseDeadlineAt);
   if (startedAtMs === null) return "missing_phase_started_at";

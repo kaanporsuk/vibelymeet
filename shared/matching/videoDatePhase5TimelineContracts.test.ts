@@ -33,7 +33,7 @@ const baseSnapshot: VideoDateSnapshotOk = {
   eventId: "22222222-2222-4222-8222-222222222222",
   seq: 8,
   serverNow: Date.parse("2026-05-21T18:00:00.000Z"),
-  phase: "handshake",
+  phase: "entry",
   phaseStartedAt: Date.parse("2026-05-21T17:59:30.000Z"),
   phaseDeadlineAt: Date.parse("2026-05-21T18:00:30.000Z"),
   allowedActions: ["continue", "pass", "end_call"],
@@ -99,14 +99,14 @@ test("PR 5.2 web and native date surfaces use the timeline flag with fallback co
   assert.match(nativeVideoDateApi, /return \{ session, partner, phase, timeLeft, timeline,/);
 });
 
-test("Phase 5 early-continue handshake is an explicit UX affordance on web and native", () => {
+test("Phase 5 early-continue entry is an explicit UX affordance on web and native", () => {
   for (const source of [webVibeCheckButton, nativeVibeCheckButton]) {
     assert.match(source, /Continue when ready/);
     assert.match(source, /Ready to continue/);
     assert.match(source, /Continue/);
   }
-  assert.match(webDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["']\s*,?\s*\)/);
-  assert.match(nativeDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_handshake["']\s*,?\s*\)/);
+  assert.match(webDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["']\s*,?\s*\)/);
+  assert.match(nativeDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["']\s*,?\s*\)/);
   assert.match(webDate, /video_session_continue_entry_v2/);
   assert.match(nativeVideoDateApi, /video_session_continue_entry_v2/);
   assert.match(webDate, /action === "vibe"[\s\S]+setShowMutualToast\(true\)/);
@@ -119,7 +119,7 @@ test("PR 5.3 push and deep-link recovery share one snapshot decision helper", ()
     action: "date",
     sessionId: baseSnapshot.sessionId,
     eventId: baseSnapshot.eventId,
-    reason: "handshake",
+    reason: "entry",
   });
 
   const readyRecovery = resolveVideoDateSnapshotRecovery({
@@ -364,7 +364,7 @@ test("PR 5.6 removed queued snapshots and retryable failures do not bypass lobby
 test("native ready keeps ambiguous active snapshots on canonical truth fallback", () => {
   const ambiguousActiveRecovery = resolveVideoDateSnapshotRecovery({
     ...baseSnapshot,
-    phase: "handshake",
+    phase: "entry",
     room: null,
   });
   assert.deepEqual(ambiguousActiveRecovery, {

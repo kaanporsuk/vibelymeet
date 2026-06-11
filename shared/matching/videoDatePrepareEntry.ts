@@ -1,3 +1,5 @@
+import { isVideoDateEntryPhase } from "./videoDateEntryCompatibility";
+
 export const PREPARE_VIDEO_DATE_ENTRY_ACTION = "prepare_date_entry" as const;
 export const PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS = 3 * 60 * 1000;
 export const PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION = 1 as const;
@@ -23,7 +25,7 @@ export type PreparedVideoDateEntry = {
   video_date_trace_id?: string | null;
   session_state?: string | null;
   session_phase?: string | null;
-  handshake_started_at?: string | null;
+  entry_started_at?: string | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
   participant_1_id?: string | null;
@@ -384,7 +386,7 @@ function preparedEntryRoomUrlMatchesRoomName(
 }
 
 function isPreparedEntryStartableState(value: unknown): boolean {
-  return value === "handshake" || value === "date";
+  return isVideoDateEntryPhase(value) || value === "date";
 }
 
 function preparedEntryInvalidStartabilityCode(data: unknown): string | null {
@@ -543,11 +545,11 @@ export function peekPreparedVideoDateEntryHandoff(
     rejectCachedPreparedVideoDateEntry(sessionId, userId);
     return { ok: false, reason: "token_expired" };
   }
-  if (envelope.state !== "handshake" && envelope.state !== "date") {
+  if (!isPreparedEntryStartableState(envelope.state)) {
     rejectCachedPreparedVideoDateEntry(sessionId, userId);
     return { ok: false, reason: "invalid_state" };
   }
-  if (envelope.phase !== "handshake" && envelope.phase !== "date") {
+  if (!isPreparedEntryStartableState(envelope.phase)) {
     rejectCachedPreparedVideoDateEntry(sessionId, userId);
     return { ok: false, reason: "invalid_phase" };
   }

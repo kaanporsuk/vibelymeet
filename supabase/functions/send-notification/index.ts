@@ -642,8 +642,8 @@ function videoDatePushPhaseTimes(session: any): {
       ? 'ended'
       : session?.date_started_at || session?.state === 'date' || session?.phase === 'date'
         ? 'date'
-        : session?.handshake_started_at || session?.state === 'handshake' || session?.phase === 'handshake'
-          ? 'handshake'
+        : session?.entry_started_at || session?.state === 'entry' || session?.state === 'handshake' || session?.phase === 'entry' || session?.phase === 'handshake'
+          ? 'entry'
           : 'ready_gate'
   if (state === 'date') {
     const startedAtMs = parseIsoMs(session?.date_started_at)
@@ -657,8 +657,8 @@ function videoDatePushPhaseTimes(session: any): {
       phaseDeadlineAtMs: startedAtMs == null ? null : startedAtMs + (300 + extraSeconds) * 1000,
     }
   }
-  if (state === 'handshake') {
-    const startedAtMs = parseIsoMs(session?.handshake_started_at)
+  if (state === 'entry') {
+    const startedAtMs = parseIsoMs(session?.entry_started_at)
     return {
       state,
       phaseStartedAtMs: startedAtMs,
@@ -697,7 +697,7 @@ async function buildVideoDatePushPayloadV2(args: {
 
   const { data: session } = await supabase
     .from('video_sessions')
-    .select('id, event_id, participant_1_id, participant_2_id, state, phase, ended_at, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_expires_at')
+    .select('id, event_id, participant_1_id, participant_2_id, state, phase, ended_at, entry_started_at, date_started_at, date_extra_seconds, ready_gate_expires_at')
     .eq('id', sessionId)
     .maybeSingle()
 

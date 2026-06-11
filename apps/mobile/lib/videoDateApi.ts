@@ -64,6 +64,7 @@ import {
   persistEntryDecisionWithVerification,
   type PersistEntryDecisionResult,
 } from '@clientShared/matching/videoDateEntryPersistence';
+import { isVideoDateEntryPhase } from '@clientShared/matching/videoDateEntryCompatibility';
 import {
   fallbackVideoDateIceBreakerState,
   normalizeVideoDateIceBreakerIndex,
@@ -89,12 +90,12 @@ export type VideoDateSession = {
   phase?: string;
   ended_at: string | null;
   ended_reason?: string | null;
-  handshake_started_at: string | null;
+  entry_started_at: string | null;
   date_started_at: string | null;
   daily_room_name: string | null;
   daily_room_url: string | null;
   reconnect_grace_ends_at?: string | null;
-  handshake_grace_expires_at?: string | null;
+  entry_grace_expires_at?: string | null;
   participant_1_away_at?: string | null;
   participant_2_away_at?: string | null;
   /** First successful Daily join for each participant (server RPC after `call.join`). */
@@ -103,7 +104,7 @@ export type VideoDateSession = {
   /** First server-stamped remote media evidence for each participant. */
   participant_1_remote_seen_at?: string | null;
   participant_2_remote_seen_at?: string | null;
-  /** Handshake Vibe decision slots. Null means the actor has not persisted a decision yet. */
+  /** Entry Vibe decision slots. Null means the actor has not persisted a decision yet. */
   participant_1_liked?: boolean | null;
   participant_2_liked?: boolean | null;
   participant_1_decided_at?: string | null;
@@ -156,7 +157,7 @@ export type GetDailyRoomTokenResult =
 
 export type CompleteEntryResult = {
   success?: boolean;
-  state: 'date' | 'ended' | 'handshake';
+  state: 'date' | 'ended' | 'entry';
   code?: string | null;
   retryable?: boolean;
   waiting_for_partner?: boolean;
@@ -178,7 +179,7 @@ type VideoDateTransitionDiagnostics = {
 };
 
 type RecordEntryDecisionOptions = {
-  continueHandshakeV2?: boolean;
+  continueEntryV2?: boolean;
 };
 
 type EndVideoDateOptions = {
@@ -186,7 +187,7 @@ type EndVideoDateOptions = {
 };
 
 type CompleteEntryOptions = {
-  handshakeAutoPromoteV2?: boolean;
+  entryAutoPromoteV2?: boolean;
 };
 
 type SpendVideoDateCreditExtensionOptions = {
@@ -201,7 +202,7 @@ export class VideoDateRequestTimeoutError extends Error {
   }
 }
 
-const HANDSHAKE_SECONDS = 60;
+const ENTRY_SECONDS = 60;
 const DATE_SECONDS = 300;
 
 function withTimeout<T>(
@@ -244,8 +245,8 @@ export function useVideoDateSession(
   );
   const [session, setSession] = useState<VideoDateSession | null>(null);
   const [partner, setPartner] = useState<VideoDatePartner | null>(null);
-  const [phase, setPhase] = useState<'handshake' | 'date' | 'ended'>(
-    initialPushTimeline?.phase === 'date' ? 'date' : 'handshake',
+  const [phase, setPhase] = useState<'entry' | 'date' | 'ended'>(
+    initialPushTimeline?.phase === 'date' ? 'date' : 'entry',
   );
   const [timeLeft, setTimeLeft] = useState<number | null>(initialPushCountdown?.remainingSeconds ?? null);
   const [timeline, setTimeline] = useState<VideoDateTimelineState | null>(initialPushTimeline);
@@ -274,7 +275,7 @@ export function useVideoDateSession(
     }
     timelineRef.current = initialPushTimeline;
     setTimeline(initialPushTimeline);
-    setPhase(initialPushTimeline?.phase === 'date' ? 'date' : 'handshake');
+    setPhase(initialPushTimeline?.phase === 'date' ? 'date' : 'entry');
     setTimeLeft(initialPushCountdown?.remainingSeconds ?? null);
     return () => {
       currentSessionKeyRef.current = null;
@@ -290,7 +291,7 @@ export function useVideoDateSession(
   }, [timeline]);
 
   type PhaseResolution = {
-    phase: 'handshake' | 'date' | 'ended';
+    phase: 'entry' | 'date' | 'ended';
     timeLeft: number | null;
   };
 
@@ -302,7 +303,7 @@ export function useVideoDateSession(
         | 'state'
         | 'phase'
         | 'date_started_at'
-        | 'handshake_started_at'
+        | 'entry_started_at'
         | 'date_extra_seconds'
       >,
     ): PhaseResolution => {
@@ -322,7 +323,7 @@ export function useVideoDateSession(
           phase: 'date',
           entryStartedAtIso: entryStarted,
           dateStartedAtIso: dateStarted,
-          entryDurationSeconds: HANDSHAKE_SECONDS,
+          entryDurationSeconds: ENTRY_SECONDS,
           dateDurationSeconds: DATE_SECONDS,
           dateExtraSeconds: row.date_extra_seconds,
         });
@@ -335,29 +336,29 @@ export function useVideoDateSession(
       if (
         videoSessionRowIndicatesEntryOrDate({
           state,
-          handshake_started_at: row.handshake_started_at,
+          entry_started_at: row.entry_started_at,
         })
       ) {
         const entryStarted = videoDateEntryStartedAtIso(row);
         if (entryStarted) {
           const countdown = resolveVideoDatePhaseCountdown({
-            phase: 'handshake',
+            phase: 'entry',
             entryStartedAtIso: entryStarted,
             dateStartedAtIso: row.date_started_at,
-            entryDurationSeconds: HANDSHAKE_SECONDS,
+            entryDurationSeconds: ENTRY_SECONDS,
             dateDurationSeconds: DATE_SECONDS,
             dateExtraSeconds: row.date_extra_seconds,
           });
           return {
-            phase: 'handshake',
+            phase: 'entry',
             timeLeft: countdown.remainingSeconds ?? 0,
           };
         }
-        return { phase: 'handshake', timeLeft: null };
+        return { phase: 'entry', timeLeft: null };
       }
 
       // Ready/prejoin fallback.
-      return { phase: 'handshake', timeLeft: null };
+      return { phase: 'entry', timeLeft: null };
     },
     []
   );
@@ -390,7 +391,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, session_seq, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
+          'id, participant_1_id, participant_2_id, event_id, session_seq, state, phase, ended_at, ended_reason, entry_started_at, entry_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -458,7 +459,7 @@ export function useVideoDateSession(
             timelineRef.current = decision.timeline;
             setTimeline(decision.timeline);
             sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, decision.timeline.seq);
-            if (decision.timeline.phase === 'handshake' || decision.timeline.phase === 'date') {
+            if (decision.timeline.phase === 'entry' || decision.timeline.phase === 'date') {
               const countdown = resolveVideoDateTimelineCountdown(decision.timeline);
               setPhase(decision.timeline.phase);
               setTimeLeft(countdown.remainingSeconds ?? 0);
@@ -532,9 +533,9 @@ export function useVideoDateSession(
             if (row.state !== undefined) next.state = row.state as string;
             if (row.phase !== undefined) next.phase = row.phase as string;
             if (row.date_started_at !== undefined) next.date_started_at = row.date_started_at as string | null;
-            if (row.handshake_started_at !== undefined) next.handshake_started_at = row.handshake_started_at as string | null;
-            if (row.handshake_grace_expires_at !== undefined) {
-              next.handshake_grace_expires_at = row.handshake_grace_expires_at as string | null;
+            if (row.entry_started_at !== undefined) next.entry_started_at = row.entry_started_at as string | null;
+            if (row.entry_grace_expires_at !== undefined) {
+              next.entry_grace_expires_at = row.entry_grace_expires_at as string | null;
             }
             if (row.date_extra_seconds !== undefined) {
               next.date_extra_seconds =
@@ -796,8 +797,8 @@ export type VideoSessionDateEntryTruth = {
   event_id: string | null;
   daily_room_name?: string | null;
   daily_room_url?: string | null;
-  handshake_started_at: string | null;
-  handshake_grace_expires_at?: string | null;
+  entry_started_at: string | null;
+  entry_grace_expires_at?: string | null;
   date_started_at?: string | null;
   state: string | null;
   phase: string | null;
@@ -851,15 +852,15 @@ export function fetchVideoSessionDateEntryTruthCoalesced(
   return p;
 }
 
-/** True when the session has entered handshake/date on the server (do not bounce to `/ready` from stale `in_ready_gate`). */
+/** True when the session has entered entry/date on the server (do not bounce to `/ready` from stale `in_ready_gate`). */
 export function videoSessionIndicatesEntryOrDate(
-  vs: Pick<VideoSessionDateEntryTruth, 'handshake_started_at' | 'state' | 'phase'> | null
+  vs: Pick<VideoSessionDateEntryTruth, 'entry_started_at' | 'state' | 'phase'> | null
 ): boolean {
   return videoSessionRowIndicatesEntryOrDate(
     vs
       ? {
           state: vs.state,
-          handshake_started_at: vs.handshake_started_at,
+          entry_started_at: vs.entry_started_at,
         }
       : null
   );
@@ -1107,7 +1108,7 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
   });
 }
 
-/** Record the current user's explicit handshake decision. Partner is never notified. */
+/** Record the current user's explicit entry decision. Partner is never notified. */
 export async function recordEntryDecision(
   sessionId: string,
   action: 'vibe' | 'pass',
@@ -1148,12 +1149,12 @@ export async function recordEntryDecision(
         args,
       });
       const { data, error } =
-        action === 'vibe' && options?.continueHandshakeV2 === true
+        action === 'vibe' && options?.continueEntryV2 === true
           ? await supabase.rpc('video_session_continue_entry_v2' as never, {
               p_session_id: args.p_session_id,
               p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
                 args.p_session_id,
-                'continue_handshake',
+                'continue_entry',
               ),
             } as never)
           : await supabase.rpc('video_date_transition', args);
@@ -1171,7 +1172,7 @@ export async function recordEntryDecision(
         ...payload,
         currentPhase: diagnostics?.phase ?? null,
       });
-      if (event === 'handshake_decision_rpc_after') {
+      if (event === 'entry_decision_rpc_after') {
         vdbg('video_date_transition_after', {
           action,
           sessionId,
@@ -1190,7 +1191,7 @@ export async function recordEntryDecision(
     },
   });
 
-  vdbg('handshake_decision_persistence_result', {
+  vdbg('entry_decision_persistence_result', {
     action,
     sessionId,
     actorUserId,
@@ -1209,7 +1210,7 @@ export async function recordEntryDecision(
   return result;
 }
 
-/** Record that current user "vibed" during handshake. */
+/** Record that current user "vibed" during entry. */
 export async function recordVibe(
   sessionId: string,
   diagnostics?: VideoDateTransitionDiagnostics,
@@ -1218,40 +1219,40 @@ export async function recordVibe(
   return recordEntryDecision(sessionId, 'vibe', diagnostics, options);
 }
 
-/** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
+/** At entry end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
 export async function completeEntry(
   sessionId: string,
   options?: CompleteEntryOptions
 ): Promise<CompleteEntryResult | null> {
   const args = {
     p_session_id: sessionId,
-    p_action: 'complete_handshake',
+    p_action: 'complete_entry',
   };
   const truthBefore = await fetchVideoSessionDateEntryTruth(sessionId);
-  vdbg('complete_handshake_truth_before', {
-    action: 'complete_handshake',
+  vdbg('complete_entry_truth_before', {
+    action: 'complete_entry',
     sessionId,
     ...entryTruthLogPayload(truthBefore),
   });
-  vdbg('video_date_transition_before', { action: 'complete_handshake', args });
-  const { data, error } = options?.handshakeAutoPromoteV2 === true
+  vdbg('video_date_transition_before', { action: 'complete_entry', args });
+  const { data, error } = options?.entryAutoPromoteV2 === true
     ? await supabase.rpc('video_session_entry_auto_promote_v2' as never, {
         p_session_id: args.p_session_id,
         p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
           args.p_session_id,
-          'handshake_auto_promote',
+          'entry_auto_promote',
         ),
       } as never)
     : await supabase.rpc('video_date_transition', args);
   const truthAfter = await fetchVideoSessionDateEntryTruth(sessionId);
   vdbg('video_date_transition_after', {
-    action: 'complete_handshake',
+    action: 'complete_entry',
     ok: !error,
     payload: data ?? null,
     error: error ? { code: error.code, message: error.message } : null,
   });
-  vdbg('complete_handshake_truth_after', {
-    action: 'complete_handshake',
+  vdbg('complete_entry_truth_after', {
+    action: 'complete_entry',
     sessionId,
     ok: !error,
     rpcPayload: data ?? null,
@@ -1261,8 +1262,16 @@ export async function completeEntry(
   const payload = data as Partial<CompleteEntryResult> | null;
   if (payload?.success === false && payload.retryable === true) return null;
   const state = payload?.state;
+  const normalizedState: CompleteEntryResult['state'] =
+    state === 'date'
+      ? 'date'
+      : isVideoDateEntryPhase(state)
+        ? 'entry'
+        : state === 'ended'
+          ? 'ended'
+          : 'ended';
   return {
-    state: state === 'date' || state === 'handshake' || state === 'ended' ? state : 'ended',
+    state: normalizedState,
     waiting_for_partner: payload?.waiting_for_partner,
     waiting_for_self: payload?.waiting_for_self,
     local_decision_persisted: payload?.local_decision_persisted,
@@ -1651,4 +1660,4 @@ export async function spendVideoDateCreditExtension(
   return { ok: false, error: parsed.error };
 }
 
-export { HANDSHAKE_SECONDS, DATE_SECONDS };
+export { ENTRY_SECONDS, DATE_SECONDS };

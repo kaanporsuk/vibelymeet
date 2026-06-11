@@ -21,6 +21,10 @@ const autoNextRemovalMigration = readFileSync(
   join(root, "supabase/migrations/20260610000100_remove_post_date_instant_next.sql"),
   "utf8",
 );
+const entryContractMigration = readFileSync(
+  join(root, "supabase/migrations/20260611114354_video_date_entry_contract_phase_de.sql"),
+  "utf8",
+);
 
 test("Phase 0 keeps synthetic events out of user-facing event surfaces", () => {
   assert.match(phase0Migration, /ADD COLUMN IF NOT EXISTS is_test_event boolean NOT NULL DEFAULT false/);
@@ -56,7 +60,7 @@ test("Phase 0 exposes service-role-only dashboard read models", () => {
 });
 
 test("Phase 0 seeds every video-date flag default-off with hard-kill compatibility", () => {
-  const clientFlags = [
+  const historicalClientFlags = [
     "video_date.snapshot_v2",
     "video_date.readiness_v2",
     "video_date.micro_verdict_v2",
@@ -68,6 +72,22 @@ test("Phase 0 seeds every video-date flag default-off with hard-kill compatibili
     "video_date.outbox_v2.forfeit",
     "video_date.outbox_v2.continue_handshake",
     "video_date.outbox_v2.handshake_auto_promote",
+    "video_date.outbox_v2.date_timeout",
+    "video_date.outbox_v2.extension",
+    "video_date.outbox_v2.safety",
+  ];
+  const activeClientFlags = [
+    "video_date.snapshot_v2",
+    "video_date.readiness_v2",
+    "video_date.micro_verdict_v2",
+    "video_date.broadcast_v2",
+    "video_date.timeline_v2",
+    "video_date.extension_mutual_v2",
+    "video_date.safety_always_on_v2",
+    "video_date.outbox_v2.mark_ready",
+    "video_date.outbox_v2.forfeit",
+    "video_date.outbox_v2.continue_entry",
+    "video_date.outbox_v2.entry_auto_promote",
     "video_date.outbox_v2.date_timeout",
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
@@ -85,10 +105,31 @@ test("Phase 0 seeds every video-date flag default-off with hard-kill compatibili
     "video_date.outbox_v2.drain_match_queue",
   ];
 
-  for (const flag of clientFlags) {
+  for (const flag of historicalClientFlags) {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
+  }
+
+  for (const flag of activeClientFlags) {
     const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(videoDateFlags, new RegExp(`"${escaped}"`));
-    assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
+  }
+
+  for (const flag of [
+    "video_date.outbox_v2.continue_handshake",
+    "video_date.outbox_v2.handshake_auto_promote",
+  ]) {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.doesNotMatch(videoDateFlags, new RegExp(`"${escaped}"`));
+  }
+
+  for (const flag of [
+    "video_date.outbox_v2.continue_entry",
+    "video_date.outbox_v2.entry_auto_promote",
+  ]) {
+    const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(entryContractMigration, new RegExp(`'${escaped}'::text AS flag_key`));
+    assert.match(entryContractMigration, new RegExp(`ON CONFLICT \\(flag_key\\) DO UPDATE`));
   }
 
   for (const flag of serverOnlyOrRetiredFlags) {

@@ -1,6 +1,6 @@
 /**
  * Active session detection — parity with web `useActiveSession` (Stage 1 / Stream 1).
- * - Video rejoin: in_handshake / in_date with a live video_sessions row → /date/[id]
+ * - Video rejoin: active date registration with a live video_sessions row -> /date/[id]
  * - Ready Gate: in_ready_gate → /ready/[id] (native) or lobby overlay (event screen)
  *
  * In-app routes for `ActiveSession` kinds: `activeSessionRoutes.ts` (`hrefForActiveSession`, path builders).
@@ -273,11 +273,11 @@ async function findDirectVideoSessionFallback(
   const query = supabase
     .from('video_sessions')
     .select(
-      'id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, daily_room_name, daily_room_url'
+      'id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, entry_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, daily_room_name, daily_room_url'
     )
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .is('ended_at', null)
-    .order('handshake_started_at', { ascending: false, nullsFirst: false })
+    .order('entry_started_at', { ascending: false, nullsFirst: false })
     .order('ready_gate_expires_at', { ascending: false, nullsFirst: false })
     .limit(10);
   if (eventFilter) query.eq('event_id', eventFilter);
@@ -600,7 +600,7 @@ export function useActiveSession(
                   session_id: session.id,
                   vs_state: truth.state ?? null,
                   vs_phase: truth.phase ?? null,
-                  handshake_started_at: Boolean(truth.handshake_started_at),
+                  entry_started_at: Boolean(truth.entry_started_at),
                   ready_gate_status: truth.ready_gate_status ?? null,
                   can_attempt_daily: canAttemptDaily,
                 });
@@ -629,7 +629,7 @@ export function useActiveSession(
                 session_id: session.id,
                 vs_state: truth.state ?? null,
                 vs_phase: truth.phase ?? null,
-                handshake_started_at: Boolean(truth.handshake_started_at),
+                entry_started_at: Boolean(truth.entry_started_at),
                 ready_gate_status: truth.ready_gate_status ?? null,
                 can_attempt_daily: canAttemptDaily,
               });
@@ -640,7 +640,7 @@ export function useActiveSession(
                 session_id: session.id,
                 vs_state: truth.state ?? null,
                 vs_phase: truth.phase ?? null,
-                handshake_started_at: Boolean(truth.handshake_started_at),
+                entry_started_at: Boolean(truth.entry_started_at),
                 ready_gate_status: truth.ready_gate_status ?? null,
                 can_attempt_daily: canAttemptDaily,
               });

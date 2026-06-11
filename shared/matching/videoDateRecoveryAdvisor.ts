@@ -53,7 +53,7 @@ export type VideoDateRecoveryAdvisorDecision =
       action: "go_date";
       sessionId: string;
       eventId: string | null;
-      reason: "handshake" | "date" | "already_joined" | "truth_date";
+      reason: "entry" | "date" | "already_joined" | "truth_date";
       platform?: VideoDateRecoveryPlatform;
       surface?: VideoDateRecoverySurface;
     }
@@ -160,7 +160,7 @@ export function adviseVideoDateSnapshotRecovery(
     };
   }
 
-  if ((snapshot.phase === "handshake" || snapshot.phase === "date") && snapshot.room?.url) {
+  if ((snapshot.phase === "entry" || snapshot.phase === "date") && snapshot.room?.url) {
     return {
       action: "go_date",
       sessionId: snapshot.sessionId,

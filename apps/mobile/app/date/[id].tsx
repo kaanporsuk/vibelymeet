@@ -62,7 +62,7 @@ import {
   submitVerdictAndCheckMutual,
   fetchUserCredits,
   spendVideoDateCreditExtension,
-  HANDSHAKE_SECONDS,
+  ENTRY_SECONDS,
   DATE_SECONDS,
   fetchVideoSessionDateEntryTruth,
   fetchVideoSessionDateEntryTruthCoalesced,
@@ -111,6 +111,11 @@ import {
 } from "@clientShared/matching/videoDateTransitionCommands";
 import type { VideoDateSessionBroadcastEvent } from "@clientShared/matching/videoDateSessionChannel";
 import { entryDecisionFailureIndicatesSessionEnded } from "@clientShared/matching/videoDateEntryPersistence";
+import {
+  LEGACY_VIDEO_DATE_ENTRY_GRACE_EXPIRED_REASON,
+  LEGACY_VIDEO_DATE_ENTRY_TIMEOUT_REASON,
+  isVideoDateEntryPhase,
+} from "@clientShared/matching/videoDateEntryCompatibility";
 import {
   createVideoDateCameraSwitchRenderHint,
   parseVideoDateCameraSwitchRenderHint,
@@ -245,8 +250,8 @@ const NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS = [
 const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
 const DATE_CONTROLS_STACK_HEIGHT = 104;
 const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
-const HANDSHAKE_CTA_STACK_HEIGHT = 92;
-const HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET = 24;
+const ENTRY_CTA_STACK_HEIGHT = 92;
+const ENTRY_CTA_DOCK_TIGHTEN_OFFSET = 24;
 const FLOATING_CHROME_GAP = 10;
 
 function readNativeDailyProviderSessionId(
@@ -551,7 +556,7 @@ type ActiveNativeDailyCallIdentity = {
 
 type DateTheme = (typeof Colors)[keyof typeof Colors];
 
-type HandshakeCtaTelemetrySnapshot = {
+type EntryCtaTelemetrySnapshot = {
   cta_visible: boolean;
   cta_visible_ms: number;
   cta_last_time_left: number | null;
@@ -1214,11 +1219,11 @@ export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
-  const continueHandshakeV2 = useFeatureFlag(
-    "video_date.outbox_v2.continue_handshake",
+  const continueEntryV2 = useFeatureFlag(
+    "video_date.outbox_v2.continue_entry",
   );
-  const handshakeAutoPromoteV2 = useFeatureFlag(
-    "video_date.outbox_v2.handshake_auto_promote",
+  const entryAutoPromoteV2 = useFeatureFlag(
+    "video_date.outbox_v2.entry_auto_promote",
   );
   const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
   const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
@@ -1448,7 +1453,7 @@ export default function VideoDateScreen() {
   const handleCallEndRef = useRef<
     ((source?: "local_end" | "server_end") => Promise<void>) | null
   >(null);
-  const handshakeAnalyticsRef = useRef(false);
+  const entryAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
   const dateEstablishedRef = useRef(false);
   const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -1562,21 +1567,21 @@ export default function VideoDateScreen() {
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(
     null,
   );
-  /** Opacity heartbeat for the final 10 seconds of handshake. */
+  /** Opacity heartbeat for the final 10 seconds of entry. */
   const lastChanceBlinkOpacity = useRef(new Animated.Value(1)).current;
-  const handshakeCompletionInFlightRef = useRef(false);
-  const handshakeDecisionInFlightRef = useRef(false);
-  const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
-  const handshakeCompletionRetryTimerRef = useRef<ReturnType<
+  const entryCompletionInFlightRef = useRef(false);
+  const entryDecisionInFlightRef = useRef(false);
+  const entryCompletionDeadlineKeyRef = useRef<string | null>(null);
+  const entryCompletionRetryTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
-  const handshakeCtaImpressionRef = useRef<{
+  const entryCtaImpressionRef = useRef<{
     key: string;
     shownAtMs: number;
     lastTimeLeft: number | null;
   } | null>(null);
-  const handshakeCtaLastVisibleMsRef = useRef(0);
-  const handshakeCtaLatestRef = useRef<HandshakeCtaTelemetrySnapshot>({
+  const entryCtaLastVisibleMsRef = useRef(0);
+  const entryCtaLatestRef = useRef<EntryCtaTelemetrySnapshot>({
     cta_visible: false,
     cta_visible_ms: 0,
     cta_last_time_left: null,
@@ -1591,7 +1596,7 @@ export default function VideoDateScreen() {
     first_playable_remote_age_ms: null,
     local_decision: "none",
   });
-  const handshakeFinalTenNudgeKeyRef = useRef<string | null>(null);
+  const entryFinalTenNudgeKeyRef = useRef<string | null>(null);
   const peerMissingTerminalImpressionRef = useRef(false);
   const localInDailyRoomRef = useRef(false);
   const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
@@ -3745,14 +3750,14 @@ export default function VideoDateScreen() {
     setPeerMissingTerminal(false);
     clearPartnerAwayAfterTransportGrace("session_reset");
     clearEntryGraceState();
-    handshakeCompletionInFlightRef.current = false;
-    handshakeCompletionDeadlineKeyRef.current = null;
-    handshakeCtaImpressionRef.current = null;
-    handshakeCtaLastVisibleMsRef.current = 0;
-    handshakeFinalTenNudgeKeyRef.current = null;
-    if (handshakeCompletionRetryTimerRef.current) {
-      clearTimeout(handshakeCompletionRetryTimerRef.current);
-      handshakeCompletionRetryTimerRef.current = null;
+    entryCompletionInFlightRef.current = false;
+    entryCompletionDeadlineKeyRef.current = null;
+    entryCtaImpressionRef.current = null;
+    entryCtaLastVisibleMsRef.current = 0;
+    entryFinalTenNudgeKeyRef.current = null;
+    if (entryCompletionRetryTimerRef.current) {
+      clearTimeout(entryCompletionRetryTimerRef.current);
+      entryCompletionRetryTimerRef.current = null;
     }
     peerMissingTruthRefreshCountRef.current = 0;
     lastLoggedPostJoinStageRef.current = null;
@@ -4101,7 +4106,7 @@ export default function VideoDateScreen() {
           queue_status: reg?.queue_status ?? null,
           vs_state: vs.state,
           vs_phase: vs.phase,
-          handshake_started_at: Boolean(vs.handshake_started_at),
+          entry_started_at: Boolean(vs.entry_started_at),
           ready_gate_status: vs.ready_gate_status ?? null,
           ready_gate_expires_at:
             vs.ready_gate_expires_at == null
@@ -4117,7 +4122,7 @@ export default function VideoDateScreen() {
           queueStatus: reg?.queue_status ?? null,
           state: vs.state,
           phase: vs.phase,
-          handshakeStarted: Boolean(vs.handshake_started_at),
+          entryStarted: Boolean(vs.entry_started_at),
           latchActive: isDateEntryTransitionActive(sessionId),
         });
         logJourney("date_route_bounced", {
@@ -4255,7 +4260,7 @@ export default function VideoDateScreen() {
         current_room_id: reg?.current_room_id ?? null,
         vs_state: vs?.state ?? null,
         vs_phase: vs?.phase ?? null,
-        handshake_started_at: Boolean(vs?.handshake_started_at),
+        entry_started_at: Boolean(vs?.entry_started_at),
         ready_gate_status: vs?.ready_gate_status ?? null,
         ready_gate_expires_at:
           vs?.ready_gate_expires_at == null
@@ -4406,7 +4411,7 @@ export default function VideoDateScreen() {
           can_attempt_daily: canAttemptDaily,
           vs_state: vs?.state ?? null,
           ready_gate_status: vs?.ready_gate_status ?? null,
-          handshake_started_at: Boolean(vs?.handshake_started_at),
+          entry_started_at: Boolean(vs?.entry_started_at),
         },
       );
       return false;
@@ -4764,7 +4769,7 @@ export default function VideoDateScreen() {
   }, [clearFirstConnectWatchdog, clearEntryGraceState]);
 
   useEffect(() => {
-    if (hasRemotePartner && (phase === "handshake" || phase === "date")) {
+    if (hasRemotePartner && (phase === "entry" || phase === "date")) {
       setShowIceBreaker(true);
     }
   }, [hasRemotePartner, phase, sessionId]);
@@ -5225,7 +5230,7 @@ export default function VideoDateScreen() {
   ]);
 
   useEffect(() => {
-    if (!hasRemotePartner || phase !== "handshake") return;
+    if (!hasRemotePartner || phase !== "entry") return;
     const start = 80;
     const duration = 10000;
     const startTime = Date.now();
@@ -5352,12 +5357,12 @@ export default function VideoDateScreen() {
   );
 
   useEffect(() => {
-    if (!sessionId || !hasRemotePartner || phase !== "handshake") return;
-    if (handshakeAnalyticsRef.current) return;
-    handshakeAnalyticsRef.current = true;
+    if (!sessionId || !hasRemotePartner || phase !== "entry") return;
+    if (entryAnalyticsRef.current) return;
+    entryAnalyticsRef.current = true;
     trackEvent("video_date_started", {
       session_id: sessionId,
-      phase: "handshake",
+      phase: "entry",
     });
   }, [sessionId, hasRemotePartner, phase]);
 
@@ -6151,7 +6156,7 @@ export default function VideoDateScreen() {
                 state: session.state ?? null,
                 daily_room_name: session.daily_room_name ?? null,
                 daily_room_url: session.daily_room_url ?? null,
-                handshake_started_at: session.handshake_started_at,
+                entry_started_at: session.entry_started_at,
               }
             : null,
         );
@@ -6161,7 +6166,7 @@ export default function VideoDateScreen() {
           phase: phaseRef.current,
           reason,
           mode,
-          skip: "server_truth_not_handshake_or_date",
+          skip: "server_truth_not_entry_or_date",
           serverState: session?.state ?? null,
           entryStartedAt: entryStartedAtIso,
         });
@@ -6682,7 +6687,7 @@ export default function VideoDateScreen() {
       nativeSurfaceClientReady &&
       !showFeedback &&
       (dateEntryPermissionEligible ||
-        phase === "handshake" ||
+        phase === "entry" ||
         phase === "date" ||
         isConnecting ||
         joining ||
@@ -6768,8 +6773,8 @@ export default function VideoDateScreen() {
   const handleEntryDecision = useCallback(
     async (action: "vibe" | "pass"): Promise<boolean> => {
       if (!sessionId || !user?.id) return false;
-      if (handshakeDecisionInFlightRef.current) return false;
-      handshakeDecisionInFlightRef.current = true;
+      if (entryDecisionInFlightRef.current) return false;
+      entryDecisionInFlightRef.current = true;
       try {
         const result = await recordEntryDecision(
           sessionId,
@@ -6779,10 +6784,10 @@ export default function VideoDateScreen() {
             phase: phaseRef.current,
           },
           {
-            continueHandshakeV2: continueHandshakeV2.enabled,
+            continueEntryV2: continueEntryV2.enabled,
           },
         );
-        vdbg("handshake_decision_ui_result", {
+        vdbg("entry_decision_ui_result", {
           sessionId,
           actorUserId: user.id,
           action,
@@ -6796,8 +6801,8 @@ export default function VideoDateScreen() {
             result.truth?.participant_1_decided_at ?? null,
           participant_2_decided_at:
             result.truth?.participant_2_decided_at ?? null,
-          completeHandshakeTriggeredAfterPersistence: false,
-          completeHandshakeTriggerReason: result.ok
+          completeEntryTriggeredAfterPersistence: false,
+          completeEntryTriggerReason: result.ok
             ? "decision_rpc_owns_transition"
             : "decision_not_persisted",
         });
@@ -6813,7 +6818,7 @@ export default function VideoDateScreen() {
               value: null,
               sessionId,
               userId: user.id,
-              step: "handshake_decision_terminal",
+              step: "entry_decision_terminal",
             });
             setCallError(null);
             void handleCallEnd("server_end");
@@ -6823,7 +6828,7 @@ export default function VideoDateScreen() {
             value: result.userMessage,
             sessionId,
             userId: user.id,
-            step: "handshake_decision",
+            step: "entry_decision",
           });
           setCallError(result.userMessage);
           return false;
@@ -6845,13 +6850,13 @@ export default function VideoDateScreen() {
         void refetchVideoSession();
         return true;
       } finally {
-        handshakeDecisionInFlightRef.current = false;
+        entryDecisionInFlightRef.current = false;
       }
     },
     [
       sessionId,
       user?.id,
-      continueHandshakeV2.enabled,
+      continueEntryV2.enabled,
       refetchVideoSession,
       clearEntryGraceState,
       handleCallEnd,
@@ -8175,7 +8180,7 @@ export default function VideoDateScreen() {
         vs_state: truth0.state,
         vs_phase: truth0.phase,
         routeable: preparedEntryRouteable,
-        already_handshake_or_date: alreadyInEntryOrDate,
+        already_entry_or_date: alreadyInEntryOrDate,
         entry_started_at: hasEntryStarted,
       });
       vdbg("prejoin_step_prejoin_prepare_entry_routeable", {
@@ -8260,7 +8265,7 @@ export default function VideoDateScreen() {
 
       currentStep = setPrejoinStep("daily_room_truth_guard");
       let truth1 = await fetchVideoSessionDateEntryTruth(sessionId);
-      prejoinMark("truth1_post_handshake");
+      prejoinMark("truth1_post_entry");
       vdbg("date_prejoin_truth_daily_room_guard", {
         sessionId,
         userId: user.id,
@@ -10756,18 +10761,18 @@ export default function VideoDateScreen() {
 
   const completeEntryFromServerDeadline = useCallback(
     async (source: string, allowRetry = true) => {
-      if (!sessionId || phaseRef.current !== "handshake") return;
-      if (handshakeCompletionInFlightRef.current) {
-        vdbg("complete_handshake_skip", {
+      if (!sessionId || phaseRef.current !== "entry") return;
+      if (entryCompletionInFlightRef.current) {
+        vdbg("complete_entry_skip", {
           sessionId,
           source,
           reason: "in_flight",
         });
         return;
       }
-      if (handshakeDecisionInFlightRef.current) {
-        const ctaTelemetry = handshakeCtaLatestRef.current;
-        vdbg("complete_handshake_skip", {
+      if (entryDecisionInFlightRef.current) {
+        const ctaTelemetry = entryCtaLatestRef.current;
+        vdbg("complete_entry_skip", {
           sessionId,
           source,
           reason: "local_decision_persistence_in_flight",
@@ -10775,11 +10780,11 @@ export default function VideoDateScreen() {
           ctaTelemetry,
         });
         if (allowRetry) {
-          if (handshakeCompletionRetryTimerRef.current) {
-            clearTimeout(handshakeCompletionRetryTimerRef.current);
+          if (entryCompletionRetryTimerRef.current) {
+            clearTimeout(entryCompletionRetryTimerRef.current);
           }
-          handshakeCompletionRetryTimerRef.current = setTimeout(() => {
-            handshakeCompletionRetryTimerRef.current = null;
+          entryCompletionRetryTimerRef.current = setTimeout(() => {
+            entryCompletionRetryTimerRef.current = null;
             void completeEntryFromServerDeadline(
               `${source}_after_decision_persistence`,
               false,
@@ -10797,17 +10802,17 @@ export default function VideoDateScreen() {
         const mediaAge = Date.now() - firstPlayableRemoteAtMsRef.current;
         const deferMs = MIN_DECISION_WINDOW_AFTER_MEDIA_MS - mediaAge;
         if (deferMs > 0) {
-          vdbg("complete_handshake_deferred_for_media_window", {
+          vdbg("complete_entry_deferred_for_media_window", {
             sessionId,
             source,
             deferMs,
             mediaAgeMs: mediaAge,
           });
-          if (handshakeCompletionRetryTimerRef.current) {
-            clearTimeout(handshakeCompletionRetryTimerRef.current);
+          if (entryCompletionRetryTimerRef.current) {
+            clearTimeout(entryCompletionRetryTimerRef.current);
           }
-          handshakeCompletionRetryTimerRef.current = setTimeout(() => {
-            handshakeCompletionRetryTimerRef.current = null;
+          entryCompletionRetryTimerRef.current = setTimeout(() => {
+            entryCompletionRetryTimerRef.current = null;
             void completeEntryFromServerDeadline(
               `${source}_after_media_window`,
               false,
@@ -10817,34 +10822,34 @@ export default function VideoDateScreen() {
         }
       }
 
-      handshakeCompletionInFlightRef.current = true;
+      entryCompletionInFlightRef.current = true;
       try {
-        const ctaTelemetry = handshakeCtaLatestRef.current;
-        vdbg("complete_handshake_fire", {
+        const ctaTelemetry = entryCtaLatestRef.current;
+        vdbg("complete_entry_fire", {
           sessionId,
           source,
           trigger: "server_deadline",
           ctaTelemetry,
         });
         const result = await completeEntry(sessionId, {
-          handshakeAutoPromoteV2: handshakeAutoPromoteV2.enabled,
+          entryAutoPromoteV2: entryAutoPromoteV2.enabled,
         });
-        if (phaseRef.current !== "handshake") return;
+        if (phaseRef.current !== "entry") return;
 
         if (!result) {
-          vdbg("complete_handshake_uncertain", {
+          vdbg("complete_entry_uncertain", {
             sessionId,
             source,
             reason: "null_result",
             retryScheduled: allowRetry,
           });
           await refetchVideoSession();
-          if (allowRetry && phaseRef.current === "handshake") {
-            if (handshakeCompletionRetryTimerRef.current) {
-              clearTimeout(handshakeCompletionRetryTimerRef.current);
+          if (allowRetry && phaseRef.current === "entry") {
+            if (entryCompletionRetryTimerRef.current) {
+              clearTimeout(entryCompletionRetryTimerRef.current);
             }
-            handshakeCompletionRetryTimerRef.current = setTimeout(() => {
-              handshakeCompletionRetryTimerRef.current = null;
+            entryCompletionRetryTimerRef.current = setTimeout(() => {
+              entryCompletionRetryTimerRef.current = null;
               void completeEntryFromServerDeadline(
                 `${source}_retry`,
                 false,
@@ -10860,7 +10865,7 @@ export default function VideoDateScreen() {
           return;
         }
 
-        if (result.state === "handshake") {
+        if (isVideoDateEntryPhase(result.state)) {
           clearEntryGraceState();
           const positiveExtensionSeconds =
             result.extended === true &&
@@ -10870,13 +10875,13 @@ export default function VideoDateScreen() {
               ? Math.ceil(result.seconds_remaining)
               : null;
           if (positiveExtensionSeconds !== null) {
-            if (handshakeCompletionRetryTimerRef.current) {
-              clearTimeout(handshakeCompletionRetryTimerRef.current);
-              handshakeCompletionRetryTimerRef.current = null;
+            if (entryCompletionRetryTimerRef.current) {
+              clearTimeout(entryCompletionRetryTimerRef.current);
+              entryCompletionRetryTimerRef.current = null;
             }
-            handshakeCompletionDeadlineKeyRef.current = null;
+            entryCompletionDeadlineKeyRef.current = null;
             setLocalTimeLeft(positiveExtensionSeconds);
-            vdbg("complete_handshake_extension_applied", {
+            vdbg("complete_entry_extension_applied", {
               sessionId,
               source,
               seconds_remaining: positiveExtensionSeconds,
@@ -10886,19 +10891,19 @@ export default function VideoDateScreen() {
             await refetchVideoSession();
             return;
           }
-          vdbg("complete_handshake_uncertain", {
+          vdbg("complete_entry_uncertain", {
             sessionId,
             source,
-            reason: "handshake_deadline_not_terminal",
+            reason: "entry_deadline_not_terminal",
             result,
           });
           await refetchVideoSession();
-          if (allowRetry && phaseRef.current === "handshake") {
-            if (handshakeCompletionRetryTimerRef.current) {
-              clearTimeout(handshakeCompletionRetryTimerRef.current);
+          if (allowRetry && phaseRef.current === "entry") {
+            if (entryCompletionRetryTimerRef.current) {
+              clearTimeout(entryCompletionRetryTimerRef.current);
             }
-            handshakeCompletionRetryTimerRef.current = setTimeout(() => {
-              handshakeCompletionRetryTimerRef.current = null;
+            entryCompletionRetryTimerRef.current = setTimeout(() => {
+              entryCompletionRetryTimerRef.current = null;
               void completeEntryFromServerDeadline(
                 `${source}_retry`,
                 false,
@@ -10910,13 +10915,13 @@ export default function VideoDateScreen() {
 
         if (result.state === "ended" || result.already_ended) {
           clearEntryGraceState();
-          if (result.reason === "handshake_timeout") {
+          if (result.reason === LEGACY_VIDEO_DATE_ENTRY_TIMEOUT_REASON) {
             const notice = getVideoDateWarmupChoiceNotice({
               waitingForSelf: result.waiting_for_self,
               waitingForPartner: result.waiting_for_partner,
             });
             showWarmupChoiceNotice(notice);
-            vdbg("complete_handshake_timeout_copy", {
+            vdbg("complete_entry_timeout_copy", {
               sessionId,
               source,
               notice,
@@ -10925,16 +10930,16 @@ export default function VideoDateScreen() {
               local_decision_persisted: result.local_decision_persisted ?? null,
               partner_decision_persisted:
                 result.partner_decision_persisted ?? null,
-              ctaTelemetry: handshakeCtaLatestRef.current,
+              ctaTelemetry: entryCtaLatestRef.current,
             });
-          } else if (result.reason === "handshake_grace_expired") {
+          } else if (result.reason === LEGACY_VIDEO_DATE_ENTRY_GRACE_EXPIRED_REASON) {
             showWarmupChoiceNotice(getVideoDateWarmupChoiceNotice());
           }
           const recoveredSurvey =
             await openNativePostDateSurveyFromTerminalTruth(
               result.survey_required === true
-                ? "complete_handshake_survey_required"
-                : "complete_handshake_terminal",
+                ? "complete_entry_survey_required"
+                : "complete_entry_terminal",
             );
           if (recoveredSurvey) {
             void cleanupForAbortWithoutServerEnd();
@@ -10944,7 +10949,7 @@ export default function VideoDateScreen() {
           return;
         }
 
-        vdbg("complete_handshake_uncertain", {
+        vdbg("complete_entry_uncertain", {
           sessionId,
           source,
           reason: "unexpected_result",
@@ -10952,7 +10957,7 @@ export default function VideoDateScreen() {
         });
         await refetchVideoSession();
       } finally {
-        handshakeCompletionInFlightRef.current = false;
+        entryCompletionInFlightRef.current = false;
       }
     },
     [
@@ -10962,7 +10967,7 @@ export default function VideoDateScreen() {
       openNativePostDateSurveyFromTerminalTruth,
       refetchVideoSession,
       sessionId,
-      handshakeAutoPromoteV2.enabled,
+      entryAutoPromoteV2.enabled,
       showWarmupChoiceNotice,
     ],
   );
@@ -10970,7 +10975,7 @@ export default function VideoDateScreen() {
   useEffect(() => {
     if (
       !sessionId ||
-      phase !== "handshake" ||
+      phase !== "entry" ||
       showFeedback ||
       session?.ended_at
     ) {
@@ -10982,7 +10987,7 @@ export default function VideoDateScreen() {
       timelineV2.enabled &&
       candidateTimeline !== null &&
       candidateTimeline.sessionId === sessionId &&
-      candidateTimeline.phase === "handshake"
+      candidateTimeline.phase === "entry"
         ? candidateTimeline
         : null;
     const timelineDeadlineMs = timelineForEntry
@@ -10991,7 +10996,7 @@ export default function VideoDateScreen() {
     const legacyDeadlineMs = entryStartedAtIso
       ? startedAtCountdownDeadlineMs({
           startedAtIso: entryStartedAtIso,
-          durationSeconds: HANDSHAKE_SECONDS,
+          durationSeconds: ENTRY_SECONDS,
         })
       : null;
     const deadlineMs = timelineDeadlineMs ?? legacyDeadlineMs;
@@ -11004,8 +11009,8 @@ export default function VideoDateScreen() {
         : localNowMs;
     const delayMs = Math.max(0, deadlineMs - serverNowEstimateMs);
     const fire = () => {
-      if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
-      handshakeCompletionDeadlineKeyRef.current = deadlineKey;
+      if (entryCompletionDeadlineKeyRef.current === deadlineKey) return;
+      entryCompletionDeadlineKeyRef.current = deadlineKey;
       void completeEntryFromServerDeadline("entry_server_deadline");
     };
 
@@ -11037,13 +11042,13 @@ export default function VideoDateScreen() {
       candidateTimeline !== null &&
       candidateTimeline.sessionId === sessionId &&
       candidateTimeline.phase === phase &&
-      (phase === "handshake" || phase === "date") &&
+      (phase === "entry" || phase === "date") &&
       candidateTimeline.phaseDeadlineAtMs !== null
         ? candidateTimeline
         : null;
     const hasAuthoritativeStart = timelineForCountdown
       ? true
-      : phase === "handshake"
+      : phase === "entry"
         ? Boolean(entryStartedAtIso)
         : phase === "date"
           ? Boolean(session?.date_started_at)
@@ -11058,7 +11063,7 @@ export default function VideoDateScreen() {
             phase,
             entryStartedAtIso,
             dateStartedAtIso: session?.date_started_at,
-            entryDurationSeconds: HANDSHAKE_SECONDS,
+            entryDurationSeconds: ENTRY_SECONDS,
             dateDurationSeconds: DATE_SECONDS,
             dateExtraSeconds: session?.date_extra_seconds,
           });
@@ -11073,10 +11078,10 @@ export default function VideoDateScreen() {
 
       if (phaseRef.current === "date") {
         void handleCallEnd("local_end", "date_timeout");
-      } else if (phaseRef.current === "handshake") {
+      } else if (phaseRef.current === "entry") {
         vdbg("entry_visible_countdown_elapsed", {
           sessionId: sessionId ?? null,
-          trigger: "complete_handshake",
+          trigger: "complete_entry",
         });
         void completeEntryFromServerDeadline(
           "entry_visible_countdown_elapsed",
@@ -11460,14 +11465,14 @@ export default function VideoDateScreen() {
   ]);
 
   const totalTime =
-    phase === "handshake"
-      ? HANDSHAKE_SECONDS
+    phase === "entry"
+      ? ENTRY_SECONDS
       : effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds);
   const displayTimeLeft = localTimeLeft ?? totalTime;
   const entryTimerStarted =
-    phase !== "handshake" || Boolean(entryStartedAtIso);
+    phase !== "entry" || Boolean(entryStartedAtIso);
   const entryDeadlineUrgent =
-    phase === "handshake" && entryTimerStarted && displayTimeLeft <= 10;
+    phase === "entry" && entryTimerStarted && displayTimeLeft <= 10;
 
   useEffect(() => {
     if (
@@ -11554,7 +11559,7 @@ export default function VideoDateScreen() {
   ]);
 
   useEffect(() => {
-    if (!sessionId || !entryTimerStarted || phase !== "handshake") return;
+    if (!sessionId || !entryTimerStarted || phase !== "entry") return;
     const key = `${sessionId}:warmup_timer_started`;
     if (warmupTimerStartedTrackedRef.current === key) return;
     warmupTimerStartedTrackedRef.current = key;
@@ -11581,7 +11586,6 @@ export default function VideoDateScreen() {
       source_surface: "video_date_route",
       source_action: "server_entry_started_at",
       entry_started_at: entryStartedAtIso,
-      handshake_started_at: entryStartedAtIso,
     });
   }, [
     eventId,
@@ -11793,11 +11797,11 @@ export default function VideoDateScreen() {
   const hasEntryPeerEvidence =
     hasRemotePartner || (peerServerJoinedAt != null && !isPartnerDisconnected);
 
-  // Show the Vibe/Pass CTA during the hard-deadline handshake, using server
+  // Show the Vibe/Pass CTA during the hard-deadline entry, using server
   // join evidence as a fallback when Daily participant/track state jitters.
   const showEntryChrome =
     !showFeedback &&
-    phase === "handshake" &&
+    phase === "entry" &&
     entryTimerStarted &&
     hasEntryPeerEvidence &&
     !peerMissingTerminal;
@@ -11827,13 +11831,13 @@ export default function VideoDateScreen() {
       !showEntryChrome ||
       !entryDeadlineUrgent ||
       localEntryDecision !== null ||
-      handshakeFinalTenNudgeKeyRef.current === key
+      entryFinalTenNudgeKeyRef.current === key
     ) {
       return;
     }
 
-    handshakeFinalTenNudgeKeyRef.current = key;
-    vdbg("handshake_final_10s_nudge", {
+    entryFinalTenNudgeKeyRef.current = key;
+    vdbg("entry_final_10s_nudge", {
       sessionId: sessionId ?? null,
       remainingSeconds: displayTimeLeft,
     });
@@ -11867,18 +11871,18 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     const now = Date.now();
-    const localDecisionLabel: HandshakeCtaTelemetrySnapshot["local_decision"] =
+    const localDecisionLabel: EntryCtaTelemetrySnapshot["local_decision"] =
       localEntryDecision === true
         ? "vibe"
         : localEntryDecision === false
           ? "pass"
           : "none";
-    const current = handshakeCtaImpressionRef.current;
+    const current = entryCtaImpressionRef.current;
     const firstPlayableRemoteSeen = firstPlayableRemoteAtMsRef.current > 0;
     const ctaVisibleMs = current
       ? Math.max(0, now - current.shownAtMs)
-      : handshakeCtaLastVisibleMsRef.current;
-    handshakeCtaLatestRef.current = {
+      : entryCtaLastVisibleMsRef.current;
+    entryCtaLatestRef.current = {
       cta_visible: showEntryChrome,
       cta_visible_ms: ctaVisibleMs,
       cta_last_time_left: current?.lastTimeLeft ?? displayTimeLeft ?? null,
@@ -11906,8 +11910,8 @@ export default function VideoDateScreen() {
       },
     ) => {
       const visibleMs = Math.max(0, now - impression.shownAtMs);
-      handshakeCtaLastVisibleMsRef.current = visibleMs;
-      vdbg("handshake_cta_hidden", {
+      entryCtaLastVisibleMsRef.current = visibleMs;
+      vdbg("entry_cta_hidden", {
         sessionId: sessionId ?? null,
         reason,
         visibleMs,
@@ -11921,7 +11925,7 @@ export default function VideoDateScreen() {
         remoteAudioMounted: Boolean(remoteAudioTrack),
         localDecision: localDecisionLabel,
       });
-      trackEvent("video_date_handshake_cta_hidden", {
+      trackEvent("video_date_entry_cta_hidden", {
         platform: "native",
         session_id: sessionId ?? null,
         event_id: eventId || null,
@@ -11938,14 +11942,14 @@ export default function VideoDateScreen() {
 
     if (showEntryChrome && sessionId) {
       if (!current || current.key !== key) {
-        if (current) logHidden("replaced_by_new_handshake_key", current);
-        handshakeCtaImpressionRef.current = {
+        if (current) logHidden("replaced_by_new_entry_key", current);
+        entryCtaImpressionRef.current = {
           key,
           shownAtMs: now,
           lastTimeLeft: displayTimeLeft ?? null,
         };
-        handshakeCtaLastVisibleMsRef.current = 0;
-        vdbg("handshake_cta_visible", {
+        entryCtaLastVisibleMsRef.current = 0;
+        vdbg("entry_cta_visible", {
           sessionId,
           remainingSeconds: displayTimeLeft,
           hasRemotePartner,
@@ -11956,7 +11960,7 @@ export default function VideoDateScreen() {
           firstPlayableRemoteSeen,
           localDecision: localDecisionLabel,
         });
-        trackEvent("video_date_handshake_cta_visible", {
+        trackEvent("video_date_entry_cta_visible", {
           platform: "native",
           session_id: sessionId,
           event_id: eventId || null,
@@ -11978,12 +11982,12 @@ export default function VideoDateScreen() {
       logHidden(
         showFeedback
           ? "feedback_opened"
-          : phase !== "handshake"
+          : phase !== "entry"
             ? `phase_${phase}`
             : "cta_condition_false",
         current,
       );
-      handshakeCtaImpressionRef.current = null;
+      entryCtaImpressionRef.current = null;
     }
   }, [
     displayTimeLeft,
@@ -12035,11 +12039,11 @@ export default function VideoDateScreen() {
     DATE_CONTROLS_STACK_HEIGHT,
     controlsStackHeight,
   );
-  const handshakeBottomOffset =
+  const entryBottomOffset =
     insets.bottom +
     measuredControlsStackHeight +
     FLOATING_CHROME_GAP -
-    HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET;
+    ENTRY_CTA_DOCK_TIGHTEN_OFFSET;
   const advanceIceBreaker = useCallback(() => {
     if (!sessionId || !vibeQuestionState.questions.length) return;
     const pauseStartedAtMs = Date.now();
@@ -12075,7 +12079,7 @@ export default function VideoDateScreen() {
       nativeBackgroundStatus === "none" &&
       !showJoiningOverlay &&
       !showPeerWaitOverlay &&
-      (phase === "handshake" || phase === "date"),
+      (phase === "entry" || phase === "date"),
     phase,
     localHasDecided: localEntryHasDecided,
   });
@@ -12091,12 +12095,12 @@ export default function VideoDateScreen() {
       nativeBackgroundStatus === "none" &&
       !showJoiningOverlay &&
       !showPeerWaitOverlay &&
-      (phase === "handshake" || phase === "date"),
+      (phase === "entry" || phase === "date"),
     phase,
     localHasDecided: localEntryHasDecided,
   });
   const iceBreakerBottomOffset = showEntryChrome
-    ? handshakeBottomOffset + HANDSHAKE_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
+    ? entryBottomOffset + ENTRY_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
     : Math.max(
         insets.bottom + measuredControlsStackHeight + FLOATING_CHROME_GAP,
         DATE_PHASE_ICE_BREAKER_MIN_BOTTOM,
@@ -12509,7 +12513,7 @@ export default function VideoDateScreen() {
                 </Text>
               </View>
             )}
-            {phase === "handshake" && blurIntensity > 0 && (
+            {phase === "entry" && blurIntensity > 0 && (
               <BlurView
                 intensity={blurIntensity}
                 style={StyleSheet.absoluteFill}
@@ -12893,7 +12897,7 @@ export default function VideoDateScreen() {
                   <Text
                     style={[styles.partnerStatusText, { color: theme.success }]}
                   >
-                    {phase === "handshake"
+                    {phase === "entry"
                       ? entryTimerStarted
                         ? "Warm up"
                         : "Settling in"
@@ -12943,7 +12947,7 @@ export default function VideoDateScreen() {
                       },
                     ]}
                   >
-                    {phase === "handshake"
+                    {phase === "entry"
                       ? entryTimerStarted
                         ? "Warm up"
                         : "Settling in"
@@ -13011,8 +13015,8 @@ export default function VideoDateScreen() {
       {showEntryChrome && (
         <View
           style={[
-            styles.handshakeBottomStack,
-            { bottom: handshakeBottomOffset },
+            styles.entryBottomStack,
+            { bottom: entryBottomOffset },
           ]}
         >
           <VibeCheckButton
@@ -13476,7 +13480,7 @@ const styles = StyleSheet.create({
   initialBackText: { fontSize: 15, fontWeight: "600" },
   initialBtnPressed: { opacity: 0.85 },
   netHint: { fontSize: 11, fontWeight: "600" },
-  handshakeBottomStack: {
+  entryBottomStack: {
     position: "absolute",
     left: 0,
     right: 0,

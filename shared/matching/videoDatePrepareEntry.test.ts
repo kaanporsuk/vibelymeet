@@ -22,13 +22,13 @@ function successPayload() {
       "https://vibelyapp.daily.co/date-11111111111141118111111111111111",
     token: "short-lived-client-token",
     token_expires_at: "2099-04-24T00:48:01.000Z",
-    session_state: "handshake",
-    session_phase: "handshake",
+    session_state: "entry",
+    session_phase: "entry",
     ready_gate_status: "both_ready",
     ready_gate_expires_at: "2026-04-24T00:34:01.000Z",
     participant_1_id: USER_ID,
     participant_2_id: "33333333-3333-4333-8333-333333333333",
-    handshake_started_at: "2026-04-24T00:33:01.000Z",
+    entry_started_at: "2026-04-24T00:33:01.000Z",
   };
 }
 
@@ -99,7 +99,7 @@ test("prepared entry handoff is session/user scoped and consumed once", async ()
   assert.equal(peeked.ok && peeked.envelope.sessionId, SESSION_ID);
   assert.equal(peeked.ok && peeked.envelope.userId, USER_ID);
   assert.equal(peeked.ok && peeked.envelope.readyGateStatus, "both_ready");
-  assert.equal(peeked.ok && peeked.envelope.phase, "handshake");
+  assert.equal(peeked.ok && peeked.envelope.phase, "entry");
 
   const consumed = consumePreparedVideoDateEntryHandoff(
     SESSION_ID,

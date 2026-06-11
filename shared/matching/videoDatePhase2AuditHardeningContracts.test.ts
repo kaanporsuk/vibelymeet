@@ -92,7 +92,8 @@ test("snapshot wrapper has a correct token type and strips tokens when token iss
   assert.match(snapshotFunction, /tokenTtlSeconds: _tokenTtlSeconds/);
   assert.match(snapshotFunction, /tokenExpiryReason: _tokenExpiryReason/);
   assert.match(snapshotFunction, /if \(!includeToken\)[\s\S]+withoutToken\(snapshot\)/);
-  assert.match(snapshotFunction, /phase !== "handshake" && phase !== "date"[\s\S]+withoutToken\(snapshot\)/);
+  assert.match(snapshotFunction, /rawPhase === "handshake" \? "entry" : rawPhase/);
+  assert.match(snapshotFunction, /phase !== "entry" && phase !== "date"[\s\S]+withoutToken\(snapshot\)/);
   assert.doesNotMatch(snapshotFunction, /token\?: never/);
 });
 

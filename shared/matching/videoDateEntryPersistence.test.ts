@@ -19,11 +19,11 @@ const baseTruth: VideoDateEntryTruth = {
   participant_2_liked: null,
   participant_1_decided_at: null,
   participant_2_decided_at: null,
-  state: "handshake",
-  phase: "handshake",
+  state: "entry",
+  phase: "entry",
   ended_at: null,
   ended_reason: null,
-  handshake_grace_expires_at: null,
+  entry_grace_expires_at: null,
 };
 
 test("vibe persistence succeeds only when the actor decision is present in DB truth", async () => {
@@ -32,7 +32,7 @@ test("vibe persistence succeeds only when the actor decision is present in DB tr
     actorUserId: "user-a",
     action: "vibe",
     retryDelaysMs: [],
-    rpc: async () => ({ data: { success: true, state: "handshake" }, error: null }),
+    rpc: async () => ({ data: { success: true, state: "entry" }, error: null }),
     fetchTruth: async () => ({
       truth: {
         ...baseTruth,
@@ -61,7 +61,7 @@ test("RPC success with the actor decision still null retries and then surfaces f
     sleep: async () => undefined,
     rpc: async () => {
       rpcCalls += 1;
-      return { data: { success: true, state: "handshake" }, error: null };
+      return { data: { success: true, state: "entry" }, error: null };
     },
     fetchTruth: async () => ({ truth: baseTruth }),
   });
@@ -86,7 +86,7 @@ test("transient RPC failure is retried before acknowledging Vibe", async () => {
       if (rpcCalls === 1) {
         return { data: null, error: { message: "Failed to fetch" } };
       }
-      return { data: { success: true, state: "handshake" }, error: null };
+      return { data: { success: true, state: "entry" }, error: null };
     },
     fetchTruth: async () => ({
       truth: {
@@ -124,7 +124,7 @@ test("retryable fail-soft transition payload is retried before acknowledging Vib
           error: null,
         };
       }
-      return { data: { success: true, state: "handshake" }, error: null };
+      return { data: { success: true, state: "entry" }, error: null };
     },
     fetchTruth: async () => {
       truthCalls += 1;
@@ -285,7 +285,7 @@ test("explicit pass persistence succeeds when false and decided_at are both stor
     actorUserId: "user-a",
     action: "pass",
     retryDelaysMs: [],
-    rpc: async () => ({ data: { success: true, state: "handshake" }, error: null }),
+    rpc: async () => ({ data: { success: true, state: "entry" }, error: null }),
     fetchTruth: async () => ({
       truth: {
         ...baseTruth,
@@ -342,7 +342,7 @@ test("entryDecisionFailureIndicatesSessionEnded combines truth and payload", () 
   assert.equal(
     entryDecisionFailureIndicatesSessionEnded({
       truth: baseTruth,
-      rpcPayload: { success: true, state: "handshake" },
+      rpcPayload: { success: true, state: "entry" },
     }),
     false,
   );

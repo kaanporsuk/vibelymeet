@@ -54,7 +54,7 @@ export function videoDateStartSnapshotToDateEntryTruth(
     event_id: snapshot.eventId,
     daily_room_name: nullableString(raw.daily_room_name),
     daily_room_url: nullableString(raw.daily_room_url),
-    handshake_started_at: nullableString(raw.handshake_started_at),
+    entry_started_at: nullableString(raw.entry_started_at),
     date_started_at: nullableString(raw.date_started_at),
     state: nullableString(raw.state),
     phase: nullableString(raw.normalized_phase) ?? nullableString(raw.phase),

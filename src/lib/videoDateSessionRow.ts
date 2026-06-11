@@ -4,7 +4,7 @@ import type { Database } from "@/integrations/supabase/types";
 // Golden-flow lean pass: the /date mount path read the same video_sessions row
 // through 6 independent queries with 5 different select shapes
 // (SessionRouteHydration, VideoDate mount log, VideoDate access guard,
-// VideoDate handshake refresh, useVideoCall truth fetch, IceBreakerCard).
+// VideoDate entry refresh, useVideoCall truth fetch, IceBreakerCard).
 // This module is the single owner of the date-path session-row projection:
 // one canonical superset select, concurrent callers share one in-flight
 // request, and a result is reused for 300ms (below every caller's
@@ -21,8 +21,8 @@ export const VIDEO_DATE_SESSION_ROW_COLUMNS = [
   "phase",
   "ended_at",
   "ended_reason",
-  "handshake_started_at",
-  "handshake_grace_expires_at",
+  "entry_started_at",
+  "entry_grace_expires_at",
   "date_started_at",
   "date_extra_seconds",
   "ready_gate_status",
@@ -57,8 +57,8 @@ export type VideoDateSessionRowData = Pick<
   | "phase"
   | "ended_at"
   | "ended_reason"
-  | "handshake_started_at"
-  | "handshake_grace_expires_at"
+  | "entry_started_at"
+  | "entry_grace_expires_at"
   | "date_started_at"
   | "date_extra_seconds"
   | "ready_gate_status"
