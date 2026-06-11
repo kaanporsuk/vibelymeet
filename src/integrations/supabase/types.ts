@@ -13098,23 +13098,6 @@ export type Database = {
         }
         Returns: Json
       }
-      submit_post_date_verdict: {
-        Args: { p_liked: boolean; p_session_id: string }
-        Returns: Json
-      }
-      submit_post_date_verdict_20260603090000_remote_seen_base: {
-        Args: { p_liked: boolean; p_session_id: string }
-        Returns: Json
-      }
-      submit_post_date_verdict_v2: {
-        Args: {
-          p_idempotency_key: string
-          p_liked: boolean
-          p_safety_report?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
       submit_post_date_verdict_v3: {
         Args: {
           p_idempotency_key: string

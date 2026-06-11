@@ -14,8 +14,8 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const sprint5Migration = read(
   "supabase/migrations/20260525223000_video_date_sprint5_post_date_next_surface_authority.sql",
 );
-const reviewFollowupMigration = read(
-  "supabase/migrations/20260525235900_review_comments_1060_1070_followups.sql",
+const legacyVerdictRemovalMigration = read(
+  "supabase/migrations/20260611094913_remove_legacy_post_date_verdict_rpcs.sql",
 );
 const autoNextRemovalMigration = read(
   "supabase/migrations/20260610000100_remove_post_date_instant_next.sql",
@@ -23,18 +23,29 @@ const autoNextRemovalMigration = read(
 const postDateVerdictFunction = read("supabase/functions/post-date-verdict/index.ts");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
+const webPostDateOutbox = read("src/lib/postDateOutbox/execute.ts");
+const nativePostDateOutbox = read("apps/mobile/lib/postDateOutbox/execute.ts");
+const generatedTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
 
-function functionBody(signature: string): string {
+function functionBodyFrom(source: string, signature: string): string {
   const escaped = signature.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = sprint5Migration.match(new RegExp(`${escaped}[\\s\\S]+?\\$function\\$;`));
+  const match = source.match(new RegExp(`${escaped}[\\s\\S]+?\\$function\\$;`));
   assert.ok(match, `missing function body for ${signature}`);
   return match[0];
 }
 
+function sprint5FunctionBody(signature: string): string {
+  return functionBodyFrom(sprint5Migration, signature);
+}
+
+function legacyRemovalFunctionBody(signature: string): string {
+  return functionBodyFrom(legacyVerdictRemovalMigration, signature);
+}
+
 test("Sprint 5 survey eligibility treats reported/blocked terminalization as safety skip", () => {
   assert.ok(POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS.includes("blocked_or_reported_pair"));
-  const eligibility = functionBody(
+  const eligibility = sprint5FunctionBody(
     "CREATE OR REPLACE FUNCTION public.video_date_session_is_post_date_survey_eligible",
   );
   assert.match(eligibility, /public\.video_date_session_has_encounter_exposure/);
@@ -42,60 +53,54 @@ test("Sprint 5 survey eligibility treats reported/blocked terminalization as saf
   assert.match(eligibility, /'blocked_or_reported_pair'/);
 });
 
-test("Sprint 5 verdict submit is immutable and retries are idempotent", () => {
-  const verdict = functionBody(
-    "CREATE OR REPLACE FUNCTION public.submit_post_date_verdict(p_session_id uuid, p_liked boolean)",
+test("post-date verdict persistence is v3-only and keeps immutable feedback semantics", () => {
+  const verdictV3 = legacyRemovalFunctionBody(
+    "CREATE OR REPLACE FUNCTION public.submit_post_date_verdict_v3",
   );
-  assert.match(verdict, /v_existing_liked boolean/);
-  assert.match(verdict, /v_already_submitted boolean := false/);
-  assert.match(verdict, /v_effective_liked boolean := p_liked/);
-  assert.match(verdict, /v_pair_reported boolean := false/);
-  assert.match(verdict, /FROM public\.user_reports ur[\s\S]+ur\.reporter_id = v_uid[\s\S]+ur\.reported_id = v_target/);
-  assert.match(verdict, /IF v_pair_reported THEN[\s\S]+v_effective_liked := false/);
+  assert.match(verdictV3, /public\.video_session_command_begin_v2/);
+  assert.match(verdictV3, /INSERT INTO public\.post_date_client_submissions/);
+  assert.match(verdictV3, /v_submission\.result IS NOT NULL[\s\S]+v_submission\.result \|\| jsonb_build_object\('idempotent', true\)/);
+  assert.match(verdictV3, /v_existing_liked boolean/);
+  assert.match(verdictV3, /v_already_submitted boolean := false/);
+  assert.match(verdictV3, /v_effective_liked boolean := CASE WHEN p_safety_report IS NULL THEN p_liked ELSE false END/);
+  assert.match(verdictV3, /v_pair_reported boolean := false/);
+  assert.match(verdictV3, /FROM public\.user_reports ur[\s\S]+ur\.reporter_id = v_actor[\s\S]+ur\.reported_id = v_target/);
+  assert.match(verdictV3, /IF v_pair_reported THEN[\s\S]+v_effective_liked := false/);
   assert.match(
-    verdict,
-    /IF COALESCE\(v_session\.ended_reason, ''\) IN \('blocked_pair', 'blocked_or_reported_pair'\)[\s\S]+UPDATE public\.post_date_pending_verdicts[\s\S]+status = 'completed'[\s\S]+RETURN jsonb_build_object\([\s\S]+'blocked', true/,
+    verdictV3,
+    /ELSIF COALESCE\(v_session\.ended_reason, ''\) IN \('blocked_pair', 'blocked_or_reported_pair'\)[\s\S]+UPDATE public\.post_date_pending_verdicts[\s\S]+status = 'completed'[\s\S]+v_result := jsonb_build_object\([\s\S]+'blocked', true/,
   );
-  assert.match(verdict, /SELECT df\.liked INTO v_existing_liked[\s\S]+FROM public\.date_feedback df/);
-  assert.match(verdict, /v_already_submitted := FOUND/);
-  assert.match(verdict, /IF NOT v_already_submitted THEN[\s\S]+INSERT INTO public\.date_feedback/);
-  assert.match(verdict, /VALUES \(p_session_id, v_uid, v_target, v_effective_liked\)/);
+  assert.match(verdictV3, /SELECT df\.liked INTO v_existing_liked[\s\S]+FROM public\.date_feedback df/);
+  assert.match(verdictV3, /v_already_submitted := FOUND/);
+  assert.match(verdictV3, /IF NOT v_already_submitted THEN[\s\S]+INSERT INTO public\.date_feedback/);
+  assert.match(verdictV3, /VALUES \(p_session_id, v_actor, v_target, v_effective_liked\)/);
   assert.doesNotMatch(
-    verdict,
+    verdictV3,
     /ON CONFLICT \(session_id, user_id\)[\s\S]{0,200}DO UPDATE SET[\s\S]{0,80}liked\s*=/,
   );
-  assert.match(verdict, /v_pair_reported := v_pair_reported OR COALESCE\(\(v_inner->>'reported_pair'\)::boolean, false\)/);
-  assert.match(verdict, /IF v_pair_reported THEN[\s\S]+'safety_reported', true[\s\S]+'awaiting_partner_verdict', false/);
-  assert.match(verdict, /UPDATE public\.post_date_pending_verdicts[\s\S]+status = 'completed'/);
-  assert.match(verdict, /'already_submitted', v_already_submitted/);
-  assert.match(verdict, /'idempotent', v_already_submitted/);
-  assert.match(verdict, /'liked', COALESCE\(v_existing_liked, v_effective_liked\)/);
-
-  const verdictV2 = functionBody(
-    "CREATE OR REPLACE FUNCTION public.submit_post_date_verdict_v2",
-  );
-  assert.match(verdictV2, /v_effective_liked boolean := CASE WHEN p_safety_report IS NULL THEN p_liked ELSE false END/);
-  assert.match(verdictV2, /VALUES \(v_uid, p_session_id, 'verdict', v_key, v_effective_liked, p_safety_report\)/);
-  assert.match(verdictV2, /v_result := public\.submit_post_date_verdict\(p_session_id, v_effective_liked\)/);
-  assert.match(
-    verdictV2,
-    /IF p_safety_report IS NOT NULL THEN[\s\S]+UPDATE public\.post_date_pending_verdicts[\s\S]+status = 'completed'/,
-  );
-  assert.match(verdictV2, /'safety_reported', true/);
-  assert.match(verdictV2, /'awaiting_partner_verdict', false/);
-  assert.match(
-    verdictV2,
-    /'idempotent', COALESCE\(\(v_result->>'idempotent'\)::boolean, false\)/,
-  );
+  assert.match(verdictV3, /v_inner := public\.check_mutual_vibe_and_match\(p_session_id\)/);
+  assert.match(verdictV3, /v_pair_reported := v_pair_reported OR COALESCE\(\(v_inner->>'reported_pair'\)::boolean, false\)/);
+  assert.match(verdictV3, /ELSIF v_pair_reported THEN[\s\S]+'safety_reported', true[\s\S]+'awaiting_partner_verdict', false/);
+  assert.match(verdictV3, /UPDATE public\.post_date_pending_verdicts[\s\S]+status = 'completed'/);
+  assert.match(verdictV3, /'already_submitted', v_already_submitted/);
+  assert.match(verdictV3, /'idempotent', v_already_submitted/);
+  assert.match(verdictV3, /'liked', COALESCE\(v_existing_liked, v_effective_liked\)/);
+  assert.match(verdictV3, /public\.resolve_post_date_next_surface\(p_session_id\)/);
+  assert.doesNotMatch(verdictV3, /public\.submit_post_date_verdict_v2/);
+  assert.doesNotMatch(verdictV3, /public\.submit_post_date_verdict\(/);
+  assert.match(legacyVerdictRemovalMigration, /DROP FUNCTION IF EXISTS public\.submit_post_date_verdict_v2\(uuid, boolean, text, jsonb\)/);
+  assert.match(legacyVerdictRemovalMigration, /DROP FUNCTION IF EXISTS public\.submit_post_date_verdict\(uuid, boolean\)/);
+  assert.match(legacyVerdictRemovalMigration, /DROP FUNCTION IF EXISTS public\.submit_post_date_verdict_20260603090000_remote_seen_base\(uuid, boolean\)/);
 });
 
 test("Sprint 5 safety reports force a pass before any match or notification path", () => {
-  const verdictV3 = functionBody(
+  const verdictV3 = legacyRemovalFunctionBody(
     "CREATE OR REPLACE FUNCTION public.submit_post_date_verdict_v3",
   );
   assert.match(verdictV3, /v_effective_liked boolean := CASE WHEN p_safety_report IS NULL THEN p_liked ELSE false END/);
   assert.match(verdictV3, /'liked', v_effective_liked/);
-  assert.match(verdictV3, /public\.submit_post_date_verdict_v2\([\s\S]+v_effective_liked/);
+  assert.match(verdictV3, /INSERT INTO public\.user_reports/);
+  assert.match(verdictV3, /v_block_result := public\.block_user_with_cleanup/);
   assert.match(verdictV3, /v_pair_blocked_or_reported boolean := false/);
   assert.match(verdictV3, /v_confirmed_mutual := v_actor_liked AND v_partner_liked AND NOT COALESCE\(v_pair_blocked_or_reported, false\)/);
   assert.match(verdictV3, /WHEN v_pair_blocked_or_reported THEN 'safety_reported'/);
@@ -116,10 +121,9 @@ test("Sprint 5 safety reports force a pass before any match or notification path
     postDateVerdictFunction,
     /submit_post_date_verdict_v3[\s\S]+p_liked: effectiveLiked as boolean/,
   );
-  // Verdict submission is v3-only since PR #1286: stale v2/keyless callers are
-  // coerced onto v3, so the forced-pass guarantee flows through the single v3
-  // RPC call. The retired v2/legacy RPC branches must not return.
-  assert.match(postDateVerdictFunction, /deprecated_version_coerced_to_v3/);
+  assert.match(postDateVerdictFunction, /unsupported_transition_version/);
+  assert.match(postDateVerdictFunction, /missing_idempotency_key/);
+  assert.doesNotMatch(postDateVerdictFunction, /deprecated_version_coerced_to_v3|verdict-legacy-keyless/);
   assert.doesNotMatch(postDateVerdictFunction, /rpc\("submit_post_date_verdict_v2"/);
   assert.doesNotMatch(postDateVerdictFunction, /rpc\("submit_post_date_verdict"/);
 });
@@ -245,11 +249,32 @@ test("shared canonical routing consumes final post-date next surfaces consistent
   }).target, "date");
 });
 
-test("Sprint 5 follow-up emits safety-report events for immutable verdict retries", () => {
-  assert.match(reviewFollowupMigration, /CREATE OR REPLACE FUNCTION public\.submit_post_date_verdict_v2/);
-  assert.match(reviewFollowupMigration, /IF COALESCE\(\(v_result->>'idempotent'\)::boolean, false\)[\s\S]+post_date_safety_report_recorded/);
-  assert.match(reviewFollowupMigration, /'report_id', v_result->>'report_id'/);
-  assert.match(reviewFollowupMigration, /'reported_participant_role'/);
+test("v3-only verdict contract remains active in Edge, outbox, and generated types", () => {
+  const verdictV3 = legacyRemovalFunctionBody(
+    "CREATE OR REPLACE FUNCTION public.submit_post_date_verdict_v3",
+  );
+  assert.match(verdictV3, /IF COALESCE\(\(v_result->>'idempotent'\)::boolean, false\)[\s\S]+post_date_safety_report_recorded/);
+  assert.match(verdictV3, /'report_id', v_result->>'report_id'/);
+  assert.match(verdictV3, /'reported_participant_role'/);
+
+  assert.match(webPostDateOutbox, /transition_version: "v3"/);
+  assert.match(nativePostDateOutbox, /transition_version: ['"]v3['"]/);
+  assert.match(postDateVerdictFunction, /userClient\.rpc\("submit_post_date_verdict_v3"/);
+  for (const [name, source] of [
+    ["edge", postDateVerdictFunction],
+    ["web survey", webSurvey],
+    ["native survey", nativeSurvey],
+    ["web outbox", webPostDateOutbox],
+    ["native outbox", nativePostDateOutbox],
+  ] as const) {
+    assert.doesNotMatch(source, /submit_post_date_verdict_v2/, name);
+    assert.doesNotMatch(source, /rpc\(["']submit_post_date_verdict["']/, name);
+  }
+
+  assert.match(generatedTypes, /submit_post_date_verdict_v3:/);
+  assert.doesNotMatch(generatedTypes, /submit_post_date_verdict:\s*\{/);
+  assert.doesNotMatch(generatedTypes, /submit_post_date_verdict_v2:\s*\{/);
+  assert.doesNotMatch(generatedTypes, /submit_post_date_verdict_20260603090000_remote_seen_base:\s*\{/);
 });
 
 test("Sprint 5 contracts are included in the video-date no-build suite", () => {

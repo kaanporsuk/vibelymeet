@@ -383,7 +383,15 @@ test("service-role Edge functions keep participant state writes behind user-auth
   );
   assert.match(
     postDateVerdictFunction,
+    /userClient\.rpc\("submit_post_date_verdict_v3"/,
+  );
+  assert.doesNotMatch(
+    postDateVerdictFunction,
     /userClient\.rpc\("submit_post_date_verdict_v2"/,
+  );
+  assert.doesNotMatch(
+    postDateVerdictFunction,
+    /userClient\.rpc\("submit_post_date_verdict"/,
   );
   assert.doesNotMatch(
     postDateVerdictFunction,

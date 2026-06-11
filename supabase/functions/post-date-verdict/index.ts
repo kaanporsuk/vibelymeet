@@ -80,7 +80,7 @@ serve(async (req) => {
       liked?: boolean;
       idempotency_key?: string;
       safety_report?: unknown;
-      transition_version?: "v2" | "v3";
+      transition_version?: string;
     } | null;
     const action = body?.action ?? "verdict";
     const sessionId = body?.session_id;
@@ -91,6 +91,50 @@ serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (action === "verdict" && body?.transition_version !== "v3") {
+      logLifecycle({
+        session_id: sessionId,
+        user_id: null,
+        category: "post_date_verdict",
+        result: "unsupported_transition_version",
+        error_reason: body?.transition_version ?? "missing_version",
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "unsupported_transition_version",
+          code: "unsupported_transition_version",
+          message: "Post-date verdict persistence is v3-only.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (action === "verdict" && !idempotencyKey) {
+      logLifecycle({
+        session_id: sessionId,
+        user_id: null,
+        category: "post_date_verdict",
+        result: "missing_idempotency_key",
+        error_reason: "missing_idempotency_key",
+      });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "missing_idempotency_key",
+          code: "missing_idempotency_key",
+          message: "Post-date verdict persistence requires an idempotency key.",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
     const effectiveLiked = action === "verdict" && body?.safety_report != null ? false : liked;
 
@@ -105,28 +149,6 @@ serve(async (req) => {
     const { data: authUser } = await userClient.auth.getUser();
     const actorUserId = authUser?.user?.id ?? null;
 
-    // Single canonical verdict path: submit_post_date_verdict_v3. Older client
-    // builds that still send transition_version "v2" (or no idempotency key at
-    // all) are coerced onto v3 with a deterministic per-user/session key so the
-    // legacy submit_post_date_verdict / _v2 RPC branches can be retired.
-    let verdictIdempotencyKey = idempotencyKey;
-    if (action === "verdict" && !verdictIdempotencyKey) {
-      verdictIdempotencyKey = await stableUuidFromParts([
-        actorUserId ?? "anonymous",
-        sessionId,
-        "verdict-legacy-keyless",
-      ]);
-    }
-    if (action === "verdict" && body?.transition_version !== "v3") {
-      logLifecycle({
-        session_id: sessionId,
-        user_id: actorUserId,
-        category: "post_date_verdict",
-        result: "deprecated_version_coerced_to_v3",
-        error_reason: body?.transition_version ?? (idempotencyKey ? "missing_version" : "keyless_legacy"),
-      });
-    }
-
     const { data, error } = action === "report"
       ? await userClient.rpc("submit_post_date_safety_report_v1", {
           p_session_id: sessionId,
@@ -136,7 +158,7 @@ serve(async (req) => {
       : await userClient.rpc("submit_post_date_verdict_v3", {
           p_session_id: sessionId,
           p_liked: effectiveLiked as boolean,
-          p_idempotency_key: verdictIdempotencyKey,
+          p_idempotency_key: idempotencyKey,
           p_safety_report: body?.safety_report ?? null,
         });
 
