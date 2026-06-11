@@ -33,7 +33,6 @@ import { useScheduleHub } from "@/hooks/useScheduleHub";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
 import { useNotificationInbox } from "@/hooks/useNotificationInbox";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,7 +53,6 @@ import {
 import {
   resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
 } from "@clientShared/matching/videoDateRecoveryAdvisor";
-import { buildVideoDateTransitionIdempotencyKey } from "@clientShared/matching/videoDateTransitionCommands";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 
@@ -135,7 +133,6 @@ function normalizeHomeUnreadSummary(data: unknown): HomeInfoBarUnread {
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
-  const forfeitV2 = useFeatureFlag("video_date.outbox_v2.forfeit");
   useRealtimeEvents();
 
   const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useSessionHydration();
@@ -184,17 +181,11 @@ const Dashboard = () => {
     try {
       const { data, error } =
         activeSession.kind === "ready_gate"
-          ? forfeitV2.enabled
-            ? await supabase.rpc("video_session_forfeit_v2" as never, {
-                p_session_id: activeSession.sessionId,
-                p_reason: "ready_gate_forfeit",
-                p_idempotency_key: buildVideoDateTransitionIdempotencyKey(activeSession.sessionId, "forfeit"),
-              } as never)
-            : await supabase.rpc("ready_gate_transition", {
-                p_session_id: activeSession.sessionId,
-                p_action: "forfeit",
-                p_reason: "dashboard_active_banner",
-              })
+          ? await supabase.rpc("ready_gate_transition", {
+              p_session_id: activeSession.sessionId,
+              p_action: "forfeit",
+              p_reason: "dashboard_active_banner",
+            })
           : await supabase.rpc("video_date_transition", {
               p_session_id: activeSession.sessionId,
               p_action: "end",
@@ -224,7 +215,7 @@ const Dashboard = () => {
       );
       await refetchActiveSession();
     }
-  }, [activeSession, forfeitV2.enabled, refetchActiveSession]);
+  }, [activeSession, refetchActiveSession]);
 
   const handleActiveSessionRejoin = useCallback(async () => {
     if (!activeSession) return;

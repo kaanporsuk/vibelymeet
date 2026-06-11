@@ -8,7 +8,6 @@ import {
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
 } from "@/lib/dateEntryTransitionLatch";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
@@ -42,8 +41,6 @@ const ReadyRedirect = () => {
   const navigate = useNavigate();
   const { readyId } = useParams<{ readyId: string }>();
   const { user } = useUserProfile();
-  const snapshotV2 = useFeatureFlag("video_date.snapshot_v2");
-  const readinessV2 = useFeatureFlag("video_date.readiness_v2");
   const toastShownForReadyKeyRef = useRef<string | null>(null);
   const [routeState, setRouteState] = useState<ReadyRouteState>({ kind: "loading" });
 
@@ -80,10 +77,9 @@ const ReadyRedirect = () => {
 
   const suppressReadyGateSessionAfterManualExit = useCallback(
     (sessionId: string) => {
-      if (!readinessV2.enabled) return;
       void persistReadyGateSuppressionV2(sessionId, Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS);
     },
-    [readinessV2.enabled],
+    [],
   );
 
   useEffect(() => {
@@ -99,7 +95,7 @@ const ReadyRedirect = () => {
 
       const candidate = readyId.trim();
 
-      if (snapshotV2.enabled) {
+      {
         const snapshot = await fetchVideoDateSnapshot(candidate, { includeToken: false });
         if (cancelled) return;
         const recovery = adviseVideoDateSnapshotRecovery(snapshot, {
@@ -249,7 +245,7 @@ const ReadyRedirect = () => {
     return () => {
       cancelled = true;
     };
-  }, [navigate, navigateToDate, navigateToEventLobby, notifyOnce, readyId, snapshotV2.enabled, user?.id]);
+  }, [navigate, navigateToDate, navigateToEventLobby, notifyOnce, readyId, user?.id]);
 
   if (routeState.kind === "hosting" && readyId?.trim()) {
     const sessionId = readyId.trim();

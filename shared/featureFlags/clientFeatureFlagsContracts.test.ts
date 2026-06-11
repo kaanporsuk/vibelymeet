@@ -202,8 +202,16 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
   ]) {
-    assert.match(videoDateFlags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
-    assert.match(videoDateFlagSeedMigration, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}',\\s*false,\\s*0`));
+    // PR 6 client single-path freeze: client-read keys are hard-coded winners,
+    // removed from the client flag list; the DB seed migrations stay history.
+    assert.doesNotMatch(videoDateFlags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+    // The entry-vocabulary keys (outbox_v2.continue_entry / entry_auto_promote)
+    // were seeded by the later entry-contract migration under the flipped
+    // names; the historical seeds used the handshake vocabulary.
+    const seededKey = flag
+      .replace("outbox_v2.continue_entry", "outbox_v2.continue_handshake")
+      .replace("outbox_v2.entry_auto_promote", "outbox_v2.handshake_auto_promote");
+    assert.match(videoDateFlagSeedMigration, new RegExp(`'${seededKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}',\\s*false,\\s*0`));
   }
   assert.doesNotMatch(videoDateFlagSeedMigration, /INSERT INTO public\.client_feature_flags \(flag,/);
   assert.match(videoDateFlagSeedMigration, /INSERT INTO public\.client_feature_flags \(flag_key, enabled, rollout_bps, description, kill_switch_active\)/);

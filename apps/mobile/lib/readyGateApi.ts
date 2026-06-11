@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
@@ -26,8 +25,6 @@ import {
 import { parseReadyGateExpiryMs } from '@clientShared/matching/readyGateCountdown';
 import {
   createReadyGateRealtimeSupervisor,
-  isReadyGateResilientBroadcastEnabled,
-  isReadyGateResilientClockEnabled,
   type ReadyGateRealtimeSupervisor,
   type ReadyGateRealtimeSupervisorContext,
 } from '@clientShared/matching/readyGateRealtimeSupervisor';
@@ -230,16 +227,6 @@ export function useReadyGate(
   userId: string | null | undefined,
   options?: UseReadyGateOptions,
 ) {
-  const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
-  const timelineV2 = useFeatureFlag('video_date.timeline_v2');
-  const markReadyV2 = useFeatureFlag('video_date.outbox_v2.mark_ready');
-  const forfeitV2 = useFeatureFlag('video_date.outbox_v2.forfeit');
-  const readyGateClockEnabled = isReadyGateResilientClockEnabled({
-    timelineV2Enabled: timelineV2.enabled,
-  });
-  const readyGateBroadcastEnabled = isReadyGateResilientBroadcastEnabled({
-    broadcastV2Enabled: broadcastV2.enabled,
-  });
   const [state, setState] = useState<ReadyGateState>(() => ({
     ...createInitialReadyGateState(),
     stateSessionId: sessionId ?? null,
@@ -279,17 +266,6 @@ export function useReadyGate(
     onBothReadyRef.current = options?.onBothReady;
     onForfeitedRef.current = options?.onForfeited;
   }, [options?.onBothReady, options?.onForfeited]);
-
-  useEffect(() => {
-    setState((prev) => {
-      const countdownDegraded =
-        !readyGateClockEnabled ||
-        prev.serverNowMs == null ||
-        prev.clientSyncedAtMs == null ||
-        prev.phaseDeadlineAtMs == null;
-      return prev.countdownDegraded === countdownDegraded ? prev : { ...prev, countdownDegraded };
-    });
-  }, [readyGateClockEnabled]);
 
   useEffect(() => {
     activeReadyGateSessionIdRef.current = sessionId;
@@ -478,7 +454,6 @@ export function useReadyGate(
         clockSkewMs: committedClockSkewMs,
         phaseDeadlineAtMs: committedPhaseDeadlineAtMs,
         countdownDegraded:
-          !readyGateClockEnabled ||
           committedServerNowMs == null ||
           committedClientSyncedAtMs == null ||
           committedPhaseDeadlineAtMs == null,
@@ -511,7 +486,7 @@ export function useReadyGate(
       code: truth.code ?? null,
       terminal: truth.terminal ?? null,
     };
-  }, [notifyTerminal, readyGateClockEnabled, sessionId, userId]);
+  }, [notifyTerminal, sessionId, userId]);
 
   const fetchPartnerName = useCallback(async (partnerId: string | null): Promise<string | null> => {
     if (!partnerId) return null;
@@ -644,7 +619,7 @@ export function useReadyGate(
         clientSyncedAtMs,
         clockSkewMs,
         phaseDeadlineAtMs: snapshot.phaseDeadlineAt ?? prev.phaseDeadlineAtMs,
-        countdownDegraded: !readyGateClockEnabled || snapshot.phaseDeadlineAt == null,
+        countdownDegraded: snapshot.phaseDeadlineAt == null,
       }));
       const gapState = broadcastGapRecoveryRef.current;
       if (gapState && snapshot.seq >= gapState.targetSeq) {
@@ -662,7 +637,7 @@ export function useReadyGate(
     }
     await fetchSession();
     return { ok: false, seq: null, error: snapshot.error };
-  }, [fetchSession, readyGateClockEnabled, sessionId, setSequenceGapUnresolved, userId]);
+  }, [fetchSession, sessionId, setSequenceGapUnresolved, userId]);
 
   useEffect(() => {
     readyGateRealtimeSupervisorRef.current?.dispose();
@@ -706,30 +681,6 @@ export function useReadyGate(
     options?.eventId,
     sessionId,
     userId,
-  ]);
-
-  useEffect(() => {
-    if (!sessionId || !userId) return;
-    const channel = supabase
-      .channel(`ready-gate-${sessionId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'video_sessions', filter: `id=eq.${sessionId}` },
-        (payload) => {
-          applyReadyGateTruth(payload.new as ReadyGateSessionTruth);
-        },
-      )
-      .subscribe((status, error) => {
-        readyGateRealtimeSupervisorRef.current?.handleStatus('postgres_video_sessions', status, error ?? null);
-      });
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [
-    sessionId,
-    userId,
-    applyReadyGateTruth,
-    realtimeSubscriptionEpoch,
   ]);
 
   const clearBroadcastGapRetryTimer = useCallback(() => {
@@ -853,7 +804,7 @@ export function useReadyGate(
   );
 
   useEffect(() => {
-    if (!sessionId || !userId || !readyGateBroadcastEnabled) return;
+    if (!sessionId || !userId) return;
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId,
       onEvent: (event) => {
@@ -888,7 +839,6 @@ export function useReadyGate(
       setSequenceGapUnresolved(false);
     };
   }, [
-    readyGateBroadcastEnabled,
     broadcastSubscriptionEpoch,
     clearBroadcastGapRetryTimer,
     options?.eventId,
@@ -897,14 +847,6 @@ export function useReadyGate(
     sessionId,
     userId,
   ]);
-
-  useEffect(() => {
-    if (readyGateBroadcastEnabled) return;
-    clearBroadcastGapRetryTimer();
-    broadcastGapRecoveryRef.current = null;
-    setSequenceGapUnresolved(false);
-    readyGateRealtimeSupervisorRef.current?.clearSource('private_broadcast', 'broadcast_disabled');
-  }, [clearBroadcastGapRetryTimer, readyGateBroadcastEnabled, setSequenceGapUnresolved]);
 
   const runReadyGateTransition = useCallback(async (
     action: ReadyGateTransitionAction,
@@ -933,18 +875,12 @@ export function useReadyGate(
     // Static smoke contract: terminal actions still await
     // const { error } = await supabase.rpc('ready_gate_transition' before closing.
     const callReadyGateTransitionRpc = () => (
-      action === 'mark_ready' && markReadyV2.enabled
+      action === 'mark_ready'
         ? supabase.rpc('video_session_mark_ready_v2' as never, {
             p_session_id: sessionId,
             p_idempotency_key: buildVideoDateTransitionIdempotencyKey(sessionId, 'mark_ready'),
           } as never)
-        : action === 'forfeit' && forfeitV2.enabled
-          ? supabase.rpc('video_session_forfeit_v2' as never, {
-              p_session_id: sessionId,
-              p_reason: 'ready_gate_forfeit',
-              p_idempotency_key: buildVideoDateTransitionIdempotencyKey(sessionId, 'forfeit'),
-            } as never)
-          : supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action })
+        : supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action })
     );
     let transitionResult = await callReadyGateTransitionRpc();
     if (action === 'mark_ready') {
@@ -1196,8 +1132,6 @@ export function useReadyGate(
     sessionId,
     userId,
     options?.eventId,
-    markReadyV2.enabled,
-    forfeitV2.enabled,
     applyReadyGateTruth,
     fetchSession,
     notifyTerminal,
@@ -1375,7 +1309,5 @@ export function useReadyGate(
     isSnoozed,
     refetch: fetchSession,
     retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery,
-    readyGateClockEnabled,
-    readyGateBroadcastEnabled,
   };
 }

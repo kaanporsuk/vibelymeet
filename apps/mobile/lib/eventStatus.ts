@@ -6,8 +6,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { markEventParticipantHeartbeat, updateParticipantStatus } from '@/lib/videoDateApi';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { recordVideoDateHeartbeatV2 } from '@/lib/videoDateReadiness';
 
 export type ClientWritableParticipantStatus =
@@ -26,7 +25,6 @@ const HEARTBEAT_MS = 30000;
 
 export function useEventStatus(eventId: string | undefined, userId: string | undefined, enabled = true) {
   const enabledRef = useRef(enabled);
-  const readinessV2 = useFeatureFlag('video_date.readiness_v2');
 
   useEffect(() => {
     enabledRef.current = enabled;
@@ -53,19 +51,17 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
     })();
     const heartbeat = setInterval(async () => {
       const foreground = AppState.currentState === 'active';
-      const ok = readinessV2.enabled
-        ? await recordVideoDateHeartbeatV2(eventId, { foreground })
-        : await markEventParticipantHeartbeat(eventId);
+      const ok = await recordVideoDateHeartbeatV2(eventId, { foreground });
       if (!ok && __DEV__) console.warn('[eventStatus] heartbeat update failed');
     }, HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
       updateParticipantStatus(eventId, 'offline').catch(() => {});
     };
-  }, [enabled, eventId, readinessV2.enabled, userId]);
+  }, [enabled, eventId, userId]);
 
   useEffect(() => {
-    if (!enabled || !eventId || !userId || !readinessV2.enabled) return;
+    if (!enabled || !eventId || !userId) return;
 
     const sendForegroundHeartbeat = async (state: AppStateStatus, source: string) => {
       const ok = await recordVideoDateHeartbeatV2(eventId, {
@@ -82,7 +78,7 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
       subscription.remove();
       void recordVideoDateHeartbeatV2(eventId, { foreground: false }).catch(() => {});
     };
-  }, [enabled, eventId, readinessV2.enabled, userId]);
+  }, [enabled, eventId, userId]);
 
   return { setStatus };
 }

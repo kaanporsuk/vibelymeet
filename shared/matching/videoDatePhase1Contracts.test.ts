@@ -87,7 +87,7 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.doesNotMatch(phase1Migration, /token/i);
   assert.match(snapshotEventIdMigration, /'eventId', v_session\.event_id/);
   assert.doesNotMatch(snapshotEventIdMigration, /\/meeting-tokens|DAILY_API_KEY|video_date_outbox/i);
-  assert.match(webReadyRedirect, /video_date\.snapshot_v2/);
+  assert.doesNotMatch(webReadyRedirect, /video_date\.snapshot_v2/);
   assert.match(webReadyRedirect, /fetchVideoDateSnapshot/);
   assert.match(webReadyRedirect, /includeToken: false/);
   assert.match(webReadyRedirect, /snapshot\.eventId/);
@@ -95,7 +95,7 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(webSnapshotLib, /include_token: options\.includeToken === true/);
   assert.match(webSnapshotLib, /normalizeVideoDateSnapshotInvokeError\(error\)/);
   assert.match(webSnapshotLib, /snapshot_function_failed/);
-  assert.match(nativeReadyRoute, /video_date\.snapshot_v2/);
+  assert.doesNotMatch(nativeReadyRoute, /video_date\.snapshot_v2/);
   assert.match(nativeReadyRoute, /fetchVideoDateSnapshot/);
   assert.match(nativeReadyRoute, /includeToken: false/);
   assert.match(nativeReadyRoute, /snapshot\.eventId/);
@@ -175,8 +175,11 @@ test("PR 1.3 deck v3 and persistent ready-gate suppression are adopted; Phase 8 
   assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce/);
   assert.match(webLobby, /setQueryData<EventDeckFetchResult>\(\s*\["event-deck", eventId, user\?\.id, "deck_v3"\]/);
   assert.match(nativeLobby, /setQueryData<EventDeckFetchResult>\(\s*\[["']event-deck["'], id, user\?\.id, ["']deck_v3["']\]/);
-  assert.match(webLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+new Image\(\)/);
-  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+prefetchNativeDeckImage\(src\)/);
+  // PR 6 flag freeze: the legacy first-3-card warm path (gated off by
+  // deck_prefetch_polish_v2) is deleted; the polished prefetch pipeline owns
+  // deck media warm-up on both platforms.
+  assert.doesNotMatch(webLobby, /sortedProfiles\.slice\(0, 3\)/);
+  assert.doesNotMatch(nativeLobby, /sortedProfiles\.slice\(0, 3\)/);
   assert.match(nativeLobby, /ExpoImage\.prefetch\(uri,[\s\S]+RNImage\.prefetch\(uri\)/);
   assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(nativeLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
@@ -306,8 +309,8 @@ test("public API helpers handle malformed edge cases conservatively", () => {
 });
 
 test("PR 1.4 micro-verdict is UX-only and does not auto-submit verdicts", () => {
-  assert.match(webSurvey, /video_date\.micro_verdict_v2/);
-  assert.match(nativeSurvey, /video_date\.micro_verdict_v2/);
+  assert.doesNotMatch(webSurvey, /video_date\.micro_verdict_v2/);
+  assert.doesNotMatch(nativeSurvey, /video_date\.micro_verdict_v2/);
   assert.match(webSurvey, /getVideoDateMicroVerdictCopy/);
   assert.match(nativeSurvey, /getVideoDateMicroVerdictCopy/);
   assert.doesNotMatch(webSurvey, /setTimeout\(\s*\(\)\s*=>\s*(?:void\s*)?handleVerdict/);

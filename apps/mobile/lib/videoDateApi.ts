@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { avatarUrl } from '@/lib/imageUrl';
 import { vdbg } from '@/lib/vdbg';
 import { trackEvent } from '@/lib/analytics';
@@ -31,7 +30,6 @@ import { videoDateStartSnapshotToDateEntryTruth } from '@clientShared/matching/v
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
 import {
-  buildVideoDateExtensionIdempotencyKey,
   buildVideoDateMutualExtensionIdempotencyKey,
   buildVideoDateTransitionIdempotencyKey,
 } from '@clientShared/matching/videoDateTransitionCommands';
@@ -178,23 +176,6 @@ type VideoDateTransitionDiagnostics = {
   phase?: string | null;
 };
 
-type RecordEntryDecisionOptions = {
-  continueEntryV2?: boolean;
-};
-
-type EndVideoDateOptions = {
-  dateTimeoutV2?: boolean;
-};
-
-type CompleteEntryOptions = {
-  entryAutoPromoteV2?: boolean;
-};
-
-type SpendVideoDateCreditExtensionOptions = {
-  extensionV2?: boolean;
-  extensionMutualV2?: boolean;
-};
-
 export class VideoDateRequestTimeoutError extends Error {
   constructor(public readonly operation: 'getDailyRoomToken') {
     super(`${operation} timed out`);
@@ -232,12 +213,9 @@ export function useVideoDateSession(
   userId: string | null | undefined,
   options?: { onBroadcastEvent?: (event: VideoDateSessionBroadcastEvent) => void }
 ) {
-  const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
-  const timelineV2 = useFeatureFlag('video_date.timeline_v2');
-  const pushPayloadV2 = useFeatureFlag('video_date.push_payload_v2');
   const initialPushTimeline = useMemo(
-    () => pushPayloadV2.enabled ? readVideoDatePushPreloadTimeline(sessionId) : null,
-    [pushPayloadV2.enabled, sessionId],
+    () => readVideoDatePushPreloadTimeline(sessionId),
+    [sessionId],
   );
   const initialPushCountdown = useMemo(
     () => initialPushTimeline ? resolveVideoDateTimelineCountdown(initialPushTimeline) : null,
@@ -440,30 +418,28 @@ export function useVideoDateSession(
       setPhase(legacyResolved.phase);
       setTimeLeft(legacyResolved.timeLeft);
 
-      if (timelineV2.enabled) {
-        void (async () => {
-          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
-          if (currentSessionKeyRef.current !== sessionKey) return;
-          const decision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
-            clientNowMs: Date.now(),
-            expectedSessionId: sessionId,
-          });
-          if (decision.action === 'accepted') {
-            if (sessionSeqRef.current !== null && decision.timeline.seq < sessionSeqRef.current) return;
-            timelineRef.current = decision.timeline;
-            setTimeline(decision.timeline);
-            sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, decision.timeline.seq);
-            if (decision.timeline.phase === 'entry' || decision.timeline.phase === 'date') {
-              const countdown = resolveVideoDateTimelineCountdown(decision.timeline);
-              setPhase(decision.timeline.phase);
-              setTimeLeft(countdown.remainingSeconds ?? 0);
-            } else if (decision.timeline.phase === 'ended') {
-              setPhase('ended');
-              setTimeLeft(0);
-            }
+      void (async () => {
+        const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+        if (currentSessionKeyRef.current !== sessionKey) return;
+        const decision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
+          clientNowMs: Date.now(),
+          expectedSessionId: sessionId,
+        });
+        if (decision.action === 'accepted') {
+          if (sessionSeqRef.current !== null && decision.timeline.seq < sessionSeqRef.current) return;
+          timelineRef.current = decision.timeline;
+          setTimeline(decision.timeline);
+          sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, decision.timeline.seq);
+          if (decision.timeline.phase === 'entry' || decision.timeline.phase === 'date') {
+            const countdown = resolveVideoDateTimelineCountdown(decision.timeline);
+            setPhase(decision.timeline.phase);
+            setTimeLeft(countdown.remainingSeconds ?? 0);
+          } else if (decision.timeline.phase === 'ended') {
+            setPhase('ended');
+            setTimeLeft(0);
           }
-        })();
-      }
+        }
+      })();
       return s;
     } finally {
       setLoading(false);
@@ -480,73 +456,11 @@ export function useVideoDateSession(
         },
       });
     }
-  }, [sessionId, userId, resolvePhaseAndTime, timelineV2.enabled]);
+  }, [sessionId, userId, resolvePhaseAndTime]);
 
   useEffect(() => {
     fetchSession();
   }, [fetchSession]);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    const channel = supabase
-      .channel(`video-date-session-${sessionId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'video_sessions', filter: `id=eq.${sessionId}` },
-        (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          setSession((prev) => {
-            if (!prev) return prev;
-            const next = { ...prev };
-            if (row.participant_1_joined_at !== undefined) {
-              next.participant_1_joined_at = row.participant_1_joined_at as string | null;
-            }
-            if (row.participant_2_joined_at !== undefined) {
-              next.participant_2_joined_at = row.participant_2_joined_at as string | null;
-            }
-            if (row.participant_1_remote_seen_at !== undefined) {
-              next.participant_1_remote_seen_at = row.participant_1_remote_seen_at as string | null;
-            }
-            if (row.participant_2_remote_seen_at !== undefined) {
-              next.participant_2_remote_seen_at = row.participant_2_remote_seen_at as string | null;
-            }
-            if (row.participant_1_liked !== undefined) {
-              next.participant_1_liked = row.participant_1_liked as boolean | null;
-            }
-            if (row.participant_2_liked !== undefined) {
-              next.participant_2_liked = row.participant_2_liked as boolean | null;
-            }
-            if (row.participant_1_decided_at !== undefined) {
-              next.participant_1_decided_at = row.participant_1_decided_at as string | null;
-            }
-            if (row.participant_2_decided_at !== undefined) {
-              next.participant_2_decided_at = row.participant_2_decided_at as string | null;
-            }
-            if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
-            if (row.ended_reason !== undefined) next.ended_reason = row.ended_reason as string | null;
-            if (row.state !== undefined) next.state = row.state as string;
-            if (row.phase !== undefined) next.phase = row.phase as string;
-            if (row.date_started_at !== undefined) next.date_started_at = row.date_started_at as string | null;
-            if (row.entry_started_at !== undefined) next.entry_started_at = row.entry_started_at as string | null;
-            if (row.entry_grace_expires_at !== undefined) {
-              next.entry_grace_expires_at = row.entry_grace_expires_at as string | null;
-            }
-            if (row.date_extra_seconds !== undefined) {
-              next.date_extra_seconds =
-                typeof row.date_extra_seconds === 'number' ? row.date_extra_seconds : null;
-            }
-            const resolved = resolvePhaseAndTime(next);
-            setPhase(resolved.phase);
-            setTimeLeft(resolved.timeLeft);
-            return next;
-          });
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [sessionId, resolvePhaseAndTime]);
 
   const clearBroadcastGapRetryTimer = useCallback(() => {
     if (!broadcastGapRetryTimerRef.current) return;
@@ -569,18 +483,16 @@ export function useVideoDateSession(
             ? broadcastGapRecoveryRef.current
             : state;
         if (snapshot.ok === true) {
-          if (timelineV2.enabled) {
-            const timelineDecision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
-              clientNowMs: Date.now(),
-              expectedSessionId: sessionId,
-            });
-            if (
-              timelineDecision.action === 'accepted' &&
-              (sessionSeqRef.current === null || timelineDecision.timeline.seq >= sessionSeqRef.current)
-            ) {
-              timelineRef.current = timelineDecision.timeline;
-              setTimeline(timelineDecision.timeline);
-            }
+          const timelineDecision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
+            clientNowMs: Date.now(),
+            expectedSessionId: sessionId,
+          });
+          if (
+            timelineDecision.action === 'accepted' &&
+            (sessionSeqRef.current === null || timelineDecision.timeline.seq >= sessionSeqRef.current)
+          ) {
+            timelineRef.current = timelineDecision.timeline;
+            setTimeline(timelineDecision.timeline);
           }
           sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
           broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoverySuccess(latestState, snapshot.seq);
@@ -616,7 +528,7 @@ export function useVideoDateSession(
         }, delayMs);
       }
     },
-    [clearBroadcastGapRetryTimer, fetchSession, sessionId, timelineV2.enabled, userId],
+    [clearBroadcastGapRetryTimer, fetchSession, sessionId, userId],
   );
 
   const reconcileBroadcastEvent = useCallback(
@@ -662,7 +574,7 @@ export function useVideoDateSession(
   );
 
   useEffect(() => {
-    if (!sessionId || !userId || !broadcastV2.enabled) return;
+    if (!sessionId || !userId) return;
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId,
       onEvent: (event) => {
@@ -696,7 +608,7 @@ export function useVideoDateSession(
       clearBroadcastGapRetryTimer();
       broadcastGapRecoveryRef.current = null;
     };
-  }, [broadcastV2.enabled, clearBroadcastGapRetryTimer, reconcileBroadcastEvent, sessionId, userId]);
+  }, [clearBroadcastGapRetryTimer, reconcileBroadcastEvent, sessionId, userId]);
 
   return { session, partner, phase, timeLeft, timeline, loading, isRefreshing, error, refetch: fetchSession, retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery };
 }
@@ -1021,9 +933,7 @@ export async function markReconnectReturn(sessionId: string): Promise<void> {
 export async function endVideoDate(
   sessionId: string,
   reason?: string,
-  options?: EndVideoDateOptions
 ): Promise<boolean> {
-  const useDateTimeoutV2 = reason === 'date_timeout' && options?.dateTimeoutV2 === true;
   const args = {
     p_session_id: sessionId,
     p_action: 'end',
@@ -1032,15 +942,9 @@ export async function endVideoDate(
   vdbg('video_date_transition_before', { action: 'end', args });
   const result = await sendVideoDateSignalWithRetry({
     sessionId,
-    action: useDateTimeoutV2 ? 'phase3:date_timeout' : 'end',
+    action: 'end',
     operation: async (attempt, idempotencyKey) => {
-      const { data, error } =
-        useDateTimeoutV2
-          ? await supabase.rpc('video_session_date_timeout_v2' as never, {
-              p_session_id: sessionId,
-              p_idempotency_key: idempotencyKey,
-            } as never)
-          : await supabase.rpc('video_date_transition', args);
+      const { data, error } = await supabase.rpc('video_date_transition', args);
       vdbg('video_date_transition_after', {
         action: 'end',
         ok: !error,
@@ -1063,8 +967,7 @@ export async function endVideoDate(
           videoDateLifecycleRpcIndicatesTerminalStop(payload)
         );
       }
-      if (!useDateTimeoutV2) return true;
-      return payload?.already_ended === true || payload?.state === 'ended' || payload?.phase === 'ended';
+      return true;
     },
   });
   return result.ok;
@@ -1110,7 +1013,6 @@ export async function recordEntryDecision(
   sessionId: string,
   action: 'vibe' | 'pass',
   diagnostics?: VideoDateTransitionDiagnostics,
-  options?: RecordEntryDecisionOptions
 ): Promise<PersistEntryDecisionResult> {
   const actorUserId = diagnostics?.actorUserId ?? null;
   const expectedDecision = action === 'vibe';
@@ -1145,16 +1047,7 @@ export async function recordEntryDecision(
         currentPhase: diagnostics?.phase ?? null,
         args,
       });
-      const { data, error } =
-        action === 'vibe' && options?.continueEntryV2 === true
-          ? await supabase.rpc('video_session_continue_entry_v2' as never, {
-              p_session_id: args.p_session_id,
-              p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
-                args.p_session_id,
-                'continue_entry',
-              ),
-            } as never)
-          : await supabase.rpc('video_date_transition', args);
+      const { data, error } = await supabase.rpc('video_date_transition', args);
       return {
         data: data ?? null,
         error: error ? { code: error.code, message: error.message, name: error.name } : null,
@@ -1211,15 +1104,13 @@ export async function recordEntryDecision(
 export async function recordVibe(
   sessionId: string,
   diagnostics?: VideoDateTransitionDiagnostics,
-  options?: RecordEntryDecisionOptions
 ): Promise<PersistEntryDecisionResult> {
-  return recordEntryDecision(sessionId, 'vibe', diagnostics, options);
+  return recordEntryDecision(sessionId, 'vibe', diagnostics);
 }
 
 /** At entry end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
 export async function completeEntry(
   sessionId: string,
-  options?: CompleteEntryOptions
 ): Promise<CompleteEntryResult | null> {
   const args = {
     p_session_id: sessionId,
@@ -1232,15 +1123,7 @@ export async function completeEntry(
     ...entryTruthLogPayload(truthBefore),
   });
   vdbg('video_date_transition_before', { action: 'complete_entry', args });
-  const { data, error } = options?.entryAutoPromoteV2 === true
-    ? await supabase.rpc('video_session_entry_auto_promote_v2' as never, {
-        p_session_id: args.p_session_id,
-        p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
-          args.p_session_id,
-          'entry_auto_promote',
-        ),
-      } as never)
-    : await supabase.rpc('video_date_transition', args);
+  const { data, error } = await supabase.rpc('video_date_transition', args);
   const truthAfter = await fetchVideoSessionDateEntryTruth(sessionId);
   vdbg('video_date_transition_after', {
     action: 'complete_entry',
@@ -1290,14 +1173,6 @@ export async function updateParticipantStatus(eventId: string, status: ClientWri
   const { error } = await supabase.rpc('update_participant_status', {
     p_event_id: eventId,
     p_status: status,
-  });
-  return !error;
-}
-
-/** Server-stamped event registration heartbeat; does not alter queue_status. */
-export async function markEventParticipantHeartbeat(eventId: string): Promise<boolean> {
-  const { error } = await supabase.rpc('mark_event_participant_heartbeat', {
-    p_event_id: eventId,
   });
   return !error;
 }
@@ -1605,40 +1480,19 @@ export async function spendVideoDateCreditExtension(
   sessionId: string,
   creditType: 'extra_time' | 'extended_vibe',
   idempotencyKey?: string,
-  options?: SpendVideoDateCreditExtensionOptions
 ): Promise<SpendVideoDateCreditExtensionResult> {
   const key =
     idempotencyKey ??
-    (options?.extensionMutualV2 === true
-      ? buildVideoDateMutualExtensionIdempotencyKey(
-          sessionId,
-          creditType,
-          `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        )
-      : options?.extensionV2 === true
-        ? buildVideoDateExtensionIdempotencyKey(
-          sessionId,
-          creditType,
-          `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        )
-        : undefined);
-  const { data, error } = options?.extensionMutualV2 === true
-    ? await supabase.rpc('video_session_request_extension_v2' as never, {
-        p_session_id: sessionId,
-        p_credit_type: creditType,
-        ...(key ? { p_idempotency_key: key } : {}),
-      } as never)
-    : options?.extensionV2 === true
-      ? await supabase.rpc('video_session_extend_date_v2' as never, {
-        p_session_id: sessionId,
-        p_credit_type: creditType,
-        ...(key ? { p_idempotency_key: key } : {}),
-      } as never)
-      : await supabase.rpc('spend_video_date_credit_extension', {
-          p_session_id: sessionId,
-          p_credit_type: creditType,
-          ...(key ? { p_idempotency_key: key } : {}),
-        });
+    buildVideoDateMutualExtensionIdempotencyKey(
+      sessionId,
+      creditType,
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+  const { data, error } = await supabase.rpc('video_session_request_extension_v2' as never, {
+    p_session_id: sessionId,
+    p_credit_type: creditType,
+    ...(key ? { p_idempotency_key: key } : {}),
+  } as never);
   if (error) {
     return { ok: false, error: 'rpc_transport' };
   }

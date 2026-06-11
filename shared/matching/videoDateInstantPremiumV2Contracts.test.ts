@@ -94,7 +94,7 @@ test("deck buffer and top-up rules remain the shipped 5/2 server-dealt contract"
 
 test("web and native lobbies prefetch leading deck media, track paint/cache/top-up, and refetch stale deck state", () => {
   for (const source of [webLobby, nativeLobby]) {
-    assert.match(source, /useFeatureFlag\(\s*["']video_date\.deck_prefetch_polish_v2["']\s*,?\s*\)/);
+    assert.doesNotMatch(source, /useFeatureFlag\(\s*["']video_date\./);
     assert.doesNotMatch(source, /deck_optimistic_v1|isFeatureFlagEnabledWithAlias/);
     assert.match(source, /getVideoDateDeckPrefetchItems\(sortedProfiles\)/);
     assert.match(source, /video_date_deck_prefetch_cache_hit/);
@@ -123,16 +123,14 @@ test("web and native lobbies prefetch leading deck media, track paint/cache/top-
 
 test("web and native lobbies use timeline v2 plus private active-session Broadcast with legacy fallbacks", () => {
   for (const source of [webLobby, nativeLobby]) {
-    assert.match(source, /useFeatureFlag\(\s*["']video_date\.lobby_timeline_v2["']\s*,?\s*\)/);
     assert.match(source, /requestAnimationFrame/);
-    assert.match(source, /setInterval/);
     assert.match(source, /createVideoDateSessionChannel/);
     assert.match(source, /resolveVideoDateSessionSeqDecision/);
     assert.match(source, /resolveVideoDateTimelineCountdown/);
     assert.match(source, /ready_gate_both_ready/);
-    assert.match(source, /lobbyTimelineV2\.enabled\s*&&\s*lobbyBroadcastSessionId/);
+    assert.doesNotMatch(source, /lobbyTimelineV2/);
   }
-  assert.match(nativeLobby, /useCountdown\(\s*eventEndTime,\s*!lobbyTimelineV2\.enabled,\s*\)/);
+  assert.doesNotMatch(nativeLobby, /useCountdown\(/);
   assert.match(nativeLobby, /formatEventCountdown\(eventEndTimeMs, lobbyClockMs\)/);
 });
 
@@ -149,10 +147,9 @@ test("post-date instant-next prestage and optimistic verdict shortcuts are remov
 
 test("resilience v2 improves reconnect UI and applies Daily adaptation only behind capability checks", () => {
   for (const source of [webVideoDate, nativeVideoDate]) {
-    assert.match(source, /useFeatureFlag\(\s*["']video_date\.resilience_v2["']\s*,?\s*\)/);
     assert.match(source, /video_date_resilience_low_quality_mode/);
     assert.match(source, /networkTier|netQualityTier/);
-    assert.match(source, /resilienceV2=\{resilienceV2\.enabled\}/);
+    assert.doesNotMatch(source, /resilienceV2=\{/);
   }
   for (const source of [webVideoCall, nativeVideoDate]) {
     assert.match(source, /video_date_resilience_daily_adaptation/);
@@ -160,7 +157,7 @@ test("resilience v2 improves reconnect UI and applies Daily adaptation only behi
     assert.match(source, /updateReceiveSettings/);
   }
   for (const source of [webReconnectOverlay, nativeReconnectOverlay]) {
-    assert.match(source, /resilienceV2/);
+    assert.doesNotMatch(source, /resilienceV2/);
     assert.match(source, /networkTier/);
     assert.match(source, /backdropImageUrl/);
     assert.match(source, /Audio priority mode/);
@@ -169,11 +166,11 @@ test("resilience v2 improves reconnect UI and applies Daily adaptation only behi
   }
   assert.match(webVideoDate, /captureRemoteFrameSnapshot/);
   assert.match(webVideoDate, /video_date_resilience_last_frame_snapshot/);
-  assert.match(nativeVideoDate, /backdropImageUrl=\{resilienceV2\.enabled \? partnerAvatarUri : null\}/);
+  assert.match(nativeVideoDate, /backdropImageUrl=\{partnerAvatarUri\}/);
 });
 
 test("Daily call continuity is explicit: web same-session remount, native gated warm handoff", () => {
-  assert.match(flags, /"video_date\.daily_call_singleton_v2"/);
+  assert.doesNotMatch(flags, /"video_date\.daily_call_singleton_v2"/);
   assert.match(dailySingletonMatchEtaMigration, /'video_date\.daily_call_singleton_v2', false, 0/);
   assert.doesNotMatch(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
   assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(entryTruth\)/);
@@ -282,10 +279,9 @@ test("new instant premium flags are default-off", () => {
     "video_date.broadcast_batched_v2",
     "video_date.deck_optimistic_v1",
   ];
-  for (const flag of clientFlags) {
-    assert.match(flags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
-  }
-  for (const flag of seededButNotClient) {
+  // PR 6 flag freeze: every client-read key is hard-coded and removed from the
+  // client flag list; the DB seed migrations remain historical truth.
+  for (const flag of [...clientFlags, ...seededButNotClient]) {
     assert.doesNotMatch(flags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   }
   for (const flag of [...clientFlags, ...seededButNotClient]) {

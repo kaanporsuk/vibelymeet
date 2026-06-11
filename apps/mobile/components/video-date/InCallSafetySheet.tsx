@@ -42,7 +42,6 @@ type Props = {
   onClose: () => void;
   reportedUserId: string | null;
   sessionId?: string | null;
-  safetyV2?: boolean;
   onReportOnlySuccess?: (outcome: VideoDateSafetySubmitOutcome) => void | Promise<void>;
   onEndAfterReport: () => void | Promise<void>;
   onServerEndedAfterReport?: (
@@ -56,7 +55,6 @@ export function InCallSafetySheet({
   onClose,
   reportedUserId,
   sessionId,
-  safetyV2 = false,
   onReportOnlySuccess,
   onEndAfterReport,
   onServerEndedAfterReport,
@@ -95,7 +93,7 @@ export function InCallSafetySheet({
     const trimmedDetails = details.trim() || null;
     let result: SubmitVideoDateSafetyReportRpcResult = { ok: false, error: 'Could not send report. Try again.' };
     try {
-      if (safetyV2 && sessionId) {
+      if (sessionId) {
         const payloadSignature = JSON.stringify({
           reason,
           details: trimmedDetails,
@@ -175,7 +173,7 @@ export function InCallSafetySheet({
     });
     reset();
     onClose();
-    if (safetyV2 && result.ended) {
+    if (result.ended) {
       await onServerEndedAfterReport?.(result, outcome);
       return;
     }

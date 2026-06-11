@@ -37,7 +37,6 @@ import {
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
 } from '@/lib/dateEntryTransitionLatch';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
@@ -391,13 +390,13 @@ function resolveNotificationHref(
 async function reconcileHrefWithRegistration(
   href: string,
   userId: string,
-  options?: { snapshotRecoveryV2?: boolean; allowOneShotSideEffects?: boolean },
+  options?: { allowOneShotSideEffects?: boolean },
 ): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
   if (!m) return href as Href;
   const sid = m[1];
 
-  if (options?.snapshotRecoveryV2 === true) {
+  {
     const snapshot = await fetchVideoDateSnapshot(sid, { includeToken: false });
     const recovery = adviseVideoDateSnapshotRecovery(snapshot, {
       expectedSessionId: sid,
@@ -611,9 +610,6 @@ export function NotificationRouteTracker() {
 
 export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
-  const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
-  const multiDeviceDedupV2 = useFeatureFlag('video_date.multi_device_dedup_v2');
-  const multiDeviceDedupEnabled = multiDeviceDedupV2.enabled;
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
   const entryReady = isEntryReadyForNotificationDeepLink(
@@ -639,7 +635,6 @@ export function NotificationDeepLinkHandler() {
       let href: Href = pending.path as Href;
       try {
         href = await reconcileHrefWithRegistration(pending.path, user.id, {
-          snapshotRecoveryV2: snapshotV2.enabled,
           allowOneShotSideEffects: pending.allowOneShotSideEffects,
         });
       } catch (e) {
@@ -656,7 +651,7 @@ export function NotificationDeepLinkHandler() {
         console.warn('[Vibely][push][deeplink] pending navigation failed', e);
       }
     });
-  }, [snapshotV2.enabled, user?.id, entryReady]);
+  }, [user?.id, entryReady]);
 
   useEffect(() => {
     const onClick = (event: unknown) => {
@@ -747,7 +742,6 @@ export function NotificationDeepLinkHandler() {
         let nextHref: Href = pathStr as Href;
         try {
           nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
-            snapshotRecoveryV2: snapshotV2.enabled,
             allowOneShotSideEffects,
           });
         } catch (e) {
@@ -780,7 +774,7 @@ export function NotificationDeepLinkHandler() {
       try {
         notification = event.getNotification();
         raw = notification.additionalData as Record<string, unknown> | undefined;
-        hasDispatchGroup = multiDeviceDedupEnabled && hasDispatchGroupPayload(raw);
+        hasDispatchGroup = hasDispatchGroupPayload(raw);
         const chatPeerProfileId =
           normalizeNotificationRouteSegment(raw?.sender_id) ??
           normalizeNotificationRouteSegment(raw?.other_user_id);
@@ -813,7 +807,7 @@ export function NotificationDeepLinkHandler() {
                 : typeof (notification as unknown as { notificationID?: unknown }).notificationID === 'string'
                   ? String((notification as unknown as { notificationID?: unknown }).notificationID)
                   : null;
-            if (multiDeviceDedupEnabled) {
+            {
               const ack = await ackNotificationDispatchFromPayload(raw, 'native_foreground_display', providerNotificationId);
               if (ack.dispatchGroupId && ack.firstAck === false) {
                 rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_dispatch_ack', {
@@ -845,7 +839,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [multiDeviceDedupEnabled, snapshotV2.enabled, user?.id, entryReady]);
+  }, [user?.id, entryReady]);
 
   return null;
 }

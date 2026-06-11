@@ -14,7 +14,6 @@ type Props = {
   graceTimeLeft: number;
   mode?: 'partner_away' | 'network_interrupted';
   networkTier?: 'good' | 'fair' | 'poor';
-  resilienceV2?: boolean;
   backdropImageUrl?: string | null;
 };
 
@@ -24,7 +23,6 @@ export function ReconnectionOverlay({
   graceTimeLeft,
   mode = 'partner_away',
   networkTier = 'good',
-  resilienceV2 = false,
   backdropImageUrl = null,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -58,7 +56,7 @@ export function ReconnectionOverlay({
         <View style={styles.countdown}>
           <Text style={[styles.countdownNum, { color: theme.text }]}>{graceTimeLeft}s</Text>
         </View>
-        {resilienceV2 && networkTier !== 'good' ? (
+        {networkTier !== 'good' ? (
           <View style={[styles.resiliencePill, { borderColor: theme.border }]}>
             <Text style={[styles.resilienceText, { color: theme.mutedForeground }]}>
               {networkTier === 'poor' ? 'Audio priority mode' : 'Stabilizing video'}

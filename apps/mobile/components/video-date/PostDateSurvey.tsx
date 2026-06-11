@@ -19,7 +19,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { typography, spacing, radius, shadows } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
@@ -54,7 +53,6 @@ import {
   POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS,
   confirmationResultFromVerdictBroadcast,
   derivePostDateSurveyStepFromVerdict,
-  isVideoDateVerdictConfirmEnabled,
   normalizePostDateVerdictConfirmationResult,
   type PostDateVerdictUiState,
 } from '../../../../shared/matching/postDateVerdictConfirmation';
@@ -226,8 +224,6 @@ export function PostDateSurvey({
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const microVerdictV2 = useFeatureFlag('video_date.micro_verdict_v2');
-  const verdictConfirmV2 = useFeatureFlag('video_date.verdict_confirm_v2');
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
   const [verdictUiState, setVerdictUiState] = useState<PostDateVerdictUiState>('idle');
@@ -276,11 +272,6 @@ export function PostDateSurvey({
   const safetySaveInFlightRef = useRef(false);
   const safetyReportInFlightRef = useRef(false);
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
-  const verdictConfirmEnabled = useMemo(
-    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2),
-    [verdictConfirmV2],
-  );
-
   const clearVerdictConfirmTimeout = useCallback(() => {
     if (verdictConfirmTimeoutRef.current) {
       clearTimeout(verdictConfirmTimeoutRef.current);
@@ -394,7 +385,7 @@ export function PostDateSurvey({
   }, [resolvePendingVerdictConfirm, sessionId]);
 
   useEffect(() => {
-    if (!sessionId || !userId || !verdictConfirmEnabled) return undefined;
+    if (!sessionId || !userId) return undefined;
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId,
       onEvent: (event: VideoDateSessionBroadcastEvent) => {
@@ -409,7 +400,7 @@ export function PostDateSurvey({
     return () => {
       subscription.unsubscribe();
     };
-  }, [resolvePendingVerdictConfirm, sessionId, userId, verdictConfirmEnabled]);
+  }, [resolvePendingVerdictConfirm, sessionId, userId]);
 
   useEffect(() => {
     return () => {
@@ -419,10 +410,10 @@ export function PostDateSurvey({
   }, [clearVerdictConfirmTimeout, resolvePendingVerdictConfirm]);
 
   useEffect(() => {
-    if (!microVerdictV2.enabled || step !== 'verdict') return undefined;
+    if (step !== 'verdict') return undefined;
     const interval = setInterval(() => setMicroVerdictNowMs(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [microVerdictV2.enabled, step]);
+  }, [step]);
 
   const microVerdictRemainingSeconds = useMemo(
     () => getVideoDateMicroVerdictRemainingSeconds(verdictOpenedAtMsRef.current, microVerdictNowMs),
@@ -838,7 +829,7 @@ export function PostDateSurvey({
         return;
       }
       setVerdictRetryable(false);
-      const confirmedResult = verdictConfirmEnabled ? await waitForVerdictConfirmation(result) : result;
+      const confirmedResult = await waitForVerdictConfirmation(result);
       if (!confirmedResult) {
         setVerdictRetryable(true);
         setVerdictError("Couldn't confirm your answer. Tap to retry.");
@@ -1043,18 +1034,16 @@ export function PostDateSurvey({
       });
       return false;
     }
-    if (verdictConfirmEnabled) {
-      const confirmed = await waitForVerdictConfirmation(result);
-      if (!confirmed) {
-        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
-          platform: 'native',
-          session_id: sessionId,
-          event_id: eventId,
-          reason: 'report_pass_confirmation_failed',
-          source: 'report_before_verdict',
-        });
-        return false;
-      }
+    const confirmed = await waitForVerdictConfirmation(result);
+    if (!confirmed) {
+      trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        reason: 'report_pass_confirmation_failed',
+        source: 'report_before_verdict',
+      });
+      return false;
     }
     if (!(await confirmActorFeedbackRow(false, 'report_before_verdict'))) {
       return false;
@@ -1412,14 +1401,12 @@ export function PostDateSurvey({
           <Text style={[styles.verdictSub, { color: theme.mutedForeground }]}>
             If you both choose Vibe, the match opens. Otherwise, this stays quiet.
           </Text>
-          {microVerdictV2.enabled ? (
-            <Text
-              style={[styles.microVerdictText, { color: theme.mutedForeground }]}
-              accessibilityLiveRegion="polite"
-            >
-              {getVideoDateMicroVerdictCopy(microVerdictRemainingSeconds)}
-            </Text>
-          ) : null}
+          <Text
+            style={[styles.microVerdictText, { color: theme.mutedForeground }]}
+            accessibilityLiveRegion="polite"
+          >
+            {getVideoDateMicroVerdictCopy(microVerdictRemainingSeconds)}
+          </Text>
 
           {verdictError ? (
             <View style={[styles.errorWrap, styles.verdictErrorWrap]}>

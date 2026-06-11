@@ -29,9 +29,9 @@ test("verdict confirmation flags and v3 RPC contract are additive and default-of
   for (const flag of ["video_date.verdict_confirm_v2", "video_date.verdict_confirm_v1"]) {
     assert.match(migration, new RegExp(`'${flag}',\\s*false,\\s*0`));
   }
-  // Only the canonical v2 flag remains client-declared; the v1 alias key was
-  // retired with the alias machinery on 2026-06-10.
-  assert.match(flags, /"video_date\.verdict_confirm_v2"/);
+  // PR 6 flag freeze: verdict confirmation is hard-coded on; neither key is
+  // client-declared any longer.
+  assert.doesNotMatch(flags, /"video_date\.verdict_confirm_v2"/);
   assert.doesNotMatch(flags, /"video_date\.verdict_confirm_v1"/);
 
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.submit_post_date_verdict_v3/);
@@ -131,9 +131,8 @@ test("post-date mutual match notifications carry per-recipient peer routing data
 
 test("web and native surveys gate optimistic advancement behind shared confirmation", () => {
   for (const source of [webSurvey, nativeSurvey]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v2["']\)/);
+    assert.doesNotMatch(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v2["']\)/);
     assert.doesNotMatch(source, /verdict_confirm_v1/);
-    assert.match(source, /isVideoDateVerdictConfirmEnabled/);
     assert.match(source, /type PostDateVerdictUiState/);
     for (const state of ["idle", "submitting", "confirmed", "awaiting_partner", "retryable_failed"]) {
       assert.match(source, new RegExp(`["']${state}["']`));
@@ -154,10 +153,10 @@ test("web and native surveys gate optimistic advancement behind shared confirmat
       source,
       /verdictConfirmTimeoutRef\.current = (?:window\.)?setTimeout\(\(\) => \{[\s\S]+confirmVerdictWithServerNextSurface\(result\)/,
     );
-    assert.match(source, /const confirmedResult = verdictConfirmEnabled \? await waitForVerdictConfirmation\(result\) : result/);
+    assert.match(source, /const confirmedResult = await waitForVerdictConfirmation\(result\)/);
     assert.doesNotMatch(source, /postDateInstantNext|canOptimisticallyAdvanceVerdict|optimisticStep/);
     const verdictSubmitBlock =
-      source.match(/const confirmedResult = verdictConfirmEnabled[\s\S]+?applyConfirmedVerdictStep\(confirmedResult\);/)?.[0] ?? "";
+      source.match(/const confirmedResult = await waitForVerdictConfirmation[\s\S]+?applyConfirmedVerdictStep\(confirmedResult\);/)?.[0] ?? "";
     assert.match(verdictSubmitBlock, /const feedbackRowConfirmed = await confirmActorFeedbackRow\(liked, ['"]verdict_submitted['"]\)/);
     assert.ok(
       verdictSubmitBlock.indexOf("waitForVerdictConfirmation") < verdictSubmitBlock.indexOf("confirmActorFeedbackRow"),

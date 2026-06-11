@@ -39,7 +39,6 @@ import {
 } from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useNonBlockingVideoDateReadiness } from "@/hooks/useVideoDateReadiness";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import { useActiveSession } from "@/hooks/useActiveSession";
@@ -483,16 +482,7 @@ const EventLobby = () => {
     eventId,
     enabled: lobbySideEffectsEnabled,
   });
-  const readinessV2 = useFeatureFlag("video_date.readiness_v2");
-  const deckPrefetchPolishV2 = useFeatureFlag(
-    "video_date.deck_prefetch_polish_v2",
-  );
-  const lobbyTimelineV2 = useFeatureFlag("video_date.lobby_timeline_v2");
-  const deckPrefetchPolishEnabled = deckPrefetchPolishV2.enabled;
-  useNonBlockingVideoDateReadiness(
-    eventId,
-    readinessV2.enabled && lobbySideEffectsEnabled,
-  );
+  useNonBlockingVideoDateReadiness(eventId, lobbySideEffectsEnabled);
 
   const lobbyBroadcastSessionId = scopedSessionId ?? activeSessionId;
   const activeSessionIdRef = useRef<string | null>(null);
@@ -621,10 +611,7 @@ const EventLobby = () => {
   useEffect(() => {
     setLobbyClockMs(Date.now());
     if (!eventEndTimeMs) return;
-    if (
-      lobbyTimelineV2.enabled &&
-      typeof window.requestAnimationFrame === "function"
-    ) {
+    if (typeof window.requestAnimationFrame === "function") {
       let rafId = 0;
       let lastSecond = -1;
       const tick = () => {
@@ -642,7 +629,7 @@ const EventLobby = () => {
     }
     const intervalId = setInterval(() => setLobbyClockMs(Date.now()), 1000);
     return () => clearInterval(intervalId);
-  }, [eventEndTimeMs, lobbyTimelineV2.enabled]);
+  }, [eventEndTimeMs]);
 
   const openReadyGateSession = useCallback(
     (sessionId: string, source: string) => {
@@ -748,14 +735,12 @@ const EventLobby = () => {
         sessionId,
         suppressUntilMs,
       );
-      if (readinessV2.enabled) {
-        void persistReadyGateSuppressionV2(sessionId, suppressUntilMs);
-      }
+      void persistReadyGateSuppressionV2(sessionId, suppressUntilMs);
       if (activeSessionIdRef.current === sessionId) {
         clearReadyGateSession("ready_gate_manual_exit_confirmed");
       }
     },
-    [clearReadyGateSession, readinessV2.enabled],
+    [clearReadyGateSession],
   );
 
   useEffect(() => {
@@ -1469,7 +1454,7 @@ const EventLobby = () => {
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
-    if (lobbyTimelineV2.enabled && lobbyBroadcastSessionId) return;
+    if (lobbyBroadcastSessionId) return;
     const handleVideoSessionChange = (
       payload: { new: Record<string, unknown> },
       source: "video_session_realtime" | "video_session_insert",
@@ -1482,7 +1467,7 @@ const EventLobby = () => {
       if (!isParticipant) return;
       const sessionId = typeof session.id === "string" ? session.id : null;
       if (!sessionId) return;
-      if (deckPrefetchPolishEnabled && !readyGatePressureActive) {
+      if (!readyGatePressureActive) {
         void queryClient.invalidateQueries({
           queryKey: ["event-deck", eventId, user.id],
         });
@@ -1600,9 +1585,7 @@ const EventLobby = () => {
     navigateToDateSession,
     openReadyGateSession,
     scheduleLobbyConvergenceRefresh,
-    deckPrefetchPolishEnabled,
     lobbyBroadcastSessionId,
-    lobbyTimelineV2.enabled,
     queryClient,
     readyGatePressureActive,
   ]);
@@ -1622,7 +1605,7 @@ const EventLobby = () => {
         event.sessionId,
         `broadcast_${event.kind}`,
       );
-      if (deckPrefetchPolishEnabled && !readyGatePressureActive) {
+      if (!readyGatePressureActive) {
         void queryClient.invalidateQueries({
           queryKey: ["event-deck", eventId, user.id],
         });
@@ -1633,7 +1616,6 @@ const EventLobby = () => {
       // the date handoff; the lobby no longer runs a competing prepare/navigate.
     },
     [
-      deckPrefetchPolishEnabled,
       eventId,
       lobbyBroadcastSessionId,
       queryClient,
@@ -1644,12 +1626,7 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    if (
-      !eventId ||
-      !user?.id ||
-      !lobbyTimelineV2.enabled ||
-      !lobbyBroadcastSessionId
-    ) {
+    if (!eventId || !user?.id || !lobbyBroadcastSessionId) {
       lobbyBroadcastSessionSeqRef.current = null;
       lobbyBroadcastSessionSeqSessionRef.current = null;
       return;
@@ -1691,13 +1668,12 @@ const EventLobby = () => {
   }, [
     eventId,
     lobbyBroadcastSessionId,
-    lobbyTimelineV2.enabled,
     reconcileLobbyBroadcastEvent,
     scheduleLobbyConvergenceRefresh,
     user?.id,
   ]);
 
-  const timelineCountdownTickMs = lobbyTimelineV2.enabled ? lobbyClockMs : null;
+  const timelineCountdownTickMs = lobbyClockMs;
 
   // Event countdown timer
   useEffect(() => {
@@ -1722,14 +1698,10 @@ const EventLobby = () => {
     };
 
     tick();
-    if (lobbyTimelineV2.enabled) return;
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
   }, [
     eventEndTimeMs,
     eventForLobbyGate,
     eventId,
-    lobbyTimelineV2.enabled,
     timelineCountdownTickMs,
   ]);
 
@@ -1761,25 +1733,6 @@ const EventLobby = () => {
     });
   }, [sortedProfiles.length]);
 
-  useEffect(() => {
-    if (
-      typeof window === "undefined" ||
-      deckPrefetchPolishEnabled ||
-      readyGatePressureActive
-    )
-      return;
-    for (const profile of sortedProfiles.slice(0, 3)) {
-      const src = deckCardUrl(
-        profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url,
-        profile.media_version,
-      );
-      if (!src) continue;
-      const image = new Image();
-      image.decoding = "async";
-      image.src = src;
-    }
-  }, [deckPrefetchPolishEnabled, readyGatePressureActive, sortedProfiles]);
-
   const deckPrefetchItems = useMemo(
     () =>
       getVideoDateDeckPrefetchItems(sortedProfiles)
@@ -1792,11 +1745,7 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    if (
-      !deckPrefetchPolishEnabled ||
-      readyGatePressureActive ||
-      typeof window === "undefined"
-    )
+    if (readyGatePressureActive || typeof window === "undefined")
       return;
     for (const item of deckPrefetchItems) {
       const src = item.url;
@@ -1875,7 +1824,6 @@ const EventLobby = () => {
     }
   }, [
     deckPrefetchItems,
-    deckPrefetchPolishEnabled,
     eventId,
     readyGatePressureActive,
   ]);
@@ -2045,9 +1993,7 @@ const EventLobby = () => {
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
       const paintStartedAt =
-        deckPrefetchPolishEnabled && typeof performance !== "undefined"
-          ? performance.now()
-          : null;
+        typeof performance !== "undefined" ? performance.now() : null;
       let remainingVisible = 0;
       let nextProfileAfterSwipe: DeckProfile | null = null;
       queryClient.setQueryData<EventDeckFetchResult>(
@@ -2077,7 +2023,7 @@ const EventLobby = () => {
         nextProfileAfterSwipe = fallbackNext[0] ?? null;
       }
       const shouldTopUp = shouldTopUpVideoDateDeck(remainingVisible);
-      if (deckPrefetchPolishEnabled) {
+      {
         trackEvent("video_date_deck_top_up_decision", {
           platform: "web",
           event_id: eventId,
@@ -2120,7 +2066,6 @@ const EventLobby = () => {
       }
     },
     [
-      deckPrefetchPolishEnabled,
       eventId,
       profiles,
       queryClient,

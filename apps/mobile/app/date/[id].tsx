@@ -40,7 +40,6 @@ import { BlurView } from "expo-blur";
 import { DailyMediaView } from "@daily-co/react-native-daily-js";
 import type { DailyParticipant } from "@daily-co/react-native-daily-js";
 import { useAuth } from "@/context/AuthContext";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { openPermissionSettings } from "@/lib/permissionSettings";
 import {
   useVideoDateSession,
@@ -107,7 +106,6 @@ import {
   videoDateTokenRefreshRetryAfterMs,
 } from "@clientShared/matching/videoDatePublicApi";
 import {
-  buildVideoDateExtensionIdempotencyKey,
   buildVideoDateMutualExtensionIdempotencyKey,
 } from "@clientShared/matching/videoDateTransitionCommands";
 import type { VideoDateSessionBroadcastEvent } from "@clientShared/matching/videoDateSessionChannel";
@@ -512,17 +510,6 @@ function summarizeSharedDailyError(error: unknown): string {
   if (error instanceof Error)
     return `${error.name || "Error"}: ${error.message}`;
   return String(error ?? "unknown");
-}
-
-function makeExtensionIdempotencyKey(
-  sessionId: string,
-  type: "extra_time" | "extended_vibe",
-): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return buildVideoDateExtensionIdempotencyKey(sessionId, type, random);
 }
 
 function makeMutualExtensionIdempotencyKey(
@@ -1222,26 +1209,6 @@ export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
-  const continueEntryV2 = useFeatureFlag(
-    "video_date.outbox_v2.continue_entry",
-  );
-  const entryAutoPromoteV2 = useFeatureFlag(
-    "video_date.outbox_v2.entry_auto_promote",
-  );
-  const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
-  const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
-  const extensionMutualV2 = useFeatureFlag("video_date.extension_mutual_v2");
-  const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
-  const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
-  const timelineV2 = useFeatureFlag("video_date.timeline_v2");
-  const multiDeviceV2 = useFeatureFlag("video_date.multi_device_v2");
-  const dailyCallSingletonV2 = useFeatureFlag(
-    "video_date.daily_call_singleton_v2",
-  );
-  const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
-  const dailyTokenRefreshV2 = useFeatureFlag(
-    "video_date.daily_token_refresh_v2",
-  );
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -3395,7 +3362,6 @@ export default function VideoDateScreen() {
             "daily_participant_left_transport_grace_started",
           );
           if (
-            dailyTokenRefreshV2.enabled &&
             shouldRefreshDailyTokenBeforeReconnect(
               dailyTokenExpiresAtRef.current,
             ) &&
@@ -3637,7 +3603,6 @@ export default function VideoDateScreen() {
       clearNativeRemoteRenderRemount,
       clearPartnerAwayAfterTransportGrace,
       cleanupTerminalDailyCall,
-      dailyTokenRefreshV2.enabled,
       detachCallListeners,
       releaseSharedCallIfOwned,
       endBootstrapTiming,
@@ -5382,7 +5347,6 @@ export default function VideoDateScreen() {
         const meetingStateBeforeCleanup = safeNativeDailyMeetingState(call);
         const shouldParkSingleton =
           cleanupMode === "preserve_active_handoff" &&
-          dailyCallSingletonV2.enabled &&
           !showFeedback &&
           !terminalSurveyHardStopRef.current &&
           phaseRef.current !== "ended" &&
@@ -5494,7 +5458,6 @@ export default function VideoDateScreen() {
       sessionId,
       eventId,
       user?.id,
-      dailyCallSingletonV2.enabled,
       showFeedback,
       clearFirstConnectWatchdog,
       clearDailyTokenRefreshTimer,
@@ -5568,9 +5531,7 @@ export default function VideoDateScreen() {
       if (dateWasEstablished) {
         let terminalConfirmed = false;
         if (sessionId) {
-          terminalConfirmed = await endVideoDate(sessionId, reason, {
-            dateTimeoutV2: dateTimeoutV2.enabled,
-          });
+          terminalConfirmed = await endVideoDate(sessionId, reason);
         }
         if (!terminalConfirmed) {
           terminalConfirmed = await fetchServerTerminalTruth();
@@ -5628,7 +5589,6 @@ export default function VideoDateScreen() {
     [
       cleanupForAbortWithoutServerEnd,
       sessionId,
-      dateTimeoutV2.enabled,
       fetchServerTerminalTruth,
       confirmNativeTerminalPostDateRecovery,
       refetchVideoSession,
@@ -6499,7 +6459,6 @@ export default function VideoDateScreen() {
   const claimNativeVideoDateSurface = useCallback(
     async (takeover = false): Promise<NativeVideoDateSurfaceClaimResult> => {
       if (
-        !multiDeviceV2.enabled ||
         !sessionId ||
         !user?.id ||
         showFeedback ||
@@ -6618,7 +6577,6 @@ export default function VideoDateScreen() {
       }
     },
     [
-      multiDeviceV2.enabled,
       nativeSurfaceClientReady,
       sessionId,
       setSurfaceClaimBlockedState,
@@ -6680,7 +6638,6 @@ export default function VideoDateScreen() {
   useEffect(() => {
     const profileId = user?.id ?? null;
     const activeVideoSurface =
-      multiDeviceV2.enabled &&
       Boolean(sessionId) &&
       Boolean(profileId) &&
       nativeSurfaceClientReady &&
@@ -6760,7 +6717,6 @@ export default function VideoDateScreen() {
     isConnecting,
     joining,
     localInDailyRoom,
-    multiDeviceV2.enabled,
     nativeSurfaceClientReady,
     phase,
     sessionId,
@@ -6781,9 +6737,6 @@ export default function VideoDateScreen() {
           {
             actorUserId: user.id,
             phase: phaseRef.current,
-          },
-          {
-            continueEntryV2: continueEntryV2.enabled,
           },
         );
         vdbg("entry_decision_ui_result", {
@@ -6855,7 +6808,6 @@ export default function VideoDateScreen() {
     [
       sessionId,
       user?.id,
-      continueEntryV2.enabled,
       refetchVideoSession,
       clearEntryGraceState,
       handleCallEnd,
@@ -6942,24 +6894,20 @@ export default function VideoDateScreen() {
         return { ok: false, userMessage: "", silent: true };
       }
       extensionSpendInFlightRef.current = true;
-      const useMutualExtension = extensionMutualV2.enabled;
       const retry =
-        extensionSpendRetryRef.current?.type === type &&
-        extensionSpendRetryRef.current.mutual === useMutualExtension
+        extensionSpendRetryRef.current?.type === type
           ? extensionSpendRetryRef.current
           : null;
       const idempotencyKey =
         retry?.key ??
-        (useMutualExtension
-          ? makeMutualExtensionIdempotencyKey(
-              sessionId ?? "unknown-session",
-              type,
-            )
-          : makeExtensionIdempotencyKey(sessionId ?? "unknown-session", type));
+        makeMutualExtensionIdempotencyKey(
+          sessionId ?? "unknown-session",
+          type,
+        );
       extensionSpendRetryRef.current = {
         type,
         key: idempotencyKey,
-        mutual: useMutualExtension,
+        mutual: true,
       };
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_ATTEMPTED, {
         platform: "native",
@@ -6967,11 +6915,7 @@ export default function VideoDateScreen() {
         event_id: eventId,
         credit_type: type,
       });
-      const extensionMode = useMutualExtension
-        ? "mutual_v2"
-        : extensionV2.enabled
-          ? "single_v2"
-          : "legacy";
+      const extensionMode = "mutual_v2";
       const extensionRefreshStartedAt = Date.now();
       const trackExtensionRefreshCheckpoint = (
         checkpoint:
@@ -6997,7 +6941,7 @@ export default function VideoDateScreen() {
             extension_refresh_ms: durationMs,
             extension_mode: extensionMode,
             credit_type: type,
-            extension_mutual: useMutualExtension,
+            extension_mutual: true,
             ...(extra ?? {}),
           },
         });
@@ -7032,10 +6976,6 @@ export default function VideoDateScreen() {
           sessionId,
           type,
           idempotencyKey,
-          {
-            extensionV2: extensionV2.enabled,
-            extensionMutualV2: useMutualExtension,
-          },
         );
         if (result.ok) {
           extensionSpendRetryRef.current = null;
@@ -7169,8 +7109,6 @@ export default function VideoDateScreen() {
       user?.id,
       sessionId,
       eventId,
-      extensionMutualV2.enabled,
-      extensionV2.enabled,
       refetchVideoSession,
       session?.date_extra_seconds,
       session?.date_started_at,
@@ -7499,8 +7437,7 @@ export default function VideoDateScreen() {
   useEffect(() => {
     const userId = user?.id ?? null;
     const currentPhase = phaseRef.current;
-    const waitingForNativeSurfaceClientIdentity =
-      multiDeviceV2.enabled && !nativeSurfaceClientReady;
+    const waitingForNativeSurfaceClientIdentity = !nativeSurfaceClientReady;
     const initialGuard = {
       hasSessionId: Boolean(sessionId),
       hasUserId: Boolean(userId),
@@ -7844,8 +7781,7 @@ export default function VideoDateScreen() {
       }
       const sharedCall = sharedDailyCallEntry;
       if (sharedCall && sharedCall.sessionId === sessionId) {
-        const canReuseIdleSharedCall =
-          dailyCallSingletonV2.enabled && sharedCall.state === "idle";
+        const canReuseIdleSharedCall = sharedCall.state === "idle";
         if (canReuseIdleSharedCall) {
           vdbg("daily_call_singleton_reuse_same_session_idle_deferred", {
             sessionId,
@@ -9234,7 +9170,6 @@ export default function VideoDateScreen() {
       }
 
       let idleSingletonEntry =
-        dailyCallSingletonV2.enabled &&
         sharedDailyCallEntry &&
         sharedDailyCallEntry.state === "idle"
           ? sharedDailyCallEntry
@@ -10691,7 +10626,6 @@ export default function VideoDateScreen() {
     session?.ended_at,
     dateEntryPermissionEligible,
     nativeSurfaceClientReady,
-    multiDeviceV2.enabled,
     sessionError,
     requestPermissions,
     clearFirstConnectWatchdog,
@@ -10832,9 +10766,7 @@ export default function VideoDateScreen() {
           trigger: "server_deadline",
           ctaTelemetry,
         });
-        const result = await completeEntry(sessionId, {
-          entryAutoPromoteV2: entryAutoPromoteV2.enabled,
-        });
+        const result = await completeEntry(sessionId);
         if (phaseRef.current !== "entry") return;
 
         if (!result) {
@@ -10968,7 +10900,6 @@ export default function VideoDateScreen() {
       openNativePostDateSurveyFromTerminalTruth,
       refetchVideoSession,
       sessionId,
-      entryAutoPromoteV2.enabled,
       showWarmupChoiceNotice,
     ],
   );
@@ -10985,7 +10916,6 @@ export default function VideoDateScreen() {
 
     const candidateTimeline = serverTimeline;
     const timelineForEntry =
-      timelineV2.enabled &&
       candidateTimeline !== null &&
       candidateTimeline.sessionId === sessionId &&
       candidateTimeline.phase === "entry"
@@ -11025,7 +10955,6 @@ export default function VideoDateScreen() {
     sessionId,
     serverTimeline,
     showFeedback,
-    timelineV2.enabled,
   ]);
 
   useEffect(() => {
@@ -11039,7 +10968,6 @@ export default function VideoDateScreen() {
     if (showFeedback || phase === "ended") return;
     const candidateTimeline = serverTimeline;
     const timelineForCountdown =
-      timelineV2.enabled &&
       candidateTimeline !== null &&
       candidateTimeline.sessionId === sessionId &&
       candidateTimeline.phase === phase &&
@@ -11103,7 +11031,6 @@ export default function VideoDateScreen() {
     session?.date_extra_seconds,
     session?.date_started_at,
     entryStartedAtIso,
-    timelineV2.enabled,
   ]);
 
   const toggleMute = useCallback(() => {
@@ -11476,12 +11403,7 @@ export default function VideoDateScreen() {
     phase === "entry" && entryTimerStarted && displayTimeLeft <= 10;
 
   useEffect(() => {
-    if (
-      !resilienceV2.enabled ||
-      !sessionId ||
-      showFeedback ||
-      netQualityTier === "good"
-    )
+    if (!sessionId || showFeedback || netQualityTier === "good")
       return;
     const key = `${sessionId}:${netQualityTier}`;
     if (resilienceModeTrackedKeyRef.current === key) return;
@@ -11493,10 +11415,10 @@ export default function VideoDateScreen() {
       network_tier: netQualityTier,
       adaptation: "ui_and_daily_capability_checked",
     });
-  }, [eventId, netQualityTier, resilienceV2.enabled, sessionId, showFeedback]);
+  }, [eventId, netQualityTier, sessionId, showFeedback]);
 
   useEffect(() => {
-    if (!resilienceV2.enabled || !sessionId || showFeedback) return;
+    if (!sessionId || showFeedback) return;
     if (!localInDailyRoom) {
       resilienceDailyAdaptationKeyRef.current = null;
       return;
@@ -11554,7 +11476,6 @@ export default function VideoDateScreen() {
     eventId,
     localInDailyRoom,
     netQualityTier,
-    resilienceV2.enabled,
     sessionId,
     showFeedback,
   ]);
@@ -12769,8 +12690,7 @@ export default function VideoDateScreen() {
           graceTimeLeft={reconnectionGrace}
           mode="partner_away"
           networkTier={netQualityTier}
-          resilienceV2={resilienceV2.enabled}
-          backdropImageUrl={resilienceV2.enabled ? partnerAvatarUri : null}
+          backdropImageUrl={partnerAvatarUri}
         />
       )}
 
@@ -13040,7 +12960,6 @@ export default function VideoDateScreen() {
             extraTimeCredits={credits.extraTime}
             extendedVibeCredits={credits.extendedVibe}
             onExtend={handleExtend}
-            mutualMode={extensionMutualV2.enabled}
             pendingPartnerRequestType={pendingPartnerExtension?.type ?? null}
             isExtending={isExtending}
             onGetCredits={() => router.push("/settings/credits")}
@@ -13151,7 +13070,6 @@ export default function VideoDateScreen() {
         onClose={() => setShowInCallSafety(false)}
         reportedUserId={partnerId || null}
         sessionId={sessionId ?? null}
-        safetyV2={safetyV2.enabled || safetyAlwaysOnV2.enabled}
         onReportOnlySuccess={handleReportOnlySafetySuccess}
         onEndAfterReport={handleEndAfterInCallReport}
         onServerEndedAfterReport={handleServerEndedAfterInCallReport}

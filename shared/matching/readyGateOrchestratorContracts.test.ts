@@ -13,8 +13,6 @@ import {
 import {
   createReadyGateRealtimeSupervisor,
   getReadyGateRealtimeReconnectDelayMs,
-  isReadyGateResilientBroadcastEnabled,
-  isReadyGateResilientClockEnabled,
   READY_GATE_REALTIME_RECONNECT_DELAYS_MS,
   READY_GATE_REALTIME_RECONNECT_MAX_DELAY_MS,
   READY_GATE_REALTIME_RECOVERY_STABLE_MS,
@@ -39,11 +37,10 @@ test("Ready Gate realtime orchestrator uses bounded exponential resubscribe back
   );
 });
 
-test("Ready Gate resilience uses canonical v2 flags only (v1 alias retired)", () => {
-  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: true }), true);
-  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: false }), false);
-  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: true }), true);
-  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: false }), false);
+test("Ready Gate resilient clock/broadcast are frozen on (PR 6 flag freeze)", () => {
+  const supervisorSource = read("shared/matching/readyGateRealtimeSupervisor.ts");
+  assert.doesNotMatch(supervisorSource, /isReadyGateResilientClockEnabled/);
+  assert.doesNotMatch(supervisorSource, /isReadyGateResilientBroadcastEnabled/);
 });
 
 test("Ready Gate realtime telemetry names stay exact", () => {
@@ -257,7 +254,9 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
     assert.match(source, /phaseDeadlineAtMs/);
     assert.match(source, /clockSkewMs/);
     assert.match(source, /countdownDegraded/);
-    assert.match(source, /isReadyGateResilientClockEnabled/);
+    assert.doesNotMatch(source, /isReadyGateResilientClockEnabled/);
+    assert.doesNotMatch(source, /useFeatureFlag/);
+    assert.doesNotMatch(source, /postgres_changes/);
     assert.doesNotMatch(source, /ready_gate_resilient_clock_v1/);
     assert.match(source, /CLOSED/);
     assert.match(source, /const snapshot = await fetchVideoDateSnapshot\(sessionId, \{ includeToken: false \}\);\s+if \(activeReadyGateSessionIdRef\.current !== sessionId\) return/);
@@ -272,7 +271,7 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
   for (const source of [webOverlay, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /getReadyGateCountdownFromServerClock/);
     assert.match(source, /phaseDeadlineAtMs/);
-    assert.match(source, /readyGateClockEnabled/);
+    assert.doesNotMatch(source, /readyGateClockEnabled/);
     assert.match(source, /fallbackDeadlineMs/);
     assert.match(source, /readyGateOpenedAtMsRef\.current \+ GATE_TIMEOUT(?:_SEC)? \* 1000/);
     assert.doesNotMatch(source, /fallbackGateDeadlineMsRef/);
@@ -289,8 +288,8 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
   assert.match(webOverlay, /clearRealtimeDegradedWhenHealthy/);
   assert.doesNotMatch(webOverlay, /if \(!realtimeDegraded\) return;\s*setRealtimeDegraded\(false\)/);
   assert.match(webOverlay, /status === "SUBSCRIBED"/);
-  assert.match(webHook, /clearSource\("private_broadcast", "broadcast_disabled"\)/);
-  assert.match(nativeApi, /clearSource\('private_broadcast', 'broadcast_disabled'\)/);
+  assert.doesNotMatch(webHook, /clearSource\("private_broadcast", "broadcast_disabled"\)/);
+  assert.doesNotMatch(nativeApi, /clearSource\('private_broadcast', 'broadcast_disabled'\)/);
   assert.match(migration, /server_now_ms/);
   assert.match(migration, /serverNowMs/);
   assert.match(migration, /ready_gate_transition_20260524120000_clock_base/);

@@ -7,7 +7,6 @@ interface ReconnectionOverlayProps {
   graceTimeLeft: number;
   mode?: "partner_away" | "network_interrupted";
   networkTier?: "good" | "fair" | "poor";
-  resilienceV2?: boolean;
   backdropImageUrl?: string | null;
 }
 
@@ -17,7 +16,6 @@ export const ReconnectionOverlay = ({
   graceTimeLeft,
   mode = "partner_away",
   networkTier = "good",
-  resilienceV2 = false,
   backdropImageUrl = null,
 }: ReconnectionOverlayProps) => {
   const title =
@@ -81,7 +79,7 @@ export const ReconnectionOverlay = ({
               </span>
             </div>
 
-            {resilienceV2 && networkTier !== "good" && (
+            {networkTier !== "good" && (
               <div className="mx-auto inline-flex items-center rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[11px] font-medium text-white/70">
                 {networkTier === "poor" ? "Audio priority mode" : "Stabilizing video"}
               </div>

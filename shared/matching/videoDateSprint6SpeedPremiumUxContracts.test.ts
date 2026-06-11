@@ -111,7 +111,7 @@ test("Sprint 6 Daily route and media checkpoints remain present on web and nativ
 
 test("Sprint 6 deck/date prewarm remains active while post-survey instant-next prewarm is removed", () => {
   for (const source of [read("src/pages/EventLobby.tsx"), nativeLobby]) {
-    assert.match(
+    assert.doesNotMatch(
       source,
       /useFeatureFlag\(\s*["']video_date\.deck_prefetch_polish_v2["'],?\s*\)/,
     );

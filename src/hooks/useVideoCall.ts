@@ -99,9 +99,7 @@ interface UseVideoCallOptions {
   onPartnerTransientDisconnect?: () => void;
   onPartnerTransientRecover?: () => void;
   onTerminalSurveyTruth?: (source: string) => void;
-  resilienceV2?: boolean;
   dailyCallSingletonEligible?: boolean;
-  dailyTokenRefreshV2?: boolean;
 }
 
 /** Daily `network-quality-change` — surfaced as lightweight HUD, not toasts. */
@@ -1734,7 +1732,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
   useEffect(() => {
     const sessionId = options?.roomId ?? null;
-    if (!options?.resilienceV2 || !sessionId) return;
+    if (!sessionId) return;
     if (!isConnected) {
       resilienceReceiveSettingsKeyRef.current = null;
       return;
@@ -1751,7 +1749,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     const payload = {
       platform: "web",
       session_id: sessionId,
-      event_id: options.eventId ?? null,
+      event_id: options?.eventId ?? null,
       network_tier: networkTier,
       adaptation: mode,
     };
@@ -1793,7 +1791,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     isConnected,
     networkTier,
     options?.eventId,
-    options?.resilienceV2,
     options?.roomId,
   ]);
 
@@ -5917,7 +5914,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           optionsRef.current?.onPartnerTransientDisconnect?.();
           void syncReconnectOnce(reason);
           if (
-            optionsRef.current?.dailyTokenRefreshV2 === true &&
             !reason.startsWith("daily_token") &&
             shouldRefreshDailyTokenBeforeReconnect(roomData.token_expires_at) &&
             !dailyTokenRecoveryInFlightRef.current

@@ -73,12 +73,12 @@ test("PR 5.1 timeline reducer derives countdown from phaseDeadlineAt plus server
   assert.equal(mismatch.reason, "session_mismatch");
 });
 
-test("PR 5.2 web and native date surfaces use the timeline flag with fallback countdown intact", () => {
+test("PR 5.2 web and native date surfaces use the always-on timeline with fallback countdown intact", () => {
   for (const source of [webDate, nativeDate]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.timeline_v2["']\)/);
+    assert.doesNotMatch(source, /useFeatureFlag\(["']video_date\.timeline_v2["']\)/);
     assert.match(source, /resolveVideoDateTimelineCountdown/);
     assert.match(source, /resolveVideoDatePhaseCountdown/);
-    assert.match(source, /timelineV2\.enabled/);
+    assert.doesNotMatch(source, /timelineV2\.enabled/);
   }
   assert.match(webDate, /applyVideoDateTimelineSnapshot/);
   assert.match(webDate, /includeToken: false/);
@@ -86,11 +86,11 @@ test("PR 5.2 web and native date surfaces use the timeline flag with fallback co
   assert.match(webDate, /const countdown = useTimelineCountdown[\s\S]+resolveVideoDateTimelineCountdown/);
   assert.match(webDate, /timeline\.seq < sessionSeqRef\.current/);
   assert.match(webDate, /Math\.max\(\s*sessionSeqRef\.current \?\? 0,\s*snapshot\.seq,?\s*\)/);
-  assert.match(webDate, /if \(timelineV2\.enabled\) return;[\s\S]+timerDriftTrackingReadyRef/);
+  assert.doesNotMatch(webDate, /timerDriftTrackingReadyRef/);
   assert.match(nativeVideoDateApi, /applyVideoDateTimelineSnapshot/);
   assert.match(nativeVideoDateApi, /includeToken: false/);
   assert.match(nativeVideoDateApi, /expectedSessionId: sessionId/);
-  assert.match(nativeVideoDateApi, /if \(timelineV2\.enabled\)[\s\S]+applyVideoDateTimelineSnapshot/);
+  assert.match(nativeVideoDateApi, /applyVideoDateTimelineSnapshot\(snapshot, timelineRef\.current/);
   assert.match(nativeVideoDateApi, /currentSessionKeyRef/);
   assert.match(nativeVideoDateApi, /const legacyResolved = resolvePhaseAndTime\(s\)[\s\S]+setPhase\(legacyResolved\.phase\)[\s\S]+void \(async \(\) =>/);
   assert.match(nativeVideoDateApi, /decision\.timeline\.seq < sessionSeqRef\.current/);
@@ -105,10 +105,8 @@ test("Phase 5 early-continue entry is an explicit UX affordance on web and nativ
     assert.match(source, /Ready to continue/);
     assert.match(source, /Continue/);
   }
-  assert.match(webDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["']\s*,?\s*\)/);
-  assert.match(nativeDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["']\s*,?\s*\)/);
-  assert.match(webDate, /video_session_continue_entry_v2/);
-  assert.match(nativeVideoDateApi, /video_session_continue_entry_v2/);
+  assert.doesNotMatch(webDate, /video_session_continue_entry_v2/);
+  assert.doesNotMatch(nativeVideoDateApi, /video_session_continue_entry_v2/);
   assert.match(webDate, /action === "vibe"[\s\S]+setShowMutualToast\(true\)/);
   assert.match(nativeDate, /action === ['"]vibe['"][\s\S]+setShowMutualToast\(true\)/);
 });
@@ -159,7 +157,7 @@ test("PR 5.3 push and deep-link recovery share one snapshot decision helper", ()
   assert.match(nativeNotificationDeepLink, /adviseVideoDateSnapshotRecovery/);
   assert.match(nativeNotificationDeepLink, /fetchVideoDateSnapshot\(sid, \{ includeToken: false \}\)/);
   assert.match(nativeNotificationDeepLink, /expectedSessionId: sid/);
-  assert.match(nativeNotificationDeepLink, /snapshotRecoveryV2: snapshotV2\.enabled/);
+  assert.doesNotMatch(nativeNotificationDeepLink, /snapshotRecoveryV2/);
   assert.match(nativeNotificationDeepLink, /stale-ended recovery stays intact/);
   assert.doesNotMatch(timeline, /token|DAILY_API_KEY|meeting[_-]?token/i);
 });
@@ -313,7 +311,7 @@ test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () =>
   assert.match(webDupTabGuard, /p_takeover: true/);
   assert.match(webDate, /already open on another device/);
   assert.match(webDate, /Switch here only if you want this device to take over/);
-  assert.match(nativeDate, /useFeatureFlag\(['"]video_date\.multi_device_v2['"]\)/);
+  assert.doesNotMatch(nativeDate, /useFeatureFlag\(['"]video_date\.multi_device_v2['"]\)/);
   assert.match(nativeDate, /claim_video_date_surface/);
   assert.match(nativeDate, /p_takeover: takeover/);
   assert.match(nativeDate, /surface_claim_conflict/);

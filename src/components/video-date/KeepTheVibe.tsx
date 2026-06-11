@@ -14,7 +14,6 @@ interface KeepTheVibeProps {
   extraTimeCredits: number;
   extendedVibeCredits: number;
   onExtend: (minutes: number, type: "extra_time" | "extended_vibe") => Promise<VideoDateExtendOutcome>;
-  mutualMode?: boolean;
   pendingPartnerRequestType?: "extra_time" | "extended_vibe" | null;
   analyticsSessionId: string | undefined;
   analyticsEventId: string | undefined;
@@ -24,7 +23,6 @@ export const KeepTheVibe = ({
   extraTimeCredits,
   extendedVibeCredits,
   onExtend,
-  mutualMode = false,
   pendingPartnerRequestType = null,
   analyticsSessionId,
   analyticsEventId,
@@ -39,12 +37,12 @@ export const KeepTheVibe = ({
   const extraTimeCopy = resolveVideoDateExtensionCopy({
     type: "extra_time",
     state: pendingPartnerRequestType === "extra_time" ? "partner_pending" : "available",
-    mutualMode,
+    mutualMode: true,
   });
   const extendedVibeCopy = resolveVideoDateExtensionCopy({
     type: "extended_vibe",
     state: pendingPartnerRequestType === "extended_vibe" ? "partner_pending" : "available",
-    mutualMode,
+    mutualMode: true,
   });
   const noCreditsCopy = resolveVideoDateExtensionCopy({ state: "insufficient_credits" });
 
@@ -128,7 +126,7 @@ export const KeepTheVibe = ({
         const failedCopy = resolveVideoDateExtensionCopy({
           type,
           state: "failed",
-          mutualMode,
+          mutualMode: true,
           userMessage: outcome.userMessage,
         });
         toast.error(failedCopy.toastMessage ?? failedCopy.message);

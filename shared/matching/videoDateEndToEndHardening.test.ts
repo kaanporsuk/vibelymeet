@@ -1398,12 +1398,14 @@ test("old-client direct heartbeat timestamps are accepted but server-overwritten
 });
 
 test("web and native event heartbeats use server-stamped RPC", () => {
-  assert.match(webEventStatusHook, /rpc\("mark_event_participant_heartbeat"/);
+  // PR 6 flag freeze: readiness_v2 is hard-coded on, so both platforms send the
+  // server-stamped v2 heartbeat and the legacy heartbeat RPC call path is gone.
+  assert.match(webEventStatusHook, /recordVideoDateHeartbeatV2\(eventId/);
+  assert.doesNotMatch(webEventStatusHook, /mark_event_participant_heartbeat/);
   assert.doesNotMatch(webEventStatusHook, /last_active_at\s*:/);
   assert.doesNotMatch(webEventStatusHook, /\.from\("event_registrations"\)[\s\S]{0,240}\.update\(/);
-  assert.match(nativeVideoDateApi, /export async function markEventParticipantHeartbeat\(eventId: string\): Promise<boolean>/);
-  assert.match(nativeVideoDateApi, /rpc\('mark_event_participant_heartbeat'/);
-  assert.match(nativeEventStatusHook, /markEventParticipantHeartbeat\(eventId\)/);
+  assert.doesNotMatch(nativeVideoDateApi, /mark_event_participant_heartbeat/);
+  assert.match(nativeEventStatusHook, /recordVideoDateHeartbeatV2\(eventId/);
   assert.doesNotMatch(nativeEventStatusHook, /last_active_at\s*:/);
   assert.doesNotMatch(nativeEventStatusHook, /\.from\('event_registrations'\)[\s\S]{0,240}\.update\(/);
 });
@@ -2122,7 +2124,6 @@ test("web date route opens ended-session survey only when feedback is missing", 
   assert.match(webVideoDatePage, /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", id\)[\s\S]*\.eq\("user_id", user\.id\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\(\s*["']session_load_terminal["'],\s*sessionRow/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("timing_terminal"\)/);
-  assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("realtime_terminal", row\)/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\(\s*`\$\{source\}_sync_reconnect_terminal`/);
   assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\([\s\S]*"complete_entry_survey_required"/);
   assert.match(webVideoDatePage, /reconcileTerminalSurvey\("peer_wait_terminal_reconcile_initial"\)/);
@@ -2463,7 +2464,7 @@ test("native local date end waits for server terminal truth before survey", () =
   );
   assert.match(
     nativeVideoDateRoute,
-    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(\s*sessionId,\s*reason,[\s\S]*dateTimeoutV2: dateTimeoutV2\.enabled[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\(\s*["']Could not end date yet["'][\s\S]*return;[\s\S]*const terminalHandled = await confirmNativeTerminalPostDateRecovery\(\s*["']local_end_confirmed["']/s,
+    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(sessionId, reason\);[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\(\s*["']Could not end date yet["'][\s\S]*return;[\s\S]*const terminalHandled = await confirmNativeTerminalPostDateRecovery\(\s*["']local_end_confirmed["']/s,
   );
   assert.doesNotMatch(nativeVideoDateRoute, /if \(!recoveredSurvey\) setShowFeedback\(true\)/);
 });

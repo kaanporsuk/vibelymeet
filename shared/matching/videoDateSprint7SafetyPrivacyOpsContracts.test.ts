@@ -126,7 +126,7 @@ test("Sprint 7 safety actions are present in lobby/profile, in-call, and post-da
     assert.match(source, /buildVideoDateSafetyIdempotencyKey/);
     assert.match(source, /alsoBlock/);
     assert.match(source, /endSession: mode === ['"]end['"]/);
-    assert.match(source, /safetyV2 && sessionId/);
+    assert.doesNotMatch(source, /safetyV2/);
   }
 
   assert.match(webSurvey, /submitWebPostDateOutboxItem/);
