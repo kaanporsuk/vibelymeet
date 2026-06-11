@@ -1026,31 +1026,51 @@ BEGIN
     -- survey continuity.
     DECLARE
     v_result jsonb;
+
     v_session public.video_sessions%ROWTYPE;
+
     v_should_open_survey boolean := false;
+
     v_event_live boolean := false;
+
     v_resume_status text := 'idle';
     v_now timestamptz := now();
-    v_session public.video_sessions%ROWTYPE;
+
     v_ev uuid;
+
     v_p1 uuid;
+
     v_p2 uuid;
+
     v_is_p1 boolean := false;
+
     v_is_p2 boolean := false;
+
     v_actor_decided_at timestamptz;
+
     v_partner_decided_at timestamptz;
+
     v_waiting_for_self boolean := false;
+
     v_waiting_for_partner boolean := false;
+
     v_p1_decided boolean := false;
+
     v_p2_decided boolean := false;
+
     v_p1_explicit_pass boolean := false;
+
     v_p2_explicit_pass boolean := false;
+
     v_due boolean := false;
+
     v_seconds_remaining integer;
+
     v_state_before text;
+
     v_reason_code text;
+
     v_terminal_reason text;
-    v_should_open_survey boolean := false;
     BEGIN
       <<term_core>>
       BEGIN
@@ -4516,10 +4536,7 @@ BEGIN
               EXCEPTION
                 WHEN OTHERS THEN
                   v_result := jsonb_build_object('ok', false, 'error', 'insert_failed');
-                  EXIT leafblk;      EXCEPTION
-                WHEN OTHERS THEN
-                  v_result := jsonb_build_object('ok', false, 'error', 'insert_failed');
-              END;
+                  EXIT leafblk;      END;
 
           IF COALESCE((v_result->>'inserted')::boolean, false) AND v_actor IS NOT NULL THEN
             BEGIN
