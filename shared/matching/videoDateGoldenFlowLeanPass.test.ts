@@ -111,3 +111,41 @@ test("native video-date partner profile parity uses the memoized helper only", (
     );
   }
 });
+
+test("date-path session row reads go through the single-owner coalescing reader", () => {
+  const reader = read("src/lib/videoDateSessionRow.ts");
+  assert.match(reader, /VIDEO_DATE_SESSION_ROW_COLUMNS/);
+  assert.match(reader, /SESSION_ROW_REUSE_MS = 300/);
+  // Recovery/terminal truth reads must bypass the reuse window (PR #1292 P2).
+  assert.match(reader, /options\?\.fresh/);
+  assert.match(
+    read("src/hooks/useVideoCall.ts"),
+    /fetchVideoDateSessionRow\(sessionId, \{ fresh: true \}\)/,
+  );
+  for (const path of [
+    "src/components/session/SessionRouteHydration.tsx",
+    "src/components/video-date/IceBreakerCard.tsx",
+    "src/hooks/useVideoCall.ts",
+    "src/pages/VideoDate.tsx",
+  ]) {
+    const source = read(path);
+    assert.match(source, /fetchVideoDateSessionRow/, `${path} should use the canonical session-row reader`);
+  }
+  // The wired mount-path surfaces must not regrow bespoke by-id select shapes
+  // (VideoDate.tsx keeps non-mount writes/reads; the guard is on the two
+  // single-owner components).
+  for (const path of [
+    "src/components/session/SessionRouteHydration.tsx",
+    "src/components/video-date/IceBreakerCard.tsx",
+  ]) {
+    assert.doesNotMatch(read(path), /from\("video_sessions"\)/, `${path} must not query video_sessions directly`);
+  }
+});
+
+test("start-snapshot pollers share in-flight requests on web and native", () => {
+  for (const path of ["src/lib/videoDateStartSnapshot.ts", "apps/mobile/lib/videoDateStartSnapshot.ts"]) {
+    const source = read(path);
+    assert.match(source, /SNAPSHOT_REUSE_MS = 300/, `${path} should micro-memo ok snapshots`);
+    assert.match(source, /snapshotInFlight/, `${path} should share in-flight requests`);
+  }
+});

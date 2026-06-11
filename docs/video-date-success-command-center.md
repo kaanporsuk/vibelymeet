@@ -2839,6 +2839,19 @@ Still open after this pass: compute upgrade (deferred 2026-06-10) remains the do
 
 ---
 
+### 2026-06-11 Remaining-Fat Closure (session-row single owner, snapshot dedupe, WAL audit, stale test)
+
+Branch `fix/video-date-golden-flow-remaining-fat`. Closes the open items from the lean pass:
+
+- **Single-owner session-truth read (web):** `src/lib/videoDateSessionRow.ts` owns the canonical date-path projection (28-column superset typed from generated schema), with in-flight dedupe + 300ms reuse; errors never memoized; PostgREST error fields pass through. Wired: SessionRouteHydration, IceBreakerCard, useVideoCall truth fetch, VideoDate mount log (was `select *`), VideoDate access guard, VideoDate handshake refresh. The 4+ divergent mount-time select shapes are now one query. Native date-path reads live inside `videoDateApi` functions with per-call filters and stay as-is for now (different shapes, not mount-storm duplicates in evidence).
+- **Start-snapshot dedupe (web + native):** `fetchVideoDateStartSnapshot` shares in-flight requests per session and reuses ok snapshots for 300ms (below all poll cadences); not-ok results never memoized.
+- **Realtime WAL audit (evidence, no transport change):** `video_sessions` + `event_registrations` are in the `supabase_realtime` publication and video-date surfaces subscribe via postgres_changes on web and native, so every hot-row write (heartbeats, mark_alive ~3s) is WAL-processed per subscriber — the top cumulative DB consumer (~5,800s/15d). Deliberate decision: do NOT swap the live realtime transport the day after the first successful run. Follow-up plan: migrate video-date subscriptions to the existing DB-triggered Broadcast channels, then drop `video_sessions`/`event_registrations` from the publication; requires its own acceptance run.
+- **Stale Sprint 5 assertion fixed:** the safety-report forced-pass contract now pins the v3-only reality (v2/keyless coerced to v3 with `deprecated_version_coerced_to_v3`) and asserts the retired v2/legacy RPC branches stay removed. Red-flags suite is fully green for the first time since PR #1286.
+
+Verification 2026-06-11: web tsc clean, red-flags suite 0 failures, lean-pass contracts 7/7 (session-row owner + snapshot dedupe pinned), Sprint 5 9/9. No backend/schema changes in this branch.
+
+---
+
 ## Fresh Session Handoff Prompt
 
 Use this prompt when starting a new Codex/agent session:

@@ -5,7 +5,19 @@ import {
   type VideoDateStartSnapshot,
 } from '@clientShared/matching/videoDateStartSnapshot';
 
-export async function fetchVideoDateStartSnapshot(
+
+// Golden-flow lean pass: several surfaces (ReadyGateOverlay, useReadyGate,
+// useActiveSession, ReadyRedirect, session truth) poll the start snapshot
+// concurrently during launch, producing overlapping duplicate RPCs in the
+// same tick. Concurrent callers share one in-flight request, and an ok result
+// is reused for 300ms — far below every poller's 1-3s cadence, so state
+// transitions are still observed at full polling speed. Errors and not-ok
+// snapshots are never memoized.
+const SNAPSHOT_REUSE_MS = 300;
+const snapshotInFlight = new Map<string, Promise<VideoDateStartSnapshot>>();
+const snapshotRecent = new Map<string, { at: number; snapshot: VideoDateStartSnapshot }>();
+
+async function fetchVideoDateStartSnapshotUncached(
   sessionId: string,
 ): Promise<VideoDateStartSnapshot> {
   if (!sessionId) {
@@ -40,5 +52,36 @@ export async function fetchVideoDateStartSnapshot(
       retryable: true,
       terminal: false,
     });
+  }
+}
+
+export async function fetchVideoDateStartSnapshot(
+  sessionId: string,
+): Promise<VideoDateStartSnapshot> {
+  const recent = snapshotRecent.get(sessionId);
+  if (recent && Date.now() - recent.at <= SNAPSHOT_REUSE_MS) {
+    return recent.snapshot;
+  }
+
+  const existing = snapshotInFlight.get(sessionId);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const snapshot = await fetchVideoDateStartSnapshotUncached(sessionId);
+    if (snapshot.ok) {
+      snapshotRecent.set(sessionId, { at: Date.now(), snapshot });
+      if (snapshotRecent.size > 16) {
+        const oldest = snapshotRecent.keys().next().value;
+        if (oldest !== undefined) snapshotRecent.delete(oldest);
+      }
+    }
+    return snapshot;
+  })();
+
+  snapshotInFlight.set(sessionId, request);
+  try {
+    return await request;
+  } finally {
+    if (snapshotInFlight.get(sessionId) === request) snapshotInFlight.delete(sessionId);
   }
 }

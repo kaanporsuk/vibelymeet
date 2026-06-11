@@ -11,6 +11,7 @@ import {
   markVideoDateRouteOwned,
 } from "@/lib/dateEntryTransitionLatch";
 import { videoSessionHasPostDateSurveyTruth } from "@clientShared/matching/activeSession";
+import { fetchVideoDateSessionRow } from "@/lib/videoDateSessionRow";
 import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
@@ -141,13 +142,7 @@ export function SessionRouteHydration() {
 
     let cancelled = false;
     void (async () => {
-      const { data: vs, error } = await supabase
-        .from("video_sessions")
-        .select(
-          "ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url",
-        )
-        .eq("id", sessionIdFromUrl)
-        .maybeSingle();
+      const { data: vs, error } = await fetchVideoDateSessionRow(sessionIdFromUrl);
 
       if (cancelled) return;
 

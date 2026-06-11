@@ -16,8 +16,17 @@ import {
 } from "./videoDateOperatorMetrics";
 import {
   emitVideoDateLaunchLatencyCheckpointObservability,
+  flushVideoDateLaunchLatencyCheckpoints,
   sanitizeVideoDateLaunchLatencyPayload,
 } from "./videoDateLaunchLatencyCheckpointObservability";
+
+
+function firstQueuedCheckpoint(
+  args: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const list = args?.p_checkpoints;
+  return Array.isArray(list) && list.length > 0 ? (list[0] as Record<string, unknown>) : null;
+}
 
 test("video date operator metric ids stay stable", () => {
   assert.deepEqual(VIDEO_DATE_OPERATOR_METRIC_IDS, [
@@ -339,9 +348,10 @@ test("Phase 7 Daily performance checkpoints compute token-free segment durations
     },
   });
 
-  assert.deepEqual(result, { ok: true, inserted: true });
-  assert.equal(capturedArgs?.p_checkpoint, "daily_token_mint_success");
-  assert.equal(capturedArgs?.p_latency_ms, 170);
+  assert.deepEqual(result, { ok: true, queued: true });
+  await flushVideoDateLaunchLatencyCheckpoints();
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.checkpoint, "daily_token_mint_success");
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.latency_ms, 170);
 });
 
 test("launch latency checkpoint observability preserves safe first-frame dimensions", async () => {
@@ -400,9 +410,10 @@ test("launch latency checkpoint observability preserves safe first-frame dimensi
     properties: rawProperties,
   });
 
-  assert.deepEqual(result, { ok: true, inserted: true });
-  assert.equal(capturedArgs?.p_checkpoint, "first_remote_frame");
-  assert.equal(capturedArgs?.p_latency_ms, 1900);
+  assert.deepEqual(result, { ok: true, queued: true });
+  await flushVideoDateLaunchLatencyCheckpoints();
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.checkpoint, "first_remote_frame");
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.latency_ms, 1900);
 });
 
 test("launch latency checkpoint sanitization rejects secret-shaped payload keys", () => {
@@ -462,9 +473,10 @@ test("permission prewarm skip checkpoint is safe and allowlisted", async () => {
     properties: rawProperties,
   });
 
-  assert.deepEqual(result, { ok: true, inserted: true });
-  assert.equal(capturedArgs?.p_checkpoint, "permission_check_skipped");
-  assert.equal(capturedArgs?.p_latency_ms, null);
+  assert.deepEqual(result, { ok: true, queued: true });
+  await flushVideoDateLaunchLatencyCheckpoints();
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.checkpoint, "permission_check_skipped");
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.latency_ms, null);
 });
 
 test("date route module preloaded checkpoint is safe and allowlisted", async () => {
@@ -503,7 +515,8 @@ test("date route module preloaded checkpoint is safe and allowlisted", async () 
     properties: rawProperties,
   });
 
-  assert.deepEqual(result, { ok: true, inserted: true });
-  assert.equal(capturedArgs?.p_checkpoint, "date_route_module_preloaded");
-  assert.equal(capturedArgs?.p_latency_ms, 123);
+  assert.deepEqual(result, { ok: true, queued: true });
+  await flushVideoDateLaunchLatencyCheckpoints();
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.checkpoint, "date_route_module_preloaded");
+  assert.equal(firstQueuedCheckpoint(capturedArgs)?.latency_ms, 123);
 });

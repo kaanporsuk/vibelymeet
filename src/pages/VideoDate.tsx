@@ -167,6 +167,7 @@ import {
   videoDateAspectRatio,
 } from "@clientShared/matching/videoDateMediaContract";
 import type { VideoDateSafetySubmitOutcome } from "@clientShared/safety/videoDateSafetyCopy";
+import { fetchVideoDateSessionRow } from "@/lib/videoDateSessionRow";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -2175,11 +2176,7 @@ const VideoDate = () => {
     if (!import.meta.env.DEV) return;
     const userId = user.id;
     let cancelled = false;
-    void supabase
-      .from("video_sessions")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle()
+    void fetchVideoDateSessionRow(id)
       .then(({ data, error }) => {
         if (cancelled) return;
         vdbg("date_mount_session_row", {
@@ -2349,13 +2346,7 @@ const VideoDate = () => {
       setCallStarted(false);
 
       try {
-        const { data: sessionRow, error: sessionErr } = await supabase
-          .from("video_sessions")
-          .select(
-            "participant_1_id, participant_2_id, event_id, session_seq, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at",
-          )
-          .eq("id", id)
-          .maybeSingle();
+        const { data: sessionRow, error: sessionErr } = await fetchVideoDateSessionRow(id);
 
         if (cancelled) return;
 
@@ -2856,13 +2847,7 @@ const VideoDate = () => {
       setEntryStartFailed(false);
       setEntryFailureCode(undefined);
 
-      const { data, error } = await supabase
-        .from("video_sessions")
-        .select(
-          "handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at, ended_reason, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, participant_1_decided_at, participant_2_decided_at",
-        )
-        .eq("id", id)
-        .maybeSingle();
+      const { data, error } = await fetchVideoDateSessionRow(id);
 
       if (cancelled) return;
 
