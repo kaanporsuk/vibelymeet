@@ -20,7 +20,8 @@ select
     select 1
     from fn
     where prosecdef
-      and proconfig @> array['search_path=public']
+      -- single-body head pins search_path = public, pg_catalog
+      and proconfig::text like '%search_path=public%'
   ) as ok;
 
 with fn as (
@@ -75,25 +76,28 @@ select
   as ok
 from fn;
 
-with fn as (
+-- Rebuild PR 4: mark_ready (and its 45s both-ready grace) is owned solely by
+-- video_session_mark_ready_v2; the transition head keeps observability for the
+-- sync/snooze/forfeit machine.
+with gate as (
   select pg_get_functiondef('public.ready_gate_transition(uuid,text,text)'::regprocedure) as def
+), mark_ready as (
+  select pg_get_functiondef('public.video_session_mark_ready_v2(uuid,text,text)'::regprocedure) as def
 )
 select
   'observability_and_grace_preserved' as check_name,
-  def like '%record_event_loop_observability%'
-  and def like '%both_ready_provider_prepare_grace_extended%'
-  and def like '%v_now + interval ''45 seconds''%'
-  as ok
-from fn;
+  (select def like '%record_event_loop_observability%' from gate)
+  and (select def like '%v_now + interval ''45 seconds''%' from mark_ready)
+  and (select def like '%decisive_mark_ready_commit%' from mark_ready)
+  as ok;
 
+-- Rebuild PR 4: the dated prior generation is dropped with the family.
 with prior as (
   select
     to_regprocedure('public.ready_gate_transition_20260501190000_expiry_rowcount_prior(uuid,text,text)') as oid
 )
 select
-  'prior_ready_gate_base_not_client_executable' as check_name,
-  oid is not null
-  and not has_function_privilege('anon', oid, 'EXECUTE')
-  and not has_function_privilege('authenticated', oid, 'EXECUTE')
+  'prior_ready_gate_base_dropped' as check_name,
+  oid is null
   as ok
 from prior;

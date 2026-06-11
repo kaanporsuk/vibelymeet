@@ -14,20 +14,24 @@ SELECT
   'ready_gate_transition_repair_signature_security' AS check_name,
   to_regprocedure('public.ready_gate_transition(uuid,text,text)') IS NOT NULL
     AND bool_and(prosecdef)
-    AND has_function_privilege('anon', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE')
+    -- live posture: authenticated + service_role only, no anon EXECUTE
+    AND NOT has_function_privilege('anon', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE')
     AND has_function_privilege('authenticated', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE')
     AND has_function_privilege('service_role', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE') AS ok
 FROM fn;
 
+-- Rebuild PR 4: the repair pass is inlined into the single-body head; the
+-- chain layers (rgt_* short names, formerly the overlong dated bases) are gone.
 WITH fn AS (
   SELECT pg_get_functiondef('public.ready_gate_transition(uuid,text,text)'::regprocedure) AS def
 )
 SELECT
-  'ready_gate_transition_repair_delegates_to_base' AS check_name,
-  def LIKE '%ready_gate_transition_20260505140000_pre_ready_room_metadata_base%'
-    AND to_regprocedure('public.ready_gate_transition_20260505140000_pre_ready_room_metadata_base(uuid,text,text)') IS NOT NULL
-    AND NOT has_function_privilege('authenticated', 'public.ready_gate_transition_20260505140000_pre_ready_room_metadata_base(uuid,text,text)', 'EXECUTE')
-    AND NOT has_function_privilege('anon', 'public.ready_gate_transition_20260505140000_pre_ready_room_metadata_base(uuid,text,text)', 'EXECUTE') AS ok
+  'ready_gate_transition_repair_is_single_body' AS check_name,
+  def LIKE '%ready_gate_transition.single_body_core%'
+    AND def NOT LIKE '%rgt_preserve_warmup_base_v1%'
+    AND def NOT LIKE '%rgt_pre_ready_room_meta_base_v1%'
+    AND to_regprocedure('public.rgt_preserve_warmup_base_v1(uuid,text,text)') IS NULL
+    AND to_regprocedure('public.rgt_pre_ready_room_meta_base_v1(uuid,text,text)') IS NULL AS ok
 FROM fn;
 
 WITH fn AS (

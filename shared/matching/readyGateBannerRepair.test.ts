@@ -31,7 +31,8 @@ test("Ready Gate registration desync migration wraps the public transition RPC s
   assert.match(migration, /'missing_participant_registration', v_missing_participant_registration/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.ready_gate_transition\(uuid, text, text\)[\s\S]*TO anon, authenticated, service_role/);
 
-  assert.match(validation, /ready_gate_registration_desync_wrapper_installed/);
+  // Rebuild PR 4 retargeted the wrapper check to the single-body head.
+  assert.match(validation, /ready_gate_registration_desync_single_body_installed/);
   assert.match(validation, /ready_gate_registration_desync_targets_only_pre_date_gates/);
   assert.match(validation, /ready_gate_registration_desync_requires_both_registration_pointers/);
   assert.match(validation, /ready_gate_registration_desync_terminalizes_and_clears_registrations/);

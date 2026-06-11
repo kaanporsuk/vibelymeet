@@ -1,8 +1,18 @@
-CREATE OR REPLACE FUNCTION public.ready_gate_transition(p_session_id uuid, p_action text, p_reason text DEFAULT NULL::text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_catalog'
+-- Lint cleanup for rebuild PR 4 (same branch, forward correction): the
+-- single-body ready_gate_transition declared v_new_status / v_expires_at,
+-- leftovers of the legacy in-chain mark_ready machine that PR 4 intentionally
+-- did not carry over. Recreate the identical body without the two unused
+-- declarations. No signature, grant, or behavior change.
+
+CREATE OR REPLACE FUNCTION public.ready_gate_transition(
+  p_session_id uuid,
+  p_action text,
+  p_reason text DEFAULT NULL::text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_catalog'
 AS $function$
 -- ready_gate_transition.single_body_core (rebuild PR 4). mark_ready bridges to
 -- video_session_mark_ready_v2; the inner machine owns sync/snooze/forfeit.
@@ -1033,4 +1043,4 @@ EXCEPTION
       'serverNowMs', v_server_now_ms
     );
 END;
-$function$
+$function$;

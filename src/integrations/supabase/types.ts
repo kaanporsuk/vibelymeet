@@ -12108,42 +12108,6 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
-      ready_gate_transition_20260501135000_observability_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260501170000_both_ready_grace_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260501190000_expiry_rowcount_prior: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260501200000_event_inactive_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260505203000_registration_desync_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260505214500_result_status_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260524120000_clock_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260602231752_57014_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      ready_gate_transition_20260603150106_start_snapshot_base: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
       recompute_profile_live_counts: {
         Args: { p_profile_id: string }
         Returns: undefined
@@ -12600,14 +12564,6 @@ export type Database = {
         }
         Returns: Json
       }
-      rgt_pre_ready_room_meta_base_v1: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
-      rgt_preserve_warmup_base_v1: {
-        Args: { p_action: string; p_reason?: string; p_session_id: string }
-        Returns: Json
-      }
       sanitize_profile_display_name: {
         Args: { p_input: string }
         Returns: string | null
@@ -12948,38 +12904,6 @@ export type Database = {
         }
         Returns: Json
       }
-      vd_mark_ready_20260609130139_hot_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_mark_ready_both_ready_owner_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_mark_ready_partial_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_mark_ready_terminal_truth_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       vd_promote_ce_auth_20260605221535_base: {
         Args: {
           p_actor?: string
@@ -13017,18 +12941,6 @@ export type Database = {
           p_require_participant?: boolean
           p_session_id: string
           p_source?: string
-        }
-        Returns: Json
-      }
-      vd_ready_gate_actionability_owner_eligibility_base: {
-        Args: {
-          p_actor_id?: string
-          p_allow_actor_owned_snooze?: boolean
-          p_lock_rows?: boolean
-          p_require_current_ready_gate_registration?: boolean
-          p_session_id: string
-          p_source?: string
-          p_terminalize_invalid?: boolean
         }
         Returns: Json
       }
@@ -13606,62 +13518,6 @@ export type Database = {
         Returns: Json
       }
       video_session_mark_ready_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260603150106_start_snapshot_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260604104154_grace_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260604131708_event_active_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260606212727_event_cleanup_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260607123952_routeable_entry_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260608114500_review_comments_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_mark_ready_v2_20260609105249_active_entry_base: {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string

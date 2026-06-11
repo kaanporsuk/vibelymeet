@@ -1,11 +1,14 @@
 -- Read-only validation pack for Ready Gate registration-desync terminalization.
 
+-- Rebuild PR 4: the registration-desync layer is inlined into the single-body
+-- head; the dated base generation is dropped.
 with fn as (
   select pg_get_functiondef('public.ready_gate_transition(uuid,text,text)'::regprocedure) as def
 )
 select
-  'ready_gate_registration_desync_wrapper_installed' as check_name,
-  def like '%ready_gate_transition_20260505203000_registration_desync_base%'
+  'ready_gate_registration_desync_single_body_installed' as check_name,
+  def like '%ready_gate_transition.single_body_core%'
+  and def not like '%ready_gate_transition_20260505203000_registration_desync_base%'
   and def like '%registration_desync%'
   and def like '%missing_participant_registration%'
   and def like '%ready_gate_registration_desync%' as ok
@@ -37,7 +40,7 @@ select
   and def like '%er.profile_id = v_session.participant_2_id%'
   and def like '%er.queue_status = ''in_ready_gate''%'
   and def like '%er.current_room_id = p_session_id%'
-  and def like '%IF v_p1_ready_gate AND v_p2_ready_gate THEN%'
+  and def like '%IF NOT (v_p1_ready_gate AND v_p2_ready_gate) THEN%'
   as ok
 from fn;
 
@@ -57,6 +60,8 @@ select
   as ok
 from fn;
 
+-- Rebuild PR 4: the base generation must be gone; the head stays
+-- authenticated + service_role only (anon has no EXECUTE — live posture).
 with fns as (
   select
     to_regprocedure('public.ready_gate_transition(uuid,text,text)') as public_oid,
@@ -65,11 +70,9 @@ with fns as (
 select
   'ready_gate_registration_desync_grants_are_safe' as check_name,
   public_oid is not null
-  and base_oid is not null
-  and has_function_privilege('anon', public_oid, 'EXECUTE')
+  and base_oid is null
+  and not has_function_privilege('anon', public_oid, 'EXECUTE')
   and has_function_privilege('authenticated', public_oid, 'EXECUTE')
   and has_function_privilege('service_role', public_oid, 'EXECUTE')
-  and not has_function_privilege('anon', base_oid, 'EXECUTE')
-  and not has_function_privilege('authenticated', base_oid, 'EXECUTE')
   as ok
 from fns;
