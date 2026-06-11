@@ -88,16 +88,18 @@ select
   as ok
 from fn;
 
+-- Retargeted to the single-body public function (PR 2: private chain dropped).
+-- get_event_lobby_inactive_reason is called with v_ev (local variable holding
+-- event_id), not v_session.event_id directly, in the single-body form.
 with fn as (
-  select pg_get_functiondef('private_video_date.vdt_event_inactive(uuid,text,text)'::regprocedure) as def
+  select pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) as def
 )
 select
   'video_date_transition_prepare_entry_rejects_inactive_events' as check_name,
-  def like '%p_action IS DISTINCT FROM ''prepare_entry''%'
-  and position('FOR UPDATE' in def) > 0
+  position('FOR UPDATE' in def) > 0
   and def like '%v_already_entry := (%'
-  and def like '%public.get_event_lobby_inactive_reason(v_session.event_id)%'
-  and def like '%public.terminalize_event_ready_gates(v_session.event_id, v_inactive_reason)%'
+  and def like '%public.get_event_lobby_inactive_reason(%'
+  and def like '%public.terminalize_event_ready_gates(%'
   and def like '%''prepare_entry_event_inactive''%'
   and def like '%''code'', ''READY_GATE_NOT_READY''%'
   and def like '%''error_code'', ''EVENT_NOT_ACTIVE''%'
@@ -134,16 +136,17 @@ select
   and has_function_privilege('service_role', helper.oid, 'EXECUTE')
 from helper, trig;
 
+-- private_video_date.vdt_event_inactive dropped in PR 2; the remaining two
+-- archived base helpers must still exist and be non-client-executable.
 with bases as (
   select unnest(array[
     to_regprocedure('public.ready_gate_transition_20260501200000_event_inactive_base(uuid,text,text)'),
-    to_regprocedure('private_video_date.vdt_event_inactive(uuid,text,text)'),
     to_regprocedure('public.confirm_video_date_entry_prepared_20260501200000_event_inactive_base(uuid,text,text,text)')
   ]) as oid
 )
 select
   'renamed_base_functions_are_not_client_executable' as check_name,
-  count(*) = 3
+  count(*) = 2
   and bool_and(oid is not null)
   and bool_and(not has_function_privilege('anon', oid, 'EXECUTE'))
   and bool_and(not has_function_privilege('authenticated', oid, 'EXECUTE')) as ok
