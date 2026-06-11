@@ -102,20 +102,23 @@ limit 100;
 -- body instead of requiring the public wrapper to inline this older branch.
 select
   'video_date_transition_pre_date_end_cleanup' as check_name,
-  to_regprocedure('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)') is not null
-  and pg_get_functiondef('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_end_cleanup%'
-  and pg_get_functiondef('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_manual_end%'
-  and pg_get_functiondef('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%queue_status = v_resume_status%'
+  to_regprocedure('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)') is not null
+  and pg_get_functiondef('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_end_cleanup%'
+  and pg_get_functiondef('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_manual_end%'
+  and pg_get_functiondef('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%queue_status = v_resume_status%'
   as ok;
 
 -- 8) Confirm clients cannot call the retired implementation directly.
 select
   'legacy_video_date_transition_helper_not_client_executable' as check_name,
-  not has_function_privilege(
+  to_regprocedure('private_video_date.vdt_core_legacy_01(uuid,text,text)') is not null
+  and not has_function_privilege(
     'authenticated',
-    'public.video_date_transition_20260430180000_last_chance_grace_10s(uuid,text,text)',
+    'private_video_date.vdt_core_legacy_01(uuid,text,text)',
     'EXECUTE'
-  ) as ok;
+  )
+  and to_regprocedure('public.video_date_transition_20260430180000_last_chance_grace_10s(uuid,text,text)') is null
+  as ok;
 
 -- 9) Pre-date sessions must not leave either participant stuck in survey, even
 -- when current_room_id was already cleared by older code.

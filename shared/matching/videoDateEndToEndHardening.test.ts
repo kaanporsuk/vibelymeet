@@ -807,7 +807,7 @@ test("pre-date manual end cleans registrations without entering survey", () => {
 test("validation pack checks delegated pre-date cleanup after wrapper layering", () => {
   assert.match(
     videoDateValidationSql,
-    /video_date_transition_20260501091000_pre_date_end_cleanup\(uuid,text,text\)/,
+    /private_video_date\.vdt_pre_date_end_cleanup\(uuid,text,text\)/,
   );
   assert.match(videoDateValidationSql, /pre_date_manual_end/);
   assert.match(videoDateValidationSql, /queue_status = v_resume_status/);

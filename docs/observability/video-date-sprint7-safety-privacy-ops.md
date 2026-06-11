@@ -1,6 +1,6 @@
 # Video Date Sprint 7 Safety, Privacy, RLS, And Ops
 
-This is the operator plan for the Sprint 7 launch gate. It covers only the intended Video Date behavior: report/block, privacy boundaries, RLS posture, stuck-state detection, Daily recovery, survey recovery, queue drain health, webhook DLQ, and orphan-room cleanup.
+This is the operator plan for the Sprint 7 launch gate. It covers only the intended Video Date behavior: report/block, privacy boundaries, RLS posture, stuck-state detection, Daily recovery, survey recovery, webhook DLQ, and orphan-room cleanup.
 
 ## Source Of Truth
 
@@ -33,14 +33,11 @@ Dashboard tiles:
 | Tile | Metric | Alert |
 | --- | --- | --- |
 | Stuck Ready Gate | `stuck_ready_gate_count` | Critical if greater than 0 for 24h |
-| Stuck Handshake | `stuck_handshake_count` | Critical if greater than 0 for 24h |
+| Stuck Entry | `stuck_entry_count` (`stuck_handshake_count` compatibility alias) | Critical if greater than 0 for 24h |
 | Overdue Date | `overdue_date_count` | Critical if greater than 0 for 24h |
-| Silently Queued | `silently_queued_count` | Critical if greater than 0 for 24h |
 | Prepare Entry Failures | `prepare_entry_failure_count` | Warning if greater than 0, critical if rising |
 | Daily Join Failures | `daily_join_failure_count` | Warning if greater than 0, critical if rising |
 | Survey Recovery | `pending_survey_recovery_count` | Warning if greater than 0, critical if older than 24h |
-| Queue Drain Misses | `queue_drain_miss_count` | Warning if rising above baseline |
-| Queue Drain Failures | `queue_drain_failure_count` | Warning if greater than 0, critical if repeated |
 | Webhook DLQ | `unresolved_webhook_dlq_count` and `webhook_dlq_error_classes` | Critical if greater than 0 |
 | Orphan Rooms | `orphan_room_cleanup_failed_count` and `orphan_room_safety_interlock_skip_count` | Critical on failed cleanup, warning on safety interlock skips |
 | Safety Actions | `report_count`, `report_with_block_count`, `block_count`, `pending_report_count` | Warning if pending reports exceed moderation SLO |
@@ -49,7 +46,6 @@ Keep these tiles side-by-side with the existing Video Date latency dashboard:
 
 - `ready_tap_to_first_remote_frame_latency`
 - `ready_gate_open_to_date_join_latency`
-- `queue_drain_failures`
 - `daily_performance_decision`
 - `daily_performance_emission_health`
 
@@ -97,31 +93,31 @@ Recovery:
 2. `video_date_daily_webhook_events` receives fresh accepted events.
 3. Room cleanup and survey recovery dashboards stay healthy.
 
-### Queue Backlog
+### Entry And Date Backlog
 
 Detection:
 
-- `silently_queued_count`, `queue_drain_miss_count`, or `queue_drain_failure_count` rises.
-- Existing queue fairness dashboard shows `starved_slots_120s` or `starved_slots_300s`.
+- `stuck_ready_gate_count`, `stuck_entry_count`, `overdue_date_count`, or `client_stuck_observed_count` rises.
+- Users report Ready Gate/date route churn, missing Daily join, or stale date routes.
 
 Action:
 
 1. Check that the event is active and participants are confirmed.
-2. Confirm `drain_match_queue_v2` is running and using the same eligibility rules as queue hints.
+2. Inspect the affected `video_sessions.id` in the admin timeline before mutating anything.
 3. Check blocked/reported pair filters before attempting manual rescue.
-4. If users are queued but not promotable, leave them in deck/lobby recovery rather than forcing unsafe sessions.
+4. Use server-owned recovery/cleanup RPCs rather than direct row edits.
 
 Recovery:
 
-1. Queue drain failures return to 0.
-2. No eligible queued session remains stale beyond the TTL.
-3. Ready Gate opens for promoted sessions through the canonical route contract.
+1. Stuck Ready Gate, entry, or overdue date counts return to 0.
+2. Participants land on server truth: Ready Gate, date, survey, lobby, chat, or home.
+3. No participant remains on a stale ready/date route after reload.
 
 ### Stuck Session
 
 Detection:
 
-- `stuck_ready_gate_count`, `stuck_handshake_count`, `overdue_date_count`, or `client_stuck_observed_count` rises.
+- `stuck_ready_gate_count`, `stuck_entry_count`, `overdue_date_count`, or `client_stuck_observed_count` rises.
 - User support reports match a concrete `session_id`.
 
 Action:
@@ -260,4 +256,4 @@ Before launch:
 - iOS two-user manual run passes.
 - Android two-user manual run passes.
 - No known path leaves users stuck in `in_ready_gate`, `in_handshake`, `in_date`, `queued`, or pending survey.
-- Operators can detect and triage stuck Ready Gate, prepare-entry failures, Daily join failures, survey recovery, queue drain misses, webhook DLQ, and orphan rooms from dashboards.
+- Operators can detect and triage stuck Ready Gate, stuck entry/date sessions, prepare-entry failures, Daily join failures, survey recovery, webhook DLQ, and orphan rooms from dashboards.

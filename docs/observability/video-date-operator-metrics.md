@@ -41,7 +41,7 @@ Returned aggregates:
 - queue drain attempts, failures, failure rate, and top failure reasons
 - timer drift recovery source note for the PostHog-only metric
 - ready-tap to first blurred remote-frame latency from durable client checkpoints
-- `safety_privacy_ops_health` from `get_video_date_sprint7_ops_health`, including stuck Ready Gate, prepare-entry failures, Daily join failures, survey recovery, queue drain misses, webhook DLQ, orphan rooms, report counts, and block counts
+- `safety_privacy_ops_health` from `get_video_date_sprint7_ops_health`, including stuck Ready Gate, stuck entry/date counts, prepare-entry failures, Daily join failures, survey recovery, webhook DLQ, orphan rooms, report counts, and block counts
 
 ## Metric Catalog
 

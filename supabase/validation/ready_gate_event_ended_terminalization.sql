@@ -89,7 +89,7 @@ select
 from fn;
 
 with fn as (
-  select pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) as def
+  select pg_get_functiondef('private_video_date.vdt_event_inactive(uuid,text,text)'::regprocedure) as def
 )
 select
   'video_date_transition_prepare_entry_rejects_inactive_events' as check_name,
@@ -137,7 +137,7 @@ from helper, trig;
 with bases as (
   select unnest(array[
     to_regprocedure('public.ready_gate_transition_20260501200000_event_inactive_base(uuid,text,text)'),
-    to_regprocedure('public.video_date_transition_20260501200000_event_inactive_base(uuid,text,text)'),
+    to_regprocedure('private_video_date.vdt_event_inactive(uuid,text,text)'),
     to_regprocedure('public.confirm_video_date_entry_prepared_20260501200000_event_inactive_base(uuid,text,text,text)')
   ]) as oid
 )
