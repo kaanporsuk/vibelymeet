@@ -5,4 +5,3 @@ CREATE TRIGGER enforce_one_active_video_session_before_write BEFORE INSERT OR UP
 CREATE TRIGGER trg_video_sessions_terminal_audit_stamp BEFORE INSERT OR UPDATE ON public.video_sessions FOR EACH ROW EXECUTE FUNCTION video_date_terminal_audit_stamp_v1();
 
 CREATE TRIGGER video_session_refund_on_end AFTER UPDATE OF ended_reason ON public.video_sessions FOR EACH ROW WHEN (((new.ended_reason IS NOT NULL) AND (new.ended_reason IS DISTINCT FROM old.ended_reason) AND (new.refund_status IS NULL))) EXECUTE FUNCTION video_session_refund_on_end_trigger();
-
