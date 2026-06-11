@@ -10641,56 +10641,6 @@ export type Database = {
         }
         Returns: Json
       }
-      claim_video_date_surface_20260604093000_failsoft_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
-      claim_video_date_surface_20260605170249_outer_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
-      claim_video_date_surface_20260605232304_single_owner_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
-      claim_video_date_surface_20260607155414_lifecycle_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
-      claim_video_date_surface_20260608080938_last_resort_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
       claim_video_session_deadlines_v2: {
         Args: {
           p_lease_seconds?: number
@@ -12011,92 +11961,7 @@ export type Database = {
         }
         Returns: Json
       }
-      mark_video_date_daily_alive_20260607155414_lifecycle_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      mark_video_date_daily_alive_20260607222923_definitive_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      mark_video_date_daily_alive_20260608080938_last_resort_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       mark_video_date_daily_joined: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      mark_video_date_daily_joined_20260604093000_failsoft_base: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
-      mark_video_date_daily_joined_20260605170249_outer_base: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
-      mark_video_date_daily_joined_20260607155414_lifecycle_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      mark_video_date_daily_joined_20260607222923_definitive_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      mark_video_date_daily_joined_20260608080938_last_resort_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      mark_video_date_daily_joined_20260609105249_active_entry_base: {
         Args: {
           p_call_instance_id?: string
           p_entry_attempt_id?: string
@@ -12117,26 +11982,6 @@ export type Database = {
           p_provider_session_id?: string
           p_session_id: string
         }
-        Returns: Json
-      }
-      mark_video_date_remote_seen_20260605115657_base: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
-      mark_video_date_remote_seen_20260605170249_outer_base: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
-      mark_video_date_remote_seen_20260605200729_grace_base: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
-      mark_video_date_remote_seen_20260607155414_lifecycle_base: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
-      mark_video_date_remote_seen_20260608120000_provider_base: {
-        Args: { p_session_id: string }
         Returns: Json
       }
       media_asset_can_access_user_topic: {
@@ -13065,17 +12910,6 @@ export type Database = {
         Args: { p_session_id: string; p_source?: string }
         Returns: Json
       }
-      vd_alive_strict_provider_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       vd_auto_promote_eligible_base: {
         Args: {
           p_idempotency_key?: string
@@ -13088,59 +12922,6 @@ export type Database = {
         Args: {
           p_idempotency_key?: string
           p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_claim_surface_20260609130139_hot_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
-      vd_claim_surface_terminal_truth_base: {
-        Args: {
-          p_client_instance_id: string
-          p_session_id: string
-          p_surface: string
-          p_takeover?: boolean
-          p_ttl_seconds?: number
-        }
-        Returns: Json
-      }
-      vd_daily_alive_20260609130139_hot_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_daily_alive_remote_seen_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_daily_joined_20260609130139_hot_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
           p_session_id: string
         }
         Returns: Json
@@ -13248,17 +13029,6 @@ export type Database = {
           p_session_id: string
           p_source?: string
           p_terminalize_invalid?: boolean
-        }
-        Returns: Json
-      }
-      vd_remote_seen_render_base: {
-        Args: {
-          p_call_instance_id?: string
-          p_entry_attempt_id?: string
-          p_owner_id?: string
-          p_owner_state?: string
-          p_provider_session_id?: string
-          p_session_id: string
         }
         Returns: Json
       }

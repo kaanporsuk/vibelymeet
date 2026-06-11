@@ -805,9 +805,11 @@ test("pre-date manual end cleans registrations without entering survey", () => {
 });
 
 test("validation pack checks delegated pre-date cleanup after wrapper layering", () => {
+  // Rebuild PR 2 dropped the private chain; the validation pack now checks
+  // the single-body public.video_date_transition for the cleanup markers.
   assert.match(
     videoDateValidationSql,
-    /private_video_date\.vdt_pre_date_end_cleanup\(uuid,text,text\)/,
+    /pg_get_functiondef\('public\.video_date_transition\(uuid,text,text\)'::regprocedure\) like '%pre_date_end_cleanup%'/,
   );
   assert.match(videoDateValidationSql, /pre_date_manual_end/);
   assert.match(videoDateValidationSql, /queue_status = v_resume_status/);
