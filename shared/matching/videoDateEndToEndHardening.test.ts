@@ -2900,7 +2900,10 @@ test("web video-date loading guard emits production-safe slow-path diagnostics",
   assert.match(webVideoDatePage, /VIDEO_DATE_ROUTE_GUARD_SLOW/);
   assert.match(webVideoDatePage, /video_date_route_guard_slow/);
   assert.match(webVideoDatePage, /date_guard_loading_watchdog/);
-  assert.match(webVideoDatePage, /setVideoDateAccess\("allowed"\);[\s\S]*get_profile_for_viewer/);
+  // Partner profile still loads only after access is allowed; the fetch now
+  // goes through the memoized video-date helper (golden-flow lean pass), which
+  // owns the get_profile_for_viewer RPC call.
+  assert.match(webVideoDatePage, /setVideoDateAccess\("allowed"\);[\s\S]*fetchVideoDatePartnerProfile/);
   assert.match(webVideoDatePage, /date_guard_partner_profile_failed/);
 });
 

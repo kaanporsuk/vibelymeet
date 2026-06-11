@@ -26,6 +26,7 @@ import {
   setWebVideoDateMediaHandoff,
 } from "@/lib/videoDateMediaHandoff";
 import { recordReadyGateEntered } from "@/lib/readyGateEntryProof";
+import { fetchVideoDatePartnerProfile } from "@/lib/videoDatePartnerProfile";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateSessionTruth";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
@@ -3022,9 +3023,9 @@ const ReadyGateOverlay = ({
       // Partner photo + vibes through the session-aware profile RPC.
       let profile: unknown = null;
       try {
-        const { data, error: profileError } = await supabase.rpc("get_profile_for_viewer", {
-          p_target_id: snapshot.partnerId,
-        });
+        const { data, error: profileError } = await fetchVideoDatePartnerProfile(
+          snapshot.partnerId,
+        );
         if (cancelled) return;
         if (profileError) {
           vdbg("ready_gate_partner_profile_display_degraded", {

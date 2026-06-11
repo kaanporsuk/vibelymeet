@@ -50,6 +50,7 @@ import {
   supabase,
 } from "@/integrations/supabase/client";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
+import { fetchVideoDatePartnerProfile } from "@/lib/videoDatePartnerProfile";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
@@ -2742,12 +2743,7 @@ const VideoDate = () => {
 
         void (async () => {
           try {
-            const { data: profile, error: profileError } = await supabase.rpc(
-              "get_profile_for_viewer",
-              {
-                p_target_id: pId,
-              },
-            );
+            const { data: profile, error: profileError } = await fetchVideoDatePartnerProfile(pId);
 
             if (cancelled) return;
 

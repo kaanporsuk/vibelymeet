@@ -12874,6 +12874,10 @@ export type Database = {
         }
         Returns: Json
       }
+      record_video_date_launch_latency_checkpoints_v1: {
+        Args: { p_checkpoints?: Json; p_session_id: string }
+        Returns: Json
+      }
       record_video_date_orphan_room_cleanup_audit_v2: {
         Args: {
           p_action: string
