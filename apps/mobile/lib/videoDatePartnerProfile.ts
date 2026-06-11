@@ -1,0 +1,74 @@
+import { supabase } from '@/lib/supabase';
+
+// Native parity for the golden-flow lean pass: video-date surfaces fetched the
+// partner profile independently on every mount/effect re-run (useActiveSession,
+// videoDateApi, readyGateApi, readyGateSharedVibes, PostDateSurvey). Partner
+// display data is stable for the length of a date, so video-date surfaces share
+// one in-flight request and a short TTL memo per partner. Errors are never
+// cached. Mirrors src/lib/videoDatePartnerProfile.ts on web.
+
+const PARTNER_PROFILE_TTL_MS = 5 * 60_000;
+const MAX_CACHE_ENTRIES = 16;
+
+export type VideoDatePartnerProfileResult = {
+  data: unknown;
+  error: { code?: string; message: string } | null;
+};
+
+const cache = new Map<string, { at: number; data: unknown }>();
+const inFlight = new Map<string, Promise<VideoDatePartnerProfileResult>>();
+
+function pruneCache(now: number): void {
+  for (const [key, entry] of cache) {
+    if (now - entry.at > PARTNER_PROFILE_TTL_MS) cache.delete(key);
+  }
+  while (cache.size > MAX_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+export async function fetchVideoDatePartnerProfile(
+  partnerId: string,
+): Promise<VideoDatePartnerProfileResult> {
+  const now = Date.now();
+  const cached = cache.get(partnerId);
+  if (cached && now - cached.at <= PARTNER_PROFILE_TTL_MS) {
+    return { data: cached.data, error: null };
+  }
+
+  const existing = inFlight.get(partnerId);
+  if (existing) return existing;
+
+  const request = (async (): Promise<VideoDatePartnerProfileResult> => {
+    try {
+      const { data, error } = await supabase.rpc('get_profile_for_viewer', {
+        p_target_id: partnerId,
+      });
+      if (error) {
+        return { data: null, error: { code: error.code ?? undefined, message: error.message } };
+      }
+      cache.set(partnerId, { at: Date.now(), data });
+      pruneCache(Date.now());
+      return { data, error: null };
+    } catch (error) {
+      return {
+        data: null,
+        error: { message: error instanceof Error ? error.message : String(error) },
+      };
+    }
+  })();
+
+  inFlight.set(partnerId, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlight.get(partnerId) === request) inFlight.delete(partnerId);
+  }
+}
+
+export function clearVideoDatePartnerProfileCacheForTests(): void {
+  cache.clear();
+  inFlight.clear();
+}

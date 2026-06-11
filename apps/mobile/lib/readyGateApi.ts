@@ -37,6 +37,7 @@ import {
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
 } from '@clientShared/matching/videoDateSessionChannel';
+import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 import {
   mergeVideoDateBroadcastGapRecovery,
   recordVideoDateBroadcastGapRecoveryFailure,
@@ -515,7 +516,7 @@ export function useReadyGate(
   const fetchPartnerName = useCallback(async (partnerId: string | null): Promise<string | null> => {
     if (!partnerId) return null;
     try {
-      const { data: profile, error } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+      const { data: profile, error } = await fetchVideoDatePartnerProfile(partnerId);
       if (error) {
         if (__DEV__) console.warn('[readyGateApi] partner profile display lookup degraded:', error.message);
         return null;

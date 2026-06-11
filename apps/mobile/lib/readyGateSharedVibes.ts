@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 
 type VideoSessionParticipants = {
   participant_1_id?: string | null;
@@ -82,7 +83,7 @@ export async function fetchReadyGateSharedVibes(input: {
       .from('profile_vibes')
       .select('vibe_tags(label)')
       .eq('profile_id', userId),
-    supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId }),
+    fetchVideoDatePartnerProfile(partnerId),
   ]);
 
   if (viewerVibesResult.error || partnerProfileResult.error) return [];
