@@ -14,8 +14,8 @@ It answers five questions:
 
 1. How long does Ready Gate open -> date join take?
 2. Are simultaneous swipe conflicts recovering into the existing Ready Gate/date session?
-3. Does post-date survey completion convert into the next Ready Gate/date opportunity?
-4. Are queue drain failures real failures, blocked cases, or expected no-ops?
+3. Does post-date survey completion persist and return the user to the lobby/deck?
+4. Which removed queue-drain dashboards are historical and should not be rebuilt?
 5. Is client timer drift detected and corrected from server-owned `video_sessions` truth?
 
 These dashboards are for operations and regression detection. They are not product UX dashboards.
@@ -25,7 +25,7 @@ These dashboards are for operations and regression detection. They are not produ
 | Source | Use For | Trust Level | Notes |
 | --- | --- | --- | --- |
 | Client PostHog | UI chain checkpoints, client-observed Daily token/join/remote media, survey conversion route, timer drift recovery | Client-observed truth | Do not treat client analytics as backend truth. Use stable enum properties only. |
-| Supabase SQL | Queue drain, promotion engine, event validity, active-session conflicts, `video_sessions` server state | Backend truth | Use normalized views and keep drain wrapper rows separate from promotion engine rows. |
+| Supabase SQL | Event validity, active-session conflicts, `video_sessions` server state, persisted `date_feedback` | Backend truth | Queue-drain views/RPCs are historical only after the post-date instant-next removal. |
 | Sentry breadcrumbs | Correlating client failures, route guards, Daily failures, reconnect drift symptoms | Debug evidence | Use for investigation, not rates. Sampling and client health can bias counts. |
 
 PII guardrails:
@@ -76,15 +76,13 @@ Simultaneous swipe recovery:
 - `simultaneous_swipe_recovery_succeeded`
 - `simultaneous_swipe_recovery_failed`
 
-Survey -> next Ready Gate:
+Post-date survey return:
 
 - `post_date_survey_impression`
 - `post_date_survey_submit`
 - `post_date_survey_complete_return`
-- `survey_next_gate_check_started`
-- `survey_next_gate_check_result`
-- `survey_next_gate_conversion`
-- Existing conversion evidence: `video_date_queue_drain_found`, `ready_gate_impression`, `ready_gate_both_ready`, `video_date_daily_join_success`
+- Current backend proof: persisted `date_feedback`
+- Historical removed funnel events: `survey_next_gate_check_started`, `survey_next_gate_check_result`, `survey_next_gate_conversion`
 
 Timer drift:
 
@@ -179,15 +177,20 @@ What not to conclude:
 - A conflict is not automatically a failed match. `already_matched` with a routable session can be a successful recovery path.
 - Recovery success is client-observed. If SQL reports conflicts but PostHog has low success, inspect client hydration and route failures before changing backend promotion logic.
 
-## 6. Dashboard: Survey To Next Ready Gate Conversion
+## 6. Dashboard: Survey To Next Ready Gate Conversion - REMOVED (historical)
 
-Question: after the post-date survey completes, does the user get another date opportunity?
+> **Removed 2026-06-11.** Survey-to-next-Ready-Gate reporting was tied to the
+> removed queue/drain path (`video_date_queue_drain_found`, `useMatchQueue`, and
+> `enableSurveyPhaseDrain`). The post-date instant-next behavior no longer exists,
+> so this dashboard must not be built or used for current operations. Current
+> survey health should track `date_feedback` persistence and the user's normal
+> return to the lobby/deck, not a second automatic Video Date.
 
-PostHog funnel variants:
+Historical PostHog funnel variants:
 
 1. `post_date_survey_complete_return`
 2. `survey_next_gate_check_started`
-3. `video_date_queue_drain_found`
+3. removed queue-drain success event
 4. `ready_gate_impression`
 5. `ready_gate_both_ready`
 6. `video_date_daily_join_success`
@@ -198,9 +201,8 @@ Conversion windows:
 - 60 seconds
 - 120 seconds
 
-Recommended tiles:
+Historical tiles:
 
-- Survey complete -> queue drain found.
 - Survey complete -> Ready Gate shown.
 - Survey complete -> date joined.
 - No next match reason distribution from `survey_next_gate_check_result.reason_code`.
@@ -215,13 +217,13 @@ Breakdowns:
 
 Implementation rule:
 
-- Use the existing `useMatchQueue` survey-phase drain path with `enableSurveyPhaseDrain`.
-- Do not create a separate matching loop for this metric.
+- Do not query or rebuild the removed survey queue-drain path.
+- Do not use this historical funnel as a current launch or recovery signal.
 
 What not to conclude:
 
-- A no-op result can mean no eligible queued session at that moment, not a drain bug.
-- Survey completion is client-observed. For backend queue truth, check drain/promotion SQL before tuning cadence.
+- Missing queue-drain events are expected after the queue/drain removal.
+- Survey completion still requires backend `date_feedback` proof.
 
 ## 7. Dashboard: Queue Drain Failures — REMOVED (historical)
 
