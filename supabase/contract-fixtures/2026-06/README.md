@@ -58,6 +58,15 @@ client/Edge-facing Video Date surface:
 - `video_sessions_columns.json` — ordered column list of `public.video_sessions`
   (name, type, nullability, default).
 
+## Intentional post-pin re-dumps
+
+- `functions/public-heads/video_date_transition.sql` was re-dumped on
+  2026-06-11 after rebuild PR 2 (migration
+  `20260611175511_video_date_transition_single_body.sql`) replaced the
+  delegation shell with a single self-contained body and dropped schema
+  `private_video_date`. The 25 `functions/private_video_date/` dumps remain as
+  the pre-rebuild history of the dropped chain.
+
 ## Re-verifying against live
 
 Dump the same queries again and `diff` against this directory. Any difference

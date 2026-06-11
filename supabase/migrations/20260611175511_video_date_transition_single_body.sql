@@ -1,8 +1,61 @@
-CREATE OR REPLACE FUNCTION public.video_date_transition(p_session_id uuid, p_action text, p_reason text DEFAULT NULL::text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_catalog'
+BEGIN;
+
+-- ============================================================================
+-- Video Date rebuild PR 2: rewrite public.video_date_transition as a single
+-- self-contained body and drop the private_video_date delegation chain.
+--
+-- The previous implementation composed 25 generations
+-- (private_video_date.vdt_core_legacy_01 .. vdt_current_base); each generation
+-- intercepted some actions and delegated the rest downward, and every result
+-- bubbled back up through per-generation payload enrichment. This migration
+-- implements the EFFECTIVE composition (pinned by
+-- supabase/contract-fixtures/2026-06/ and the PR-1/PR-2 contract suites) in
+-- one body, preserving:
+--   - entry-vocabulary aliases (complete_entry/continue_entry) onto the
+--     legacy handshake action names until the PR-5 vocabulary flip;
+--   - the pinned standalone enter_handshake rejection payload;
+--   - preflight-only prepare_entry (actionability precheck -> prepare lease
+--     protection -> 90s lease grant/refresh -> event-inactive block ->
+--     preflight checks), with the daily-room Edge Function as the only
+--     room/token minter afterwards;
+--   - complete_handshake delegation to finalize_video_date_handshake_deadline
+--     and the 60s late vibe/pass deadline interception;
+--   - self-away / partner-away suppression with presence, remote-seen and
+--     surface-claim evidence;
+--   - the legacy core machine (sync_reconnect, mark_reconnect_*, vibe/pass,
+--     end with pre-date cleanup and partial-join peer timeout);
+--   - the post pipeline: prepare_entry session-snapshot merge, the
+--     unconfirmed-date guard, terminal v2 survey continuity, lifecycle
+--     enrichment/sanitization (v1 x2 + v2), route payload, shell markers;
+--   - idempotency, terminal/survey-truth semantics, server_now_ms fields and
+--     authenticated/service_role-only grants.
+--
+-- Intentional changes versus the literal chain (called out in the PR):
+--   - raw 'sqlstate'/'sql_message'/'message'/'detail'/'hint' fragments are no
+--     longer placed in authenticated client failure payloads; diagnostics are
+--     routed into public.video_date_lifecycle_observe_exception_v2 instead;
+--   - the superseded v1 survey-continuity pass (vdt_prepare_lease) is dropped:
+--     the v2 pass (video_date_session_is_post_date_survey_eligible_v2) was
+--     already the final authority for survey_required and registration state,
+--     and the v1 pass could stomp event_registrations.current_room_id for
+--     users already re-matched into a newer session;
+--   - the vdt_lifecycle_presence self-away suppression branch is dropped
+--     (fully shadowed by the vdt_single_owner superset);
+--   - dead handlers are not carried over: core enter_handshake (rejected at
+--     the shell), core complete_handshake (replaced by the deadline
+--     finalizer), core end (replaced by pre-date cleanup), and the two older
+--     mutating prepare_entry handlers (shadowed by the preflight generation).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.video_date_transition(
+  p_session_id uuid,
+  p_action text,
+  p_reason text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_catalog'
 AS $function$
 DECLARE
   v_actor uuid := NULL;
@@ -2328,4 +2381,47 @@ BEGIN
       END;
   END;
 END;
-$function$
+$function$;
+
+REVOKE ALL ON FUNCTION public.video_date_transition(uuid, text, text)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.video_date_transition(uuid, text, text)
+  TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.video_date_transition(uuid, text, text) IS
+  'Single-body Video Date lifecycle transition RPC (rebuild PR 2). Implements the effective contract of the former private_video_date delegation chain in one function; shared video_date_lifecycle_* helpers stay the payload/observability owners.';
+
+-- ── Drop the private delegation chain (no remaining callers: the only live
+-- reference was the previous public.video_date_transition body). ──
+DROP FUNCTION private_video_date.vdt_current_base(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_hot_path_no_throw(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_active_entry_failsoft(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_both_ready_owner(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_partial_ready_gate(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_last_resort(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_definitive_owner(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_terminal_lifecycle(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_routeable_entry(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_single_owner(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_lifecycle_presence(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_latest_presence(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_warmup_stability(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_failsoft_base(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_remote_seen(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_prepare_payload(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_prepare_lease(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_survey_continuity(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_deadline(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_event_inactive(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_peer_missing_end(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_provider_atomic_entry(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_prepare_entry_prewarm(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_pre_date_end_cleanup(uuid, text, text);
+DROP FUNCTION private_video_date.vdt_core_legacy_01(uuid, text, text);
+
+-- Must be empty by now; fail loudly if anything else slipped into it.
+DROP SCHEMA private_video_date;
+
+NOTIFY pgrst, 'reload schema';
+
+COMMIT;

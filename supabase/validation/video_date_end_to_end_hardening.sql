@@ -97,26 +97,20 @@ where ended_at is null
 order by handshake_started_at asc
 limit 100;
 
--- 7) Confirm the delegated pre-date end helper contains non-survey cleanup.
--- Later migrations wrap video_date_transition(), so validate the preserved helper
--- body instead of requiring the public wrapper to inline this older branch.
+-- 7) Confirm the single-body public function contains non-survey pre-date end cleanup.
+-- The private chain was dropped in PR 2; behavior now lives in public.video_date_transition.
 select
   'video_date_transition_pre_date_end_cleanup' as check_name,
-  to_regprocedure('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)') is not null
-  and pg_get_functiondef('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_end_cleanup%'
-  and pg_get_functiondef('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_manual_end%'
-  and pg_get_functiondef('private_video_date.vdt_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%queue_status = v_resume_status%'
+  pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) like '%pre_date_end_cleanup%'
+  and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) like '%pre_date_manual_end%'
+  and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) like '%queue_status = v_resume_status%'
   as ok;
 
--- 8) Confirm clients cannot call the retired implementation directly.
+-- 8) Confirm the private chain has been fully dropped (PR 2).
+-- vdt_core_legacy_01 and the entire private_video_date schema are gone.
 select
   'legacy_video_date_transition_helper_not_client_executable' as check_name,
-  to_regprocedure('private_video_date.vdt_core_legacy_01(uuid,text,text)') is not null
-  and not has_function_privilege(
-    'authenticated',
-    'private_video_date.vdt_core_legacy_01(uuid,text,text)',
-    'EXECUTE'
-  )
+  to_regprocedure('private_video_date.vdt_core_legacy_01(uuid,text,text)') is null
   and to_regprocedure('public.video_date_transition_20260430180000_last_chance_grace_10s(uuid,text,text)') is null
   as ok;
 

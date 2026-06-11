@@ -29,22 +29,21 @@ select
       and indexdef like '%daily_room_name IS NULL%'
   ) as ok;
 
+-- Retargeted to the single-body public function (PR 2: private chain dropped).
 with fn as (
   select
-    pg_get_functiondef('private_video_date.vdt_prepare_lease(uuid,text,text)'::regprocedure) as def,
+    pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) as def,
     has_function_privilege('authenticated', 'public.video_date_transition(uuid,text,text)', 'EXECUTE') as auth_exec
 )
 select
   'video_date_transition_sets_non_routeable_prepare_lease' as check_name,
-  def like '%p_action IS DISTINCT FROM ''prepare_entry''%'
-  and def like '%prepare_entry_started_at = COALESCE(prepare_entry_started_at, v_now)%'
+  def like '%prepare_entry_started_at = COALESCE(prepare_entry_started_at, v_now)%'
   and def like '%prepare_entry_expires_at = v_lease_expires_at%'
   and def like '%v_now + interval ''90 seconds''%'
   and def like '%ready_gate_expires_at = GREATEST(%'
   and def like '%prepare_entry_lease_started%'
   and def like '%prepare_entry_lease_refreshed%'
   and def like '%''routeable'', false%'
-  and def like '%private_video_date.vdt_prepare_lease%'
   and auth_exec as ok
 from fn;
 
@@ -74,16 +73,17 @@ select
   and def like '%expire_stale_video_sessions_bounded_202605031300_base%' as ok
 from fn;
 
+-- private_video_date.vdt_prepare_lease dropped in PR 2; the remaining two
+-- archived base helpers must still exist and be non-client-executable.
 with bases as (
   select unnest(array[
-    to_regprocedure('private_video_date.vdt_prepare_lease(uuid,text,text)'),
     to_regprocedure('public.confirm_vde_prepared_202605031300_base(uuid,text,text,text)'),
     to_regprocedure('public.expire_stale_video_sessions_bounded_202605031300_base(integer)')
   ]) as oid
 )
 select
   'renamed_prepare_lease_bases_are_not_client_executable' as check_name,
-  count(*) = 3
+  count(*) = 2
   and bool_and(oid is not null)
   and bool_and(not has_function_privilege('anon', oid, 'EXECUTE'))
   and bool_and(not has_function_privilege('authenticated', oid, 'EXECUTE')) as ok
