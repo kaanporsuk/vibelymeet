@@ -116,14 +116,12 @@ test("Sprint 5 safety reports force a pass before any match or notification path
     postDateVerdictFunction,
     /submit_post_date_verdict_v3[\s\S]+p_liked: effectiveLiked as boolean/,
   );
-  assert.match(
-    postDateVerdictFunction,
-    /submit_post_date_verdict_v2[\s\S]+p_liked: effectiveLiked as boolean/,
-  );
-  assert.match(
-    postDateVerdictFunction,
-    /submit_post_date_verdict"[\s\S]+p_liked: effectiveLiked as boolean/,
-  );
+  // Verdict submission is v3-only since PR #1286: stale v2/keyless callers are
+  // coerced onto v3, so the forced-pass guarantee flows through the single v3
+  // RPC call. The retired v2/legacy RPC branches must not return.
+  assert.match(postDateVerdictFunction, /deprecated_version_coerced_to_v3/);
+  assert.doesNotMatch(postDateVerdictFunction, /rpc\("submit_post_date_verdict_v2"/);
+  assert.doesNotMatch(postDateVerdictFunction, /rpc\("submit_post_date_verdict"/);
 });
 
 test("Sprint 5 next-surface authority suppresses unsafe chat and same-pair active surfaces", () => {

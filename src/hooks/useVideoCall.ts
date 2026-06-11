@@ -75,6 +75,7 @@ import {
   parseVideoDateCameraSwitchRenderHint,
 } from "@clientShared/matching/videoDateCameraSwitchRenderHint";
 import { getVideoDatePermissionHandoff } from "@clientShared/matching/videoDatePermissionHandoff";
+import { fetchVideoDateSessionRow } from "@/lib/videoDateSessionRow";
 import {
   videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
@@ -4289,13 +4290,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   );
 
   const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
-    const { data, error } = await supabase
-      .from("video_sessions")
-      .select(
-        "id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, daily_room_name, daily_room_url, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at",
-      )
-      .eq("id", sessionId)
-      .maybeSingle();
+    const { data, error } = await fetchVideoDateSessionRow(sessionId);
     return {
       truth: (data as VideoDateTruthRow | null) ?? null,
       error,

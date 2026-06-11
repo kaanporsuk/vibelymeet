@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { RefreshCw, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchVideoDateSessionRow } from "@/lib/videoDateSessionRow";
 import {
   fallbackVideoDateIceBreakerState,
   VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
@@ -53,11 +54,7 @@ export const IceBreakerCard = ({
   const seedQuestionState = useCallback(async () => {
     if (!sessionId) return;
 
-    const { data } = await supabase
-      .from("video_sessions")
-      .select("vibe_questions, vibe_question_index, vibe_question_anchor_at")
-      .eq("id", sessionId)
-      .maybeSingle();
+    const { data } = await fetchVideoDateSessionRow(sessionId);
 
     const stored = parseVibeQuestionState(data);
     if (stored) {
