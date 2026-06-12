@@ -249,6 +249,8 @@ test("shared adapters and generated types expose the new contract", () => {
   assert.match(adapters, /sanitizeDeckString\(source\.mark_action/);
   assert.match(supabaseTypes, /event_deck_card_reservations: \{/);
   assert.match(supabaseTypes, /handle_swipe_v2: \{/);
-  assert.match(supabaseTypes, /p_deck_token\?: string \| null/);
+  // Generator format drift (2026-06): optional DEFAULT NULL args are emitted
+  // as `?: string` without the `| null` union by the current supabase typegen.
+  assert.match(supabaseTypes, /p_deck_token\?: string/);
   assert.match(supabaseTypes, /event_deck_validate_presented_card: \{/);
 });

@@ -60,6 +60,20 @@ client/Edge-facing Video Date surface:
 
 ## Intentional post-pin re-dumps
 
+- 2026-06-12 (acceptance follow-up round 2): `npm run check:contract-fixture-drift`
+  (new live drift checker) found five additional public-heads silently stale
+  since the 2026-06-11 rebuild migrations; all were re-dumped from live and
+  every hunk attributed: `mark_video_date_daily_alive.sql`,
+  `ready_gate_transition.sql`, `video_session_mark_ready_v2.sql` (PR-5
+  handshake→entry vocab flip), `confirm_video_date_entry_prepared.sql` and
+  `expire_stale_video_sessions.sql` (single-body flattens). In the same pass
+  `video_date_transition.sql` and `mark_video_date_remote_seen.sql` were
+  re-dumped for the per-participant in_survey stamp guard (migration
+  `20260612221536_vd_accept2_per_participant_survey_stamp.sql`). Dropped-chain
+  history fixtures (`finalize_video_date_handshake_deadline.sql`, the three
+  `video_session_*_v2.sql`) are intentionally retained; the drift checker
+  allowlists them.
+
 - `functions/public-heads/video_date_transition.sql` was re-dumped again on
   2026-06-12 after the acceptance-run follow-up (migration
   `20260612211818_vd_accept_followup_transition_survey_feedback_guard.sql`)

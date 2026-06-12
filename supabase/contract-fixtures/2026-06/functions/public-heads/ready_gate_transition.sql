@@ -169,7 +169,7 @@ BEGIN
          AND v_session.ended_at IS NULL
          AND v_session.state = 'ready_gate'::public.video_date_state
          AND v_session.ready_gate_status IN ('ready', 'ready_a', 'ready_b', 'snoozed')
-         AND v_session.handshake_started_at IS NULL
+         AND v_session.entry_started_at IS NULL
          AND v_session.date_started_at IS NULL
          AND v_session.participant_1_joined_at IS NULL
          AND v_session.participant_2_joined_at IS NULL
@@ -192,7 +192,7 @@ BEGIN
           AND ended_at IS NULL
           AND state = 'ready_gate'::public.video_date_state
           AND ready_gate_status IN ('ready', 'ready_a', 'ready_b', 'snoozed')
-          AND handshake_started_at IS NULL
+          AND entry_started_at IS NULL
           AND date_started_at IS NULL
           AND participant_1_joined_at IS NULL
           AND participant_2_joined_at IS NULL
@@ -252,14 +252,14 @@ BEGIN
           WHERE id = p_session_id;
 
           v_date_capable := (
-            v_session.handshake_started_at IS NOT NULL
+            v_session.entry_started_at IS NOT NULL
             OR v_session.date_started_at IS NOT NULL
             OR v_session.daily_room_name IS NOT NULL
             OR v_session.daily_room_url IS NOT NULL
             OR v_session.participant_1_joined_at IS NOT NULL
             OR v_session.participant_2_joined_at IS NOT NULL
-            OR v_session.state IN ('handshake'::public.video_date_state, 'date'::public.video_date_state)
-            OR COALESCE(v_session.phase, '') IN ('handshake', 'date')
+            OR v_session.state IN ('entry'::public.video_date_state, 'date'::public.video_date_state)
+            OR COALESCE(v_session.phase, '') IN ('entry', 'date')
           );
 
           IF v_session.ended_at IS NOT NULL OR v_session.ready_gate_status = 'expired' THEN
@@ -399,7 +399,7 @@ BEGIN
                 AND ready_gate_expires_at IS NOT NULL
                 AND ready_gate_expires_at <= v_now
                 AND date_started_at IS NULL
-                AND handshake_started_at IS NULL
+                AND entry_started_at IS NULL
                 AND daily_room_name IS NULL
                 AND daily_room_url IS NULL
                 AND participant_1_joined_at IS NULL
@@ -479,7 +479,7 @@ BEGIN
               WHERE id = p_session_id
                 AND ended_at IS NULL
                 AND state = 'ready_gate'::public.video_date_state
-                AND handshake_started_at IS NULL
+                AND entry_started_at IS NULL
                 AND date_started_at IS NULL
                 AND daily_room_name IS NULL
                 AND daily_room_url IS NULL
@@ -729,7 +729,7 @@ BEGIN
               AND ended_at IS NULL
               AND state = 'ready_gate'::public.video_date_state
               AND ready_gate_status = 'both_ready'
-              AND handshake_started_at IS NULL
+              AND entry_started_at IS NULL
               AND date_started_at IS NULL
               AND participant_1_joined_at IS NULL
               AND participant_2_joined_at IS NULL
@@ -797,13 +797,13 @@ BEGIN
              OR (v_terminal AND v_status IS DISTINCT FROM 'both_ready')
              OR v_session.ended_at IS NOT NULL
              OR v_session.state IS DISTINCT FROM 'ready_gate'::public.video_date_state
-             OR v_session.handshake_started_at IS NOT NULL
+             OR v_session.entry_started_at IS NOT NULL
              OR v_session.date_started_at IS NOT NULL
              OR v_session.daily_room_name IS NOT NULL
              OR v_session.daily_room_url IS NOT NULL
              OR v_session.participant_1_joined_at IS NOT NULL
              OR v_session.participant_2_joined_at IS NOT NULL
-             OR COALESCE(v_session.phase, 'ready_gate') IN ('handshake', 'date')
+             OR COALESCE(v_session.phase, 'ready_gate') IN ('entry', 'date')
              OR v_session.ready_gate_expires_at IS NULL
              OR v_session.ready_gate_expires_at <= v_now
            ) THEN
@@ -851,13 +851,13 @@ BEGIN
               AND ended_at IS NULL
               AND state = 'ready_gate'::public.video_date_state
               AND ready_gate_status IN ('ready', 'ready_a', 'ready_b', 'snoozed', 'both_ready')
-              AND handshake_started_at IS NULL
+              AND entry_started_at IS NULL
               AND date_started_at IS NULL
               AND daily_room_name IS NULL
               AND daily_room_url IS NULL
               AND participant_1_joined_at IS NULL
               AND participant_2_joined_at IS NULL
-              AND COALESCE(phase, 'ready_gate') NOT IN ('handshake', 'date')
+              AND COALESCE(phase, 'ready_gate') NOT IN ('entry', 'date')
             RETURNING * INTO v_after;
 
             GET DIAGNOSTICS v_row_count = ROW_COUNT;

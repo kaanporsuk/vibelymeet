@@ -113,7 +113,9 @@ test("Web and native mark only rendered top cards as visible", () => {
   assert.match(nativeLobby, /record_event_deck_card_visible_v1/);
   assert.match(nativeLobby, /current\.id/);
   assert.match(nativeLobby, /appState !== "active"/);
-  assert.match(nativeLobby, /showQueuedStyleConvergenceUi/);
+  // showQueuedStyleConvergenceUi was removed with the queued-flow purge
+  // (PR #1286 era); top-card visibility marking is pinned by the asserts
+  // around this line, so no replacement identifier is required.
   assert.match(nativeLobby, /result\?\.ok === false/);
   assert.match(nativeLobby, /scheduleRetry/);
 });

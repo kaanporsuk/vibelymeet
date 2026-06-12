@@ -417,16 +417,27 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
         // survey is genuinely pending, so this is safe under races. setStatus
         // is not used here because its eventId binding can be unset on cold
         // /date loads.
-        const { error: releaseError } = await supabase.rpc(
-          "update_participant_status",
-          { p_event_id: sessionRow.event_id, p_status: "browsing" },
-        );
+        let releaseError: { code?: string } | null = null;
+        let releaseAttempts = 0;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          if (attempt > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+          }
+          releaseAttempts = attempt + 1;
+          const { error } = await supabase.rpc("update_participant_status", {
+            p_event_id: sessionRow.event_id,
+            p_status: "browsing",
+          });
+          releaseError = error ?? null;
+          if (!releaseError) break;
+        }
         vdbg("terminal_survey_complete_registration_release", {
           sessionId: id,
           userId: user.id,
           source,
           eventId: sessionRow.event_id,
           released: !releaseError,
+          attempts: releaseAttempts,
           code: releaseError?.code ?? null,
         });
         if (releaseError) {

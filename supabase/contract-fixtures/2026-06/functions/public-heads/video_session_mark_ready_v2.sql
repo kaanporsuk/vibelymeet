@@ -457,14 +457,14 @@ BEGIN
 
                 v_status := COALESCE(v_after.ready_gate_status, v_session.ready_gate_status, 'expired');
                 v_date_capable := (
-                  v_after.handshake_started_at IS NOT NULL
+                  v_after.entry_started_at IS NOT NULL
                   OR v_after.date_started_at IS NOT NULL
                   OR v_after.daily_room_name IS NOT NULL
                   OR v_after.daily_room_url IS NOT NULL
                   OR v_after.participant_1_joined_at IS NOT NULL
                   OR v_after.participant_2_joined_at IS NOT NULL
-                  OR v_after.state IN ('handshake'::public.video_date_state, 'date'::public.video_date_state)
-                  OR COALESCE(v_after.phase, '') IN ('handshake', 'date')
+                  OR v_after.state IN ('entry'::public.video_date_state, 'date'::public.video_date_state)
+                  OR COALESCE(v_after.phase, '') IN ('entry', 'date')
                 );
                 v_cleanup := jsonb_build_object('session_terminalized', true);
 
@@ -551,7 +551,7 @@ BEGIN
                   NULL;
                 END;
               ELSIF v_session.state IS DISTINCT FROM 'ready_gate'::public.video_date_state
-                 OR v_session.handshake_started_at IS NOT NULL
+                 OR v_session.entry_started_at IS NOT NULL
                  OR v_session.date_started_at IS NOT NULL
                  OR v_session.participant_1_joined_at IS NOT NULL
                  OR v_session.participant_2_joined_at IS NOT NULL
@@ -599,7 +599,7 @@ BEGIN
                   AND ended_at IS NULL
                   AND state = 'ready_gate'::public.video_date_state
                   AND ready_gate_status IN ('queued', 'ready', 'ready_a', 'ready_b', 'snoozed')
-                  AND handshake_started_at IS NULL
+                  AND entry_started_at IS NULL
                   AND date_started_at IS NULL
                   AND participant_1_joined_at IS NULL
                   AND participant_2_joined_at IS NULL
@@ -719,7 +719,7 @@ BEGIN
                   AND ended_at IS NULL
                   AND state = 'ready_gate'::public.video_date_state
                   AND ready_gate_status IN ('queued', 'ready', 'ready_a', 'ready_b', 'snoozed')
-                  AND handshake_started_at IS NULL
+                  AND entry_started_at IS NULL
                   AND date_started_at IS NULL
                   AND participant_1_joined_at IS NULL
                   AND participant_2_joined_at IS NULL

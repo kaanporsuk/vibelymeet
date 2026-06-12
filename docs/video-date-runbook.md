@@ -24,7 +24,9 @@ Video Date lanes:
 
 Room-cleanup/orphan-cleanup consolidation is deliberately deferred (both call
 the Daily API directly, not the outbox delete kind — merging is a behavior
-change; see `docs/branch-deltas/video-date-rebuild-pr9-ops-purge.md`).
+change). The concrete consolidation design and its acceptance bar live in
+`docs/investigations/video-date-room-cleanup-consolidation-plan.md`
+(2026-06-12); execute it as a dedicated PR.
 
 ## Monitoring posture (PR 9, user-decided)
 
@@ -51,10 +53,17 @@ disposable/headless users — they have no OneSignal player. Paging requires a
 non-benign failure: `(failed_count - benign_failed_count) > 0` or an
 expired-lease pileup.
 
-Open operator item: 20 stale `notification_http_401` failed outbox rows
-(2026-05-27 → 2026-06-04, OneSignal auth failures from that era) keep the
-`provider_outbox:notification.send:failed` group at page severity until purged
-or acked. They are genuine non-benign failures, not classification noise.
+Benign `watch` groups still record dispatch rows while failed rows exist; this
+is deliberate (visible, non-paging) and bounded — the dispatcher dedupes on
+(severity, fingerprint, hour_bucket), so accumulation is at most one row per
+hour per group. Prompt tag-scoped smoke cleanup removes the source rows and
+stops the dispatches entirely.
+
+RESOLVED 2026-06-12: the 20 stale `notification_http_401` failed outbox rows
+(2026-05-27 → 2026-06-04, OneSignal auth failures from that era) were purged
+after verifying provenance (documented smoke pair, one deleted user, one test
+account) and that sends have been healthy since 2026-06-05 (27 `done`, zero
+non-benign failures). The group dropped from page to benign-only watch.
 
 ## Validation battery (static, minutes)
 
@@ -75,6 +84,24 @@ in `docs/video-date-architecture.md`. Env-gated runtime RLS proofs:
 `docs/sql/video-date-invariants.sql`); function inventory:
 `npm run verify:video-date:functions`; certification wrapper:
 `npm run certify:video-date:golden-flow`.
+
+## Committed operator tooling (2026-06-12)
+
+- `npm run livegate:video-date` — the two-user live gate as a runnable artifact
+  (`scripts/video-date-live-gate.mjs`): tagged disposable fixtures, real-client
+  golden flow, optional `--offline-drop` / `--revisit-check` /
+  `--stale-stamp-check` probes, tag-scoped zero-residue cleanup. Requires the
+  dev server on 5173 and keychain CLI login. Failures keep fixtures for
+  forensics (`… cleanup` afterwards).
+- `npm run check:contract-fixture-drift` — dumps every pinned public head from
+  live and diffs against `supabase/contract-fixtures/2026-06/`; dropped-chain
+  history fixtures are allowlisted. Run after any backend-touching merge; on
+  its first run (2026-06-12) it caught five silently stale fixtures.
+- `npm run loadprobe:video-date` — bounded ready-gate convoy probe
+  (`--pairs=N`, default 12): concurrent mutual swipes + a simultaneous
+  mark_ready storm via real user tokens, latency percentiles + error codes
+  (57014 watch), tag-scoped cleanup. Run deliberately — it creates real
+  concurrent load; pair with compute-tier decisions.
 
 ## Smoke procedure (mutating production test)
 

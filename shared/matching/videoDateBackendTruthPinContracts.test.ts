@@ -408,15 +408,21 @@ test("verdict truth: submit_post_date_verdict_v3 pins idempotency, terminal voca
   assert.match(verdict, /v_confirmed_mutual := v_actor_liked AND v_partner_liked AND NOT COALESCE\(v_pair_blocked_or_reported, false\)/);
 });
 
-test("confirm_video_date_entry_prepared pins provider-proof confirmation before lease clearing", () => {
+test("confirm_video_date_entry_prepared pins the event-inactive gate over the confirm base", () => {
+  // Single-body flatten (2026-06-11 maintenance migrations) replaced the
+  // delegation shell: the head is now an event-inactive gate (terminalize +
+  // blocked payload when the event died pre-entry) over the confirm base,
+  // which owns provider-proof confirmation and prepare-lease clearing. The
+  // committed fixture was stale on the pre-flatten shape until the 2026-06-12
+  // drift-checker re-dump.
   const confirm = fixture("functions/public-heads/confirm_video_date_entry_prepared.sql");
 
-  assert.match(confirm, /public\.confirm_vde_prepared_202605031300_base\(/);
-  assert.match(confirm, /v_success := COALESCE\(\(v_result ->> 'success'\)::boolean, false\)/);
-  assert.match(
-    confirm,
-    /IF v_success THEN[\s\S]*prepare_entry_started_at = NULL,[\s\S]*prepare_entry_expires_at = NULL,[\s\S]*prepare_entry_attempt_id = NULL,[\s\S]*prepare_entry_actor_id = NULL/,
-  );
+  assert.match(confirm, /v_already_entry := \(/);
+  assert.match(confirm, /public\.get_event_lobby_inactive_reason\(v_session\.event_id\)/);
+  assert.match(confirm, /public\.terminalize_event_ready_gates\(v_session\.event_id, v_inactive_reason\)/);
+  assert.match(confirm, /'confirm_prepare_entry_event_inactive'/);
+  assert.match(confirm, /RETURN public\.confirm_vde_event_inactive_base_v1\(/);
+  assert.doesNotMatch(confirm, /confirm_vde_prepared_202605031300_base/);
 });
 
 test("deadline and expiry heads pin their live delegation targets", () => {
@@ -425,7 +431,12 @@ test("deadline and expiry heads pin their live delegation targets", () => {
   const handshakeDeadline = fixture("functions/public-heads/finalize_video_date_handshake_deadline.sql");
   const autoPromote = fixture("functions/public-heads/video_session_handshake_auto_promote_v2.sql");
 
-  assert.match(expire, /RETURN public\.expire_stale_video_sessions_bounded\(100\)/);
+  // expire_stale_video_sessions folded its bounded body (single-body
+  // maintenance flatten; fixture was stale on the delegation shell until the
+  // 2026-06-12 drift-checker re-dump).
+  assert.match(expire, /v_limit integer := 100/);
+  assert.match(expire, /\(fold of expire_stale_video_sessions_bounded\)/);
+  assert.match(expire, /public\.recover_ready_gate_missing_rooms_v1\(v_limit, 20, 120\)/);
   // The handshake-named head was absorbed into finalize_video_date_entry_deadline
   // (vocab flip + chain inlining); the entry head is the live full body. The
   // handshake fixture stays as a dropped-name historical reference (inventory
