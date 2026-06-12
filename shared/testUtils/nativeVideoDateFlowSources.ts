@@ -53,6 +53,10 @@ export const NATIVE_VIDEO_DATE_SCREEN_FLOW_FILES = [
 
 /** The native standalone Ready Gate screen family. */
 export const NATIVE_READY_SCREEN_FLOW_FILES = [
+  // PR 8.5 body sub-hooks, listed in their original in-screen source order.
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
   "apps/mobile/app/ready/[id].tsx",
 ] as const;
 
