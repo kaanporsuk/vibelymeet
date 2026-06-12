@@ -82,10 +82,7 @@ test("first-remote watchdog suppresses terminal peer-missing on historical encou
     ["native", nativeDateRoute],
   ] as Array<[string, string]>) {
     assert.match(source, /hasHistoricalRemoteSeenTruth/);
-    assert.match(source, /historical_remote_seen_truth/);
     assert.match(source, /daily_no_remote_watchdog_historical_truth_suppressed/);
-    assert.match(source, /peer_missing_suppressed_remote_seen/);
-    assert.match(source, /reason_code: ["']historical_remote_seen_truth["']/);
     assert.doesNotMatch(source, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
   }
 });

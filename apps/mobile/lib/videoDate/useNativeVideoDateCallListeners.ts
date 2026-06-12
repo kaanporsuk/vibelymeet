@@ -47,9 +47,6 @@ import {
   useVideoDateSession,
 } from "@/lib/videoDateApi";
 import {
-  emitNativeVideoDateClientStuckState,
-} from "@/lib/videoDateClientStuckObservability";
-import {
   LobbyPostDateEvents,
 } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
@@ -616,18 +613,6 @@ export function useNativeVideoDateCallListeners(deps: NativeVideoDateCallListene
             entryAttemptId: ownerBeforeLeft.entryAttemptId ?? null,
             videoDateTraceId: ownerBeforeLeft.videoDateTraceId ?? null,
             providerSessionId,
-          });
-          void emitNativeVideoDateClientStuckState({
-            sessionId,
-            eventName: "daily_owner_provider_left_unexpected",
-            payload: {
-              source_surface: "video_date_daily",
-              source_action: "daily_owner_provider_left_unexpected",
-              room_name: roomNameRef.current ?? undefined,
-              owner_id: ownerBeforeLeft.ownerId,
-              owner_state: ownerBeforeLeft.state,
-              provider_session_id: providerSessionId ?? undefined,
-            },
           });
         }
         Sentry.addBreadcrumb({

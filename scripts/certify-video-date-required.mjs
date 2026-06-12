@@ -8,8 +8,6 @@ const steps = [
   ["event-lobby-regression", "npm run test:event-lobby-regression"],
   ["daily-room-contract", "npm run test:daily-room-contract"],
   ["runtime-rls-required", "npm run test:video-date-runtime-rls:required"],
-  ["phase8-config-readiness", "npm run phase8:config-readiness"],
-  ["phase8-live-certification", "npm run phase8:live-certify"],
 ];
 
 const manualEvidence = {

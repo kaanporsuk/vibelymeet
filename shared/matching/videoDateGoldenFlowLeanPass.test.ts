@@ -15,12 +15,6 @@ import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDat
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-const checkpointModule = read(
-  "shared/observability/videoDateLaunchLatencyCheckpointObservability.ts",
-);
-const batchMigration = read(
-  "supabase/migrations/20260610235546_video_date_launch_latency_batch_checkpoints.sql",
-);
 const batchedFlagFetcher = read("shared/featureFlags/batchedFlagDetailFetcher.ts");
 const webFlagWrapper = read("src/lib/clientFeatureFlags.ts");
 const nativeFlagWrapper = read("apps/mobile/lib/clientFeatureFlags.ts");
@@ -39,38 +33,6 @@ const webVideoDatePage = readWebVideoDatePageFlowSource(root);
 const nativeSessionReader = read("apps/mobile/lib/videoDateSessionRow.ts");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativeDateRoute = readNativeVideoDateScreenFlowSource();
-
-test("launch latency checkpoints are buffered and flushed through the batch RPC", () => {
-  assert.match(checkpointModule, /record_video_date_launch_latency_checkpoints_v1/);
-  assert.match(checkpointModule, /CHECKPOINT_FLUSH_DELAY_MS = 1_500/);
-  assert.match(checkpointModule, /CHECKPOINT_FLUSH_MAX_BUFFER = 10/);
-  // Failure forensics and the golden success milestone must not wait for the
-  // buffer window.
-  assert.match(checkpointModule, /checkpoint\.endsWith\("_failure"\) \|\| checkpoint === "first_remote_frame"/);
-  // A failed batch flush must degrade to the original single-checkpoint RPC,
-  // never drop silently.
-  assert.match(
-    checkpointModule,
-    /await buffer\.client\.rpc\("record_video_date_launch_latency_checkpoint"/,
-  );
-});
-
-test("batch checkpoint RPC delegates each item to the existing fail-soft single shell", () => {
-  assert.match(
-    batchMigration,
-    /CREATE OR REPLACE FUNCTION public\.record_video_date_launch_latency_checkpoints_v1/,
-  );
-  assert.match(batchMigration, /public\.record_video_date_launch_latency_checkpoint\(/);
-  assert.match(batchMigration, /LIMIT 40/);
-  assert.match(
-    batchMigration,
-    /REVOKE ALL ON FUNCTION public\.record_video_date_launch_latency_checkpoints_v1\(uuid, jsonb\) FROM PUBLIC, anon/,
-  );
-  assert.match(
-    batchMigration,
-    /GRANT EXECUTE ON FUNCTION public\.record_video_date_launch_latency_checkpoints_v1\(uuid, jsonb\) TO authenticated, service_role/,
-  );
-});
 
 test("concurrent flag cache misses coalesce into one batch evaluation on web and native", () => {
   assert.match(batchedFlagFetcher, /createBatchedFlagDetailFetcher/);

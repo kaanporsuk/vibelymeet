@@ -168,8 +168,6 @@ test("Sprint 4 native terminal paths cannot grant survey without terminal DB tru
 
 test("Sprint 4 Daily joined confirmation failures do not create or block survey eligibility", () => {
   const webJoinedBlock = sourceBlock(webCall, "void markDailyJoinedWithBackoff({", 7_000);
-  assert.match(webJoinedBlock, /daily_join_confirmation_failed/);
-  assert.match(webJoinedBlock, /emitWebVideoDateClientStuckState/);
   assert.match(
     webJoinedBlock,
     /if \(terminalSurvey\) \{[\s\S]{0,180}onTerminalSurveyTruth\?\.\(/,
@@ -177,8 +175,6 @@ test("Sprint 4 Daily joined confirmation failures do not create or block survey 
   assert.doesNotMatch(webJoinedBlock, /openPostDateSurvey|setShowFeedback\(true\)|surveyOpenedRef/);
 
   const nativeJoinedBlock = sourceBlock(nativeDate, "void markDailyJoinedWithBackoff({", 7_000);
-  assert.match(nativeJoinedBlock, /daily_join_confirmation_failed/);
-  assert.match(nativeJoinedBlock, /emitNativeVideoDateClientStuckState/);
   assert.match(nativeJoinedBlock, /refetchVideoSession\(\)/);
   assert.match(
     nativeJoinedBlock,

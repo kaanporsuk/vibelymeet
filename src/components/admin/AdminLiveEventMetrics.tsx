@@ -11,7 +11,6 @@ import {
   MessageSquare,
   AlertTriangle,
   Clock,
-  GitBranch,
   PieChart,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +33,6 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { useNavigate } from "react-router-dom";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
 import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
@@ -170,23 +168,6 @@ interface AdminEventPostAnalyticsPayload extends AdminRpcPayload {
 
 type VideoDateOpsStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
 
-type VideoDateOpsLatencySummary = {
-  sample_count: number;
-  raw_sample_count?: number;
-  p50_ms: number | null;
-  p95_ms: number | null;
-  max_ms: number | null;
-};
-
-type VideoDateOpsSegmentSummary = VideoDateOpsLatencySummary & {
-  key: string;
-  label: string;
-};
-
-type VideoDateOpsCohortSummary = VideoDateOpsSegmentSummary & {
-  dimensions: Record<string, string>;
-};
-
 interface AdminVideoDateOpsResponse {
   ok: boolean;
   error?: string;
@@ -200,36 +181,6 @@ interface VideoDateOpsWindow {
   label: string;
   hours: number;
   since: string;
-  ready_tap_to_first_remote_frame_latency: {
-    sample_count: number;
-    raw_sample_count?: number;
-    p50_ms: number | null;
-    p95_ms: number | null;
-    max_ms: number | null;
-    segment_breakdown?: VideoDateOpsSegmentSummary[];
-    cohort_breakdown?: VideoDateOpsCohortSummary[];
-    slowest_sessions?: Array<{
-      session_id: string | null;
-      actor_id: string | null;
-      event_id: string | null;
-      occurred_at: string | null;
-      latency_ms: number | null;
-      platform: string;
-      daily_prewarm: string;
-      timeline_error?: string;
-      timeline_rows?: Array<{
-        timeline_seq: number;
-        occurred_at: string;
-        source: string;
-        operation: string;
-        outcome: string;
-        reason_code: string | null;
-      }>;
-    }>;
-    status: VideoDateOpsStatus;
-    source_error?: string;
-    truncated?: boolean;
-  };
   ready_gate_open_to_date_join_latency: {
     sample_count: number;
     p50_ms: number | null;
@@ -248,44 +199,6 @@ interface VideoDateOpsWindow {
     recovery_rate: number | null;
     collision_status: VideoDateOpsStatus;
     recovery_status: VideoDateOpsStatus;
-    source_error?: string;
-    truncated?: boolean;
-  };
-  daily_performance_decision: {
-    first_frame_sample_count: number;
-    first_frame_p95_ms: number | null;
-    first_frame_p99_ms: number | null;
-    room_sample_count: number;
-    room_p95_ms: number | null;
-    room_p99_ms: number | null;
-    token_sample_count: number;
-    token_p95_ms: number | null;
-    token_p99_ms: number | null;
-    join_sample_count: number;
-    join_p95_ms: number | null;
-    join_p99_ms: number | null;
-    reconnect_sample_count: number;
-    reconnect_p95_ms: number | null;
-    extension_refresh_sample_count: number;
-    extension_refresh_p95_ms: number | null;
-    room_pool_recommended: boolean;
-    decision_reason: string;
-    decision_status: VideoDateOpsStatus;
-    source_error?: string;
-    truncated?: boolean;
-  };
-  daily_performance_emission_health?: {
-    missing_for_rollout_gate_count: number;
-    segments: Array<{
-      segment_key: string | null;
-      segment_label: string | null;
-      sample_count: number | null;
-      minimum_samples: number | null;
-      emission_status: string | null;
-      last_sample_at: string | null;
-      missing_for_rollout_gate: boolean | null;
-    }>;
-    status: VideoDateOpsStatus;
     source_error?: string;
     truncated?: boolean;
   };
@@ -402,12 +315,7 @@ const MetricCard = ({ icon: Icon, label, value, color, description, warning }: M
 );
 
 const AdminLiveEventMetrics = () => {
-  const navigate = useNavigate();
   const [selectedEventId, setSelectedEventId] = useState<string>("");
-
-  const openVideoDateTimeline = (sessionId: string) => {
-    navigate(`/kaan/dashboard?panel=video-date-timeline&session_id=${encodeURIComponent(sessionId)}`);
-  };
 
   // Fetch selector options through the backend read model.
   const {
@@ -703,7 +611,7 @@ const AdminLiveEventMetrics = () => {
                   Video Date Ops
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Service-role aggregate health for first-frame latency, Daily performance, room-pool decisioning, Ready Gate, swipe recovery, fairness, and timer drift.
+                  Service-role aggregate health for Ready Gate join latency, swipe recovery, notification outbox, and timer drift.
                 </p>
               </div>
               {videoDateOps?.generated_at && (
@@ -738,33 +646,13 @@ const AdminLiveEventMetrics = () => {
             {videoDateOps?.windows && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {videoDateOps.windows.map((window) => {
-                  const readyTapToFrame = window.ready_tap_to_first_remote_frame_latency;
                   const latency = window.ready_gate_open_to_date_join_latency;
                   const swipe = window.simultaneous_swipe_recovery;
-                  const dailyDecision = window.daily_performance_decision;
-                  const dailyEmission = window.daily_performance_emission_health;
                   const timer = window.timer_drift_recovered_by_server_truth;
                   const truncated = [
-                    readyTapToFrame.truncated,
                     latency.truncated,
                     swipe.truncated,
-                    dailyDecision?.truncated,
-                    dailyEmission?.truncated,
                   ].some(Boolean);
-                  const rawFirstFrameCount = readyTapToFrame.raw_sample_count ?? readyTapToFrame.sample_count;
-                  const firstFrameSampleText =
-                    rawFirstFrameCount > readyTapToFrame.sample_count
-                      ? `${readyTapToFrame.sample_count} deduped first-frame samples (${rawFirstFrameCount} raw)`
-                      : `${readyTapToFrame.sample_count} first-frame samples`;
-                  const dailyPoolDetail = dailyDecision?.source_error
-                    || `${dailyDecision?.decision_reason ?? "unknown"}; frame ${formatMs(dailyDecision?.first_frame_p95_ms)} p95 / ${formatMs(dailyDecision?.first_frame_p99_ms)} p99 (${dailyDecision?.first_frame_sample_count ?? 0} samples), room ${formatMs(dailyDecision?.room_p95_ms)} p95 / ${formatMs(dailyDecision?.room_p99_ms)} p99`;
-                  const dailyEmissionDetail = dailyEmission?.source_error || (
-                    dailyEmission?.segments?.length
-                      ? dailyEmission.segments.map((segment) => (
-                          `${segment.segment_label ?? segment.segment_key ?? "segment"}: ${segment.emission_status ?? "unknown"} (${segment.sample_count ?? 0}/${segment.minimum_samples ?? 0})`
-                        )).join("; ")
-                      : "No Daily join / first-frame emission rows returned"
-                  );
 
                   return (
                     <div key={window.id} className="rounded-xl border border-white/10 bg-secondary/10 p-4 space-y-3">
@@ -784,15 +672,6 @@ const AdminLiveEventMetrics = () => {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <VideoDateOpsTile
-                          label="Ready tap -> frame"
-                          value={`${formatMs(readyTapToFrame.p95_ms)} p95`}
-                          detail={
-                            readyTapToFrame.source_error ||
-                            `${firstFrameSampleText}, ${formatMs(readyTapToFrame.p50_ms)} p50`
-                          }
-                          status={readyTapToFrame.status}
-                        />
-                        <VideoDateOpsTile
                           label="Ready Gate -> join"
                           value={`${formatMs(latency.p95_ms)} p95`}
                           detail={
@@ -811,18 +690,6 @@ const AdminLiveEventMetrics = () => {
                           status={swipe.recovery_status}
                         />
                         <VideoDateOpsTile
-                          label="Daily pool decision"
-                          value={dailyDecision?.room_pool_recommended ? "Evaluate pool" : "No pool"}
-                          detail={dailyPoolDetail}
-                          status={dailyDecision?.decision_status ?? "unknown"}
-                        />
-                        <VideoDateOpsTile
-                          label="Daily emitters"
-                          value={`${dailyEmission?.missing_for_rollout_gate_count ?? 0} dark`}
-                          detail={dailyEmissionDetail}
-                          status={dailyEmission?.status ?? "unknown"}
-                        />
-                        <VideoDateOpsTile
                           label="Timer drift recovered"
                           value="PostHog"
                           detail={`${timer.event_name}. ${timer.note}`}
@@ -830,80 +697,6 @@ const AdminLiveEventMetrics = () => {
                         />
                       </div>
 
-                      {readyTapToFrame.segment_breakdown?.length ? (
-                        <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
-                          <div className="mb-2 text-xs font-medium text-foreground">Launch segments</div>
-                          <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-                            {readyTapToFrame.segment_breakdown.map((segment) => (
-                              <div key={segment.key} className="rounded-lg bg-background/50 p-2">
-                                <div>{segment.label}</div>
-                                <div className="font-medium text-foreground">
-                                  {formatMs(segment.p50_ms)} p50 / {formatMs(segment.p95_ms)} p95
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {readyTapToFrame.cohort_breakdown?.length ? (
-                        <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
-                          <div className="mb-2 text-xs font-medium text-foreground">Slow cohorts</div>
-                          <div className="space-y-2 text-[11px] text-muted-foreground">
-                            {readyTapToFrame.cohort_breakdown.slice(0, 4).map((cohort) => (
-                              <div key={cohort.key} className="rounded-lg bg-background/50 p-2">
-                                <div className="font-medium text-foreground">
-                                  {formatMs(cohort.p95_ms)} p95, {cohort.sample_count} samples
-                                </div>
-                                <div>
-                                  {Object.entries(cohort.dimensions)
-                                    .map(([key, value]) => `${key}: ${value}`)
-                                    .join(" / ")}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {readyTapToFrame.slowest_sessions?.length ? (
-                        <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
-                          <div className="mb-2 text-xs font-medium text-foreground">Slowest sessions</div>
-                          <div className="space-y-2 text-[11px] text-muted-foreground">
-                            {readyTapToFrame.slowest_sessions.slice(0, 5).map((session, index) => {
-                              const sessionId = session.session_id;
-                              return (
-                                <div
-                                  key={`${sessionId}:${session.actor_id}:${session.occurred_at}:${index}`}
-                                  className="rounded-lg bg-background/50 p-2"
-                                >
-                                  <div className="font-medium text-foreground">
-                                    {formatMs(session.latency_ms)} / {session.platform} / prewarm {session.daily_prewarm}
-                                  </div>
-                                  <div>session: {sessionId ? "linked" : "-"}</div>
-                                  <div>
-                                    {(session.timeline_rows ?? []).slice(-4).map((row) => row.reason_code ?? row.operation).join(" -> ") ||
-                                      session.timeline_error ||
-                                      "timeline unavailable"}
-                                  </div>
-                                  {sessionId && (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="mt-2 h-7 gap-1.5 px-2 text-[11px]"
-                                      onClick={() => openVideoDateTimeline(sessionId)}
-                                    >
-                                      <GitBranch className="h-3.5 w-3.5" />
-                                      Open timeline
-                                    </Button>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
                   );
                 })}

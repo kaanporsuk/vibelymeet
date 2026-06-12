@@ -97,7 +97,9 @@ test("Sprint 7 operator docs no longer route operators to deleted queue-drain he
   assert.match(sprint7Docs, /Entry And Date Backlog/);
   assert.doesNotMatch(sprint7Docs, /Queue Drain Misses|Queue Backlog/);
   assert.doesNotMatch(sprint7Docs, /silently_queued_count|queue_drain_miss_count|queue_drain_failure_count/);
-  assert.match(operatorMetrics, /stuck entry\/date counts/);
+  // PR 9 ops purge retired the sprint7 ops-health aggregate; the metrics doc
+  // now records the removal instead of routing operators to it.
+  assert.match(operatorMetrics, /Removed 2026-06-12 \(rebuild PR 9\)/);
   assert.match(operatorMetrics, /queue_drain_failure_rate.*REMOVED 2026-06-10/);
 });
 

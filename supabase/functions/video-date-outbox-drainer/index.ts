@@ -9,14 +9,11 @@ import {
   videoDateRoomUrlForName,
 } from "../daily-room/dailyRoomContracts.ts";
 import {
-  beginWorkerRun,
   captureVideoDateProviderException,
   createClaimLeaseRefresher,
-  createWorkerRunRefresher,
   deadLetterVideoDateProviderFailure,
   enforceProviderRateLimit,
   fetchWithTimeout,
-  finishWorkerRun,
   logVideoDateProviderFailure,
   parseRetryAfterSeconds,
   providerFailureCode,
@@ -56,7 +53,6 @@ if (!DAILY_RUNTIME_CONFIG.ok) {
   }));
 }
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
-const WORKER_KIND = "video-date-outbox-drainer";
 
 type WorkerRequest = {
   batch_size?: number;
@@ -112,10 +108,6 @@ function json(body: Record<string, unknown>, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function isWorkerAlreadyRunningError(error: string | undefined): boolean {
-  return error === "worker_already_running";
 }
 
 function isMissingProviderIdempotencyColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
@@ -932,163 +924,111 @@ Deno.serve(async (req) => {
     });
   }
 
-  const workerLeaseSeconds = Math.max(120, Math.min(600, leaseSeconds * 3));
-  const workerRun = await beginWorkerRun(supabase, {
-    workerKind: WORKER_KIND,
-    workerId,
-    leaseSeconds: workerLeaseSeconds,
-    metadata: { source: body.source ?? null, batch_size: batchSize },
+  const { data: claimed, error: claimError } = await supabase.rpc("claim_video_date_provider_outbox_v2", {
+    p_worker_id: workerId,
+    p_limit: batchSize,
+    p_lease_seconds: leaseSeconds,
   });
-  if (!workerRun.ok) {
-    const workerError = workerRun.error ?? "worker_mutex_failed";
-    if (isWorkerAlreadyRunningError(workerError)) {
-      return json({
-        ok: true,
-        skipped: workerError,
-        worker_id: workerId,
-        latency_ms: Date.now() - startedAt,
-      });
-    }
-    await logVideoDateProviderFailure(supabase, {
-      targetKind: "worker",
-      provider: "worker",
-      operation: WORKER_KIND,
-      errorCode: workerError,
-      errorMessage: workerError,
-      retryAfterSeconds: 30,
-      metadata: { source: body.source ?? null },
-    });
-    return json({
-      ok: false,
-      error: workerError,
-      worker_id: workerId,
-      latency_ms: Date.now() - startedAt,
-    }, 500);
-  }
+  if (claimError) return json({ ok: false, error: claimError.message }, 500);
 
-  const workerLease = createWorkerRunRefresher(supabase, {
-    workerKind: WORKER_KIND,
-    workerId,
-    leaseSeconds: workerLeaseSeconds,
-    metadata: () => ({ source: body.source ?? null, latency_ms: Date.now() - startedAt }),
-  });
+  const rows = ((claimed ?? []) as OutboxRow[]).map((row) => ({
+    ...row,
+    payload: isObjectPayload(row.payload) ? row.payload : {},
+  }));
 
-  try {
-    const { data: claimed, error: claimError } = await supabase.rpc("claim_video_date_provider_outbox_v2", {
-      p_worker_id: workerId,
-      p_limit: batchSize,
-      p_lease_seconds: leaseSeconds,
-    });
-    if (claimError) return json({ ok: false, error: claimError.message }, 500);
+  let completed = 0;
+  let retried = 0;
+  let permanentlyFailed = 0;
+  const failures: Array<{ id: number; kind: string; reason: string }> = [];
 
-    const rows = ((claimed ?? []) as OutboxRow[]).map((row) => ({
-      ...row,
-      payload: isObjectPayload(row.payload) ? row.payload : {},
-    }));
-
-    let completed = 0;
-    let retried = 0;
-    let permanentlyFailed = 0;
-    const failures: Array<{ id: number; kind: string; reason: string }> = [];
-
-    for (const row of rows) {
-      const rowLease = createClaimLeaseRefresher(supabase, {
-        rowKind: "outbox",
-        rowId: row.id,
-        workerId,
-        leaseSeconds,
-        onLeaseLost: (reason) => {
-          console.warn(JSON.stringify({
-            event: "video_date_outbox_row_lease_lost",
-            worker_id: workerId,
-            outbox_id: row.id,
-            kind: row.kind,
-            reason,
-          }));
-        },
-      });
-      let result: ProcessResult;
-      try {
-        result = await processOutboxRow(supabase, supabaseUrl, serviceKey, row, rowLease.signal);
-      } catch (error) {
-        await captureVideoDateProviderException(error, {
-          provider: providerForOutboxKind(row.kind),
-          operation: row.kind,
-          outbox_id: row.id,
-          session_id: row.session_id,
-        });
-        result = {
-          success: false,
-          reason: providerFailureMessage(error),
-          retryAfterSeconds: providerFailureRetryAfter(error, 30),
-          permanent: providerFailureCode(error) === "daily_api_key_missing",
-        };
-      } finally {
-        rowLease.stop();
-      }
-
-      if (rowLease.isLost()) {
-        await logOutboxFailure(supabase, row, result, true);
-        failures.push({ id: row.id, kind: row.kind, reason: "lease_lost_before_completion" });
-        continue;
-      }
-
-      const completion = await completeOutboxRow(supabase, workerId, row, result);
-      if (!completion.ok) {
-        await logOutboxFailure(supabase, row, result, true);
-        failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
-        continue;
-      }
-
-      const settledResult: ProcessResult = result.success
-        ? result
-        : {
-          ...result,
-          permanent: result.permanent === true || (completion.state === "failed" && completion.permanent),
-          retryAfterSeconds: completion.state === "pending"
-            ? completion.retryAfterSeconds ?? result.retryAfterSeconds
-            : result.retryAfterSeconds,
-        };
-      await logOutboxFailure(supabase, row, settledResult, false);
-      if (settledResult.success) completed += 1;
-      else if (settledResult.permanent) {
-        permanentlyFailed += 1;
-        failures.push({ id: row.id, kind: row.kind, reason: settledResult.reason });
-      } else {
-        retried += 1;
-        failures.push({ id: row.id, kind: row.kind, reason: settledResult.reason });
-      }
-    }
-
-    console.log(JSON.stringify({
-      event: "video_date_outbox_drainer_run",
-      worker_id: workerId,
-      source: body.source ?? null,
-      worker_lease_lost: workerLease.isLost(),
-      claimed: rows.length,
-      completed,
-      retried,
-      permanently_failed: permanentlyFailed,
-      latency_ms: Date.now() - startedAt,
-    }));
-
-    return json({
-      ok: true,
-      worker_id: workerId,
-      worker_lease_lost: workerLease.isLost(),
-      claimed: rows.length,
-      completed,
-      retried,
-      permanently_failed: permanentlyFailed,
-      failures,
-      latency_ms: Date.now() - startedAt,
-    });
-  } finally {
-    workerLease.stop();
-    await finishWorkerRun(supabase, {
-      workerKind: WORKER_KIND,
+  for (const row of rows) {
+    const rowLease = createClaimLeaseRefresher(supabase, {
+      rowKind: "outbox",
+      rowId: row.id,
       workerId,
-      metadata: { latency_ms: Date.now() - startedAt },
+      leaseSeconds,
+      onLeaseLost: (reason) => {
+        console.warn(JSON.stringify({
+          event: "video_date_outbox_row_lease_lost",
+          worker_id: workerId,
+          outbox_id: row.id,
+          kind: row.kind,
+          reason,
+        }));
+      },
     });
+    let result: ProcessResult;
+    try {
+      result = await processOutboxRow(supabase, supabaseUrl, serviceKey, row, rowLease.signal);
+    } catch (error) {
+      await captureVideoDateProviderException(error, {
+        provider: providerForOutboxKind(row.kind),
+        operation: row.kind,
+        outbox_id: row.id,
+        session_id: row.session_id,
+      });
+      result = {
+        success: false,
+        reason: providerFailureMessage(error),
+        retryAfterSeconds: providerFailureRetryAfter(error, 30),
+        permanent: providerFailureCode(error) === "daily_api_key_missing",
+      };
+    } finally {
+      rowLease.stop();
+    }
+
+    if (rowLease.isLost()) {
+      await logOutboxFailure(supabase, row, result, true);
+      failures.push({ id: row.id, kind: row.kind, reason: "lease_lost_before_completion" });
+      continue;
+    }
+
+    const completion = await completeOutboxRow(supabase, workerId, row, result);
+    if (!completion.ok) {
+      await logOutboxFailure(supabase, row, result, true);
+      failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
+      continue;
+    }
+
+    const settledResult: ProcessResult = result.success
+      ? result
+      : {
+        ...result,
+        permanent: result.permanent === true || (completion.state === "failed" && completion.permanent),
+        retryAfterSeconds: completion.state === "pending"
+          ? completion.retryAfterSeconds ?? result.retryAfterSeconds
+          : result.retryAfterSeconds,
+      };
+    await logOutboxFailure(supabase, row, settledResult, false);
+    if (settledResult.success) completed += 1;
+    else if (settledResult.permanent) {
+      permanentlyFailed += 1;
+      failures.push({ id: row.id, kind: row.kind, reason: settledResult.reason });
+    } else {
+      retried += 1;
+      failures.push({ id: row.id, kind: row.kind, reason: settledResult.reason });
+    }
   }
+
+  console.log(JSON.stringify({
+    event: "video_date_outbox_drainer_run",
+    worker_id: workerId,
+    source: body.source ?? null,
+    claimed: rows.length,
+    completed,
+    retried,
+    permanently_failed: permanentlyFailed,
+    latency_ms: Date.now() - startedAt,
+  }));
+
+  return json({
+    ok: true,
+    worker_id: workerId,
+    claimed: rows.length,
+    completed,
+    retried,
+    permanently_failed: permanentlyFailed,
+    failures,
+    latency_ms: Date.now() - startedAt,
+  });
 });

@@ -12,7 +12,6 @@ import * as Sentry from "@sentry/react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
-import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import {
   dailyVideoDateCallObjectOptions,
   dailyVideoDateCallObjectOptionsWithAppAcquiredMedia,
@@ -670,19 +669,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           );
           setDailyMeetingState(meetingState);
           setLocalInDailyRoom(meetingState === "joined-meeting");
-          void emitWebVideoDateClientStuckState({
-            sessionId,
-            eventName: "daily_call_reuse",
-            dedupe: false,
-            payload: {
-              source_surface: "video_date_daily",
-              source_action: "start_call_reuse_same_session",
-              reason_code: "existing_call_object_already_started",
-              room_name: roomNameRef.current ?? undefined,
-              meeting_state: meetingState ?? undefined,
-              reused: true,
-            },
-          });
           vdbg("daily_call_reuse_decision", {
             sessionId,
             eventId,
@@ -811,19 +797,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             );
             setDailyMeetingState(meetingState);
             setLocalInDailyRoom(meetingState === "joined-meeting");
-            void emitWebVideoDateClientStuckState({
-              sessionId,
-              eventName: "daily_call_reuse",
-              dedupe: false,
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "start_call_reuse_before_rebuild",
-                reason_code: "same_session_call_still_active",
-                room_name: roomNameRef.current ?? undefined,
-                meeting_state: meetingState ?? undefined,
-                reused: true,
-              },
-            });
             vdbg("daily_call_reuse_decision", {
               sessionId,
               eventId,
@@ -1560,20 +1533,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                       if (
                         attempt < WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS
                       ) {
-                        void emitWebVideoDateClientStuckState({
-                          sessionId,
-                          eventName: "daily_call_busy_internal_retry",
-                          dedupe: false,
-                          payload: {
-                            source_surface: "video_date_daily",
-                            source_action: "daily_call_busy_internal_retry",
-                            reason_code: guarded.reason,
-                            room_name: roomData.room_name,
-                            meeting_state: guarded.meetingState ?? undefined,
-                            retryable: true,
-                            attempt_count: attempt,
-                          },
-                        });
                         await sleep(
                           Math.min(
                             1_200,
@@ -1593,20 +1552,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                 })();
         if (!callObject) {
           releaseAppAcquiredMedia("daily_guard_create_blocked");
-          void emitWebVideoDateClientStuckState({
-            sessionId,
-            eventName: "daily_call_busy_exhausted",
-            dedupe: false,
-            payload: {
-              source_surface: "video_date_daily",
-              source_action: "daily_call_busy_exhausted",
-              reason_code: guardedCreateFailure ?? "external_call_busy",
-              room_name: roomData.room_name,
-              meeting_state: guardedCreateMeetingState ?? undefined,
-              retryable: true,
-              attempt_count: WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS,
-            },
-          });
           setIsConnecting(false);
           setDailyMeetingState(null);
           setLocalInDailyRoom(false);
@@ -2545,19 +2490,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
               videoDateTraceId: ownerBeforeLeft.videoDateTraceId ?? null,
               providerSessionId,
             });
-            void emitWebVideoDateClientStuckState({
-              sessionId,
-              eventName: "daily_owner_provider_left_unexpected",
-              dedupe: false,
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "daily_owner_provider_left_unexpected",
-                room_name: roomData.room_name,
-                owner_id: ownerBeforeLeft.ownerId,
-                owner_state: ownerBeforeLeft.state,
-                provider_session_id: providerSessionId ?? undefined,
-              },
-            });
           }
           setDailyMeetingState("left-meeting");
           setLocalInDailyRoom(false);
@@ -3270,24 +3202,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
               });
             }
           },
-        }).then((joinedConfirmation) => {
-          if (!joinedConfirmation.ok) {
-            void emitWebVideoDateClientStuckState({
-              sessionId,
-              eventName: "daily_join_confirmation_failed",
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "mark_video_date_daily_joined",
-                reason_code: joinedConfirmation.code ?? "unknown",
-                code: joinedConfirmation.code ?? "unknown",
-                retryable: joinedConfirmation.retryable,
-                exhausted: joinedConfirmation.exhausted,
-                attempt_count: joinedConfirmation.attempts,
-                entry_attempt_id: entryAttemptId ?? undefined,
-                video_date_trace_id: videoDateTraceId ?? undefined,
-              },
-            });
-          }
         });
 
         const localParticipant = callObject.participants().local;
@@ -3471,19 +3385,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                   hasHistoricalRemoteSeenTruth,
                   truthRefreshAttempt,
                 });
-                void emitWebVideoDateClientStuckState({
-                  sessionId,
-                  eventName: "peer_missing_suppressed_survey_truth",
-                  latencyMs: FIRST_REMOTE_TIMEOUT_MS,
-                  payload: {
-                    source_surface: "video_date_daily",
-                    source_action: "first_remote_watchdog",
-                    reason_code: "survey_required_truth",
-                    watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
-                    truth_refresh_attempt: truthRefreshAttempt,
-                    historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
-                  },
-                });
                 optionsRef.current?.onTerminalSurveyTruth?.(
                   "peer_missing_watchdog_survey_truth",
                 );
@@ -3498,19 +3399,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                   userId,
                   roomName: roomData.room_name,
                   truthRefreshAttempt,
-                });
-                void emitWebVideoDateClientStuckState({
-                  sessionId,
-                  eventName: "peer_missing_suppressed_remote_seen",
-                  latencyMs: FIRST_REMOTE_TIMEOUT_MS,
-                  payload: {
-                    source_surface: "video_date_daily",
-                    source_action: "first_remote_watchdog",
-                    reason_code: "historical_remote_seen_truth",
-                    watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
-                    truth_refresh_attempt: truthRefreshAttempt,
-                    historical_remote_seen_truth: true,
-                  },
                 });
                 toast.info("Keeping your date in sync...");
                 return;
@@ -3527,19 +3415,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                   truth_refresh_attempt: truthRefreshAttempt,
                 },
               );
-              void emitWebVideoDateClientStuckState({
-                sessionId,
-                eventName: "peer_missing_terminal",
-                latencyMs: FIRST_REMOTE_TIMEOUT_MS,
-                payload: {
-                  source_surface: "video_date_daily",
-                  source_action: "first_remote_watchdog",
-                  reason_code: "peer_missing_timeout",
-                  watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
-                  truth_refresh_attempt: truthRefreshAttempt,
-                  historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
-                },
-              });
               toast.info(
                 "They're not in the room yet. We'll keep this gentle.",
               );

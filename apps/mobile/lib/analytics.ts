@@ -4,31 +4,12 @@
  */
 
 import PostHog from 'posthog-react-native';
-import { emitVideoDateLaunchLatencyCheckpointObservability } from '@clientShared/observability/videoDateLaunchLatencyCheckpointObservability';
 import { sanitizeProductIntelligenceProperties } from '@clientShared/analytics/productIntelligence';
-import { supabase } from '@/lib/supabase';
 
 let client: PostHog | null = null;
 let analyticsConsentGranted = false;
-const LAUNCH_LATENCY_CHECKPOINT_EVENT = 'ready_gate_to_date_latency_checkpoint';
 
 type CleanProps = Record<string, string | number | boolean>;
-
-function recordOperationalLaunchLatencyCheckpoint(
-  eventName: string,
-  properties?: Record<string, string | number | boolean | null | undefined>
-) {
-  if (eventName !== LAUNCH_LATENCY_CHECKPOINT_EVENT) return;
-
-  // This is operational reliability telemetry, not PostHog/product analytics:
-  // the authenticated RPC stores only allowlisted launch checkpoint fields so
-  // operators can debug whether a paid/safety-critical Video Date actually connected.
-  void emitVideoDateLaunchLatencyCheckpointObservability({
-    client: supabase,
-    eventName,
-    properties,
-  });
-}
 
 function sanitize(props?: Record<string, string | number | boolean | null | undefined>): CleanProps | undefined {
   return sanitizeProductIntelligenceProperties(props, { platform: 'native' });
@@ -72,7 +53,6 @@ export function trackEvent(
   eventName: string,
   properties?: Record<string, string | number | boolean | null | undefined>
 ) {
-  recordOperationalLaunchLatencyCheckpoint(eventName, properties);
   if (!analyticsConsentGranted) return;
   client?.capture(eventName, sanitize(properties));
 }

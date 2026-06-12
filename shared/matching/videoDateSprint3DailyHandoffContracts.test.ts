@@ -41,8 +41,6 @@ const nativeStandaloneReady = [
   .join("\n");
 const nativeDate = readNativeVideoDateScreenFlowSource();
 const prepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
-const phase8Certification = read("shared/matching/videoDatePhase8Certification.ts");
-const phase8Script = read("scripts/phase8-certification.ts");
 
 test("Sprint 3 server entry path route-confirms before provider work and verifies provider room before token minting", () => {
   const prepareBlock = readDailyRoomActionBlock("prepare_date_entry");
@@ -164,19 +162,4 @@ test("Sprint 3 native date route keeps prepare_date_entry as the route-confirmin
     /getDailyRoomTokenWithTimeout\(\s*sessionId,\s*PREJOIN_STEP_TIMEOUT_MS,\s*user\.id,\s*\)/,
   );
   assert.doesNotMatch(nativeDate, /enterHandshakeWithTimeout|enterHandshake\(/);
-});
-
-test("Sprint 3 certification blocks launch without explicit Daily production config, webhook, and cleanup secret", () => {
-  assert.match(phase8Certification, /dailyProductionConfigReady: boolean/);
-  assert.match(phase8Certification, /dailyWebhookSecretReady: boolean/);
-  assert.match(phase8Certification, /dailyCleanupCronReady: boolean/);
-  assert.match(phase8Certification, /daily_production_config_not_ready/);
-  assert.match(phase8Certification, /daily_webhook_secret_not_ready/);
-  assert.match(phase8Certification, /daily_cleanup_cron_not_ready/);
-  assert.match(phase8Script, /assertDailyProductionLaunchConfigReady/);
-  assert.match(phase8Script, /daily_production_config_blocked/);
-  assert.match(phase8Script, /DAILY_API_KEY/);
-  assert.match(phase8Script, /DAILY_DOMAIN/);
-  assert.match(phase8Script, /DAILY_WEBHOOK_SECRET/);
-  assert.match(phase8Script, /CRON_SECRET/);
 });

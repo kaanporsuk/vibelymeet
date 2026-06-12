@@ -10,11 +10,6 @@ const corsHeaders: Record<string, string> = {
 };
 
 type JsonObject = Record<string, unknown>;
-type RecoveryHealthPayload = {
-  ok?: boolean;
-  severity?: string | null;
-  alerts?: JsonObject[] | null;
-};
 type DispatchRow = {
   id: number;
   sentry_sent_at: string | null;
@@ -276,13 +271,22 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "supabase_service_env_missing" }, 500);
   }
 
-  const { data, error } = await supabase.rpc("get_video_date_phase2_recovery_health");
+  const { data, error } = await supabase
+    .from("vw_video_date_recovery_alerts")
+    .select("queue_name,kind,state,severity,details,generated_at")
+    .order("severity", { ascending: false })
+    .order("queue_name", { ascending: true })
+    .order("kind", { ascending: true });
   if (error) {
     return json({ ok: false, error: "recovery_health_failed", message: error.message }, 500);
   }
 
-  const health = (data ?? {}) as RecoveryHealthPayload;
-  const alerts = Array.isArray(health.alerts) ? health.alerts : [];
+  const alerts = (data ?? []) as JsonObject[];
+  const overallSeverity = alerts.some((alert) => asSeverity(alert.severity) === "page")
+    ? "page"
+    : alerts.some((alert) => asSeverity(alert.severity) === "watch")
+      ? "watch"
+      : "ok";
   const bucket = hourBucketIso();
   let claimed = 0;
   let retried = 0;
@@ -358,7 +362,7 @@ Deno.serve(async (req) => {
 
   return json({
     ok: true,
-    severity: asSeverity(health.severity),
+    severity: overallSeverity,
     alerts: alerts.length,
     claimed,
     retried,

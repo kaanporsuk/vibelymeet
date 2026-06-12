@@ -1,6 +1,3 @@
-import {
-  emitWebVideoDateClientStuckState,
-} from "@/lib/videoDateClientStuckObservability";
 import { useCallback } from "react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
@@ -170,38 +167,6 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
             ? "live_same_session_remount"
             : null,
           meetingState: meetingStateBeforeCleanup,
-        });
-        void emitWebVideoDateClientStuckState({
-          sessionId,
-          eventName: "daily_call_cleanup",
-          dedupe: false,
-          payload: {
-            source_surface: "video_date_daily",
-            source_action: "daily_call_cleanup_start",
-            reason_code: reason,
-            cleanup_reason: reason,
-            caller,
-            room_name: roomName ?? undefined,
-            meeting_state: meetingStateBeforeCleanup ?? undefined,
-            phase: phaseBeforeCleanup ?? undefined,
-            same_session_daily_continuity: sameSessionDailyContinuity,
-            same_session_daily_continuity_latched:
-              hasSameSessionDailyContinuity(sessionId),
-            daily_call_singleton_eligible: Boolean(
-              optionsRef.current?.dailyCallSingletonEligible,
-            ),
-            will_park_singleton: shouldParkLiveSingleton,
-            leave_called: Boolean(callObject) && !shouldParkLiveSingleton,
-            destroy_called: Boolean(callObject) && !shouldParkLiveSingleton,
-            parked_singleton: shouldParkLiveSingleton,
-            singleton_parking_mode: shouldParkLiveSingleton
-              ? "live_same_session_remount"
-              : undefined,
-            idle_destroy_disabled:
-              shouldParkLiveSingleton &&
-              WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null,
-            call_object_present: Boolean(callObject),
-          },
         });
 
         if (callObject) {
@@ -382,38 +347,6 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
         } else {
           appAcquiredMediaRef.current = null;
         }
-        void emitWebVideoDateClientStuckState({
-          sessionId,
-          eventName: "daily_call_cleanup",
-          dedupe: false,
-          payload: {
-            source_surface: "video_date_daily",
-            source_action: "daily_call_cleanup_end",
-            reason_code: reason,
-            cleanup_reason: reason,
-            caller,
-            room_name: roomName ?? undefined,
-            meeting_state: meetingStateBeforeCleanup ?? undefined,
-            phase: phaseBeforeCleanup ?? undefined,
-            same_session_daily_continuity: sameSessionDailyContinuity,
-            same_session_daily_continuity_latched:
-              hasSameSessionDailyContinuity(sessionId),
-            daily_call_singleton_eligible: Boolean(
-              optionsRef.current?.dailyCallSingletonEligible,
-            ),
-            will_park_singleton: shouldParkLiveSingleton,
-            leave_called: callLeftSuccessfully,
-            destroy_called: Boolean(callObject) && !parkedSingleton,
-            parked_singleton: parkedSingleton,
-            singleton_parking_mode:
-              parkedSingleton && shouldParkLiveSingleton
-                ? "live_same_session_remount"
-                : undefined,
-            idle_destroy_disabled:
-              parkedSingleton && WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null,
-            call_object_present: Boolean(callObject),
-          },
-        });
       })();
 
       return registerWebVideoDateDailyCleanup(cleanupPromise, {

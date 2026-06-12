@@ -1,11 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
-  beginWorkerRun,
   captureVideoDateProviderException,
   createClaimLeaseRefresher,
-  createWorkerRunRefresher,
   deadLetterVideoDateProviderFailure,
-  finishWorkerRun,
   logVideoDateProviderFailure,
 } from "../_shared/video-date-provider-reliability.ts";
 
@@ -14,7 +11,6 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
-const WORKER_KIND = "video-date-deadline-finalizer";
 
 type WorkerRequest = {
   batch_size?: number;
@@ -50,10 +46,6 @@ function json(body: Record<string, unknown>, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function isWorkerAlreadyRunningError(error: string | undefined): boolean {
-  return error === "worker_already_running";
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -199,152 +191,66 @@ Deno.serve(async (req) => {
     });
   }
 
-  const workerLeaseSeconds = Math.max(120, Math.min(600, leaseSeconds * 3));
-  const workerRun = await beginWorkerRun(supabase, {
-    workerKind: WORKER_KIND,
-    workerId,
-    leaseSeconds: workerLeaseSeconds,
-    metadata: { source: body.source ?? null, batch_size: batchSize },
+  const { data: claimed, error: claimError } = await supabase.rpc("claim_video_session_deadlines_v2", {
+    p_worker_id: workerId,
+    p_limit: batchSize,
+    p_lease_seconds: leaseSeconds,
   });
-  if (!workerRun.ok) {
-    const workerError = workerRun.error ?? "worker_mutex_failed";
-    if (isWorkerAlreadyRunningError(workerError)) {
-      return json({
-        ok: true,
-        skipped: workerError,
-        worker_id: workerId,
-        latency_ms: Date.now() - startedAt,
-      });
-    }
-    await logVideoDateProviderFailure(supabase, {
-      targetKind: "worker",
-      provider: "worker",
-      operation: WORKER_KIND,
-      errorCode: workerError,
-      errorMessage: workerError,
-      retryAfterSeconds: 30,
-      metadata: { source: body.source ?? null },
-    });
-    return json({
-      ok: false,
-      error: workerError,
-      worker_id: workerId,
-      latency_ms: Date.now() - startedAt,
-    }, 500);
-  }
+  if (claimError) return json({ ok: false, error: claimError.message }, 500);
 
-  const workerLease = createWorkerRunRefresher(supabase, {
-    workerKind: WORKER_KIND,
-    workerId,
-    leaseSeconds: workerLeaseSeconds,
-    metadata: () => ({ source: body.source ?? null, latency_ms: Date.now() - startedAt }),
-  });
+  const rows = (claimed ?? []) as DeadlineRow[];
+  let finalized = 0;
+  let retried = 0;
+  let permanentlyFailed = 0;
+  const failures: Array<{ id: number; kind: string; reason: string }> = [];
 
-  try {
-    const { data: claimed, error: claimError } = await supabase.rpc("claim_video_session_deadlines_v2", {
-      p_worker_id: workerId,
-      p_limit: batchSize,
-      p_lease_seconds: leaseSeconds,
-    });
-    if (claimError) return json({ ok: false, error: claimError.message }, 500);
-
-    const rows = (claimed ?? []) as DeadlineRow[];
-    let finalized = 0;
-    let retried = 0;
-    let permanentlyFailed = 0;
-    const failures: Array<{ id: number; kind: string; reason: string }> = [];
-
-    for (const row of rows) {
-      const rowLease = createClaimLeaseRefresher(supabase, {
-        rowKind: "deadline",
-        rowId: row.id,
-        workerId,
-        leaseSeconds,
-        onLeaseLost: (reason) => {
-          console.warn(JSON.stringify({
-            event: "video_date_deadline_row_lease_lost",
-            worker_id: workerId,
-            deadline_id: row.id,
-            kind: row.kind,
-            reason,
-          }));
-        },
-      });
-      let data: unknown = null;
-      let error: { message: string } | null = null;
-      try {
-        const result = await supabase.rpc("finalize_video_session_deadline_v2", {
-          p_deadline_id: row.id,
-          p_worker_id: workerId,
-        });
-        data = result.data;
-        error = result.error;
-      } catch (caught) {
-        error = { message: caught instanceof Error ? caught.message : String(caught) };
-        await captureVideoDateProviderException(caught, {
-          provider: "worker",
-          operation: row.kind,
+  for (const row of rows) {
+    const rowLease = createClaimLeaseRefresher(supabase, {
+      rowKind: "deadline",
+      rowId: row.id,
+      workerId,
+      leaseSeconds,
+      onLeaseLost: (reason) => {
+        console.warn(JSON.stringify({
+          event: "video_date_deadline_row_lease_lost",
+          worker_id: workerId,
           deadline_id: row.id,
-          session_id: row.session_id,
-        });
-      } finally {
-        rowLease.stop();
-      }
+          kind: row.kind,
+          reason,
+        }));
+      },
+    });
+    let data: unknown = null;
+    let error: { message: string } | null = null;
+    try {
+      const result = await supabase.rpc("finalize_video_session_deadline_v2", {
+        p_deadline_id: row.id,
+        p_worker_id: workerId,
+      });
+      data = result.data;
+      error = result.error;
+    } catch (caught) {
+      error = { message: caught instanceof Error ? caught.message : String(caught) };
+      await captureVideoDateProviderException(caught, {
+        provider: "worker",
+        operation: row.kind,
+        deadline_id: row.id,
+        session_id: row.session_id,
+      });
+    } finally {
+      rowLease.stop();
+    }
 
-      if (rowLease.isLost()) {
-        await logDeadlineFailure(supabase, row, "lease_lost_before_completion", { leaseLost: true });
-        failures.push({ id: row.id, kind: row.kind, reason: "lease_lost_before_completion" });
-        continue;
-      }
+    if (rowLease.isLost()) {
+      await logDeadlineFailure(supabase, row, "lease_lost_before_completion", { leaseLost: true });
+      failures.push({ id: row.id, kind: row.kind, reason: "lease_lost_before_completion" });
+      continue;
+    }
 
-      if (error) {
-        const completion = await markDeadlineFailure(supabase, workerId, row, error.message, false);
-        const permanent = completion.state === "failed" && completion.permanent;
-        await logDeadlineFailure(supabase, row, error.message, {
-          leaseLost: !completion.ok,
-          permanent,
-          retryAfterSeconds: permanent ? null : completion.retryAfterSeconds ?? 30,
-        });
-        if (!completion.ok) failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
-        if (permanent) permanentlyFailed += 1;
-        else retried += 1;
-        failures.push({ id: row.id, kind: row.kind, reason: error.message });
-        continue;
-      }
-
-      const payload = (data ?? {}) as {
-        ok?: boolean;
-        state?: string;
-        error?: string;
-        reason?: string;
-        retryAfterSeconds?: number;
-      };
-
-      if (payload.ok === true && payload.state === "done") {
-        finalized += 1;
-        continue;
-      }
-
-      if (payload.ok === true && payload.state === "pending") {
-        retried += 1;
-        const reason = payload.reason ?? "deadline_requeued";
-        await logDeadlineFailure(supabase, row, reason, { retryAfterSeconds: payload.retryAfterSeconds ?? 30 });
-        failures.push({ id: row.id, kind: row.kind, reason });
-        continue;
-      }
-
-      if (payload.state === "failed") {
-        permanentlyFailed += 1;
-        const reason = payload.error ?? "deadline_failed";
-        await logDeadlineFailure(supabase, row, reason, { permanent: true });
-        failures.push({ id: row.id, kind: row.kind, reason });
-        continue;
-      }
-
-      const reason = payload.error ?? payload.reason ?? "deadline_finalize_failed";
-      const completion = await markDeadlineFailure(supabase, workerId, row, reason, false);
+    if (error) {
+      const completion = await markDeadlineFailure(supabase, workerId, row, error.message, false);
       const permanent = completion.state === "failed" && completion.permanent;
-      await logDeadlineFailure(supabase, row, reason, {
+      await logDeadlineFailure(supabase, row, error.message, {
         leaseLost: !completion.ok,
         permanent,
         retryAfterSeconds: permanent ? null : completion.retryAfterSeconds ?? 30,
@@ -352,38 +258,72 @@ Deno.serve(async (req) => {
       if (!completion.ok) failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
       if (permanent) permanentlyFailed += 1;
       else retried += 1;
-      failures.push({ id: row.id, kind: row.kind, reason });
+      failures.push({ id: row.id, kind: row.kind, reason: error.message });
+      continue;
     }
 
-    console.log(JSON.stringify({
-      event: "video_date_deadline_finalizer_run",
-      worker_id: workerId,
-      source: body.source ?? null,
-      worker_lease_lost: workerLease.isLost(),
-      claimed: rows.length,
-      finalized,
-      retried,
-      permanently_failed: permanentlyFailed,
-      latency_ms: Date.now() - startedAt,
-    }));
+    const payload = (data ?? {}) as {
+      ok?: boolean;
+      state?: string;
+      error?: string;
+      reason?: string;
+      retryAfterSeconds?: number;
+    };
 
-    return json({
-      ok: true,
-      worker_id: workerId,
-      worker_lease_lost: workerLease.isLost(),
-      claimed: rows.length,
-      finalized,
-      retried,
-      permanently_failed: permanentlyFailed,
-      failures,
-      latency_ms: Date.now() - startedAt,
+    if (payload.ok === true && payload.state === "done") {
+      finalized += 1;
+      continue;
+    }
+
+    if (payload.ok === true && payload.state === "pending") {
+      retried += 1;
+      const reason = payload.reason ?? "deadline_requeued";
+      await logDeadlineFailure(supabase, row, reason, { retryAfterSeconds: payload.retryAfterSeconds ?? 30 });
+      failures.push({ id: row.id, kind: row.kind, reason });
+      continue;
+    }
+
+    if (payload.state === "failed") {
+      permanentlyFailed += 1;
+      const reason = payload.error ?? "deadline_failed";
+      await logDeadlineFailure(supabase, row, reason, { permanent: true });
+      failures.push({ id: row.id, kind: row.kind, reason });
+      continue;
+    }
+
+    const reason = payload.error ?? payload.reason ?? "deadline_finalize_failed";
+    const completion = await markDeadlineFailure(supabase, workerId, row, reason, false);
+    const permanent = completion.state === "failed" && completion.permanent;
+    await logDeadlineFailure(supabase, row, reason, {
+      leaseLost: !completion.ok,
+      permanent,
+      retryAfterSeconds: permanent ? null : completion.retryAfterSeconds ?? 30,
     });
-  } finally {
-    workerLease.stop();
-    await finishWorkerRun(supabase, {
-      workerKind: WORKER_KIND,
-      workerId,
-      metadata: { latency_ms: Date.now() - startedAt },
-    });
+    if (!completion.ok) failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
+    if (permanent) permanentlyFailed += 1;
+    else retried += 1;
+    failures.push({ id: row.id, kind: row.kind, reason });
   }
+
+  console.log(JSON.stringify({
+    event: "video_date_deadline_finalizer_run",
+    worker_id: workerId,
+    source: body.source ?? null,
+    claimed: rows.length,
+    finalized,
+    retried,
+    permanently_failed: permanentlyFailed,
+    latency_ms: Date.now() - startedAt,
+  }));
+
+  return json({
+    ok: true,
+    worker_id: workerId,
+    claimed: rows.length,
+    finalized,
+    retried,
+    permanently_failed: permanentlyFailed,
+    failures,
+    latency_ms: Date.now() - startedAt,
+  });
 });

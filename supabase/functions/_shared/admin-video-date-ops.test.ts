@@ -4,7 +4,6 @@ import {
   VIDEO_DATE_OPS_WINDOWS,
   classifyHigherIsBetter,
   classifyLowerIsBetter,
-  dedupeEarliestRowsBySessionActor,
   extractVideoDateTimelineTraceIds,
   hasVideoDateTimelineRole,
   isValidUuid,
@@ -58,46 +57,6 @@ test("swipe recovery treats already_matched with session id as recovered", () =>
   assert.equal(summary.recovery_rate, 1 / 3);
 });
 
-test("first-frame dedupe keeps the earliest sample per session and actor", () => {
-  const rows = [
-    {
-      session_id: "session-a",
-      actor_id: "actor-1",
-      created_at: "2026-05-07T09:42:55.000Z",
-      latency_ms: 55_000,
-      source: "playing",
-    },
-    {
-      session_id: "session-a",
-      actor_id: "actor-1",
-      created_at: "2026-05-07T09:42:12.000Z",
-      latency_ms: 12_000,
-      source: "loadeddata",
-    },
-    {
-      session_id: "session-a",
-      actor_id: "actor-2",
-      created_at: "2026-05-07T09:42:13.000Z",
-      latency_ms: 13_000,
-      source: "loadeddata",
-    },
-    {
-      session_id: "session-a",
-      actor_id: "actor-2",
-      created_at: "2026-05-07T09:42:43.000Z",
-      latency_ms: 43_000,
-      source: "playing",
-    },
-  ];
-
-  assert.deepEqual(
-    dedupeEarliestRowsBySessionActor(rows).map((row) => [row.actor_id, row.latency_ms, row.source]),
-    [
-      ["actor-1", 12_000, "loadeddata"],
-      ["actor-2", 13_000, "loadeddata"],
-    ],
-  );
-});
 
 test("status classifiers keep threshold semantics explicit", () => {
   assert.equal(classifyLowerIsBetter(0.01, 0.03, 0.08), "healthy");

@@ -31,9 +31,6 @@ import {
   useVideoDateSession,
 } from "@/lib/videoDateApi";
 import {
-  emitNativeVideoDateClientStuckState,
-} from "@/lib/videoDateClientStuckObservability";
-import {
   getVideoDateEntryOwner,
   updateVideoDateDailyOwnerState,
   updateVideoDateEntryOwnerState,
@@ -269,20 +266,6 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
           scheduleRetry(attemptSource, attempt + 1);
           return;
         }
-        void emitNativeVideoDateClientStuckState({
-          sessionId,
-          eventName: "remote_seen_canonical_repair_failed",
-          payload: {
-            source_surface: "video_date_daily",
-            source_action: "mark_video_date_remote_seen",
-            reason_code: code,
-            code,
-            source: attemptSource,
-            attempt_count: attempt,
-            retryable,
-            exhausted: true,
-          },
-        });
       };
 
       function stamp(attemptSource: string, attempt: number) {

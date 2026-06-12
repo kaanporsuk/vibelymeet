@@ -10,7 +10,7 @@ Current recovery overlay (2026-06-08): start active Video Date work from `docs/v
 - Current admin web surfaces use authenticated Supabase clients, so they cannot read `event_loop_observability_events` or `v_event_loop_*` directly.
 - The in-app operator dashboard uses the `admin-video-date-ops` Edge Function as a read bridge. The function requires bearer auth, verifies the caller is an admin with the bearer-scoped client, then creates a service-role client only after that verification.
 - The metrics action returns aggregate metrics only. The separate admin-only Date Timeline action returns redacted raw rows for one explicit `video_sessions.id` to support incident investigation; it does not expose profile fields, names, emails, or unrestricted user-level drilldowns.
-- Sprint 7 adds `public.get_video_date_sprint7_ops_health(uuid)` as a service-role-only aggregate source for safety, privacy, DLQ, orphan-room, survey-recovery, and stuck-state health. Supabase Edge Function deployment is required when the admin bridge changes.
+- **REMOVED 2026-06-12 (rebuild PR 9):** the Sprint 7 `get_video_date_sprint7_ops_health(uuid)` aggregate is dropped; safety incidents flow through the kept recovery-alert path (`vw_video_date_recovery_alerts` -> `video-date-recovery-alert-dispatcher`) and read-only `admin-video-date-ops` diagnostics. Supabase Edge Function deployment is required when the admin bridge changes.
 
 Read this together with `docs/observability/event-loop-dashboard-normalization.md` before mixing drain, promotion, and mark-lobby aggregates.
 
@@ -37,17 +37,16 @@ Returned aggregates:
 
 - Ready Gate open to first date join p50/p95/max latency
 - simultaneous swipe collision rate and recovered collision rate
-- survey completion to next Ready Gate conversion within 10 minutes
-- queue drain attempts, failures, failure rate, and top failure reasons
+- notification outbox health (provider outbox, failure log, dead letters, notification log, push telemetry)
 - timer drift recovery source note for the PostHog-only metric
-- ready-tap to first blurred remote-frame latency from durable client checkpoints
-- `safety_privacy_ops_health` from `get_video_date_sprint7_ops_health`, including stuck Ready Gate, stuck entry/date counts, prepare-entry failures, Daily join failures, survey recovery, webhook DLQ, orphan rooms, report counts, and block counts
+
+Removed 2026-06-12 (rebuild PR 9): the durable ready-tap-to-first-frame launch-latency mirror, the Daily performance decision/emission views, and `safety_privacy_ops_health` (`get_video_date_sprint7_ops_health`) are dropped; first-frame latency remains observable through the PostHog `ready_gate_to_date_latency_checkpoint` events only.
 
 ## Metric Catalog
 
 | Metric ID | Label | Source | Healthy Direction | Notes |
 | --- | --- | --- | --- | --- |
-| `ready_tap_to_first_remote_frame_latency` | Ready tap to first remote frame latency | `video_date_launch_latency_checkpoint` rows mirrored from client checkpoints | lower | Primary perceived launch metric; p95 thresholds are 8s warning / 15s critical. |
+| `ready_tap_to_first_remote_frame_latency` | Ready tap to first remote frame latency — **REMOVED 2026-06-12** | (none; durable mirror dropped in rebuild PR 9) | n/a | Use the PostHog `ready_gate_to_date_latency_checkpoint` event trend; the `record_video_date_launch_latency_checkpoint` RPC family and backing rows are no longer written. |
 | `ready_gate_open_to_date_join_latency` | Ready Gate open to date join latency | `event_loop_observability_events` + `video_sessions` | lower | Ready Gate open is derived from promotion rows, not a dedicated timestamp column. |
 | `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | After `20260501092000_handle_swipe_presence_and_already_matched_session.sql`, `already_matched + session_id` represents a recovered/routable same-pair session. |
 | `survey_to_next_ready_gate_conversion` | Survey to next Ready Gate conversion | PostHog continuity events, plus DB approximation | higher | PostHog is the clean source for route decisions; DB approximation is useful for spot checks. |

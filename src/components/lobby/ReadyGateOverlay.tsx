@@ -33,7 +33,6 @@ import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
-import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { EventLobbyObservabilityEvents } from "@clientShared/observability/eventLobbyObservability";
 import {
@@ -1527,16 +1526,6 @@ const ReadyGateOverlay = ({
           eventId,
           elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
         });
-        void emitWebVideoDateClientStuckState({
-          sessionId,
-          eventName: "ready_gate_handoff_slow",
-          latencyMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
-          payload: {
-            source_surface: "ready_gate_overlay",
-            source_action: "prepare_entry_slow_wait",
-            elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
-          },
-        });
       }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
 
       void (async () => {
@@ -1840,24 +1829,6 @@ const ReadyGateOverlay = ({
               if (!dateNavigationStartedRef.current) {
                 prepareEntryHandoffStartedRef.current = false;
               }
-              void emitWebVideoDateClientStuckState({
-                sessionId,
-                eventName: "prepare_date_entry_failed",
-                payload: {
-                  source_surface: "ready_gate_overlay",
-                  source_action: "prepare_entry_failed_date_owned",
-                  reason_code: result.code,
-                  code: result.code,
-                  http_status: result.httpStatus ?? undefined,
-                  retry_after_ms: result.retryAfterMs ?? undefined,
-                  retryable,
-                  attempt: attempt + 1,
-                  attempt_count: attempt + 1,
-                  exhausted,
-                  entry_attempt_id: result.entryAttemptId ?? undefined,
-                  video_date_trace_id: result.entryAttemptId ?? undefined,
-                },
-              });
               // Single prepare-owner gate: only hand off to /date when backend
               // truth proves the session is routeable. A blind navigate after an
               // exhausted prepare caused /date<->lobby bounce churn for sessions

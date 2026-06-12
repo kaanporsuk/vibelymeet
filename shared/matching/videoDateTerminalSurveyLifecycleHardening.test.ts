@@ -39,7 +39,6 @@ const pendingSurveyRegistrationRepairMigration = read(
 const webDateRoute = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeDateRoute = readNativeVideoDateScreenFlowSource();
-const observability = read("shared/observability/videoDateClientStuckObservability.ts");
 const activeSession = read("shared/matching/activeSession.ts");
 const packageJson = read("package.json");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
@@ -164,13 +163,8 @@ test("historical encounter truth suppresses client peer-missing terminalization"
     assert.match(source, /hasTerminalSurveyTruth/, `${name} should still detect terminal survey truth`);
     assert.match(source, /hasHistoricalRemoteSeenTruth/, `${name} should still log historical encounter truth`);
     assert.match(source, /daily_no_remote_watchdog_historical_truth_suppressed/);
-    assert.match(source, /peer_missing_suppressed_remote_seen/);
     assert.doesNotMatch(source, /daily_no_remote_watchdog_historical_truth_requires_current_peer/);
   }
-
-  assert.match(observability, /"historical_remote_seen_truth"/);
-  assert.match(observability, /"truth_refresh_attempt"/);
-  assert.match(observability, /"daily_call_singleton_eligible"/);
 });
 
 test("terminal survey lifecycle hardening stays in the video-date v4 verification script", () => {

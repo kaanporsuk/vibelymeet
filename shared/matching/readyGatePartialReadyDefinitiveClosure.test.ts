@@ -96,10 +96,6 @@ test("both-ready prepare failures hand off to /date only on routeable truth (sin
   // an exhausted/exception prepare failure when backend truth proves it routeable.
   assert.match(
     webReadyGateOverlay,
-    /source_action: "prepare_entry_failed_date_owned"/,
-  );
-  assert.match(
-    webReadyGateOverlay,
     /source: "ready_gate_prepare_failed_date_owned"/,
   );
   assert.match(
@@ -135,10 +131,6 @@ test("both-ready prepare failures hand off to /date only on routeable truth (sin
 
   // Native overlay already gates retryable failures on routeable truth; its
   // exhausted/exception handoffs route through the lobby startable gate above.
-  assert.match(
-    nativeReadyGateOverlay,
-    /source_action: 'prepare_entry_failed_date_owned'/,
-  );
   assert.match(
     nativeReadyGateOverlay,
     /isRouteableVideoDateTruth\(latestTruth\)/,

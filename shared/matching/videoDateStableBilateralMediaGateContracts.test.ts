@@ -122,11 +122,6 @@ test("web Daily start is coalesced by a module-scope gate across full remounts",
     webVideoCall,
     /WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS = 6/,
   );
-  assert.match(webVideoCall, /daily_call_busy_exhausted/);
-  assert.match(
-    webVideoCall,
-    /attempt_count: WEB_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS/,
-  );
 });
 
 test("native date route owns pre-join and preserves live Daily handoff before date establishment", () => {

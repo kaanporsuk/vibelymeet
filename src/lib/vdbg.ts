@@ -40,7 +40,6 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "mark_video_date_daily_joined_after",
   "daily_no_remote_watchdog_start",
   "daily_no_remote_watchdog_timeout",
-  "daily_no_remote_watchdog_recovery",
   "date_entry_latch_cleared",
   "first_remote_participant_seen",
   "daily_remote_tracks_changed",
@@ -61,8 +60,6 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "daily_room_delete_skipped",
   "video_date_leave_signal_sent",
   "post_date_survey_opened",
-  "journey_date_route_entered",
-  "journey_survey_opened",
   "date_redirect",
 ]);
 
