@@ -83,7 +83,10 @@
     "certify:video-date:golden-flow": "node scripts/certify-video-date-golden-flow.mjs",
     "check:video-date:invariants": "node scripts/check-video-date-invariants.mjs",
     "verify:video-date:functions": "node scripts/verify-video-date-functions.mjs",
-    "verify:ready-gate-prod-parity": "node scripts/verify-ready-gate-production-parity.mjs"
+    "verify:ready-gate-prod-parity": "node scripts/verify-ready-gate-production-parity.mjs",
+    "livegate:video-date": "node scripts/video-date-live-gate.mjs all --offline-drop=10 --revisit-check --stale-stamp-check",
+    "check:contract-fixture-drift": "node scripts/check-contract-fixture-drift.mjs",
+    "loadprobe:video-date": "node scripts/video-date-load-probe.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

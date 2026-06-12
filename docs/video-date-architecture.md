@@ -77,6 +77,17 @@ web/native terminal recovery releases a feedback-complete registration through
 `update_participant_status` before navigating away, and both lobbies damp
 same-session forced-survey re-navigation (10s window).
 
+The round-2 follow-up (2026-06-12, migrations `20260612221535`–`20260612221538`)
+tightened the same surfaces: survey stamping is now per-participant (a user
+whose own `date_feedback` row exists is never re-stamped `in_survey`, even
+while the partner is incomplete — guard in both `video_date_transition` stamp
+sites and `mark_video_date_remote_seen`); `update_participant_status` clears
+`current_room_id`/`current_partner_id` when releasing onto a terminal session
+(no dangling room pointers); historical webhook ledger rows were backfilled
+with `provider_participant_id` via the canonical extractor; and
+`mark_lobby_foreground` records reason `lobby_foreground_stamped` (the
+vestigial queue-era reason retired).
+
 Contract truth for this layer is pinned by
 `shared/matching/videoDateBackendTruthPinContracts.test.ts` against raw
 `pg_get_functiondef()` fixtures in `supabase/contract-fixtures/2026-06/`, plus

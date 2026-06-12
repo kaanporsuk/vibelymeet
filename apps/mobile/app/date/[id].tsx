@@ -1191,16 +1191,27 @@ export default function VideoDateScreen() {
             .eq("user_id", user.id)
             .maybeSingle();
           if (ownVerdict?.id) {
-            const { error: releaseError } = await supabase.rpc(
-              "update_participant_status",
-              { p_event_id: fallbackEventId, p_status: "browsing" },
-            );
+            let releaseError: { code?: string } | null = null;
+            let releaseAttempts = 0;
+            for (let attemptIdx = 0; attemptIdx < 3; attemptIdx += 1) {
+              if (attemptIdx > 0) {
+                await sleepNativeRuntimeRecovery(800 * attemptIdx);
+              }
+              releaseAttempts = attemptIdx + 1;
+              const { error } = await supabase.rpc(
+                "update_participant_status",
+                { p_event_id: fallbackEventId, p_status: "browsing" },
+              );
+              releaseError = error ?? null;
+              if (!releaseError) break;
+            }
             vdbg("terminal_survey_complete_registration_release", {
               sessionId,
               userId: user.id,
               source: attemptSource,
               eventId: fallbackEventId,
               released: !releaseError,
+              attempts: releaseAttempts,
               code: releaseError?.code ?? null,
             });
           }

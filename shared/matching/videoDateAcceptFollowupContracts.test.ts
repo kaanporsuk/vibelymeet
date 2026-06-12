@@ -203,3 +203,80 @@ test("4: throttle floor suppresses bursts and re-admits after the window", () =>
   );
   resetLobbyForegroundStampThrottle();
 });
+
+// ---- Round 2 (2026-06-12, same acceptance-run lineage) ----------------------
+
+const releasePointerMigration = read(
+  "supabase/migrations/20260612221535_vd_accept2_release_clears_terminal_room_pointer.sql",
+);
+const perParticipantMigration = read(
+  "supabase/migrations/20260612221536_vd_accept2_per_participant_survey_stamp.sql",
+);
+const reasonRenameMigration = read(
+  "supabase/migrations/20260612221537_vd_accept2_lobby_foreground_reason_rename.sql",
+);
+const backfillMigration = read(
+  "supabase/migrations/20260612221538_vd_accept2_backfill_webhook_provider_participant_id.sql",
+);
+const remoteSeenFixture = read(
+  "supabase/contract-fixtures/2026-06/functions/public-heads/mark_video_date_remote_seen.sql",
+);
+
+test("2a: releasing onto a terminal session clears the stale room pointer", () => {
+  assert.match(releasePointerMigration, /v_clear_room boolean := false/);
+  assert.match(
+    releasePointerMigration,
+    /current_room_id = CASE WHEN v_clear_room THEN NULL ELSE current_room_id END/,
+  );
+  assert.match(
+    releasePointerMigration,
+    /vs\.ended_at IS NOT NULL\s+OR vs\.state::text = 'ended'/,
+  );
+});
+
+test("2b: survey stamps are per-participant (own verdict blocks own re-stamp)", () => {
+  const perRowGuard = /df_row\.user_id = event_registrations\.profile_id/;
+  assert.match(perParticipantMigration, perRowGuard);
+  assert.equal(
+    (perParticipantMigration.match(/df_row\.user_id = event_registrations\.profile_id/g) ?? []).length,
+    3,
+    "all three stamp sites carry the per-row guard (transition deep + outer, remote_seen)",
+  );
+  assert.match(transitionHeadFixture, perRowGuard);
+  assert.match(remoteSeenFixture, perRowGuard);
+});
+
+test("2d: terminal-recovery release retries transient failures on both platforms", () => {
+  assert.match(
+    webTerminalRecovery,
+    /for \(let attempt = 0; attempt < 3; attempt \+= 1\)[\s\S]{0,400}update_participant_status/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /for \(let attemptIdx = 0; attemptIdx < 3; attemptIdx \+= 1\)[\s\S]{0,500}update_participant_status/,
+  );
+});
+
+test("2e/2g: backfill uses the canonical extractor; foreground reason is renamed", () => {
+  assert.match(
+    backfillMigration,
+    /SET provider_participant_id = public\.video_date_daily_provider_session_id_from_event_v1\(/,
+  );
+  assert.match(reasonRenameMigration, /'lobby_foreground_stamped',/);
+  assert.doesNotMatch(reasonRenameMigration.split("-- ")
+    .filter((s) => !s.startsWith("VD ") && !s.includes("vestigial")).join("-- "),
+    /'queued_auto_promotion_removed',/);
+});
+
+test("4a/4b: live-gate harness and fixture drift checker are committed and wired", () => {
+  const harness = read("scripts/video-date-live-gate.mjs");
+  const drift = read("scripts/check-contract-fixture-drift.mjs");
+  const pkg = read("package.json");
+  assert.match(harness, /vd-gate-/);
+  assert.match(harness, /zero-residue/);
+  assert.match(harness, /--stale-stamp-check/);
+  assert.match(drift, /DROPPED_HISTORY/);
+  assert.match(drift, /pg_get_functiondef/);
+  assert.match(pkg, /"livegate:video-date":/);
+  assert.match(pkg, /"check:contract-fixture-drift":/);
+});

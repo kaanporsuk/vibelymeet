@@ -109,7 +109,9 @@ Read-only cloud audit:
 
 Repo audit:
 
-- 2026-05-26 repo refresh: `supabase/functions` has 71 deployable function directories, excluding `_shared`.
+- 2026-05-26 repo refresh: `supabase/functions` had 71 deployable function directories, excluding `_shared`.
+- 2026-06-12 repo refresh: 70 deployable function directories excluding `_shared` (`match-call-room-cleanup` removed with chat match calls).
+- 2026-06-12 repo refresh: `supabase/config.toml` has 70 `[functions.<slug>]` entries; no config gaps.
 - 2026-05-26 repo refresh: `supabase/config.toml` has 71 `[functions.<slug>]` entries.
 - No config gaps were found.
 - Stream 20 changes no Edge Function source.

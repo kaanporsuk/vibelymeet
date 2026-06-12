@@ -40,6 +40,12 @@ run_step npx tsx shared/observability/videoDateOperatorMetrics.test.ts
 run_step npx tsx supabase/functions/_shared/matching/videoSessionFlow.test.ts
 run_step npx tsx --test shared/matching/videoDateEndToEndHardening.test.ts
 run_step node scripts/audit-video-date-remote-frame.mjs
+# Re-greened 2026-06-12 (acceptance follow-up round 2): inventory/doc-freshness
+# and deck-contract suites, wired here so they cannot rot unwatched again.
+run_step npx tsx shared/matching/supabaseFunctionConfigGaps.test.ts
+run_step npx tsx shared/matching/finalHardeningReleaseRehearsal.test.ts
+run_step npx tsx shared/matching/eventDeckAuthorityContract.test.ts
+run_step npx tsx shared/matching/eventDeckEveryoneSoftPrefetchContracts.test.ts
 run_step git diff --check
 
 echo

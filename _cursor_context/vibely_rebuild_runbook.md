@@ -4,7 +4,7 @@
 >
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 >
-> **2026-05-26:** Current dependency-closure addendum: the repo now contains **71 deployable Edge Functions** and **71 matching `supabase/config.toml` entries** for project `schdyxcunwcvddlcshwd`. Older counts in historical sections are superseded; use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` as the current function inventory.
+> **2026-05-26:** Current dependency-closure addendum: the repo now contains **70 deployable Edge Functions** and **70 matching `supabase/config.toml` entries** (reconciled 2026-06-12 after `match-call-room-cleanup` removal) for project `schdyxcunwcvddlcshwd`. Older counts in historical sections are superseded; use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` as the current function inventory.
 >
 > **2026-04-23:** Phase 2 adds migration `20260423120000_event_loop_observability.sql` (table `event_loop_observability_events` + instrumented queue/promotion/cleanup RPCs). Apply with normal `supabase db push` / linked migration flow; no new Edge deploy or secrets. Operator reads: service-role SQL / dashboard — not anon/authenticated.
 >
@@ -454,8 +454,8 @@ supabase secrets list
 
 Current repo state:
 
-- 71 deployable function directories exist under `supabase/functions`, excluding `_shared`.
-- 71 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- 70 deployable function directories exist under `supabase/functions`, excluding `_shared` (reconciled 2026-06-12).
+- 70 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
 - Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
 - Source-of-truth inventory files are `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md`; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 
@@ -483,7 +483,7 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 
 ### JWT behavior
 
-`supabase/config.toml` configures all 71 current function entries.
+`supabase/config.toml` configures all 70 current function entries.
 
 - 40 functions have gateway JWT verification on.
 - 31 functions have gateway JWT verification off and rely on function-specific controls such as provider signatures, webhook tokens, `CRON_SECRET`, admin/service checks, or intentionally health-only behavior.

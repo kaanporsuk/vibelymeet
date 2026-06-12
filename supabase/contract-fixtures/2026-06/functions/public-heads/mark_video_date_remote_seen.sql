@@ -446,7 +446,13 @@ BEGIN
             FROM public.user_reports ur
             WHERE (ur.reporter_id = v_row.participant_1_id AND ur.reported_id = v_row.participant_2_id)
                OR (ur.reporter_id = v_row.participant_2_id AND ur.reported_id = v_row.participant_1_id)
-          );
+          )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM public.date_feedback df_row
+                    WHERE df_row.session_id = p_session_id
+                      AND df_row.user_id = event_registrations.profile_id
+                  );
       END IF;
 
       PERFORM public.record_event_loop_observability(

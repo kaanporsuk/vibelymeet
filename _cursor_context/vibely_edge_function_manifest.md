@@ -30,13 +30,13 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Current-state addendum (2026-05-01, refreshed 2026-05-26)
 
-- Current repo inventory is **71** deployable function directories and **71** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
+- Current repo inventory is **70** deployable function directories and **70** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed. (Reconciled 2026-06-12: `match-call-room-cleanup` was removed with the chat match-calls feature — see `docs/branch-deltas/remove-match-calls.md`; all 70 deployable functions are in `supabase/config.toml`.)
 - **`forward-geocode`:** Explicitly configured with `verify_jwt = true`. It also resolves the Supabase user in code, permits admin/premium users plus onboarding city search, rate-limits by user, and then queries OpenStreetMap Nominatim.
 - **`push-webhook`:** Explicitly configured with `verify_jwt = false` because provider callbacks cannot present a Supabase JWT. It fail-closes unless `PUSH_WEBHOOK_SECRET` is set and the request sends the matching `x-webhook-secret` header. Repo evidence treats it as generic FCM/APNs/web receipt telemetry; OneSignal receipt dashboard wiring is not proven from source.
 
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **71** deployable functions as of 2026-05-26 — see §2):
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **70** deployable functions as of 2026-06-12 — see §2):
 
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:

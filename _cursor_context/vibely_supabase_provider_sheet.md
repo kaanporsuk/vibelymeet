@@ -99,7 +99,7 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **71**
+Deployable functions: **70** (reconciled 2026-06-12; `match-call-room-cleanup` removed with chat match calls)
 
 Shared helper directory:
 - `_shared`

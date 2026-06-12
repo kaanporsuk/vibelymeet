@@ -22,7 +22,7 @@ DECLARE
   v_now timestamptz;
   v_status text;
   v_routeable boolean := false;
-  v_started_handshake boolean := false;
+  v_started_entry boolean := false;
   v_reconnect_grace_cleared boolean := false;
   v_latest_provider_event_type text;
   v_latest_provider_event_at timestamptz;
@@ -209,9 +209,9 @@ BEGIN
           v_routeable :=
             v_row.ready_gate_status = 'both_ready'
             AND (
-              v_row.state IN ('handshake'::public.video_date_state, 'date'::public.video_date_state)
-              OR v_row.phase IN ('handshake', 'date')
-              OR v_row.handshake_started_at IS NOT NULL
+              v_row.state IN ('entry'::public.video_date_state, 'date'::public.video_date_state)
+              OR v_row.phase IN ('entry', 'date')
+              OR v_row.entry_started_at IS NOT NULL
               OR v_row.date_started_at IS NOT NULL
             );
 
@@ -364,7 +364,7 @@ BEGIN
               v_result := jsonb_build_object(
                 'ok', true,
                 'queue_status', v_status,
-                'handshake_started', false,
+                'entry_started', false,
                 'waiting_for_stable_copresence', true,
                 'retry_after_ms', 3000,
                 'owner_id', NULLIF(left(btrim(COALESCE(p_owner_id, '')), 180), ''),
@@ -430,27 +430,27 @@ BEGIN
               END;
 
               IF v_row.date_started_at IS NULL
-                 AND v_row.handshake_started_at IS NULL
+                 AND v_row.entry_started_at IS NULL
                  AND v_stable_copresence THEN
                 UPDATE public.video_sessions
                 SET
-                  handshake_started_at = v_now,
-                  state = 'handshake'::public.video_date_state,
-                  phase = 'handshake',
+                  entry_started_at = v_now,
+                  state = 'entry'::public.video_date_state,
+                  phase = 'entry',
                   reconnect_grace_ends_at = NULL,
                   state_updated_at = v_now
                 WHERE id = p_session_id
                   AND ended_at IS NULL
                   AND date_started_at IS NULL
-                  AND handshake_started_at IS NULL
+                  AND entry_started_at IS NULL
                 RETURNING * INTO v_row;
 
                 IF FOUND THEN
-                  v_started_handshake := true;
+                  v_started_entry := true;
                   PERFORM public.record_event_loop_observability(
                     'video_date_transition',
                     'success',
-                    'handshake_started_after_stable_daily_alive',
+                    'entry_started_after_stable_daily_alive',
                     NULL,
                     v_row.event_id,
                     v_actor,
@@ -504,8 +504,8 @@ BEGIN
               v_result := jsonb_build_object(
                 'ok', true,
                 'queue_status', v_status,
-                'handshake_started', v_started_handshake,
-                'handshake_started_at', v_row.handshake_started_at,
+                'entry_started', v_started_entry,
+                'entry_started_at', v_row.entry_started_at,
                 'waiting_for_stable_copresence', COALESCE((v_stable->>'waiting_for_stable_copresence')::boolean, false),
                 'stable_copresence', v_stable,
                 'retry_after_ms', COALESCE((v_stable->>'retry_after_ms')::integer, 0),
