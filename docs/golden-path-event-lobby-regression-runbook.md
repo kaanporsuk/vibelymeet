@@ -123,7 +123,6 @@ rg -n "find_video_date_match|join_matching_queue|leave_matching_queue|deprecated
 rg -n "find_video_date_match|join_matching_queue|leave_matching_queue" src/integrations/supabase/types.ts
 
 npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts
-npx tsx shared/matching/videoDateClosureIssuesContracts.test.ts
 ```
 
 Expected result:
