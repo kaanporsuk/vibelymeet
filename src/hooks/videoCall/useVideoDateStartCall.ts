@@ -1,3 +1,6 @@
+import {
+  PreparedVideoDateEntryCacheEntry,
+} from "@clientShared/matching/videoDatePrepareEntry";
 import { useCallback, useRef } from "react";
 import DailyIframe, {
   DailyCall,
@@ -255,6 +258,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
     resetRemoteRenderRecoveryForParticipant,
     roomNameRef,
     scheduleRemoteRenderValidation,
+    setCaptureProfile,
     setDailyMeetingState,
     setDailyReconnectState,
     setHasPermission,
@@ -263,6 +267,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
     setLocalInDailyRoom,
     setLocalStream,
     setMediaPermissionError,
+    setMediaPermissionResult,
     setNetworkTier,
     setPeerMissing,
     setReconnectGraceTimeLeft,

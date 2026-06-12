@@ -110,10 +110,7 @@ export type VideoCallSharedRuntime = {
   lastLocalMountedTrackKeyRef: MutableRefObject<string>;
   lastRemoteMountedTrackKeyRef: MutableRefObject<string>;
   firstRemoteWatchdogRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  peerMissingTruthRefreshCountRef: MutableRefObject<number>;
   lastRemoteRenderParticipantIdRef: MutableRefObject<string | null>;
-  startAttemptNonceRef: MutableRefObject<number>;
-  startCallInFlightSessionRef: MutableRefObject<string | null>;
   activeCallSessionIdRef: MutableRefObject<string | null>;
   latestLocalParticipantRef: MutableRefObject<DailyParticipant | undefined>;
   latestRemoteParticipantRef: MutableRefObject<DailyParticipant | undefined>;

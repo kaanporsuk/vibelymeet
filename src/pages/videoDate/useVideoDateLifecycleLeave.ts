@@ -22,15 +22,10 @@ import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 import { videoSessionHasEncounterExposureTruth } from "@clientShared/matching/activeSession";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { NavigateFunction } from "react-router-dom";
-import type { User } from "@supabase/supabase-js";
 import type { VideoDateEntryTruth } from "@clientShared/matching/videoDateEntryPersistence";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useVideoCall } from "@/hooks/useVideoCall";
-import type {
-  CallPhase,
-  VideoDateAccess,
-  VideoDateEndReason,
-} from "./videoDatePageShared";
+import type { CallPhase, VideoDateAccess } from "./videoDatePageShared";
 import type { TerminalSurveyRecoveryApi } from "./useTerminalSurveyRecovery";
 
 /**
@@ -89,7 +84,7 @@ type UseVideoDateLifecycleLeaveDeps = Pick<
     surveyOpenedRef: MutableRefObject<boolean>;
     terminalSurveyRecoveryActive: boolean;
     terminalSurveyRecoveryInFlightRef: MutableRefObject<boolean>;
-    user: User | null;
+    user: { id: string } | null;
     videoDateAccess: VideoDateAccess;
   };
 

@@ -1,3 +1,12 @@
+import {
+  consumeWebVideoDateMediaHandoff,
+} from "@/lib/videoDateMediaHandoff";
+import {
+  bucketVideoDateLatencyMs,
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
+import * as Sentry from "@sentry/react";
 import { useCallback, useRef } from "react";
 import { vdbg } from "@/lib/vdbg";
 import { trackEvent } from "@/lib/analytics";
@@ -22,6 +31,10 @@ import {
   summarizeVideoTrackSettings,
   summarizeWebRuntime,
   VideoDateMediaPromptIntent,
+  LiveVideoDateMediaTracks,
+  getLiveVideoDateMediaTracks,
+  missingLiveVideoDateMediaTrackReason,
+  requireLiveVideoDateMediaTracks,
 } from "@/lib/daily/webDailyMediaHelpers";
 import type { VideoCallSharedRuntime } from "./videoCallRuntime";
 

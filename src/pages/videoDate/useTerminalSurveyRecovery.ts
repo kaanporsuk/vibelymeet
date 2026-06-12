@@ -24,7 +24,6 @@ import { videoDateLifecycleRpcIndicatesTerminalSurvey } from "@clientShared/matc
 import { videoSessionHasPostDateSurveyTruth } from "@clientShared/matching/activeSession";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { NavigateFunction } from "react-router-dom";
-import type { User } from "@supabase/supabase-js";
 import type { VideoDateJourneyEvent } from "@clientShared/matching/videoDateDiagnostics";
 import type { VideoCallStartFailure } from "@/hooks/useVideoCall";
 import { useEventStatus } from "@/hooks/useEventStatus";
@@ -74,7 +73,7 @@ type UseTerminalSurveyRecoveryDeps = {
   terminalDailyStopRef: MutableRefObject<((reason: string) => void) | null>;
   terminalDailyStopRequestedRef: MutableRefObject<boolean>;
   terminalSurveyRecoveryInFlightRef: MutableRefObject<boolean>;
-  user: User | null;
+  user: { id: string } | null;
 };
 
 export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {

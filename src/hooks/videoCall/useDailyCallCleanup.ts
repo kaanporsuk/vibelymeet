@@ -1,8 +1,12 @@
+import {
+  emitWebVideoDateClientStuckState,
+} from "@/lib/videoDateClientStuckObservability";
 import { useCallback } from "react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import {
   isTerminalDailyMeetingState,
+  registerWebVideoDateDailyCleanup,
 } from "@/lib/dailyCallInstance";
 import {
   createRemotePlaybackState,

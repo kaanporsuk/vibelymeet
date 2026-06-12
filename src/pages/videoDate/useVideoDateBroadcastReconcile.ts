@@ -19,7 +19,6 @@ import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { vdbg } from "@/lib/vdbg";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type { User } from "@supabase/supabase-js";
 import type { VideoDateBroadcastGapRecoveryState } from "@clientShared/matching/videoDateBroadcastGapRecovery";
 import { useCredits } from "@/hooks/useCredits";
 import type { CallPhase, VideoDateAccess } from "./videoDatePageShared";
@@ -66,7 +65,7 @@ type UseVideoDateBroadcastReconcileDeps = Pick<
     } | null>
   >;
   setTimingRefreshNonce: Dispatch<SetStateAction<number>>;
-  user: User | null;
+  user: { id: string } | null;
   videoDateAccess: VideoDateAccess;
 };
 

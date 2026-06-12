@@ -1,13 +1,22 @@
+import {
+  emitWebVideoDateClientStuckState,
+} from "@/lib/videoDateClientStuckObservability";
+import {
+  bucketVideoDateLatencyMs,
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
 import { useCallback, useEffect, useRef } from "react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
-import { getVideoDateEntryOwner } from "@clientShared/matching/videoDateEntryOwner";
+import { getVideoDateEntryOwner, updateVideoDateDailyOwnerState, updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
 import {
   videoDateLifecycleRpcCode,
   videoDateLifecycleRpcIndicatesTerminalStop,
   videoDateLifecycleRpcIndicatesTerminalSurvey,
+  videoDateLifecycleRpcRetryable,
 } from "@clientShared/matching/videoDateLifecycleRpc";
 import {
   isTerminalDailyMeetingState,
