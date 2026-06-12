@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -33,8 +35,8 @@ const historicalDeleteMarkerMigration = read(
 const pendingSurveyRegistrationRepairMigration = read(
   "supabase/migrations/20260605152058_video_date_pending_survey_registration_repair.sql",
 );
-const webDateRoute = read("src/pages/VideoDate.tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webDateRoute = readWebVideoDatePageFlowSource(root);
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const observability = read("shared/observability/videoDateClientStuckObservability.ts");
 const activeSession = read("shared/matching/activeSession.ts");

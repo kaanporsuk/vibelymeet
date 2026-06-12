@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -18,8 +20,8 @@ function block(source: string, start: RegExp, end: RegExp): string {
   return tail.slice(0, endMatch.index);
 }
 
-const webVideoCall = read("src/hooks/useVideoCall.ts");
-const webVideoDate = read("src/pages/VideoDate.tsx");
+const webVideoCall = readWebVideoCallFlowSource(root);
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webDupTabGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webReconnection = read("src/hooks/useReconnection.ts");
 const readyRedirect = read("src/pages/ReadyRedirect.tsx");

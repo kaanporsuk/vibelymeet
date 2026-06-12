@@ -27,6 +27,8 @@ import {
   parseVideoDateCameraSwitchRenderHint,
 } from "./videoDateCameraSwitchRenderHint";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
   "utf8",
@@ -301,10 +303,7 @@ const webActiveSessionHook = readFileSync(
   join(process.cwd(), "src/hooks/useActiveSession.ts"),
   "utf8",
 );
-const webDateNavigationGuard = readFileSync(
-  join(process.cwd(), "src/lib/dateNavigationGuard.ts"),
-  "utf8",
-);
+const webDateNavigationGuard = readWebVideoDateNavigationIntentsSource(process.cwd());
 const nativeDateNavigationGuard = readFileSync(
   join(process.cwd(), "apps/mobile/lib/dateNavigationGuard.ts"),
   "utf8",
@@ -335,10 +334,7 @@ const eventLobby = readFileSync(
   join(process.cwd(), "src/pages/EventLobby.tsx"),
   "utf8",
 );
-const webVideoCallHook = readFileSync(
-  join(process.cwd(), "src/hooks/useVideoCall.ts"),
-  "utf8",
-);
+const webVideoCallHook = readWebVideoCallFlowSource(process.cwd());
 const webDailyCallInstance = readFileSync(
   join(process.cwd(), "src/lib/dailyCallInstance.ts"),
   "utf8",
@@ -379,10 +375,7 @@ const nativeEnvExample = readFileSync(
   join(process.cwd(), "apps/mobile/.env.example"),
   "utf8",
 );
-const webVideoDatePage = readFileSync(
-  join(process.cwd(), "src/pages/VideoDate.tsx"),
-  "utf8",
-);
+const webVideoDatePage = readWebVideoDatePageFlowSource(process.cwd());
 const cameraSwitchRenderHintContract = readFileSync(
   join(process.cwd(), "shared/matching/videoDateCameraSwitchRenderHint.ts"),
   "utf8",

@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -24,7 +26,7 @@ const webRouteHydration = read(
   "src/components/session/SessionRouteHydration.tsx",
 );
 const webLobby = read("src/pages/EventLobby.tsx");
-const webDateNavGuard = read("src/lib/dateNavigationGuard.ts");
+const webDateNavGuard = readWebVideoDateNavigationIntentsSource(root);
 const nativeRouteHydration = read(
   "apps/mobile/components/NativeSessionRouteHydration.tsx",
 );

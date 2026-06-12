@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const exists = (path: string) => existsSync(new URL(`../../${path}`, import.meta.url));
 
@@ -16,7 +18,7 @@ test("web other-user profile entry points render canonical profile content", () 
   const lobbyCard = read("src/components/lobby/LobbyProfileCard.tsx");
   const eventDetails = read("src/pages/EventDetails.tsx");
   const partnerSheet = read("src/components/video-date/PartnerProfileSheet.tsx");
-  const videoDate = read("src/pages/VideoDate.tsx");
+  const videoDate = readWebVideoDatePageFlowSource();
 
   assert.match(userRoute, /OtherUserFullProfileView/);
   assert.match(userRoute, /useOtherUserFullProfile/);

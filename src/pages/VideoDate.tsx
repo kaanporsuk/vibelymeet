@@ -2410,8 +2410,6 @@ const VideoDate = () => {
             sessionId: id,
             profileId: user.id,
             intents: videoDateNavigationIntents,
-            routeStateForceSurvey:
-              readyRedirectForceSurveyState?.forceSurvey === true,
             canonicalInput: {
               eventId: sessionRow.event_id,
               truth: sessionRow,

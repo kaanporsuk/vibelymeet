@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -11,8 +13,8 @@ const audit = read(
   "docs/audits/date-route-owns-flow-current-codebase-audit-2026-06-09.md",
 );
 const commandCenter = read("docs/video-date-success-command-center.md");
-const webVideoDate = read("src/pages/VideoDate.tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
+const webVideoCall = readWebVideoCallFlowSource(root);
 const webSurfaceGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeSurvey = read(

@@ -3,14 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const recoveryMigration = read(
   "supabase/migrations/20260606224200_video_date_provider_terminal_recovery.sql",
 );
-const webCall = read("src/hooks/useVideoCall.ts");
-const webDate = read("src/pages/VideoDate.tsx");
+const webCall = readWebVideoCallFlowSource(root);
+const webDate = readWebVideoDatePageFlowSource(root);
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
 const packageJson = read("package.json");
 

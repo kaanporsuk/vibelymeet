@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -15,7 +17,7 @@ const joinArgRepairMigration = read(
 const hotPathNoThrowMigration = read(
   "supabase/migrations/20260609130139_video_date_hot_path_no_throw_daily_adoption.sql",
 );
-const webVideoDate = read("src/pages/VideoDate.tsx");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const dailyRoomFunction = read("supabase/functions/daily-room/index.ts");
 const packageJson = read("package.json");
 

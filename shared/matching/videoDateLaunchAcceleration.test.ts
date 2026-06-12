@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const webReadyGate = readFileSync(join(root, "src/components/lobby/ReadyGateOverlay.tsx"), "utf8");
-const webVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVideoCall = readWebVideoCallFlowSource(root);
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeReadyGate = readFileSync(join(root, "apps/mobile/components/lobby/ReadyGateOverlay.tsx"), "utf8");
 const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");

@@ -3,6 +3,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -233,7 +235,7 @@ test("event deck, Ready Gate, and Video Date keep safe profile access after dire
   const webEventDeck = read("src/hooks/useEventDeck.ts");
   const webLobby = read("src/pages/EventLobby.tsx");
   const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
-  const webVideoDate = read("src/pages/VideoDate.tsx");
+  const webVideoDate = readWebVideoDatePageFlowSource(root);
   const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
   const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
@@ -265,10 +267,21 @@ test("event deck, Ready Gate, and Video Date keep safe profile access after dire
   assert.match(establishedAccessFunction, /vs\.participant_1_id = p_viewer_id AND vs\.participant_2_id = p_target_id/);
   assert.match(establishedAccessFunction, /vs\.participant_2_id = p_viewer_id AND vs\.participant_1_id = p_target_id/);
 
-  assert.match(webReadyGate, /get_profile_for_viewer/);
-  assert.match(webVideoDate, /setVideoDateAccess\("allowed"\);[\s\S]*get_profile_for_viewer/);
+  assert.match(webReadyGate, /fetchVideoDatePartnerProfile/);
+  // Pre-existing main break fixed in passing (PR 7): the web date guard now
+  // loads the partner through fetchVideoDatePartnerProfile, whose lib owner
+  // still uses the viewer-scoped RPC.
+  assert.match(
+    webVideoDate,
+    /setVideoDateAccess\("allowed"\);[\s\S]*fetchVideoDatePartnerProfile/,
+  );
+  assert.match(read("src/lib/videoDatePartnerProfile.ts"), /get_profile_for_viewer/);
   assert.match(nativeLobby, /get_profile_for_viewer/);
-  assert.match(nativeVideoDateApi, /get_profile_for_viewer/);
+  assert.match(
+    read("apps/mobile/lib/videoDatePartnerProfile.ts"),
+    /get_profile_for_viewer/,
+  );
+  assert.doesNotMatch(nativeVideoDateApi, /\.from\(["']profiles["']\)\s*\.select\(/);
   assert.doesNotMatch(webLobby, /\.from\(["']profiles["']\)\s*\.select\(/);
   assert.doesNotMatch(nativeLobby, /\.from\(['"]profiles['"]\)\s*\.select\(/);
 });

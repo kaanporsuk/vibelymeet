@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { resolveVideoDatePhaseCountdown } from "./videoDateCountdown";
 import { videoDateEntryTimingAliases } from "./videoDateEntryTiming";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -112,7 +114,7 @@ test("warm-up timeout notice copy leads into private check-in instead of termina
 });
 
 test("web desktop stage and native timer hardening contracts remain in place", () => {
-  const webDate = read("src/pages/VideoDate.tsx");
+  const webDate = readWebVideoDatePageFlowSource(root);
   const nativeDate = read("apps/mobile/app/date/[id].tsx");
   const nativeCountdownBlock = nativeDate.slice(
     nativeDate.indexOf("Authoritative visible countdown"),

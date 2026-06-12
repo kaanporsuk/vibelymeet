@@ -10,6 +10,8 @@ import {
 } from "./dailyRoomFailure";
 import { shouldRetryVideoDateEntryHandoffFailure } from "./videoDateEntryRetryPolicy";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -135,8 +137,8 @@ test("web date handoff remains gated by prepare-entry or date-capable backend tr
   assert.match(readyRedirect, /decideCanonicalVideoDateRoute/);
   assert.match(readyRedirect, /recovery\.action === "go_date"/);
   assert.match(readyRedirect, /canonicalRoute\.target === "date"/);
-  assert.match(read("src/pages/VideoDate.tsx"), /useVideoCall/);
-  assert.match(read("src/hooks/useVideoCall.ts"), /prepareVideoDateEntry/);
+  assert.match(readWebVideoDatePageFlowSource(root), /useVideoCall/);
+  assert.match(readWebVideoCallFlowSource(root), /prepareVideoDateEntry/);
 });
 
 test("native date handoff remains gated by prepare-entry or date-capable backend truth", () => {

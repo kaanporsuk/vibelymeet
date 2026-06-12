@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -25,7 +27,7 @@ const roomCleanup = read("supabase/functions/video-date-room-cleanup/index.ts");
 const webPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
 const nativePrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeStandaloneReady = read("apps/mobile/app/ready/[id].tsx");
 const nativeDate = read("apps/mobile/app/date/[id].tsx");

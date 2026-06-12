@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const migration = readFileSync(
   join(root, "supabase/migrations/20260522015000_video_date_phase7_daily_performance_decision.sql"),
@@ -23,8 +25,8 @@ const launchObservability = readFileSync(
 const webPrepareEntry = readFileSync(join(root, "src/lib/videoDatePrepareEntry.ts"), "utf8");
 const nativePrepareEntry = readFileSync(join(root, "apps/mobile/lib/videoDatePrepareEntry.ts"), "utf8");
 const sharedPrepareEntry = readFileSync(join(root, "shared/matching/videoDatePrepareEntry.ts"), "utf8");
-const webUseVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webUseVideoCall = readWebVideoCallFlowSource(root);
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const adminOps = readFileSync(join(root, "supabase/functions/admin-video-date-ops/index.ts"), "utf8");
 const adminLiveMetrics = readFileSync(join(root, "src/components/admin/AdminLiveEventMetrics.tsx"), "utf8");

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -26,7 +28,7 @@ test("Ready Gate diagnostics render shared checklist rows and only actionable re
 test("safety submit surfaces keep duplicate-submit guards and durable success routing", () => {
   const webSafety = read("src/components/video-date/InCallSafetyModal.tsx");
   const nativeSafety = read("apps/mobile/components/video-date/InCallSafetySheet.tsx");
-  const webDate = read("src/pages/VideoDate.tsx");
+  const webDate = readWebVideoDatePageFlowSource(root);
   const nativeDate = read("apps/mobile/app/date/[id].tsx");
 
   for (const source of [webSafety, nativeSafety]) {

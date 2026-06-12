@@ -3,6 +3,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -64,13 +66,13 @@ const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const dailyRoomContracts = read("supabase/functions/daily-room/dailyRoomContracts.ts");
 const videoDateCleanup = read("supabase/functions/video-date-room-cleanup/index.ts");
 const supabaseConfig = read("supabase/config.toml");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const webDailyCallObjectConfig = read("src/lib/dailyCallObjectConfig.ts");
 const webDailyCallInstance = read("src/lib/dailyCallInstance.ts");
 const webDailyPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
 const webVideoDateReadiness = read("src/hooks/useVideoDateReadiness.ts");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
-const webVideoDatePage = read("src/pages/VideoDate.tsx");
+const webVideoDatePage = readWebVideoDatePageFlowSource(root);
 const videoDateMediaContract = read("shared/matching/videoDateMediaContract.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");

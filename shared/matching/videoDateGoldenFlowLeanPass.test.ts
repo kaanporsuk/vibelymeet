@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 // Golden-flow lean pass (2026-06-11): the successful 2026-06-10 run showed
 // three redundant client traffic patterns on the launch path — ~30 single
 // launch-latency checkpoint RPCs, a 12-call feature-flag detail burst on
@@ -32,7 +34,7 @@ const nativeVideoDateProfileCallers = [
 ].map((path) => [path, read(path)] as const);
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
-const webVideoDatePage = read("src/pages/VideoDate.tsx");
+const webVideoDatePage = readWebVideoDatePageFlowSource(root);
 const nativeSessionReader = read("apps/mobile/lib/videoDateSessionRow.ts");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
@@ -125,7 +127,7 @@ test("date-path session row reads go through the single-owner coalescing reader"
   assert.match(reader, /options\?\.fresh/);
   assert.match(nativeSessionReader, /options\?\.fresh/);
   assert.match(
-    read("src/hooks/useVideoCall.ts"),
+    readWebVideoCallFlowSource(root),
     /fetchVideoDateSessionRow\(sessionId, \{ fresh: true \}\)/,
   );
   assert.match(nativeVideoDateApi, /fetchVideoDateSessionRow\(sessionId\)/);

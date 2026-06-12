@@ -12,12 +12,14 @@ import {
   updateVideoDateEntryOwnerState,
 } from "./videoDateEntryOwner";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const webPrepare = read("src/lib/videoDatePrepareEntry.ts");
 const nativePrepare = read("apps/mobile/lib/videoDatePrepareEntry.ts");
-const webDate = read("src/hooks/useVideoCall.ts");
+const webDate = readWebVideoCallFlowSource(root);
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");

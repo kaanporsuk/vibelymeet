@@ -17,12 +17,14 @@ import {
   videoDateBroadcastGapRetryDelayMs,
 } from "./videoDateBroadcastGapRecovery";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
-const webVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const webStatusHook = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
 const nativeStatusHook = readFileSync(join(root, "apps/mobile/lib/eventStatus.ts"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webReadyGate = readFileSync(join(root, "src/hooks/useReadyGate.ts"), "utf8");
 const webReadyGateOverlay = readFileSync(join(root, "src/components/lobby/ReadyGateOverlay.tsx"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");

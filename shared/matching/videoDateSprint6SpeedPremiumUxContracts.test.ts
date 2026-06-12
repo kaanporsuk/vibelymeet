@@ -10,6 +10,8 @@ import {
   VIDEO_DATE_SPRINT6_MANUAL_QA_CHECKS,
 } from "./videoDateInstantExperience";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -20,8 +22,8 @@ const launchLatencyMirror = read("shared/observability/videoDateLaunchLatencyChe
 const swipeResultMigration = read(
   "supabase/migrations/20260525234000_video_date_sprint6_swipe_result_latency_checkpoint.sql",
 );
-const webVideoDate = read("src/pages/VideoDate.tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
 const webLobbyEmptyState = read("src/components/lobby/LobbyEmptyState.tsx");
 const webLobbyProfileCard = read("src/components/lobby/LobbyProfileCard.tsx");

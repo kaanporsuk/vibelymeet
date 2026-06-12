@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const migration = readFileSync(
   join(root, "supabase/migrations/20260522001000_video_date_phase3_safety_queue_rpcs.sql"),
@@ -26,7 +28,7 @@ const transitionCommands = readFileSync(
 );
 const safetyRpc = readFileSync(join(root, "shared/safety/submitUserReportRpc.ts"), "utf8");
 const webSafetyModal = readFileSync(join(root, "src/components/video-date/InCallSafetyModal.tsx"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const nativeSafetySheet = readFileSync(
   join(root, "apps/mobile/components/video-date/InCallSafetySheet.tsx"),
   "utf8",

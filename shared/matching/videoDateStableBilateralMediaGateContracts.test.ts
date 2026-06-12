@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -27,8 +29,8 @@ const videoDateGateMigrations = [
   oneSidedRemoteSeenGuardMigration,
   definitiveActiveMediaOwnershipMigration,
 ].join("\n");
-const webVideoDate = read("src/pages/VideoDate.tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
+const webVideoCall = readWebVideoCallFlowSource(root);
 const webSurfaceGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webPostDateSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");

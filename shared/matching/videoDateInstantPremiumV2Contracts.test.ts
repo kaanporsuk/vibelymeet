@@ -12,11 +12,13 @@ import {
   shouldTopUpVideoDateDeck,
 } from "./videoDateInstantExperience";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
-const webVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
+const webVideoCall = readWebVideoCallFlowSource(root);
 const webLobbyProfileCard = readFileSync(join(root, "src/components/lobby/LobbyProfileCard.tsx"), "utf8");
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");

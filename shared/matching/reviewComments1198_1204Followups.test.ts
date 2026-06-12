@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const followupMigration = read("supabase/migrations/20260605221535_review_comments_1199_1204_followups.sql");
 const helperNameRepairMigration = read("supabase/migrations/20260605222458_review_comments_helper_name_repair.sql");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const packageJson = read("package.json");
 

@@ -9,6 +9,8 @@ import {
   type VideoDateRouteSessionTruth,
 } from "./videoDateRouteDecision";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -259,7 +261,7 @@ test("surface claim, ready commit, and post-date writes keep separate owners", (
 });
 
 test("web date pre-date failure exits use the manual server-end path", () => {
-  const webVideoDatePage = read("src/pages/VideoDate.tsx");
+  const webVideoDatePage = readWebVideoDatePageFlowSource(root);
   const mediaPermissionBlock = blockBetween(
     webVideoDatePage,
     "const permissionBlock =",
@@ -300,7 +302,7 @@ test("web date pre-date failure exits use the manual server-end path", () => {
 test("web and native Daily guards adopt same-session owners before reporting busy", () => {
   const webGuard = read("src/lib/dailyCallInstance.ts");
   const nativeGuard = read("apps/mobile/lib/nativeDailyCallInstance.ts");
-  const webVideoCall = read("src/hooks/useVideoCall.ts");
+  const webVideoCall = readWebVideoCallFlowSource(root);
   const webPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
   const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
   const nativePrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");

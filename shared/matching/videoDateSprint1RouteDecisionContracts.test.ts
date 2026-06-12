@@ -14,6 +14,8 @@ import {
   type VideoDateRouteSessionTruth,
 } from "./videoDateRouteDecision";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const NOW_MS = Date.parse("2026-05-25T12:00:00.000Z");
 const SESSION_ID = "session-1";
@@ -357,7 +359,11 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("shared/matching/videoDateRecoveryAdvisor.ts"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/pages/EventLobby.tsx"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/pages/EventLobby.tsx"), /canonicalVideoDateRouteLogDetail/);
-  assert.match(read("src/components/session/SessionRouteHydration.tsx"), /decideCanonicalVideoDateRoute/);
+  // PR 7: hydration consumes the canonical contract through the shared
+  // single surface-route decision (decideVideoDateSurfaceRoute composes
+  // decideCanonicalVideoDateRoute in shared/videoDate/routeDecision.ts).
+  assert.match(read("src/components/session/SessionRouteHydration.tsx"), /decideVideoDateSurfaceRoute/);
+  assert.match(read("shared/videoDate/routeDecision.ts"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/components/session/SessionRouteHydration.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("src/components/session/SessionRouteHydration.tsx"), /session_route_hydration_ready_gate_canonical/);
   assert.doesNotMatch(read("src/components/session/SessionRouteHydration.tsx"), /ready_gate_bounce_suppressed_date_owner/);
@@ -368,9 +374,9 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("src/pages/ReadyRedirect.tsx"), /webPathForCanonicalVideoDateRoute/);
   assert.doesNotMatch(read("src/pages/ReadyRedirect.tsx"), /registrationReadyGateFallback/);
   assert.match(read("src/pages/ReadyRedirect.tsx"), /ended_reason/);
-  assert.match(read("src/pages/VideoDate.tsx"), /canonical_ready_gate_without_provider_prepared_truth/);
-  assert.match(read("src/pages/VideoDate.tsx"), /date_guard_canonical_not_startable/);
-  assert.match(read("src/pages/VideoDate.tsx"), /date_guard_canonical_ready_gate/);
+  assert.match(readWebVideoDatePageFlowSource(root), /canonical_ready_gate_without_provider_prepared_truth/);
+  assert.match(readWebVideoDatePageFlowSource(root), /date_guard_canonical_not_startable/);
+  assert.match(readWebVideoDatePageFlowSource(root), /date_guard_canonical_ready_gate/);
   assert.match(read("src/components/lobby/ReadyGateOverlay.tsx"), /pending_survey_navigation_started/);
   assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /canonicalVideoDateRouteLogDetail/);
