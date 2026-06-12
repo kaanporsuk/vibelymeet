@@ -60,7 +60,7 @@ test("native prejoin awaits a confirmed surface claim before Daily join", () => 
   assert.match(nativeDateRoute, /return surfaceClaimInFlightPromiseRef\.current/);
   assert.match(
     nativeDateRoute,
-    /const waitingForNativeSurfaceClientIdentity =[\s\S]*multiDeviceV2\.enabled && !nativeSurfaceClientReady/,
+    /const waitingForNativeSurfaceClientIdentity = !nativeSurfaceClientReady/,
   );
   assert.match(
     nativeDateRoute,

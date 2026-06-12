@@ -19,7 +19,6 @@ type Props = {
   extraTimeCredits: number;
   extendedVibeCredits: number;
   onExtend: (minutes: number, type: 'extra_time' | 'extended_vibe') => Promise<VideoDateExtendOutcome>;
-  mutualMode?: boolean;
   pendingPartnerRequestType?: 'extra_time' | 'extended_vibe' | null;
   isExtending?: boolean;
   onGetCredits?: () => void;
@@ -31,7 +30,6 @@ export function KeepTheVibe({
   extraTimeCredits,
   extendedVibeCredits,
   onExtend,
-  mutualMode = false,
   pendingPartnerRequestType = null,
   isExtending = false,
   onGetCredits,
@@ -49,12 +47,12 @@ export function KeepTheVibe({
   const extraTimeCopy = resolveVideoDateExtensionCopy({
     type: 'extra_time',
     state: pendingPartnerRequestType === 'extra_time' ? 'partner_pending' : 'available',
-    mutualMode,
+    mutualMode: true,
   });
   const extendedVibeCopy = resolveVideoDateExtensionCopy({
     type: 'extended_vibe',
     state: pendingPartnerRequestType === 'extended_vibe' ? 'partner_pending' : 'available',
-    mutualMode,
+    mutualMode: true,
   });
   const noCreditsCopy = resolveVideoDateExtensionCopy({ state: 'insufficient_credits' });
 

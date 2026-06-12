@@ -29,7 +29,6 @@ import { spacing, radius, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
@@ -133,7 +132,6 @@ export default function ReadyGateScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
-  const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
   const {
     iAmReady,
     partnerReady,
@@ -160,7 +158,6 @@ export default function ReadyGateScreen() {
     realtimeDegraded,
     sequenceGapUnresolved,
     retryBroadcastGapRecovery,
-    readyGateClockEnabled,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
 
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
@@ -740,7 +737,7 @@ export default function ReadyGateScreen() {
       let revealReadyUi = false;
       setPermissionRequestEligible(false);
       try {
-        if (snapshotV2.enabled) {
+        {
           const snapshot = await fetchVideoDateSnapshot(String(sessionId), {
             includeToken: false,
           });
@@ -996,7 +993,6 @@ export default function ReadyGateScreen() {
     reconcileFromCanonicalTruth,
     sessionId,
     showDialog,
-    snapshotV2.enabled,
     user?.id,
   ]);
 
@@ -1221,11 +1217,9 @@ export default function ReadyGateScreen() {
         if (result?.ok === true && result.expiresAt) {
           setTimeLeft(
             getReadyGateCountdownFromServerClock({
-              expiresAt: readyGateClockEnabled
-                ? (phaseDeadlineAtMs ?? result.expiresAt)
-                : result.expiresAt,
-              serverNowMs: readyGateClockEnabled ? serverNowMs : null,
-              clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
+              expiresAt: phaseDeadlineAtMs ?? result.expiresAt,
+              serverNowMs,
+              clientSyncedAtMs,
               fallbackDeadlineMs:
                 readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
               fallbackSeconds: GATE_TIMEOUT_SEC,
@@ -1251,7 +1245,6 @@ export default function ReadyGateScreen() {
     [
       clientSyncedAtMs,
       phaseDeadlineAtMs,
-      readyGateClockEnabled,
       serverNowMs,
       sessionId,
       guardedSyncSession,
@@ -1279,11 +1272,9 @@ export default function ReadyGateScreen() {
     const t = setInterval(() => {
       setTimeLeft(() => {
         const next = getReadyGateCountdownFromServerClock({
-          expiresAt: readyGateClockEnabled
-            ? (phaseDeadlineAtMs ?? expiresAt)
-            : expiresAt,
-          serverNowMs: readyGateClockEnabled ? serverNowMs : null,
-          clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
+          expiresAt: phaseDeadlineAtMs ?? expiresAt,
+          serverNowMs,
+          clientSyncedAtMs,
           fallbackDeadlineMs:
             readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
           fallbackSeconds: GATE_TIMEOUT_SEC,
@@ -1308,7 +1299,6 @@ export default function ReadyGateScreen() {
     serverNowMs,
     clientSyncedAtMs,
     phaseDeadlineAtMs,
-    readyGateClockEnabled,
     syncExpiredReadyGate,
   ]);
 

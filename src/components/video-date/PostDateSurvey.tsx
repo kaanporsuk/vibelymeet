@@ -13,7 +13,6 @@ import MatchSuccessModal from "@/components/match/MatchSuccessModal";
 import { cn } from "@/lib/utils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
@@ -49,7 +48,6 @@ import {
   POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS,
   confirmationResultFromVerdictBroadcast,
   derivePostDateSurveyStepFromVerdict,
-  isVideoDateVerdictConfirmEnabled,
   normalizePostDateVerdictConfirmationResult,
   type PostDateVerdictUiState,
 } from "@clientShared/matching/postDateVerdictConfirmation";
@@ -123,8 +121,6 @@ export const PostDateSurvey = ({
   const navigate = useNavigate();
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
-  const microVerdictV2 = useFeatureFlag("video_date.micro_verdict_v2");
-  const verdictConfirmV2 = useFeatureFlag("video_date.verdict_confirm_v2");
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -155,10 +151,6 @@ export const PostDateSurvey = ({
   const safetyReportInFlightRef = useRef(false);
   const verdictOpenedAtMsRef = useRef(Date.now());
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
-  const verdictConfirmEnabled = useMemo(
-    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2),
-    [verdictConfirmV2],
-  );
 
   useEffect(() => {
     if (!isOpen || !sessionId) return;
@@ -182,10 +174,10 @@ export const PostDateSurvey = ({
   }, [isOpen, sessionId, eventId]);
 
   useEffect(() => {
-    if (!microVerdictV2.enabled || !isOpen || step !== "verdict") return undefined;
+    if (!isOpen || step !== "verdict") return undefined;
     const interval = window.setInterval(() => setMicroVerdictNowMs(Date.now()), 1000);
     return () => window.clearInterval(interval);
-  }, [isOpen, microVerdictV2.enabled, step]);
+  }, [isOpen, step]);
 
   const microVerdictRemainingSeconds = useMemo(
     () => getVideoDateMicroVerdictRemainingSeconds(verdictOpenedAtMsRef.current, microVerdictNowMs),
@@ -315,7 +307,7 @@ export const PostDateSurvey = ({
   }, [resolvePendingVerdictConfirm, sessionId]);
 
   useEffect(() => {
-    if (!isOpen || !sessionId || !verdictConfirmEnabled) return undefined;
+    if (!isOpen || !sessionId) return undefined;
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId,
       onEvent: (event: VideoDateSessionBroadcastEvent) => {
@@ -330,7 +322,7 @@ export const PostDateSurvey = ({
     return () => {
       subscription.unsubscribe();
     };
-  }, [isOpen, resolvePendingVerdictConfirm, sessionId, verdictConfirmEnabled]);
+  }, [isOpen, resolvePendingVerdictConfirm, sessionId]);
 
   useEffect(() => {
     return () => {
@@ -713,7 +705,7 @@ export const PostDateSurvey = ({
           setVerdictUiState("retryable_failed");
           return;
         }
-        const confirmedResult = verdictConfirmEnabled ? await waitForVerdictConfirmation(result) : result;
+        const confirmedResult = await waitForVerdictConfirmation(result);
         if (!confirmedResult) {
           setVerdictRetryable(true);
           setVerdictError("Couldn't confirm your answer. Tap to retry.");
@@ -798,7 +790,6 @@ export const PostDateSurvey = ({
       isSubmitting,
       verdictUiState,
       logJourney,
-      verdictConfirmEnabled,
       waitForVerdictConfirmation,
       applyConfirmedVerdictStep,
       confirmActorFeedbackRow,
@@ -827,18 +818,16 @@ export const PostDateSurvey = ({
         });
         return false;
       }
-      if (verdictConfirmEnabled) {
-        const confirmed = await waitForVerdictConfirmation(result);
-        if (!confirmed) {
-          trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            reason: "report_pass_confirmation_failed",
-            source: "report_before_verdict",
-          });
-          return false;
-        }
+      const confirmed = await waitForVerdictConfirmation(result);
+      if (!confirmed) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          reason: "report_pass_confirmation_failed",
+          source: "report_before_verdict",
+        });
+        return false;
       }
       if (!(await confirmActorFeedbackRow(false, "report_before_verdict"))) {
         return false;
@@ -858,7 +847,6 @@ export const PostDateSurvey = ({
       eventId,
       sessionId,
       user?.id,
-      verdictConfirmEnabled,
       waitForVerdictConfirmation,
     ],
   );
@@ -1076,11 +1064,9 @@ export const PostDateSurvey = ({
                     onReport={handleReportFromVerdict}
                     isSubmitting={isSubmitting}
                   />
-                  {microVerdictV2.enabled && (
-                    <p className="text-center text-xs leading-relaxed text-white/[0.5]" aria-live="polite">
-                      {getVideoDateMicroVerdictCopy(microVerdictRemainingSeconds)}
-                    </p>
-                  )}
+                  <p className="text-center text-xs leading-relaxed text-white/[0.5]" aria-live="polite">
+                    {getVideoDateMicroVerdictCopy(microVerdictRemainingSeconds)}
+                  </p>
                   {verdictError && (
                     <div
                       role="alert"

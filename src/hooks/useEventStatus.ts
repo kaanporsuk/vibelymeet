@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { recordVideoDateHeartbeatV2 } from "@/lib/videoDateReadiness";
 
 /** Values the client may write via `update_participant_status` (server-owned statuses are excluded). */
@@ -30,7 +29,6 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
   const enabledRef = useRef(enabled);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [currentStatus, setCurrentStatus] = useState<ParticipantStatus>("idle");
-  const readinessV2 = useFeatureFlag("video_date.readiness_v2");
 
   useEffect(() => {
     enabledRef.current = enabled;
@@ -85,7 +83,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
 
   const sendForegroundHeartbeat = useCallback(
     (foreground: boolean, source: string) => {
-      if (!enabledRef.current || !eventId || !user?.id || !readinessV2.enabled) return;
+      if (!enabledRef.current || !eventId || !user?.id) return;
       if (source === "pagehide" || source === "freeze" || source === "beforeunload") {
         sendHeartbeatKeepalive(foreground, source);
         return;
@@ -95,7 +93,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
         clientPlatform: "web",
       }).catch(() => {});
     },
-    [eventId, readinessV2.enabled, sendHeartbeatKeepalive, user?.id],
+    [eventId, sendHeartbeatKeepalive, user?.id],
   );
 
   // Heartbeat: update activity only. Timestamp is server-stamped by RPC.
@@ -104,26 +102,20 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
 
     heartbeatRef.current = setInterval(async () => {
       try {
-        if (readinessV2.enabled) {
-          await recordVideoDateHeartbeatV2(eventId, {
-            foreground: typeof document === "undefined" || document.visibilityState === "visible",
-            clientPlatform: "web",
-          });
-        } else {
-          await supabase.rpc("mark_event_participant_heartbeat", {
-            p_event_id: eventId,
-          });
-        }
+        await recordVideoDateHeartbeatV2(eventId, {
+          foreground: typeof document === "undefined" || document.visibilityState === "visible",
+          clientPlatform: "web",
+        });
       } catch {}
     }, 30000);
 
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     };
-  }, [enabled, eventId, readinessV2.enabled, user?.id]);
+  }, [enabled, eventId, user?.id]);
 
   useEffect(() => {
-    if (!enabled || !eventId || !user?.id || !readinessV2.enabled) return;
+    if (!enabled || !eventId || !user?.id) return;
     if (typeof document === "undefined" || typeof window === "undefined") return;
 
     const markCurrentVisibility = (source: string) => {
@@ -151,16 +143,14 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("freeze", handleFreeze);
     };
-  }, [enabled, eventId, readinessV2.enabled, sendForegroundHeartbeat, user?.id]);
+  }, [enabled, eventId, sendForegroundHeartbeat, user?.id]);
 
   // Set offline on page unload
   useEffect(() => {
     if (!enabled || !eventId || !user?.id) return;
 
     const handleBeforeUnload = () => {
-      if (readinessV2.enabled) {
-        sendForegroundHeartbeat(false, "beforeunload");
-      }
+      sendForegroundHeartbeat(false, "beforeunload");
       const token = accessTokenRef.current;
       if (!token) return;
       const url = `${SUPABASE_URL}/rest/v1/rpc/update_participant_status`;
@@ -181,7 +171,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [enabled, eventId, readinessV2.enabled, sendForegroundHeartbeat, user?.id]);
+  }, [enabled, eventId, sendForegroundHeartbeat, user?.id]);
 
   return { setStatus, currentStatus };
 };

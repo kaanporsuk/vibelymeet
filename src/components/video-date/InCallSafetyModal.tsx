@@ -36,7 +36,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   reportedUserId: string | null;
   sessionId?: string | null;
-  safetyV2?: boolean;
   /** Submit report only; stay on call */
   onReportOnlySuccess?: (outcome: VideoDateSafetySubmitOutcome) => void | Promise<void>;
   /** After successful report, end call + survey (parent handles end) */
@@ -53,7 +52,6 @@ export function InCallSafetyModal({
   onOpenChange,
   reportedUserId,
   sessionId,
-  safetyV2 = false,
   onReportOnlySuccess,
   onEndAfterReport,
   onServerEndedAfterReport,
@@ -87,7 +85,7 @@ export function InCallSafetyModal({
     const trimmedDetails = details.trim() || null;
     let result: SubmitVideoDateSafetyReportRpcResult = { ok: false, error: "Could not send report. Try again." };
     try {
-      if (safetyV2 && sessionId) {
+      if (sessionId) {
         const payloadSignature = JSON.stringify({
           reason,
           details: trimmedDetails,
@@ -172,7 +170,7 @@ export function InCallSafetyModal({
     toast.success(copy.title, { description: copy.message });
     reset();
     handleOpenChange(false);
-    if (safetyV2 && result.ended) {
+    if (result.ended) {
       await onServerEndedAfterReport?.(result, outcome);
     } else if (mode === "report") {
       await onReportOnlySuccess?.(outcome);

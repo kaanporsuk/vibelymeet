@@ -83,7 +83,8 @@ test("PR 4.3 web and native use the shared private session channel helper", () =
   assert.match(sessionChannel, /\.on\("broadcast", \{ event: VIDEO_DATE_SESSION_CHANNEL_EVENT \}/);
 
   for (const source of [webReadyGate, webVideoDate, nativeReadyGate, nativeVideoDateApi]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.broadcast_v2["']\)/);
+    // PR 6 flag freeze: the private broadcast channel is always on.
+    assert.doesNotMatch(source, /useFeatureFlag\(["']video_date\.broadcast_v2["']\)/);
     assert.match(source, /createVideoDateSessionChannel/);
     assert.match(source, /resolveVideoDateSessionSeqDecision/);
   }

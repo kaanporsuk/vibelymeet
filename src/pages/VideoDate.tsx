@@ -41,7 +41,6 @@ import {
 import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
 import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import {
@@ -161,7 +160,6 @@ import {
 } from "@clientShared/matching/videoDateWarmupChoiceNotice";
 import {
   buildReadyGateToDateLatencyPayload,
-  buildVideoDateTimerDriftRecoveredPayload,
   recordReadyGateToDateLatencyCheckpoint,
   type ReadyGateToDateLatencyCheckpoint,
   type VideoDateOperatorOutcome,
@@ -223,17 +221,6 @@ function normalizedDateExtraSeconds(raw: unknown): number {
   return typeof raw === "number" && Number.isFinite(raw)
     ? Math.max(0, Math.floor(raw))
     : 0;
-}
-
-function makeExtensionIdempotencyKey(
-  sessionId: string,
-  type: "extra_time" | "extended_vibe",
-): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return buildVideoDateExtensionIdempotencyKey(sessionId, type, random);
 }
 
 function makeMutualExtensionIdempotencyKey(
@@ -527,27 +514,9 @@ const VideoDate = () => {
     location.state && typeof location.state === "object"
       ? (location.state as { forceSurvey?: boolean; source?: string })
       : null;
-  const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
-  const timelineV2 = useFeatureFlag("video_date.timeline_v2");
-  const continueEntryV2 = useFeatureFlag(
-    "video_date.outbox_v2.continue_entry",
-  );
-  const entryAutoPromoteV2 = useFeatureFlag(
-    "video_date.outbox_v2.entry_auto_promote",
-  );
-  const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
-  const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
-  const extensionMutualV2 = useFeatureFlag("video_date.extension_mutual_v2");
-  const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
-  const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
-  const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
-  const dailyTokenRefreshV2 = useFeatureFlag(
-    "video_date.daily_token_refresh_v2",
-  );
-  const pushPayloadV2 = useFeatureFlag("video_date.push_payload_v2");
   const initialPushTimeline = useMemo(
-    () => (pushPayloadV2.enabled ? readVideoDatePushPreloadTimeline(id) : null),
-    [id, pushPayloadV2.enabled],
+    () => readVideoDatePushPreloadTimeline(id),
+    [id],
   );
   const initialPushCountdown = useMemo(
     () =>
@@ -625,7 +594,6 @@ const VideoDate = () => {
   const countdownCompletionKeyRef = useRef<string | null>(null);
   const remoteReadableTrackedRef = useRef(false);
   const warmupTimerStartedTrackedRef = useRef<string | null>(null);
-  const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
   const routeMountIdRef = useRef(
     `vd-web-route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
@@ -1247,8 +1215,6 @@ const VideoDate = () => {
     roomId: id,
     userId: user?.id,
     eventId,
-    resilienceV2: resilienceV2.enabled,
-    dailyTokenRefreshV2: dailyTokenRefreshV2.enabled,
     dailyCallSingletonEligible:
       !showFeedback &&
       !terminalSurveyRecoveryActive &&
@@ -1412,7 +1378,6 @@ const VideoDate = () => {
 
   const captureRemoteFrameSnapshot = useCallback(
     (source: string) => {
-      if (!resilienceV2.enabled) return;
       const videoEl = remoteVideoRef.current;
       if (
         !videoEl ||
@@ -1457,7 +1422,7 @@ const VideoDate = () => {
         });
       }
     },
-    [eventId, id, remoteVideoRef, resilienceV2.enabled],
+    [eventId, id, remoteVideoRef],
   );
 
   useEffect(() => {
@@ -1685,51 +1650,6 @@ const VideoDate = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (phase !== "date") {
-      timerDriftTrackingReadyRef.current = false;
-      return;
-    }
-    if (timeLeft !== null) {
-      timerDriftTrackingReadyRef.current = true;
-    }
-  }, [phase, timeLeft]);
-
-  const trackTimerDriftRecovery = useCallback(
-    (
-      correctedTimeLeftSeconds: number,
-      recoverySource: "session_reload" | "realtime" | "foreground_reconcile",
-    ) => {
-      if (timelineV2.enabled) return;
-      if (!timerDriftTrackingReadyRef.current) return;
-      const payload = buildVideoDateTimerDriftRecoveredPayload({
-        platform: "web",
-        sessionId: id,
-        eventId: eventIdRef.current,
-        previousTimeLeftSeconds: timeLeftRef.current,
-        correctedTimeLeftSeconds,
-        recoverySource,
-        phase: phaseRef.current,
-      });
-      if (!payload) return;
-
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_DETECTED, {
-        ...payload,
-        outcome: "no_op",
-        reason_code: "client_server_timer_mismatch",
-      });
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED, payload);
-      vdbg("timer_drift_recovered_by_server_truth", {
-        sessionId: id ?? null,
-        eventId: eventIdRef.current ?? null,
-        driftMs: payload.drift_ms,
-        driftBucket: payload.drift_bucket,
-        recoverySource,
-      });
-    },
-    [id, timelineV2.enabled],
-  );
-
   const trackDailyPerformanceCheckpoint = useCallback(
     ({
       checkpoint,
@@ -1855,7 +1775,7 @@ const VideoDate = () => {
   ]);
 
   useEffect(() => {
-    if (!resilienceV2.enabled || !id || showFeedback || networkTier === "good")
+    if (!id || showFeedback || networkTier === "good")
       return;
     const key = `${id}:${networkTier}`;
     if (resilienceModeTrackedKeyRef.current === key) return;
@@ -1867,14 +1787,13 @@ const VideoDate = () => {
       network_tier: networkTier,
       adaptation: "ui_and_daily_capability_checked",
     });
-  }, [eventId, id, networkTier, resilienceV2.enabled, showFeedback]);
+  }, [eventId, id, networkTier, showFeedback]);
 
   const applyTimelineSnapshot = useCallback(
     (
       snapshot: Awaited<ReturnType<typeof fetchVideoDateSnapshot>>,
       source: string,
     ) => {
-      if (!timelineV2.enabled) return null;
       const decision = applyVideoDateTimelineSnapshot(
         snapshot,
         serverTimelineRef.current,
@@ -1932,7 +1851,7 @@ const VideoDate = () => {
       });
       return decision;
     },
-    [id, timelineV2.enabled],
+    [id],
   );
 
   const confirmTerminalPostDateSurveyFromServerTruth = useCallback(
@@ -1974,21 +1893,19 @@ const VideoDate = () => {
           if (recovered) return true;
         }
 
-        if (timelineV2.enabled) {
-          const snapshot = await fetchVideoDateSnapshot(id, {
-            includeToken: false,
-          });
-          const decision = applyTimelineSnapshot(
-            snapshot,
-            `${attemptSource}_snapshot`,
-          );
-          if (
-            snapshot.ok === true &&
-            decision?.action === "accepted" &&
-            (snapshot.phase === "ended" || snapshot.phase === "verdict")
-          ) {
-            setTimingRefreshNonce((n) => n + 1);
-          }
+        const snapshot = await fetchVideoDateSnapshot(id, {
+          includeToken: false,
+        });
+        const decision = applyTimelineSnapshot(
+          snapshot,
+          `${attemptSource}_snapshot`,
+        );
+        if (
+          snapshot.ok === true &&
+          decision?.action === "accepted" &&
+          (snapshot.phase === "ended" || snapshot.phase === "verdict")
+        ) {
+          setTimingRefreshNonce((n) => n + 1);
         }
       }
 
@@ -2004,7 +1921,6 @@ const VideoDate = () => {
       applyTimelineSnapshot,
       id,
       recoverTerminalPostDateSurvey,
-      timelineV2.enabled,
       user?.id,
     ],
   );
@@ -2220,7 +2136,6 @@ const VideoDate = () => {
 
   useEffect(() => {
     if (
-      !timelineV2.enabled ||
       !id ||
       !user?.id ||
       videoDateAccess !== "allowed"
@@ -2252,7 +2167,6 @@ const VideoDate = () => {
     applyTimelineSnapshot,
     id,
     recoverTerminalPostDateSurvey,
-    timelineV2.enabled,
     user?.id,
     videoDateAccess,
   ]);
@@ -2912,7 +2826,6 @@ const VideoDate = () => {
           dateExtraSeconds: extraNorm,
           nowMs: now,
         });
-        trackTimerDriftRecovery(correctedTimeLeft, "session_reload");
         setTimeLeft(correctedTimeLeft);
         setPhase("date");
         setTimingReady(true);
@@ -2969,7 +2882,6 @@ const VideoDate = () => {
     markDateFlowEntered,
     recoverTerminalPostDateSurvey,
     timingRefreshNonce,
-    trackTimerDriftRecovery,
   ]);
 
   // Browser foreground/online recovery mirrors native AppState reconciliation without polling storms.
@@ -3370,104 +3282,6 @@ const VideoDate = () => {
     recoverFromNotStartableDateTruth,
   ]);
 
-  // Subscribe to phase changes via Realtime
-  useEffect(() => {
-    if (!id || videoDateAccess !== "allowed") return;
-
-    const channel = supabase
-      .channel(`session-timer-${id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "video_sessions",
-          filter: `id=eq.${id}`,
-        },
-        (payload) => {
-          const row = payload.new as VideoDateEntryTruth & {
-            session_seq?: number | null;
-          };
-          if (
-            typeof row.session_seq === "number" &&
-            Number.isFinite(row.session_seq)
-          ) {
-            sessionSeqRef.current = row.session_seq;
-          }
-          setEntryTruth({ id, ...row });
-          const newState = row.state || row.phase;
-
-          if (row.ended_at || newState === "ended") {
-            setEntryStartedAt(null);
-            setDateStartedAt(
-              typeof row.date_started_at === "string"
-                ? row.date_started_at
-                : null,
-            );
-            void recoverTerminalPostDateSurvey("realtime_terminal", row);
-            return;
-          }
-
-          if (newState === "date" || Boolean(row.date_started_at)) {
-            markDateFlowEntered();
-            clearEntryGraceState();
-            setEntryStartedAt(null);
-            const extraNorm = normalizedDateExtraSeconds(
-              row.date_extra_seconds,
-            );
-            setDateExtraSeconds(extraNorm);
-            const dateStartedAt =
-              typeof row.date_started_at === "string"
-                ? row.date_started_at
-                : null;
-            setDateStartedAt(dateStartedAt);
-            const correctedTimeLeft = remainingDatePhaseSeconds({
-              dateStartedAtIso: dateStartedAt,
-              baseDateSeconds: DATE_TIME,
-              dateExtraSeconds: extraNorm,
-            });
-            trackTimerDriftRecovery(correctedTimeLeft, "realtime");
-            setTimeLeft(correctedTimeLeft);
-            setPhase("date");
-            return;
-          }
-
-          const rowEntryStartedAt = videoDateEntryStartedAtIso(row);
-
-          if (rowEntryStartedAt) {
-            setEntryStartedAt(rowEntryStartedAt);
-            setDateStartedAt(null);
-            const entryRemaining =
-              remainingStartedAtCountdownSeconds({
-                startedAtIso: rowEntryStartedAt,
-                durationSeconds: ENTRY_TIME,
-              }) ?? 0;
-            setTimeLeft(entryRemaining);
-            clearEntryGraceState();
-            if (entryRemaining <= 0) {
-              void checkMutualVibeRef.current?.(
-                "entry_realtime_deadline_elapsed",
-              );
-            }
-            setPhase("entry");
-          }
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [
-    id,
-    user?.id,
-    videoDateAccess,
-    clearEntryGraceState,
-    markDateFlowEntered,
-    recoverTerminalPostDateSurvey,
-    trackTimerDriftRecovery,
-  ]);
-
   const handleExtensionBroadcastEvent = useCallback(
     (event: VideoDateSessionBroadcastEvent) => {
       if (extensionBroadcastSeenRef.current.has(event.id)) return;
@@ -3746,13 +3560,7 @@ const VideoDate = () => {
   );
 
   useEffect(() => {
-    if (
-      !id ||
-      !user?.id ||
-      videoDateAccess !== "allowed" ||
-      !broadcastV2.enabled
-    )
-      return;
+    if (!id || !user?.id || videoDateAccess !== "allowed") return;
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId: id,
       onEvent: (event) => {
@@ -3781,7 +3589,6 @@ const VideoDate = () => {
       broadcastGapRecoveryRef.current = null;
     };
   }, [
-    broadcastV2.enabled,
     clearBroadcastGapRetryTimer,
     eventId,
     id,
@@ -3882,8 +3689,7 @@ const VideoDate = () => {
       candidateTimeline.phaseDeadlineAtMs !== null
         ? candidateTimeline
         : null;
-    const useTimelineCountdown =
-      timelineV2.enabled && timelineForCountdown !== null;
+    const useTimelineCountdown = timelineForCountdown !== null;
     const hasAuthoritativeStart = useTimelineCountdown
       ? true
       : phase === "entry"
@@ -3938,7 +3744,6 @@ const VideoDate = () => {
     dateExtraSeconds,
     entryStartedAt,
     serverTimeline,
-    timelineV2.enabled,
   ]);
 
   const dismissIceBreakerTemporarily = useCallback(() => {
@@ -4297,21 +4102,7 @@ const VideoDate = () => {
               currentPhase: phaseRef.current,
               args,
             });
-            const { data, error } =
-              action === "vibe" && continueEntryV2.enabled
-                ? await supabase.rpc(
-                    // Phase C: entry-vocabulary wrapper (delegates to the legacy
-                    // video_session_continue_entry_v2).
-                    "video_session_continue_entry_v2" as never,
-                    {
-                      p_session_id: args.p_session_id,
-                      p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
-                        args.p_session_id,
-                        "continue_entry",
-                      ),
-                    } as never,
-                  )
-                : await supabase.rpc("video_date_transition", args);
+            const { data, error } = await supabase.rpc("video_date_transition", args);
             return {
               data: data ?? null,
               error: error
@@ -4451,7 +4242,6 @@ const VideoDate = () => {
     [
       id,
       user?.id,
-      continueEntryV2.enabled,
       clearEntryGraceState,
       markDateFlowEntered,
       endCall,
@@ -4583,20 +4373,7 @@ const VideoDate = () => {
           source,
           args,
         });
-        const { data: result, error } = entryAutoPromoteV2.enabled
-          ? await supabase.rpc(
-              // Phase C: entry-vocabulary wrapper (delegates to the legacy
-              // video_session_entry_auto_promote_v2).
-              "video_session_entry_auto_promote_v2" as never,
-              {
-                p_session_id: args.p_session_id,
-                p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
-                  args.p_session_id,
-                  "entry_auto_promote",
-                ),
-              } as never,
-            )
-          : await supabase.rpc("video_date_transition", args);
+        const { data: result, error } = await supabase.rpc("video_date_transition", args);
         if (phaseRef.current !== "entry") return;
         const { data: truthAfter } = await supabase
           .from("video_sessions")
@@ -4762,7 +4539,6 @@ const VideoDate = () => {
       markDateFlowEntered,
       recoverTerminalPostDateSurvey,
       recoverLifecycleRpcTerminalSurvey,
-      entryAutoPromoteV2.enabled,
     ],
   );
 
@@ -4782,7 +4558,6 @@ const VideoDate = () => {
 
     const candidateTimeline = serverTimeline;
     const timelineForEntry =
-      timelineV2.enabled &&
       candidateTimeline !== null &&
       candidateTimeline.sessionId === id &&
       candidateTimeline.phase === "entry"
@@ -4823,7 +4598,6 @@ const VideoDate = () => {
     phase,
     serverTimeline,
     showFeedback,
-    timelineV2.enabled,
   ]);
 
   const handleMutualToastComplete = useCallback(async () => {
@@ -4870,21 +4644,16 @@ const VideoDate = () => {
         };
       }
       extensionSpendInFlightRef.current = true;
-      const useMutualExtension = extensionMutualV2.enabled;
       const retry =
-        extensionSpendRetryRef.current?.type === type &&
-        extensionSpendRetryRef.current.mutual === useMutualExtension
+        extensionSpendRetryRef.current?.type === type
           ? extensionSpendRetryRef.current
           : null;
       const idempotencyKey =
-        retry?.key ??
-        (useMutualExtension
-          ? makeMutualExtensionIdempotencyKey(id, type)
-          : makeExtensionIdempotencyKey(id, type));
+        retry?.key ?? makeMutualExtensionIdempotencyKey(id, type);
       extensionSpendRetryRef.current = {
         type,
         key: idempotencyKey,
-        mutual: useMutualExtension,
+        mutual: true,
       };
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_ATTEMPTED, {
         platform: "web",
@@ -4892,11 +4661,7 @@ const VideoDate = () => {
         event_id: eventId,
         credit_type: type,
       });
-      const extensionMode = useMutualExtension
-        ? "mutual_v2"
-        : extensionV2.enabled
-          ? "single_v2"
-          : "legacy";
+      const extensionMode = "mutual_v2";
       const extensionRefreshStartedAt = Date.now();
       const trackExtensionRefreshCheckpoint = (
         checkpoint:
@@ -4922,45 +4687,23 @@ const VideoDate = () => {
             extension_refresh_ms: durationMs,
             extension_mode: extensionMode,
             credit_type: type,
-            extension_mutual: useMutualExtension,
+            extension_mutual: true,
             ...(extra ?? {}),
           },
         });
       };
       trackExtensionRefreshCheckpoint("extension_refresh_started", "success");
       try {
-        const { data, error } = useMutualExtension
-          ? await supabase.rpc(
-              "video_session_request_extension_v2" as never,
-              {
-                p_session_id: id,
-                p_credit_type: type,
-                p_idempotency_key: idempotencyKey,
-              } as never,
-            )
-          : extensionV2.enabled
-            ? await supabase.rpc(
-                "video_session_extend_date_v2" as never,
-                {
-                  p_session_id: id,
-                  p_credit_type: type,
-                  p_idempotency_key: idempotencyKey,
-                } as never,
-              )
-            : await supabase.rpc("spend_video_date_credit_extension", {
-                p_session_id: id,
-                p_credit_type: type,
-                p_idempotency_key: idempotencyKey,
-              } as never);
+        const { data, error } = await supabase.rpc(
+          "video_session_request_extension_v2" as never,
+          {
+            p_session_id: id,
+            p_credit_type: type,
+            p_idempotency_key: idempotencyKey,
+          } as never,
+        );
         if (error) {
-          captureSupabaseError(
-            useMutualExtension
-              ? "video_session_request_extension_v2"
-              : extensionV2.enabled
-                ? "video_session_extend_date_v2"
-                : "spend_video_date_credit_extension",
-            error,
-          );
+          captureSupabaseError("video_session_request_extension_v2", error);
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_FAILED, {
             platform: "web",
             session_id: id,
@@ -5131,8 +4874,6 @@ const VideoDate = () => {
       dateExtraSeconds,
       dateStartedAt,
       eventId,
-      extensionMutualV2.enabled,
-      extensionV2.enabled,
       id,
       refetchCredits,
       trackDailyPerformanceCheckpoint,
@@ -5176,22 +4917,12 @@ const VideoDate = () => {
         p_action: "end",
         p_reason: reason,
       };
-      const useDateTimeoutV2 =
-        reason === "date_timeout" && dateTimeoutV2.enabled;
       vdbg("video_date_transition_before", { action: "end", args });
       const transitionResult = await sendVideoDateSignalWithRetry({
         sessionId: id,
-        action: useDateTimeoutV2 ? "phase3:date_timeout" : "end",
+        action: "end",
         operation: async (attempt, idempotencyKey) => {
-          const { data, error } = useDateTimeoutV2
-            ? await supabase.rpc(
-                "video_session_date_timeout_v2" as never,
-                {
-                  p_session_id: id,
-                  p_idempotency_key: idempotencyKey,
-                } as never,
-              )
-            : await supabase.rpc("video_date_transition", args);
+          const { data, error } = await supabase.rpc("video_date_transition", args);
           vdbg("video_date_transition_after", {
             action: "end",
             ok: !error,
@@ -5214,12 +4945,7 @@ const VideoDate = () => {
               videoDateLifecycleRpcIndicatesTerminalStop(payload)
             );
           }
-          if (!useDateTimeoutV2) return true;
-          return (
-            payload?.already_ended === true ||
-            payload?.state === "ended" ||
-            payload?.phase === "ended"
-          );
+          return true;
         },
       });
 
@@ -5319,7 +5045,6 @@ const VideoDate = () => {
       phase,
       timeLeft,
       dateExtraSeconds,
-      dateTimeoutV2.enabled,
       recoverTerminalPostDateSurvey,
       confirmTerminalPostDateSurveyFromServerTruth,
       markDateFlowEntered,
@@ -5952,7 +5677,6 @@ const VideoDate = () => {
     transportReconnectVisible || reconnection.isPartnerDisconnected;
 
   useEffect(() => {
-    if (!resilienceV2.enabled) return;
     if (anyReconnectVisible) {
       captureRemoteFrameSnapshot("reconnect_visible");
       return;
@@ -5964,7 +5688,6 @@ const VideoDate = () => {
     anyReconnectVisible,
     captureRemoteFrameSnapshot,
     isConnected,
-    resilienceV2.enabled,
   ]);
 
   const showFloatingIceBreaker = shouldShowVideoDateIceBreaker({
@@ -6435,7 +6158,6 @@ const VideoDate = () => {
                 extraTimeCredits={credits.extraTime}
                 extendedVibeCredits={credits.extendedVibe}
                 onExtend={handleExtend}
-                mutualMode={extensionMutualV2.enabled}
                 pendingPartnerRequestType={
                   pendingPartnerExtension?.type ?? null
                 }
@@ -6523,12 +6245,7 @@ const VideoDate = () => {
               transportReconnectVisible ? reconnectOverlayMode : "partner_away"
             }
             networkTier={networkTier}
-            resilienceV2={resilienceV2.enabled}
-            backdropImageUrl={
-              resilienceV2.enabled
-                ? (remoteFrameSnapshotUrl ?? partnerPhotoUrl)
-                : null
-            }
+            backdropImageUrl={remoteFrameSnapshotUrl ?? partnerPhotoUrl}
           />
 
           {/* Cinematic glass wash */}
@@ -6756,7 +6473,6 @@ const VideoDate = () => {
         onOpenChange={setShowInCallSafety}
         reportedUserId={partnerId || null}
         sessionId={id || null}
-        safetyV2={safetyV2.enabled || safetyAlwaysOnV2.enabled}
         onReportOnlySuccess={handleReportOnlySafetySuccess}
         onEndAfterReport={handleEndAfterInCallReport}
         onServerEndedAfterReport={handleServerEndedAfterInCallReport}

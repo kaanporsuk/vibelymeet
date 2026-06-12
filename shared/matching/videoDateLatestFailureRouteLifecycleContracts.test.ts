@@ -140,7 +140,7 @@ test("active date route ownership disables competing lobby status loops without 
   );
   assert.match(
     nativeLobby,
-    /useNonBlockingVideoDateReadiness\(\s*id,\s*readinessV2\.enabled && lobbySideEffectsEnabled/,
+    /useNonBlockingVideoDateReadiness\(id, lobbySideEffectsEnabled\)/,
   );
   assert.match(
     nativeLobby,

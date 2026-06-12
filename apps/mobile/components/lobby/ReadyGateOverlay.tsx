@@ -1262,7 +1262,6 @@ export function ReadyGateOverlay({
     stateSessionId: readyGateStateSessionId,
     realtimeDegraded,
     sequenceGapUnresolved,
-    readyGateClockEnabled,
   } = useReadyGate(sessionId, userId, {
     eventId,
     onBothReady: handleBothReady,
@@ -1753,11 +1752,9 @@ export function ReadyGateOverlay({
       return;
     const tick = () => {
       const countdown = getReadyGateCountdownFromServerClock({
-        expiresAt: readyGateClockEnabled
-          ? (phaseDeadlineAtMs ?? expiresAt)
-          : expiresAt,
-        serverNowMs: readyGateClockEnabled ? serverNowMs : null,
-        clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
+        expiresAt: phaseDeadlineAtMs ?? expiresAt,
+        serverNowMs,
+        clientSyncedAtMs,
         fallbackDeadlineMs:
           readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
         fallbackSeconds: GATE_TIMEOUT_SEC,
@@ -1806,7 +1803,6 @@ export function ReadyGateOverlay({
     serverNowMs,
     clientSyncedAtMs,
     phaseDeadlineAtMs,
-    readyGateClockEnabled,
     guardedSyncSession,
     sessionId,
     eventId,

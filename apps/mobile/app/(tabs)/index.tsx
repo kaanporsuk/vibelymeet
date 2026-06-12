@@ -37,7 +37,6 @@ import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
 import { useOtherCityEvents, type OtherCityEvent } from '@/lib/useOtherCityEvents';
 import { useEntitlements } from '@/hooks/useEntitlements';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl, getImageUrl } from '@/lib/imageUrl';
 import { hrefForActiveSession } from '@/lib/activeSessionRoutes';
@@ -87,7 +86,6 @@ import {
 import {
   resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
 } from '@clientShared/matching/videoDateRecoveryAdvisor';
-import { buildVideoDateTransitionIdempotencyKey } from '@clientShared/matching/videoDateTransitionCommands';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -169,7 +167,6 @@ export default function DashboardScreen() {
   const theme = Colors[colorScheme];
   const qc = useQueryClient();
   const { user, onboardingComplete } = useAuth();
-  const forfeitV2 = useFeatureFlag('video_date.outbox_v2.forfeit');
   const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useSessionHydration();
   const {
     pendingDeletion,
@@ -572,17 +569,11 @@ export default function DashboardScreen() {
     }
     try {
       if (activeSession.kind === 'ready_gate') {
-        const { data, error } = forfeitV2.enabled
-          ? await supabase.rpc('video_session_forfeit_v2' as never, {
-              p_session_id: activeSession.sessionId,
-              p_reason: 'ready_gate_forfeit',
-              p_idempotency_key: buildVideoDateTransitionIdempotencyKey(activeSession.sessionId, 'forfeit'),
-            } as never)
-          : await supabase.rpc('ready_gate_transition', {
-              p_session_id: activeSession.sessionId,
-              p_action: 'forfeit',
-              p_reason: 'dashboard_active_banner',
-            });
+        const { data, error } = await supabase.rpc('ready_gate_transition', {
+          p_session_id: activeSession.sessionId,
+          p_action: 'forfeit',
+          p_reason: 'dashboard_active_banner',
+        });
         if (error) throw error;
         const failureMessage = transitionFailureMessage(data);
         if (failureMessage) throw new Error(failureMessage);
@@ -599,7 +590,7 @@ export default function DashboardScreen() {
     } finally {
       await refetchActiveSession();
     }
-  }, [activeSession, user?.id, forfeitV2.enabled, refetchActiveSession]);
+  }, [activeSession, user?.id, refetchActiveSession]);
 
   const handleActiveSessionRejoin = useCallback(async () => {
     if (!activeSession) return;

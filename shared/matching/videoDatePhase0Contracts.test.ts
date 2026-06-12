@@ -76,7 +76,9 @@ test("Phase 0 seeds every video-date flag default-off with hard-kill compatibili
     "video_date.outbox_v2.extension",
     "video_date.outbox_v2.safety",
   ];
-  const activeClientFlags = [
+  // PR 6 client single-path freeze: every previously client-read flag is
+  // hard-coded to its live winner; no video_date.* keys remain client-read.
+  const frozenClientFlags = [
     "video_date.snapshot_v2",
     "video_date.readiness_v2",
     "video_date.micro_verdict_v2",
@@ -110,9 +112,9 @@ test("Phase 0 seeds every video-date flag default-off with hard-kill compatibili
     assert.match(phase0Migration, new RegExp(`'${escaped}', false, 0, [\\s\\S]+ false\\)`));
   }
 
-  for (const flag of activeClientFlags) {
+  for (const flag of frozenClientFlags) {
     const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    assert.match(videoDateFlags, new RegExp(`"${escaped}"`));
+    assert.doesNotMatch(videoDateFlags, new RegExp(`"${escaped}"`));
   }
 
   for (const flag of [

@@ -204,39 +204,33 @@ test("extension v2 refuses charge when known Daily room expiry cannot cover max 
   assert.match(replayMigration, /video_session_extend_date_v2_20260522011000_replay_base/);
 });
 
-test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
+test("web and native run PR 3.4-3.7 on the frozen single transition path (PR 6)", () => {
   assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "entry_auto_promote" \| "date_timeout"/);
-  assert.match(transitionCommands, /buildVideoDateExtensionIdempotencyKey/);
   assert.match(transitionCommands, /clientRequestId: string/);
-  assert.match(transitionCommands, /`phase3:extension:\$\{creditType\}:\$\{clientRequestId\}`/);
 
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.entry_auto_promote["'],?\s*\)/);
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
-  assert.match(webVideoDate, /video_session_entry_auto_promote_v2/);
-  assert.match(webVideoDate, /video_session_date_timeout_v2/);
-  assert.match(webVideoDate, /video_session_extend_date_v2/);
+  assert.doesNotMatch(webVideoDate, /useFeatureFlag/);
+  assert.doesNotMatch(webVideoDate, /video_session_entry_auto_promote_v2/);
+  assert.doesNotMatch(webVideoDate, /video_session_date_timeout_v2/);
+  assert.doesNotMatch(webVideoDate, /video_session_extend_date_v2/);
+  assert.match(webVideoDate, /video_session_request_extension_v2/);
   assert.match(webVideoDate, /handleCallEndRef\.current\?\.\("date_timeout"\)/);
 
-  assert.match(nativeVideoDateApi, /entryAutoPromoteV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /dateTimeoutV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /extensionV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /video_session_entry_auto_promote_v2/);
-  assert.match(nativeVideoDateApi, /video_session_date_timeout_v2/);
-  assert.match(nativeVideoDateApi, /video_session_extend_date_v2/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.entry_auto_promote["'],?\s*\)/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.date_timeout["'],?\s*\)/);
-  assert.match(nativeVideoDateScreen, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.extension["'],?\s*\)/);
+  assert.doesNotMatch(nativeVideoDateApi, /entryAutoPromoteV2\?: boolean/);
+  assert.doesNotMatch(nativeVideoDateApi, /dateTimeoutV2\?: boolean/);
+  assert.doesNotMatch(nativeVideoDateApi, /extensionV2\?: boolean/);
+  assert.doesNotMatch(nativeVideoDateApi, /video_session_entry_auto_promote_v2/);
+  assert.doesNotMatch(nativeVideoDateApi, /video_session_date_timeout_v2/);
+  assert.doesNotMatch(nativeVideoDateApi, /video_session_extend_date_v2/);
+  assert.match(nativeVideoDateApi, /video_session_request_extension_v2/);
+  assert.doesNotMatch(nativeVideoDateScreen, /useFeatureFlag/);
   assert.match(nativeVideoDateScreen, /handleCallEnd\(["']local_end["'], ["']date_timeout["']\)/);
 });
 
-test("date-timeout v2 only opens terminal UX after backend confirms the session ended", () => {
-  assert.match(webVideoDate, /const useDateTimeoutV2 =\s*reason === ["']date_timeout["'] && dateTimeoutV2\.enabled/);
-  assert.match(webVideoDate, /action: useDateTimeoutV2 \? ["']phase3:date_timeout["'] : ["']end["']/);
-  assert.match(webVideoDate, /video_session_date_timeout_v2[\s\S]+p_idempotency_key: idempotencyKey/);
+test("date timeout only opens terminal UX after backend confirms the session ended", () => {
+  assert.match(webVideoDate, /action: ["']end["']/);
   assert.match(
     webVideoDate,
-    /payload\?\.already_ended === true \|\|[\s\S]*payload\?\.state === ["']ended["'] \|\|[\s\S]*payload\?\.phase === ["']ended["']/,
+    /videoDateLifecycleRpcIndicatesTerminalSurvey\(payload\) \|\|[\s\S]*videoDateLifecycleRpcIndicatesTerminalStop\(payload\)/,
   );
   assert.match(
     webVideoDate,
@@ -252,12 +246,10 @@ test("date-timeout v2 only opens terminal UX after backend confirms the session 
     /toast\(["']Time flies! Thanks for a great date[\s\S]{0,160}handleCallEndRef\.current\?\.\(["']date_timeout["']\)/,
   );
 
-  assert.match(nativeVideoDateApi, /const useDateTimeoutV2 = reason === ['"]date_timeout['"] && options\?\.dateTimeoutV2 === true/);
-  assert.match(nativeVideoDateApi, /action: useDateTimeoutV2 \? ['"]phase3:date_timeout['"] : ['"]end['"]/);
-  assert.match(nativeVideoDateApi, /video_session_date_timeout_v2[\s\S]+p_idempotency_key: idempotencyKey/);
+  assert.match(nativeVideoDateApi, /action: ['"]end['"]/);
   assert.match(
     nativeVideoDateApi,
-    /payload\?\.already_ended === true \|\| payload\?\.state === ['"]ended['"] \|\| payload\?\.phase === ['"]ended['"]/,
+    /videoDateLifecycleRpcIndicatesTerminalSurvey\(payload\) \|\|[\s\S]*videoDateLifecycleRpcIndicatesTerminalStop\(payload\)/,
   );
   assert.match(
     nativeVideoDateScreen,

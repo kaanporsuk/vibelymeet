@@ -132,30 +132,30 @@ test("mutual extension performs no provider work after credit debit", () => {
   );
 });
 
-test("PR 6.3 always-on safety flag drives web and native v2 safety surfaces", () => {
-  assert.match(webVideoDate, /useFeatureFlag\("video_date\.safety_always_on_v2"\)/);
+test("PR 6.3 always-on safety is hard-coded on web and native v2 safety surfaces", () => {
+  assert.doesNotMatch(webVideoDate, /useFeatureFlag\("video_date\.safety_always_on_v2"\)/);
   assert.match(
     webVideoDate,
     /const canOpenInCallSafety = Boolean\(\s*partnerId\s*&&\s*id\s*&&\s*!showFeedback\s*&&\s*phase !== ["']ended["']\s*&&\s*!suppressPartnerControlsAfterSafety,\s*\)/,
   );
-  assert.match(webVideoDate, /safetyV2=\{safetyV2\.enabled \|\| safetyAlwaysOnV2\.enabled\}/);
+  assert.doesNotMatch(webVideoDate, /safetyV2=\{/);
   assert.doesNotMatch(webVideoDate, /isConnected \|\| safetyAlwaysOnV2\.enabled/);
-  assert.match(nativeVideoDate, /useFeatureFlag\(['"]video_date\.safety_always_on_v2['"]\)/);
+  assert.doesNotMatch(nativeVideoDate, /useFeatureFlag\(['"]video_date\.safety_always_on_v2['"]\)/);
   assert.match(
     nativeVideoDate,
     /const canOpenInCallSafety = Boolean\(\s*partnerId\s*&&\s*sessionId\s*&&\s*!showFeedback\s*&&\s*phase !== ['"]ended['"]\s*&&\s*!suppressPartnerControlsAfterSafety,\s*\)/,
   );
-  assert.match(nativeVideoDate, /safetyV2=\{safetyV2\.enabled \|\| safetyAlwaysOnV2\.enabled\}/);
+  assert.doesNotMatch(nativeVideoDate, /safetyV2=\{/);
   assert.doesNotMatch(nativeVideoDate, /hasRemotePartner \|\| safetyAlwaysOnV2\.enabled/);
 });
 
-test("web and native consume mutual extension behind the default-off flag", () => {
+test("web and native consume mutual extension on the always-on single path", () => {
   assert.match(transitionCommands, /buildVideoDateMutualExtensionIdempotencyKey/);
   assert.match(transitionCommands, /phase6:extension_mutual/);
   assert.match(extensionSpend, /awaitingPartner/);
   assert.match(extensionSpend, /requestExpiresAt/);
 
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.extension_mutual_v2["']\s*,?\s*\)/);
+  assert.doesNotMatch(webVideoDate, /useFeatureFlag/);
   assert.match(webVideoDate, /video_session_request_extension_v2/);
   assert.match(webVideoDate, /makeMutualExtensionIdempotencyKey/);
   assert.match(webVideoDate, /date_extension_requested/);
@@ -165,10 +165,10 @@ test("web and native consume mutual extension behind the default-off flag", () =
   assert.match(webKeepTheVibe, /mutualMode/);
   assert.match(webKeepTheVibe, /resolveVideoDateExtensionCopy/);
 
-  assert.match(nativeApi, /extensionMutualV2\?: boolean/);
+  assert.doesNotMatch(nativeApi, /extensionMutualV2\?: boolean/);
   assert.match(nativeApi, /video_session_request_extension_v2/);
   assert.match(nativeApi, /onBroadcastEvent/);
-  assert.match(nativeVideoDate, /useFeatureFlag\(\s*["']video_date\.extension_mutual_v2["']\s*,?\s*\)/);
+  assert.doesNotMatch(nativeVideoDate, /useFeatureFlag/);
   assert.match(nativeVideoDate, /makeMutualExtensionIdempotencyKey/);
   assert.match(nativeVideoDate, /date_extension_requested/);
   assert.match(nativeVideoDate, /date_extension_applied/);

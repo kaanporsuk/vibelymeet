@@ -70,9 +70,9 @@ test("Phase 4 token windows are phase-bounded and reconnect-safe", () => {
   assert.match(migration, /WHEN v_phase = 'date'[\s\S]+date_extra_seconds/);
   assert.match(migration, /GREATEST\(v_deadline_row_at, v_computed_deadline_at\)/);
   assert.match(webVideoCall, /shouldRefreshDailyTokenBeforeReconnect/);
-  assert.match(webVideoCall, /dailyTokenRefreshV2 === true/);
+  assert.doesNotMatch(webVideoCall, /dailyTokenRefreshV2/);
   assert.match(nativeDate, /shouldRefreshDailyTokenBeforeReconnect/);
-  assert.match(nativeDate, /dailyTokenRefreshV2\.enabled/);
+  assert.doesNotMatch(nativeDate, /dailyTokenRefreshV2/);
 });
 
 test("Phase 4 push preload is compact, routeable, and ack-deduped", () => {
@@ -152,9 +152,9 @@ test("Phase 4 push preload is compact, routeable, and ack-deduped", () => {
   assert.match(readFileSync(join(root, "src/lib/videoDatePushPreload.ts"), "utf8"), /if \(!timeline\) sessionStorage\.removeItem\(key\)/);
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload/);
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload\(data, 'native_click'/);
-  assert.match(nativeDeepLink, /useFeatureFlag\('video_date\.multi_device_dedup_v2'\)/);
+  assert.doesNotMatch(nativeDeepLink, /useFeatureFlag/);
   assert.doesNotMatch(nativeDeepLink, /push_open_dedupe_v1/);
-  assert.match(nativeDeepLink, /multiDeviceDedupEnabled/);
+  assert.match(nativeDeepLink, /hasDispatchGroupPayload\(raw\)/);
   assert.match(nativeDeepLink, /preloadVideoDatePushTargetsFromPayload/);
   assert.match(readFileSync(join(root, "apps/mobile/lib/videoDatePushPreload.ts"), "utf8"), /if \(!timeline\) preloadBySessionId\.delete\(sessionId\)/);
   assert.match(nativeDeepLink, /foreground_suppressed_dispatch_ack/);

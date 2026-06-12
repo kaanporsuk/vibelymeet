@@ -150,7 +150,7 @@ test("PR 3.9 queue drain v2 revalidates hot eligibility before promotion", () =>
   assert.doesNotMatch(drain, /meeting[_-]?token|daily_token|DAILY_API_KEY|createMeetingToken/i);
 });
 
-test("web and native adapters route safety behind default-off flags and omit queue drain", () => {
+test("web and native adapters run the always-on safety path and omit queue drain", () => {
   assert.match(transitionCommands, /buildVideoDateSafetyIdempotencyKey/);
   assert.match(transitionCommands, /createVideoDateClientRequestId/);
   assert.doesNotMatch(transitionCommands, /buildVideoDateQueueDrainIdempotencyKey/);
@@ -158,23 +158,23 @@ test("web and native adapters route safety behind default-off flags and omit que
   assert.match(safetyRpc, /submitVideoDateSafetyReportRpc/);
   assert.match(safetyRpc, /submit_video_date_safety_report_v2/);
 
-  assert.match(webVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.safety["'],?\s*\)/);
-  assert.match(webVideoDate, /safetyV2=\{safetyV2\.enabled(?: \|\| safetyAlwaysOnV2\.enabled)?\}/);
+  assert.doesNotMatch(webVideoDate, /useFeatureFlag/);
+  assert.doesNotMatch(webVideoDate, /safetyV2=\{/);
   assert.match(webVideoDate, /onServerEndedAfterReport=\{handleServerEndedAfterInCallReport\}/);
   assert.match(webSafetyModal, /submitVideoDateSafetyReportRpc/);
   assert.match(webSafetyModal, /buildVideoDateSafetyIdempotencyKey/);
   assert.match(webSafetyModal, /payloadSignature/);
   assert.match(webSafetyModal, /catch \(error\)/);
-  assert.match(webSafetyModal, /safetyV2 && sessionId/);
+  assert.doesNotMatch(webSafetyModal, /safetyV2/);
 
-  assert.match(nativeVideoDate, /useFeatureFlag\(\s*["']video_date\.outbox_v2\.safety["'],?\s*\)/);
-  assert.match(nativeVideoDate, /safetyV2=\{safetyV2\.enabled(?: \|\| safetyAlwaysOnV2\.enabled)?\}/);
+  assert.doesNotMatch(nativeVideoDate, /useFeatureFlag/);
+  assert.doesNotMatch(nativeVideoDate, /safetyV2=\{/);
   assert.match(nativeVideoDate, /onServerEndedAfterReport=\{handleServerEndedAfterInCallReport\}/);
   assert.match(nativeSafetySheet, /submitVideoDateSafetyReportRpc/);
   assert.match(nativeSafetySheet, /buildVideoDateSafetyIdempotencyKey/);
   assert.match(nativeSafetySheet, /payloadSignature/);
   assert.match(nativeSafetySheet, /catch \(error\)/);
-  assert.match(nativeSafetySheet, /safetyV2 && sessionId/);
+  assert.doesNotMatch(nativeSafetySheet, /safetyV2/);
 
   assert.equal(existsSync(join(root, "src/hooks/useMatchQueue.ts")), false);
   assert.doesNotMatch(eventLobbyObservability, /QueueDrainSourceSurface|queue_drain|drain_match_queue/);

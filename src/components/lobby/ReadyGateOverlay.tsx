@@ -2205,7 +2205,6 @@ const ReadyGateOverlay = ({
     syncSession,
     refetchSession,
     retryBroadcastGapRecovery,
-    readyGateClockEnabled,
   } = useReadyGate({
     sessionId,
     eventId,
@@ -3078,11 +3077,9 @@ const ReadyGateOverlay = ({
 
     const tick = () => {
       const countdown = getReadyGateCountdownFromServerClock({
-        expiresAt: readyGateClockEnabled
-          ? (phaseDeadlineAtMs ?? expiresAt)
-          : expiresAt,
-        serverNowMs: readyGateClockEnabled ? serverNowMs : null,
-        clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
+        expiresAt: phaseDeadlineAtMs ?? expiresAt,
+        serverNowMs,
+        clientSyncedAtMs,
         fallbackDeadlineMs:
           readyGateOpenedAtMsRef.current + GATE_TIMEOUT * 1000,
         fallbackSeconds: GATE_TIMEOUT,
@@ -3128,7 +3125,6 @@ const ReadyGateOverlay = ({
     serverNowMs,
     clientSyncedAtMs,
     phaseDeadlineAtMs,
-    readyGateClockEnabled,
     syncSession,
     sessionId,
   ]);

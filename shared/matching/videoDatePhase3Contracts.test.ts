@@ -134,7 +134,7 @@ test("Phase 3 events are visibility-safe, sequence-aware, and token-free", () =>
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.video_session_continue_handshake_v2\(uuid, text, text\)[\s\S]+TO authenticated, service_role/);
 });
 
-test("web and native route Phase 3 transitions behind the same default-off flags", () => {
+test("web and native run Phase 3 transitions on the frozen single path (PR 6)", () => {
   assert.match(transitionCommands, /VideoDatePhase3TransitionAction = "mark_ready" \| "forfeit" \| "continue_entry"/);
   assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "entry_auto_promote" \| "date_timeout"/);
   assert.match(transitionCommands, /buildVideoDateSignalIdempotencyKey\(sessionId, `phase3:\$\{action\}`\)/);
@@ -144,41 +144,28 @@ test("web and native route Phase 3 transitions behind the same default-off flags
   assert.doesNotMatch(migration, /'phase3:' \|\| p_session_id::text \|\| ':(?:mark_ready|forfeit|continue_handshake)'/);
 
   for (const source of [webReadyGate, nativeReadyGate]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.outbox_v2\.mark_ready["']\)/);
-    assert.match(source, /useFeatureFlag\(["']video_date\.outbox_v2\.forfeit["']\)/);
+    assert.doesNotMatch(source, /useFeatureFlag/);
     assert.match(source, /video_session_mark_ready_v2/);
-    assert.match(source, /video_session_forfeit_v2/);
+    assert.doesNotMatch(source, /video_session_forfeit_v2/);
     assert.match(source, /buildVideoDateTransitionIdempotencyKey\(sessionId, ["']mark_ready["']\)/);
-    assert.match(source, /buildVideoDateTransitionIdempotencyKey\(sessionId, ["']forfeit["']\)/);
     assert.match(source, /ready_gate_transition/);
   }
 
   for (const source of [webDashboard, nativeDashboard]) {
-    assert.match(source, /useFeatureFlag\(["']video_date\.outbox_v2\.forfeit["']\)/);
-    assert.match(source, /video_session_forfeit_v2/);
-    assert.match(source, /p_reason:\s*["']ready_gate_forfeit["']/);
-    assert.match(source, /buildVideoDateTransitionIdempotencyKey\(activeSession\.sessionId, ["']forfeit["']\)/);
+    assert.doesNotMatch(source, /useFeatureFlag\(["']video_date\./);
+    assert.doesNotMatch(source, /video_session_forfeit_v2/);
+    assert.match(source, /p_action:\s*["']forfeit["']/);
     assert.match(source, /ready_gate_transition/);
     assert.match(source, /p_reason:\s*["']dashboard_active_banner["']/);
   }
 
-  assert.match(
-    webVideoDate,
-    /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["'],?\s*\)/,
-  );
-  assert.match(webVideoDate, /video_session_continue_entry_v2/);
-  assert.match(webVideoDate, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+["']continue_entry["']/);
+  assert.doesNotMatch(webVideoDate, /video_session_continue_entry_v2/);
   assert.match(webVideoDate, /supabase\.rpc\("video_date_transition", args\)/);
 
-  assert.match(nativeVideoDateApi, /continueEntryV2\?: boolean/);
-  assert.match(nativeVideoDateApi, /video_session_continue_entry_v2/);
-  assert.match(nativeVideoDateApi, /buildVideoDateTransitionIdempotencyKey\([\s\S]+args\.p_session_id[\s\S]+['"]continue_entry['"]/);
+  assert.doesNotMatch(nativeVideoDateApi, /continueEntryV2\?: boolean/);
+  assert.doesNotMatch(nativeVideoDateApi, /video_session_continue_entry_v2/);
   assert.match(nativeVideoDateApi, /supabase\.rpc\('video_date_transition', args\)/);
-  assert.match(
-    nativeVideoDateScreen,
-    /useFeatureFlag\(\s*["']video_date\.outbox_v2\.continue_entry["'],?\s*\)/,
-  );
-  assert.match(nativeVideoDateScreen, /continueEntryV2: continueEntryV2\.enabled/);
+  assert.doesNotMatch(nativeVideoDateScreen, /continueEntryV2/);
 });
 
 test("Phase 3 contracts are included in the v4 verification script", () => {

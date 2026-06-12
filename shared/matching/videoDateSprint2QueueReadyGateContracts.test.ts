@@ -74,12 +74,12 @@ test("Sprint 2 post-date survey queue drain is removed on web and native", () =>
 
 test("Sprint 2 Ready Gate actions keep server truth authoritative across web and native", () => {
   assert.match(webUseReadyGate, /video_session_mark_ready_v2/);
-  assert.match(webUseReadyGate, /video_session_forfeit_v2/);
+  assert.doesNotMatch(webUseReadyGate, /video_session_forfeit_v2/);
   assert.match(webUseReadyGate, /ready_gate_transition/);
   assert.match(webUseReadyGate, /both_ready_observed_via_rpc_short_circuit/);
   assert.match(webUseReadyGate, /ReadyGateTransitionAction = "mark_ready" \| "forfeit" \| "snooze" \| "sync"/);
   assert.match(nativeReadyGateApi, /video_session_mark_ready_v2/);
-  assert.match(nativeReadyGateApi, /video_session_forfeit_v2/);
+  assert.doesNotMatch(nativeReadyGateApi, /video_session_forfeit_v2/);
   assert.match(nativeReadyGateApi, /ready_gate_transition/);
   assert.match(nativeReadyGateApi, /both_ready_observed_via_rpc_short_circuit/);
   assert.match(nativeReadyGateApi, /ReadyGateTransitionAction = 'mark_ready' \| 'forfeit' \| 'snooze' \| 'sync'/);
