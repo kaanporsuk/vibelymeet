@@ -60,6 +60,12 @@ client/Edge-facing Video Date surface:
 
 ## Intentional post-pin re-dumps
 
+- `functions/public-heads/video_date_transition.sql` was re-dumped again on
+  2026-06-12 after the acceptance-run follow-up (migration
+  `20260612211818_vd_accept_followup_transition_survey_feedback_guard.sql`)
+  added the pair date_feedback guard (`v_survey_feedback_complete`) to the
+  terminal in_survey re-stamp plus the `terminal_survey_already_complete`
+  observability reason.
 - `functions/public-heads/video_date_transition.sql` was re-dumped on
   2026-06-11 after rebuild PR 2 (migration
   `20260611175511_video_date_transition_single_body.sql`) replaced the

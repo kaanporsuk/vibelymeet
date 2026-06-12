@@ -44,6 +44,10 @@ import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import { useActiveSession } from "@/hooks/useActiveSession";
 import { supabase } from "@/integrations/supabase/client";
 import { updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
+import {
+  lobbyForegroundStampKey,
+  shouldStampLobbyForeground,
+} from "@clientShared/matching/lobbyForegroundStampThrottle";
 import { preloadRoute, preloadRouteOnIdle } from "@/lib/routePreload";
 import { toast } from "sonner";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
@@ -118,6 +122,7 @@ import {
 } from "@clientShared/matching/videoDatePhase4Ux";
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+const FORCED_SURVEY_RENAVIGATION_DAMPER_MS = 10_000;
 const VISIBLE_CARD_MARK_MAX_RETRIES = 5;
 type EventInactiveReasonOverrideSource = "event" | "deck";
 const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
@@ -488,6 +493,10 @@ const EventLobby = () => {
   const activeSessionIdRef = useRef<string | null>(null);
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
+  const forcedSurveyNavigationRef = useRef<{
+    sessionId: string;
+    atMs: number;
+  } | null>(null);
   const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -867,6 +876,29 @@ const EventLobby = () => {
       if (!sessionId) return;
       const force = options.force === true || options.forceSurvey === true;
       if (!force && dateNavigationSessionIdRef.current === sessionId) return;
+      if (options.forceSurvey === true) {
+        // Stale in_survey stamps for a feedback-complete user must not ping-pong
+        // lobby <-> /date (2026-06-12 acceptance-run livelock): the date route's
+        // terminal recovery releases the registration on its first pass, so a
+        // same-session forced-survey re-navigation inside this window is a loop,
+        // not a new survey.
+        const lastForced = forcedSurveyNavigationRef.current;
+        const nowMs = Date.now();
+        if (
+          lastForced &&
+          lastForced.sessionId === sessionId &&
+          nowMs - lastForced.atMs < FORCED_SURVEY_RENAVIGATION_DAMPER_MS
+        ) {
+          vdbg("lobby_forced_survey_renavigation_damped", {
+            trigger: source,
+            sessionId,
+            eventId,
+            sinceLastMs: nowMs - lastForced.atMs,
+          });
+          return;
+        }
+        forcedSurveyNavigationRef.current = { sessionId, atMs: nowMs };
+      }
       const claim = claimDateNavigation(sessionId, location.pathname, {
         force,
       });
@@ -1191,8 +1223,10 @@ const EventLobby = () => {
 
     if (!isOnLobbyRoute || !canStampStatus) return;
 
+    const stampKey = lobbyForegroundStampKey(user.id, eventId);
     const stampForeground = async () => {
       if (document.visibilityState !== "visible") return;
+      if (!shouldStampLobbyForeground(stampKey)) return;
       try {
         await supabase.rpc("mark_lobby_foreground", {
           p_event_id: eventId,

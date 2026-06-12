@@ -8545,6 +8545,7 @@ export type Database = {
       }
       vw_video_date_lease_recovery_health: {
         Row: {
+          benign_failed_count: number | null
           expired_lease_count: number | null
           failed_count: number | null
           high_attempt_count: number | null

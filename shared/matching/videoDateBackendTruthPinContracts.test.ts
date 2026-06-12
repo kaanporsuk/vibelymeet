@@ -191,11 +191,14 @@ test("video_date_transition head pins entry aliases and the enter_handshake reje
   assert.match(head, /SECURITY DEFINER/);
   assert.match(head, /SET search_path TO 'public', 'pg_catalog'/);
 
-  // Entry vocabulary stays aliased onto the legacy handshake machine.
-  assert.match(head, /WHEN 'complete_entry' THEN 'complete_handshake'/);
-  assert.match(head, /WHEN 'continue_entry' THEN 'continue_handshake'/);
+  // PR-5 vocabulary flip: entry names are canonical; legacy handshake action
+  // names stay accepted as aliases. (The fixture pinned the pre-flip
+  // direction until the 2026-06-12 acceptance-follow-up re-dump.)
+  assert.match(head, /WHEN 'complete_handshake' THEN 'complete_entry'/);
+  assert.match(head, /WHEN 'continue_handshake' THEN 'continue_entry'/);
   // Rebuild PR 2: the head is a single body; the private chain is gone and
-  // the fixture was re-dumped from live after that migration.
+  // the fixture was re-dumped from live after that migration (and again on
+  // 2026-06-12 for the terminal in_survey feedback guard).
   assert.doesNotMatch(head, /private_video_date/);
   assert.match(head, /'single_body_rpc', true/);
 

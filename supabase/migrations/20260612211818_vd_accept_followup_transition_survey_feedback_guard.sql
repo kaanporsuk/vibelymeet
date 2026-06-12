@@ -1,3 +1,27 @@
+-- VD acceptance-run follow-up (Issue 1a): guard the terminal in_survey re-stamp in
+-- public.video_date_transition.
+--
+-- Defect (live forensics 2026-06-12, acceptance tag vd-accept-20260612-297055): the
+-- result-state-'ended' post-processing block re-stamped BOTH event_registrations rows to
+-- queue_status='in_survey' + current_room_id on EVERY successful 'ended' result, including
+-- fail-soft already_ended revisits of a dead session. With both date_feedback rows already
+-- persisted, revisiting partner A re-stamped completed partner B, whose client then entered a
+-- lobby <-> /date route ping-pong (observability reason 'terminal_confirmed_encounter_survey').
+--
+-- Fix: copy mark_video_date_remote_seen's guard semantics. The pair is stamped in_survey only
+-- while at least one participant still lacks a date_feedback row for the session; once both
+-- rows exist the branch falls through to the existing release semantics (browsing/idle, room
+-- cleared, predicate current_room_id = session). A new observability reason
+-- 'terminal_survey_already_complete' marks guard activations, and survey_required in the
+-- result/detail payloads now reflects the guarded value so feedback-complete clients route to
+-- the next surface instead of reopening the survey.
+--
+-- The first-end stamp inside the deep block is intentionally untouched: it runs only on the
+-- actual end transition, where feedback cannot exist yet.
+--
+-- Full single-body recreate (forward-only); base body dumped from live (project
+-- schdyxcunwcvddlcshwd) on 2026-06-12 post-PR-10 and patched only at the six sites above.
+
 CREATE OR REPLACE FUNCTION public.video_date_transition(p_session_id uuid, p_action text, p_reason text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -2344,3 +2368,4 @@ BEGIN
   END;
 END;
 $function$
+;

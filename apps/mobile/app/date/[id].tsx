@@ -1178,6 +1178,33 @@ export default function VideoDateScreen() {
         if (recoveredSurvey) return true;
 
         const fallbackEventId = sessionRow?.event_id ?? eventId;
+        if (fallbackEventId) {
+          // Mirror web useTerminalSurveyRecovery: when the own verdict already
+          // exists, release the registration before leaving so a stale
+          // in_survey stamp cannot bounce the lobby back here (2026-06-12
+          // acceptance-run livelock). update_participant_status refuses
+          // server-side while a survey is genuinely pending.
+          const { data: ownVerdict } = await supabase
+            .from("date_feedback")
+            .select("id")
+            .eq("session_id", sessionId)
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (ownVerdict?.id) {
+            const { error: releaseError } = await supabase.rpc(
+              "update_participant_status",
+              { p_event_id: fallbackEventId, p_status: "browsing" },
+            );
+            vdbg("terminal_survey_complete_registration_release", {
+              sessionId,
+              userId: user.id,
+              source: attemptSource,
+              eventId: fallbackEventId,
+              released: !releaseError,
+              code: releaseError?.code ?? null,
+            });
+          }
+        }
         const target = fallbackEventId
           ? eventLobbyHref(fallbackEventId)
           : tabsRootHref();

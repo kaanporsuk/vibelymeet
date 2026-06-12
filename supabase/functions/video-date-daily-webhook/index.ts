@@ -320,6 +320,12 @@ function participantProviderId(payload: JsonObject): string | null {
     payload.participantId,
     nestedString(payload, "payload", "participant_id"),
     nestedString(payload, "payload", "participantId"),
+    // Daily's live participant.* events carry the participant session id at
+    // payload.payload.session_id (no participant object); mirrors the tail of
+    // public.video_date_daily_provider_session_id_from_event_v1 so the stored
+    // column equals what that extractor already derives from the raw payload.
+    nestedString(payload, "payload", "session_id"),
+    nestedString(payload, "payload", "sessionId"),
   );
 }
 

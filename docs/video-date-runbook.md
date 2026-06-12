@@ -41,9 +41,20 @@ change; see `docs/branch-deltas/video-date-rebuild-pr9-ops-purge.md`).
   `video_date_presence_events`, surface-claim audit rows, and the session
   timeline reconstruct one chronological story per session.
 
-Known alert noise (pre-existing): failed `notification.send` outbox rows with
-`notification_no_preferences` from disposable smoke users. Either backfill
-prefs for smoke fixtures or classify that reason as non-paging.
+Known alert noise — RESOLVED 2026-06-12 (acceptance follow-up migration
+`20260612212014_vd_accept_followup_benign_notification_failures_non_paging.sql`):
+failed `notification.send` outbox rows with `last_error` in
+(`notification_no_preferences`, `notification_no_player_id`) now classify as
+non-paging `watch` severity (still emitted and dispatched; details expose
+`benignFailedCount`). Preferences backfill alone is NOT sufficient for
+disposable/headless users — they have no OneSignal player. Paging requires a
+non-benign failure: `(failed_count - benign_failed_count) > 0` or an
+expired-lease pileup.
+
+Open operator item: 20 stale `notification_http_401` failed outbox rows
+(2026-05-27 → 2026-06-04, OneSignal auth failures from that era) keep the
+`provider_outbox:notification.send:failed` group at page severity until purged
+or acked. They are genuine non-benign failures, not classification noise.
 
 ## Validation battery (static, minutes)
 
