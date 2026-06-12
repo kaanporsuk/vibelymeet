@@ -420,5 +420,7 @@ test("stable bilateral media gate is part of the required video-date suites", ()
   assert.match(supabaseTypes, /video_date_stable_bilateral_media_gate_v1/);
   assert.match(supabaseTypes, /vd_provider_overlap_stable_media_base/);
   assert.match(supabaseTypes, /vd_promote_ce_stable_media_base/);
-  assert.match(supabaseTypes, /vd_auto_promote_stable_media_base/);
+  // PR 8 dropped the frozen auto-promote RPC and its chain-private bases;
+  // the live gate runs inside the evidence single bodies.
+  assert.doesNotMatch(supabaseTypes, /vd_auto_promote_stable_media_base/);
 });

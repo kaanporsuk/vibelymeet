@@ -2183,10 +2183,11 @@ test("transition wrapper cannot open survey from failed or one-sided date starts
   assert.match(remoteSeenEncounterGuardMigration, /RENAME TO video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
   assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_continue_handshake_v2_20260603090000_remote_seen_base/);
   assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
-  // PR-5 vocabulary flip: the dated remote-seen generations are folded into
-  // the entry-vocabulary single bodies and dropped from the live schema.
-  assert.match(supabaseTypes, /video_session_continue_entry_v2/);
-  assert.match(supabaseTypes, /video_session_entry_auto_promote_v2/);
+  // PR-5 vocabulary flip folded the dated remote-seen generations into the
+  // entry-vocabulary single bodies; PR 8 then dropped the frozen v2 transition
+  // RPCs themselves (zero client and zero live SQL callers).
+  assert.doesNotMatch(supabaseTypes, /video_session_continue_entry_v2/);
+  assert.doesNotMatch(supabaseTypes, /video_session_entry_auto_promote_v2/);
   assert.doesNotMatch(supabaseTypes, /video_session_continue_handshake_v2/);
   assert.doesNotMatch(supabaseTypes, /video_session_handshake_auto_promote_v2/);
   assert.match(remoteSeenEncounterGuardMigration, /NOT public\.video_date_session_has_confirmed_encounter[\s\S]*'video_session_continue_handshake_v2'/s);
