@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -13,7 +14,7 @@ const recoveryMigration = read(
 );
 const webCall = readWebVideoCallFlowSource(root);
 const webDate = readWebVideoDatePageFlowSource(root);
-const nativeDate = read("apps/mobile/app/date/[id].tsx");
+const nativeDate = readNativeVideoDateScreenFlowSource();
 const packageJson = read("package.json");
 
 function functionBody(sql: string, functionName: string): string {

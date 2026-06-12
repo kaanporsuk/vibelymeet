@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const migration = readFileSync(
@@ -24,7 +25,7 @@ const nativeReadyGate = readFileSync(join(root, "apps/mobile/lib/readyGateApi.ts
 const nativeDashboard = readFileSync(join(root, "apps/mobile/app/(tabs)/index.tsx"), "utf8");
 const webVideoDate = readWebVideoDatePageFlowSource(root);
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
-const nativeVideoDateScreen = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDateScreen = readNativeVideoDateScreenFlowSource(root);
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
 
 function functionBody(name: string): string {

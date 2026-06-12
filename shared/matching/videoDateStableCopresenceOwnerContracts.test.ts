@@ -13,6 +13,7 @@ import {
 } from "./videoDateEntryOwner";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -20,7 +21,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const webPrepare = read("src/lib/videoDatePrepareEntry.ts");
 const nativePrepare = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const webDate = readWebVideoCallFlowSource(root);
-const nativeDate = read("apps/mobile/app/date/[id].tsx");
+const nativeDate = readNativeVideoDateScreenFlowSource();
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");

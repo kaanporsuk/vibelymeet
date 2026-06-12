@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
-import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -34,7 +34,7 @@ const nativeRouteHydration = read(
 const nativeDateNavGuard = readNativeVideoDateNavigationIntentsSource(root);
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeActiveSessionRoutes = read(
   "apps/mobile/lib/activeSessionRoutes.ts",
 );

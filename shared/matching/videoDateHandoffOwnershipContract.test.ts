@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 // Regression guard for the Video Date handoff/timer-ownership fix.
 //
@@ -27,7 +28,7 @@ const nativeReadyGate = read(
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 
 const readyGateSurfaces: Array<[string, string]> = [
   ["web ReadyGateOverlay", webReadyGate],

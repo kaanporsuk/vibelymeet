@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
-import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -21,7 +21,7 @@ const webVideoDate = readWebVideoDatePageFlowSource(root);
 const readyRedirect = read("src/pages/ReadyRedirect.tsx");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const webDateEntryLatch = readWebVideoDateNavigationIntentsSource(root);
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeSurvey = read(

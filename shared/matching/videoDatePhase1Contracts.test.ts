@@ -10,6 +10,7 @@ import {
 } from "./videoDatePublicApi";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const config = readFileSync(join(root, "supabase/config.toml"), "utf8");
@@ -49,7 +50,7 @@ const nativePaymentStatusLib = readFileSync(join(root, "apps/mobile/lib/eventTic
 const webPaymentSuccess = readFileSync(join(root, "src/pages/EventPaymentSuccess.tsx"), "utf8");
 const nativePaymentSuccess = readFileSync(join(root, "apps/mobile/app/event-payment-success.tsx"), "utf8");
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource(root);
 const dailyRoomIndex = readFileSync(join(root, "supabase/functions/daily-room/index.ts"), "utf8");
 const dailyRoomContracts = readFileSync(join(root, "supabase/functions/daily-room/dailyRoomContracts.ts"), "utf8");
 const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");

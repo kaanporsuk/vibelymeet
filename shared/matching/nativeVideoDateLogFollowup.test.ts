@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 test("native video-date partner avatar fallback resolves CDN-safe URLs before Image render", () => {
   const api = read("apps/mobile/lib/videoDateApi.ts");
-  const route = read("apps/mobile/app/date/[id].tsx");
+  const route = readNativeVideoDateScreenFlowSource();
 
   assert.match(api, /import \{ avatarUrl \} from '@\/lib\/imageUrl'/);
   assert.match(api, /const rawAvatarUrl = typeof row\.avatar_url === 'string' \? row\.avatar_url : null/);
@@ -46,7 +47,7 @@ test("native Apple Sign-In treats ASAuthorization 1001 as cancellation with diag
 });
 
 test("native handshake CTA emits visibility, final-ten, and timeout context telemetry", () => {
-  const route = read("apps/mobile/app/date/[id].tsx");
+  const route = readNativeVideoDateScreenFlowSource();
 
   assert.match(route, /handshakeCtaImpressionRef/);
   assert.match(route, /handshake_cta_visible/);

@@ -9,6 +9,7 @@ import {
 } from "./videoDatePhase4Ux";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -119,7 +120,7 @@ test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry state
 
 test("Phase 4 web/native surfaces consume shared UX helpers", () => {
   const webVideoDate = readWebVideoDatePageFlowSource(root);
-  const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
+  const nativeVideoDate = readNativeVideoDateScreenFlowSource();
   const webLobby = read("src/pages/EventLobby.tsx");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
   const webButton = read("src/components/video-date/VibeCheckButton.tsx");

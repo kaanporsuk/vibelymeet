@@ -28,6 +28,25 @@ export const NATIVE_VIDEO_DATE_NAVIGATION_INTENT_FILES = [
   "apps/mobile/lib/videoDateNavigationIntents.ts",
 ] as const;
 
+/**
+ * The native date screen family. Module-scope helpers come before the screen
+ * (their original position in the monolith); styles trailed the component and
+ * stay last.
+ */
+export const NATIVE_VIDEO_DATE_SCREEN_FLOW_FILES = [
+  "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
+  "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
+  "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
+  "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
+  "apps/mobile/app/date/[id].tsx",
+  "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
+] as const;
+
+/** The native standalone Ready Gate screen family. */
+export const NATIVE_READY_SCREEN_FLOW_FILES = [
+  "apps/mobile/app/ready/[id].tsx",
+] as const;
+
 function concatSources(root: string, paths: readonly string[]): string {
   return paths
     .map((path) => readFileSync(join(root, path), "utf8"))
@@ -38,4 +57,16 @@ export function readNativeVideoDateNavigationIntentsSource(
   root: string = process.cwd(),
 ): string {
   return concatSources(root, NATIVE_VIDEO_DATE_NAVIGATION_INTENT_FILES);
+}
+
+export function readNativeVideoDateScreenFlowSource(
+  root: string = process.cwd(),
+): string {
+  return concatSources(root, NATIVE_VIDEO_DATE_SCREEN_FLOW_FILES);
+}
+
+export function readNativeReadyScreenFlowSource(
+  root: string = process.cwd(),
+): string {
+  return concatSources(root, NATIVE_READY_SCREEN_FLOW_FILES);
 }

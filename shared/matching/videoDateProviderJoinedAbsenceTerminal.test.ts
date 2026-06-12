@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -12,7 +13,7 @@ const migration = read(
   "supabase/migrations/20260607103100_video_date_provider_joined_absence_terminal.sql",
 );
 const webCall = readWebVideoCallFlowSource(root);
-const nativeDate = read("apps/mobile/app/date/[id].tsx");
+const nativeDate = readNativeVideoDateScreenFlowSource();
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
 

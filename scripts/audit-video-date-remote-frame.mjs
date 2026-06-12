@@ -346,8 +346,18 @@ assert(
   `${webVideoCallPath}: permission preflight must not fall back to unconstrained { video: true }`
 );
 
-const nativeDatePath = "apps/mobile/app/date/[id].tsx";
-const nativeDate = read(nativeDatePath);
+// PR 8 decomposed the native date screen into its module family.
+const nativeDatePath = "native video date screen family";
+const nativeDate = [
+  "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
+  "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
+  "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
+  "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
+  "apps/mobile/app/date/[id].tsx",
+  "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
+]
+  .map(read)
+  .join("\n");
 const nativeVideoDateDailyConfigPath = "apps/mobile/lib/videoDateDailyMediaConfig.ts";
 const nativeVideoDateDailyConfig = read(nativeVideoDateDailyConfigPath);
 const nativeEventLobbyPath = "apps/mobile/app/event/[eventId]/lobby.tsx";

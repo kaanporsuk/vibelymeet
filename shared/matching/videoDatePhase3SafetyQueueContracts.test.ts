@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const migration = readFileSync(
@@ -33,7 +34,7 @@ const nativeSafetySheet = readFileSync(
   join(root, "apps/mobile/components/video-date/InCallSafetySheet.tsx"),
   "utf8",
 );
-const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource(root);
 const nativeEventsApi = readFileSync(join(root, "apps/mobile/lib/eventsApi.ts"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
 const nativePostDateSurvey = readFileSync(

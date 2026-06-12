@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -29,7 +30,7 @@ test("safety submit surfaces keep duplicate-submit guards and durable success ro
   const webSafety = read("src/components/video-date/InCallSafetyModal.tsx");
   const nativeSafety = read("apps/mobile/components/video-date/InCallSafetySheet.tsx");
   const webDate = readWebVideoDatePageFlowSource(root);
-  const nativeDate = read("apps/mobile/app/date/[id].tsx");
+  const nativeDate = readNativeVideoDateScreenFlowSource();
 
   for (const source of [webSafety, nativeSafety]) {
     assert.match(source, /submitInFlightRef/);

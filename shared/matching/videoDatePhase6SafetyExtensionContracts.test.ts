@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const migration = readFileSync(
@@ -29,7 +30,7 @@ const extensionSpend = readFileSync(
 const extensionCopy = readFileSync(join(root, "shared/matching/videoDateExtensionCopy.ts"), "utf8");
 const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webKeepTheVibe = readFileSync(join(root, "src/components/video-date/KeepTheVibe.tsx"), "utf8");
-const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource(root);
 const nativeApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
 const nativeKeepTheVibe = readFileSync(
   join(root, "apps/mobile/components/video-date/KeepTheVibe.tsx"),

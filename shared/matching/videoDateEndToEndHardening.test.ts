@@ -28,7 +28,7 @@ import {
 } from "./videoDateCameraSwitchRenderHint";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
-import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -396,9 +396,8 @@ const webEntryPhaseTimer = readFileSync(
   join(process.cwd(), "src/components/video-date/EntryPhaseTimer.tsx"),
   "utf8",
 );
-const nativeVideoDateRoute = readFileSync(
-  join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
-  "utf8",
+const nativeVideoDateRoute = readNativeVideoDateScreenFlowSource(
+  process.cwd(),
 );
 const nativeIceBreakerCard = readFileSync(
   join(process.cwd(), "apps/mobile/components/video-date/IceBreakerCard.tsx"),

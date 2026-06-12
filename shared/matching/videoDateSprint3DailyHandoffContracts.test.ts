@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -30,7 +31,7 @@ const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeStandaloneReady = read("apps/mobile/app/ready/[id].tsx");
-const nativeDate = read("apps/mobile/app/date/[id].tsx");
+const nativeDate = readNativeVideoDateScreenFlowSource();
 const prepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
 const phase8Certification = read("shared/matching/videoDatePhase8Certification.ts");
 const phase8Script = read("scripts/phase8-certification.ts");

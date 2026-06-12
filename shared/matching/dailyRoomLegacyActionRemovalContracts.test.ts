@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -23,7 +24,7 @@ const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const sharedPrepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
 const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const webReadiness = read("src/lib/videoDateReadiness.ts");
 const nativeReadiness = read("apps/mobile/lib/videoDateReadiness.ts");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -48,7 +49,7 @@ const activeClientSources = [
   ["shared/matching/videoDatePrepareEntry.ts", sharedPrepareEntry],
   ["src/hooks/useVideoCall.ts", webVideoCall],
   ["apps/mobile/lib/videoDateApi.ts", nativeVideoDateApi],
-  ["apps/mobile/app/date/[id].tsx", nativeDateRoute],
+  ["native video date screen family", nativeDateRoute],
   ["src/lib/videoDateReadiness.ts", webReadiness],
   ["apps/mobile/lib/videoDateReadiness.ts", nativeReadiness],
   ["src/components/lobby/ReadyGateOverlay.tsx", webReadyGateOverlay],

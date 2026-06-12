@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -25,7 +26,7 @@ const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webDupTabGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webReconnection = read("src/hooks/useReconnection.ts");
 const readyRedirect = read("src/pages/ReadyRedirect.tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const observability = read("shared/observability/videoDateClientStuckObservability.ts");
 const warmupMigration = read("supabase/migrations/20260604170438_video_date_warmup_reconnect_stability.sql");

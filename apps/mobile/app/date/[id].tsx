@@ -233,977 +233,127 @@ import {
   updateVideoDateEntryOwnerState,
 } from "@clientShared/matching/videoDateEntryOwner";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const FIRST_CONNECT_TIMEOUT_MS = 25000;
-const PREJOIN_STEP_TIMEOUT_MS = 12000;
-const NATIVE_BACKGROUND_GRACE_MS = 12_000;
-const NATIVE_VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS = 3_000;
-const NATIVE_DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
-const NATIVE_BACKGROUND_GRACE_SECONDS = Math.ceil(
-  NATIVE_BACKGROUND_GRACE_MS / 1000,
-);
-const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
-const NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS = [
-  0, 350, 900, 1_600,
-] as const;
-const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
-const DATE_CONTROLS_STACK_HEIGHT = 104;
-const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
-const ENTRY_CTA_STACK_HEIGHT = 92;
-const ENTRY_CTA_DOCK_TIGHTEN_OFFSET = 24;
-const FLOATING_CHROME_GAP = 10;
-
-function readNativeDailyProviderSessionId(
-  call: VideoDateDailyCallObject | null,
-): string | null {
-  if (!call) return null;
-  try {
-    const local = call.participants().local as
-      | { session_id?: unknown; sessionId?: unknown }
-      | undefined;
-    const providerSessionId = local?.session_id ?? local?.sessionId;
-    return typeof providerSessionId === "string" && providerSessionId.length > 0
-      ? providerSessionId
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function safeNativeDailyMeetingState(
-  call: VideoDateDailyCallObject | null,
-): string | null {
-  if (!call || typeof call.meetingState !== "function") return null;
-  try {
-    const state = call.meetingState();
-    return typeof state === "string"
-      ? state
-      : state == null
-        ? null
-        : String(state);
-  } catch {
-    return null;
-  }
-}
-
-const NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS = 650;
-const NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
-const NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS = 500;
-const NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
-const NATIVE_CAMERA_SWITCH_SAME_TRACK_REMOUNT_GRACE_MS = 3_000;
-const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK = 4;
-const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE = 2;
-const NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS = 30_000;
-const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS = 24;
-const NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
-const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
-const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 30;
-const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 10_000;
-const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS = 1_000;
-const NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_MAX_MS = 15_000;
-const NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS = 1_000;
-const NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX =
-  "vibely_vd_native_surface_client";
-const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS: number | null = null;
-const NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS = 6;
-const NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_RETRY_BASE_MS = 300;
-const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
-const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
-const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
-type NativeVideoDateSurfaceClaimResult = {
-  canContinue: boolean;
-  confirmed: boolean;
-};
-
-function nextNativeSurfaceClaimBackoffMs(failureCount: number) {
-  return Math.min(
-    NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_MAX_MS,
-    NATIVE_VIDEO_DATE_SURFACE_CLAIM_BACKOFF_BASE_MS *
-      2 ** Math.min(failureCount, 4),
-  );
-}
-
-const nativeVideoDateSurfaceClientInstanceIds = new Map<string, string>();
-type NativeVideoDateActiveSurfaceOwner = {
-  owner: string;
-  clientInstanceId: string;
-};
-const nativeVideoDateActiveSurfaceOwners = new Map<
-  string,
-  NativeVideoDateActiveSurfaceOwner
->();
-
-function nativeVideoDateSurfaceStorageKey(
-  sessionId: string,
-  profileId: string,
-) {
-  return `${NATIVE_VIDEO_DATE_SURFACE_CLIENT_STORAGE_PREFIX}:${profileId}:${sessionId}`;
-}
-
-function nativeVideoDateActiveSurfaceKey(sessionId: string, profileId: string) {
-  return `${profileId}:${sessionId}`;
-}
-
-function createNativeVideoDateClientInstanceId() {
-  const cryptoApi = globalThis.crypto as
-    | { randomUUID?: () => string }
-    | undefined;
-  if (typeof cryptoApi?.randomUUID === "function") {
-    return `vd-native-${cryptoApi.randomUUID()}`;
-  }
-  return `vd-native-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-function createNativeVideoDateSurfaceOwnerId() {
-  return `vd-native-owner-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
-function isValidNativeVideoDateClientInstanceId(
-  value: string | null | undefined,
-): value is string {
-  return typeof value === "string" && value.length >= 8 && value.length <= 120;
-}
-
-function getOrCreateNativeVideoDateClientInstanceId(
-  sessionId: string,
-  profileId: string,
-) {
-  const key = nativeVideoDateSurfaceStorageKey(sessionId, profileId);
-  const existing = nativeVideoDateSurfaceClientInstanceIds.get(key);
-  if (isValidNativeVideoDateClientInstanceId(existing)) return existing;
-  const next = createNativeVideoDateClientInstanceId();
-  nativeVideoDateSurfaceClientInstanceIds.set(key, next);
-  return next;
-}
-
-function getCachedNativeVideoDateClientInstanceId(
-  sessionId: string,
-  profileId: string,
-) {
-  const key = nativeVideoDateSurfaceStorageKey(sessionId, profileId);
-  const existing = nativeVideoDateSurfaceClientInstanceIds.get(key);
-  return isValidNativeVideoDateClientInstanceId(existing) ? existing : null;
-}
-// Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
-// media before the server deadline is allowed to call completeEntry.
-// Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
-const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
-
-function sleepNativeRuntimeRecovery(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-type DailyCallObject = VideoDateDailyCallObject;
-type DailyReceiveSettingsCapable = {
-  updateReceiveSettings?: (
-    settings: Record<string, unknown>,
-  ) => Promise<unknown>;
-};
-type SharedDailyCallEntryState =
-  | "creating"
-  | "joining"
-  | "joined"
-  | "failed"
-  | "leaving"
-  | "idle";
-type SharedDailyCallEntry = {
-  sessionId: string;
-  userId: string;
-  call: DailyCallObject;
-  roomName: string | null;
-  captureProfile: NativeVideoDateCaptureProfile;
-  state: SharedDailyCallEntryState;
-  joinPromise: Promise<void> | null;
-  createdAtMs: number;
-  joinStartedAtMs: number | null;
-  lastError: string | null;
-  idleDestroyTimer: ReturnType<typeof setTimeout> | null;
-  parkedAtMs: number | null;
-  idleDestroyDisabled: boolean;
-};
-let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
-type NativeDailyCleanupOptions = {
-  mode?: "destructive" | "preserve_active_handoff";
-  reason?: string;
-};
-type NativePrejoinPipelineEntry = {
-  key: string;
-  sessionId: string;
-  userId: string;
-  attemptId: number;
-  startedAtMs: number;
-  promise: Promise<void> | null;
-};
-let sharedNativePrejoinPipelineEntry: NativePrejoinPipelineEntry | null = null;
-function nativePrejoinPipelineKey(sessionId: string, userId: string): string {
-  return `${sessionId}:${userId}`;
-}
-type NativeMediaStreamTrack =
-  import("@daily-co/react-native-webrtc").MediaStreamTrack;
-type NativeDailyCameraFacingMode = "user" | "environment";
-type NativeDailyCameraDevice = {
-  deviceId?: string | number;
-  id?: string | number;
-  kind?: string;
-  facing?: unknown;
-  facingMode?: unknown;
-  label?: string;
-};
-type NativeDailyCameraControls = {
-  getCameraFacingMode?: () => Promise<NativeDailyCameraFacingMode | null>;
-  cycleCamera?: () => Promise<{
-    device: { facingMode: NativeDailyCameraFacingMode } | null;
-  }>;
-  setCamera?: (
-    cameraDeviceId: string | number,
-  ) => Promise<{ device: { facingMode: NativeDailyCameraFacingMode } | null }>;
-  enumerateDevices?: () => Promise<{ devices: NativeDailyCameraDevice[] }>;
-};
-type NativeDailyAppMessageControls = {
-  sendAppMessage?: (data: unknown, to?: string | string[]) => unknown;
-};
-type NativeDailyInboundVideoStats = {
-  trackId?: unknown;
-  fps?: unknown;
-  frameWidth?: unknown;
-  frameHeight?: unknown;
-};
-type NativeDailyCpuLoadStatsResult = {
-  stats?: {
-    latest?: {
-      cpuInboundVideoStats?: NativeDailyInboundVideoStats[];
-      totalReceivedVideoTracks?: unknown;
-    };
-  };
-};
-type NativeDailyNetworkStatsResult = {
-  stats?: {
-    latest?: {
-      videoRecvBitsPerSecond?: unknown;
-    };
-  };
-};
-type NativeDailyStatsControls = {
-  getCpuLoadStats?: () => Promise<NativeDailyCpuLoadStatsResult>;
-  getNetworkStats?: () => Promise<NativeDailyNetworkStatsResult>;
-};
-
-type NativeCameraSwitchCommitMethod = "set_camera" | "cycle_camera";
-type NativeLocalCameraSnapshot = {
-  trackId: string | null;
-  deviceId: string | null;
-  facingMode: NativeDailyCameraFacingMode | null;
-  readyState: string | null;
-  enabled: boolean | null;
-};
-type NativeCameraSwitchCommit = NativeLocalCameraSnapshot & {
-  method: NativeCameraSwitchCommitMethod;
-  latencyMs: number;
-};
-type NativeCameraSwitchCommitExpectation = {
-  baselineFacing: NativeDailyCameraFacingMode | null;
-  previousControlsFacing: NativeDailyCameraFacingMode | null;
-  expectedDeviceKey?: string | null;
-  expectedFacing?: NativeDailyCameraFacingMode | null;
-};
-
-function summarizeSharedDailyError(error: unknown): string {
-  if (error instanceof Error)
-    return `${error.name || "Error"}: ${error.message}`;
-  return String(error ?? "unknown");
-}
-
-function makeMutualExtensionIdempotencyKey(
-  sessionId: string,
-  type: "extra_time" | "extended_vibe",
-): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return buildVideoDateMutualExtensionIdempotencyKey(sessionId, type, random);
-}
-
-type PrejoinAttemptState = {
-  attemptId: number;
-  sessionId: string;
-  userId: string;
-  currentStep: PrejoinAttemptStep;
-  cancellationReason: string | null;
-  roomAcquisitionStarted: boolean;
-  completed: boolean;
-};
-
-type ActiveNativeDailyCallIdentity = {
-  sessionId: string;
-  userId: string;
-  ownerId: string | null;
-  callInstanceId: string;
-  entryAttemptId: string | null;
-  videoDateTraceId: string | null;
-};
-
-type DateTheme = (typeof Colors)[keyof typeof Colors];
-
-type EntryCtaTelemetrySnapshot = {
-  cta_visible: boolean;
-  cta_visible_ms: number;
-  cta_last_time_left: number | null;
-  has_remote_partner: boolean;
-  peer_server_joined: boolean;
-  partner_ever_joined: boolean;
-  is_partner_disconnected: boolean;
-  peer_missing_terminal: boolean;
-  remote_video_mounted: boolean;
-  remote_audio_mounted: boolean;
-  first_playable_remote_seen: boolean;
-  first_playable_remote_age_ms: number | null;
-  local_decision: "vibe" | "pass" | "none";
-};
-
-function WarmupChoiceNoticeBanner({
-  notice,
-  theme,
-  top,
-}: {
-  notice: VideoDateWarmupChoiceNotice;
-  theme: DateTheme;
-  top: number;
-}) {
-  return (
-    <View
-      pointerEvents="none"
-      accessibilityLiveRegion="polite"
-      style={[
-        styles.warmupChoiceNotice,
-        {
-          top,
-          borderColor: "rgba(139,92,246,0.32)",
-          backgroundColor: "rgba(20,20,24,0.93)",
-        },
-      ]}
-    >
-      <View
-        style={[styles.warmupChoiceNoticeRail, { backgroundColor: theme.tint }]}
-      />
-      <View style={styles.warmupChoiceNoticeIcon}>
-        <Ionicons name="time-outline" size={18} color={theme.neonCyan} />
-      </View>
-      <View style={styles.warmupChoiceNoticeCopy}>
-        <Text
-          style={[styles.warmupChoiceNoticeTitle, { color: theme.text }]}
-          numberOfLines={2}
-        >
-          {notice.title}
-        </Text>
-        <Text
-          style={[
-            styles.warmupChoiceNoticeMessage,
-            { color: theme.mutedForeground },
-          ]}
-        >
-          {notice.message}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-/** Post-join UX / instrumentation — single stage truth for Daily + peer presence (not server phase). */
-export type VideoDatePostJoinStage =
-  | "initial_loading"
-  | "joining_daily"
-  | "waiting_for_peer"
-  | "active_call"
-  | "reconnecting"
-  | "peer_missing_timeout"
-  | "fatal_join_error"
-  | "ended";
-
-type DailyTokenRefreshSourceAction =
-  | "daily_token_refresh_before_join"
-  | "daily_token_refresh_join_retry"
-  | "daily_token_refresh_before_expiry"
-  | "daily_token_refresh_after_ejection"
-  | "daily_token_refresh_after_auth_error";
-
-type DailyTokenRefreshFailureState = {
-  kind: "terminal" | "rate_limited" | "retryable";
-  error: string;
-  retryAfterMs: number | null;
-  phase: string | null;
-};
-
-function networkTierFromDailyEvent(
-  ev: { threshold?: string; quality?: number } | undefined,
-): "good" | "fair" | "poor" {
-  const q = typeof ev?.quality === "number" ? ev.quality : 100;
-  const th = ev?.threshold;
-  if (th === "low" || q < 30) return "poor";
-  if (q < 70) return "fair";
-  return "good";
-}
-
-function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
-  switch (code) {
-    case "auth":
-      return "Please sign in again, then try once more.";
-    case "READY_GATE_NOT_READY":
-      return "Almost there — finish the Ready Gate with your match first.";
-    case "SESSION_ENDED":
-      return "This date has already ended.";
-    case "EVENT_NOT_ACTIVE":
-      return "This date link is no longer available.";
-    case "SESSION_NOT_FOUND":
-    case "ROOM_NOT_FOUND":
-      return "We couldn't open this date. Go back and try again.";
-    case "DAILY_AUTH_FAILED":
-    case "DAILY_CREDENTIALS_INVALID":
-      return "Video provider authentication failed. Please try again later.";
-    case "DAILY_REQUEST_REJECTED":
-      return "We couldn't prepare this video room. Please try again.";
-    case "BLOCKED_PAIR":
-      return "This call is no longer available.";
-    case "ACCESS_DENIED":
-      return "You don't have access to this date.";
-    case "network":
-    case "DAILY_PROVIDER_ERROR":
-    case "DAILY_PROVIDER_UNAVAILABLE":
-    case "DAILY_RATE_LIMIT":
-    default:
-      return "Could not start video. Please try again.";
-  }
-}
-
-/** Backoffs (ms) for bounded refetch loops on `READY_GATE_NOT_READY` — short enough that user
- *  perceives no extra latency, long enough to absorb cross-region replica lag. Two retries by
- *  design: longer windows are better handled by `recoverFromNotStartableDateTruth` redirecting. */
-const READY_GATE_RACE_RETRY_BACKOFFS_MS = [220, 320];
-const NATIVE_PREPARE_DATE_ENTRY_RETRY_DELAYS_MS = [700, 1600] as const;
-const NATIVE_PREPARE_DATE_ENTRY_RETRY_AFTER_MAX_MS = 30_000;
-
-function dailyRoomTokenRetryDelayMs(
-  result: Extract<GetDailyRoomTokenResult, { ok: false }>,
-  fallbackMs: number,
-): number {
-  const retryAfterMs =
-    typeof result.retryAfterMs === "number" &&
-    Number.isFinite(result.retryAfterMs) &&
-    result.retryAfterMs > 0
-      ? Math.ceil(result.retryAfterMs)
-      : typeof result.retryAfterSeconds === "number" &&
-          Number.isFinite(result.retryAfterSeconds) &&
-          result.retryAfterSeconds > 0
-        ? Math.ceil(result.retryAfterSeconds * 1000)
-        : null;
-  return Math.min(
-    Math.max(1, retryAfterMs ?? fallbackMs),
-    NATIVE_PREPARE_DATE_ENTRY_RETRY_AFTER_MAX_MS,
-  );
-}
-
-/**
- * Refetch backend truth and check whether the session is now Daily-startable. Used by the prejoin
- * `READY_GATE_NOT_READY` retry loops — does not call any RPC, just a coalesced read.
- */
-async function refetchTruthAndCheckStartable(sessionId: string): Promise<{
-  startable: boolean;
-  truth: Awaited<ReturnType<typeof fetchVideoSessionDateEntryTruth>>;
-}> {
-  const truth = await fetchVideoSessionDateEntryTruth(sessionId);
-  const recovery = adviseVideoSessionTruthRecovery({
-    sessionId,
-    truth,
-    platform: "native",
-    surface: "video_date",
-  });
-  return {
-    startable: recovery.action === "go_date",
-    truth,
-  };
-}
-
-function getTrack(
-  participant: DailyParticipant | undefined,
-  kind: "video" | "audio",
-): NativeMediaStreamTrack | null {
-  if (!participant) return null;
-  const trackInfo = participant.tracks?.[kind];
-  // Do not feed DailyMediaView a "video off" track — persistentTrack can still show a stale last frame.
-  if (
-    trackInfo &&
-    (trackInfo.state === "off" || trackInfo.state === "blocked")
-  ) {
-    return null;
-  }
-  const p = participant as unknown as {
-    tracks?: {
-      video?: { persistentTrack?: unknown };
-      audio?: { persistentTrack?: unknown };
-    };
-    videoTrack?: unknown;
-    audioTrack?: unknown;
-  };
-  if (p.tracks) {
-    const t =
-      kind === "video"
-        ? p.tracks.video?.persistentTrack
-        : p.tracks.audio?.persistentTrack;
-    if (t) return t as NativeMediaStreamTrack;
-  }
-  const dep = kind === "video" ? p.videoTrack : p.audioTrack;
-  return dep === false || dep === undefined
-    ? null
-    : (dep as NativeMediaStreamTrack);
-}
-
-function summarizeVideoTrackSettings(
-  track: NativeMediaStreamTrack | null | undefined,
-) {
-  if (!track || typeof track.getSettings !== "function") return null;
-  const settings = track.getSettings();
-  return {
-    deviceId: typeof settings.deviceId === "string" ? settings.deviceId : null,
-    width: typeof settings.width === "number" ? settings.width : null,
-    height: typeof settings.height === "number" ? settings.height : null,
-    aspectRatio: videoDateAspectRatio(settings.width, settings.height),
-    frameRate:
-      typeof settings.frameRate === "number" ? settings.frameRate : null,
-    facingMode:
-      typeof settings.facingMode === "string" ? settings.facingMode : null,
-  };
-}
-
-function sleepNativeCameraSwitch(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function normalizeNativeCameraFacingMode(
-  value: unknown,
-): NativeDailyCameraFacingMode | null {
-  return value === "user" || value === "environment" ? value : null;
-}
-
-function oppositeNativeCameraFacingMode(
-  value: NativeDailyCameraFacingMode | null,
-): NativeDailyCameraFacingMode | null {
-  if (value === "user") return "environment";
-  if (value === "environment") return "user";
-  return null;
-}
-
-function nativeCameraDeviceId(
-  device: NativeDailyCameraDevice | null | undefined,
-): string | number | null {
-  if (!device) return null;
-  if (
-    typeof device.deviceId === "string" ||
-    typeof device.deviceId === "number"
-  )
-    return device.deviceId;
-  if (typeof device.id === "string" || typeof device.id === "number")
-    return device.id;
-  return null;
-}
-
-function nativeCameraDeviceKey(
-  device: NativeDailyCameraDevice | null | undefined,
-): string | null {
-  const id = nativeCameraDeviceId(device);
-  return id == null ? null : String(id);
-}
-
-function nativeCameraFacingModeFromLabel(
-  label: unknown,
-): NativeDailyCameraFacingMode | null {
-  if (typeof label !== "string") return null;
-  const normalized = label.toLowerCase();
-  if (/\b(front|user|self|face)\b/.test(normalized)) return "user";
-  if (/\b(back|rear|environment|world)\b/.test(normalized))
-    return "environment";
-  return null;
-}
-
-function nativeCameraDeviceFacingMode(
-  device: NativeDailyCameraDevice | null | undefined,
-): NativeDailyCameraFacingMode | null {
-  if (!device) return null;
-  const explicitFacing =
-    normalizeNativeCameraFacingMode(device.facingMode) ??
-    normalizeNativeCameraFacingMode(device.facing);
-  if (explicitFacing) return explicitFacing;
-  return nativeCameraFacingModeFromLabel(device.label);
-}
-
-function nativeLocalCameraSnapshot(
-  participant: DailyParticipant | null | undefined,
-): NativeLocalCameraSnapshot {
-  const videoTrack = getTrack(participant ?? undefined, "video");
-  const settings = summarizeVideoTrackSettings(videoTrack);
-  return {
-    trackId: videoTrack?.id ?? null,
-    deviceId: typeof settings?.deviceId === "string" ? settings.deviceId : null,
-    facingMode:
-      normalizeNativeCameraFacingMode(settings?.facingMode) ??
-      nativeCameraFacingModeFromLabel(videoTrack?.label),
-    readyState: videoTrack?.readyState ?? null,
-    enabled:
-      typeof videoTrack?.enabled === "boolean" ? videoTrack.enabled : null,
-  };
-}
-
-function chooseNativeCameraDevice(
-  devices: NativeDailyCameraDevice[],
-  desiredFacing: NativeDailyCameraFacingMode | null,
-  before: NativeLocalCameraSnapshot,
-): NativeDailyCameraDevice | null {
-  const videoDevices = devices.filter(
-    (device) => device.kind === undefined || device.kind === "videoinput",
-  );
-  const usable = videoDevices.length > 0 ? videoDevices : devices;
-  if (usable.length === 0) return null;
-  const currentDeviceKey =
-    before.deviceId == null ? null : String(before.deviceId);
-  const candidates =
-    currentDeviceKey != null
-      ? usable.filter(
-          (device) => nativeCameraDeviceKey(device) !== currentDeviceKey,
-        )
-      : usable;
-  if (desiredFacing) {
-    const facingMatches = usable.filter(
-      (device) => nativeCameraDeviceFacingMode(device) === desiredFacing,
-    );
-    const facingMatch =
-      facingMatches.find(
-        (device) => nativeCameraDeviceKey(device) !== currentDeviceKey,
-      ) ??
-      facingMatches[0] ??
-      null;
-    if (facingMatch) return facingMatch;
-    return null;
-  }
-  if (currentDeviceKey != null && candidates.length === 0) return null;
-  if (currentDeviceKey != null) {
-    return candidates[0] ?? null;
-  }
-  return null;
-}
-
-function describeNativeCameraSwitchError(error: unknown): {
-  name: string;
-  message: string;
-} {
-  if (error instanceof Error)
-    return { name: error.name || "Error", message: error.message };
-  return { name: "unknown", message: String(error) };
-}
-
-function finiteNativeStat(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-/** Sync UI toggles from Daily participant track state (source of truth after join / reconnect). */
-function applyLocalMediaUiFromParticipant(
-  p: DailyParticipant,
-  setters: {
-    setIsVideoOff: (v: boolean) => void;
-    setIsMuted: (v: boolean) => void;
-  },
-) {
-  const vState = p.tracks?.video?.state;
-  const aState = p.tracks?.audio?.state;
-  if (vState !== undefined) setters.setIsVideoOff(vState === "off");
-  if (aState !== undefined) setters.setIsMuted(aState === "off");
-}
-
-function dailyParticipantId(
-  p: DailyParticipant | undefined,
-): string | undefined {
-  if (!p) return undefined;
-  const u = p as unknown as {
-    user_id?: string;
-    userId?: string;
-    session_id?: string;
-  };
-  return u.user_id ?? u.userId ?? u.session_id;
-}
-
-function dailyParticipantSessionId(
-  p: DailyParticipant | undefined,
-): string | undefined {
-  if (!p) return undefined;
-  return (p as unknown as { session_id?: string }).session_id;
-}
-
-function nativeRemoteRenderTrackKey(
-  p: DailyParticipant | undefined,
-): string | null {
-  if (!p) return null;
-  const participantId = dailyParticipantId(p) ?? "remote";
-  const videoTrackId = getTrack(p, "video")?.id ?? "no-video";
-  const audioTrackId = getTrack(p, "audio")?.id ?? "no-audio";
-  return `${participantId}:${videoTrackId}:${audioTrackId}`;
-}
-
-function normalizeNativeRemoteRenderRecoveryScope(scope: string): string {
-  if (scope.startsWith("camera_switch_hint:")) return "camera_switch_hint";
-  if (scope.includes("camera_switch_hint")) return "camera_switch_hint";
-  if (scope.includes("participant_updated_same_track"))
-    return "participant_updated_same_track";
-  return scope;
-}
-
-type NativeRemoteRenderAttemptEntry = {
-  attempts: number;
-  updatedAtMs: number;
-};
-
-type NativeCameraSwitchRenderWatch = {
-  switchId: string;
-  expiresAtMs: number;
-};
-
-function pruneNativeRemoteRenderAttemptMap(
-  attempts: Map<string, NativeRemoteRenderAttemptEntry>,
-  nowMs: number,
-) {
-  for (const [key, entry] of attempts) {
-    if (nowMs - entry.updatedAtMs > NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS)
-      attempts.delete(key);
-  }
-  while (attempts.size > NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS) {
-    let oldestKey: string | null = null;
-    let oldestUpdatedAtMs = Number.POSITIVE_INFINITY;
-    for (const [key, entry] of attempts) {
-      if (entry.updatedAtMs < oldestUpdatedAtMs) {
-        oldestKey = key;
-        oldestUpdatedAtMs = entry.updatedAtMs;
-      }
-    }
-    if (!oldestKey) break;
-    attempts.delete(oldestKey);
-  }
-}
-
-function videoDateDailyDiagnostic(
-  message: string,
-  data: Record<string, unknown>,
-) {
-  const safeData = sanitizeNativeDiagnosticRecord(data);
-  Sentry.addBreadcrumb({
-    category: "video-date-daily",
-    message,
-    level: "info",
-    data: safeData as Record<string, unknown> | undefined,
-  });
-}
-
-function destroyNativeVideoDateDailyCall(
-  call: DailyCallObject,
-  reason: string,
-  data?: Record<string, unknown>,
-): Promise<void> {
-  return registerNativeVideoDateDailyCleanup(
-    Promise.resolve().then(async () => {
-      await Promise.resolve(call.destroy());
-    }),
-    {
-      source: "native_video_date_route",
-      reason,
-      onDiagnostic: (eventName, payload) => {
-        vdbg(eventName, {
-          reason,
-          ...(data ?? {}),
-          ...payload,
-        });
-      },
-    },
-  );
-}
-
-async function ensureNativeFrontCameraIntent(
-  call: DailyCallObject,
-  context: {
-    sessionId: string;
-    roomName: string | null;
-    captureProfile: NativeVideoDateCaptureProfile;
-  },
-) {
-  const cameraControls = call as unknown as NativeDailyCameraControls;
-  if (typeof cameraControls.getCameraFacingMode !== "function") {
-    videoDateDailyDiagnostic("front_camera_intent_unavailable", {
-      session_id: context.sessionId,
-      room_name: context.roomName,
-      capture_profile: context.captureProfile,
-      reason: "unsupported_api",
-    });
-    return;
-  }
-  try {
-    const facingMode = await cameraControls.getCameraFacingMode();
-    if (facingMode !== "environment") {
-      videoDateDailyDiagnostic("front_camera_intent_checked", {
-        session_id: context.sessionId,
-        room_name: context.roomName,
-        capture_profile: context.captureProfile,
-        facing_mode: facingMode,
-        action: "none",
-      });
-      return;
-    }
-    if (typeof cameraControls.cycleCamera !== "function") {
-      videoDateDailyDiagnostic("front_camera_intent_unavailable", {
-        session_id: context.sessionId,
-        room_name: context.roomName,
-        capture_profile: context.captureProfile,
-        reason: "cycle_camera_unsupported",
-        facing_mode: facingMode,
-      });
-      return;
-    }
-    const result = await cameraControls.cycleCamera();
-    videoDateDailyDiagnostic("front_camera_intent_checked", {
-      session_id: context.sessionId,
-      room_name: context.roomName,
-      capture_profile: context.captureProfile,
-      facing_mode: facingMode,
-      action: "cycle_camera",
-      next_facing_mode: result?.device?.facingMode ?? null,
-    });
-  } catch (error) {
-    videoDateDailyDiagnostic("front_camera_intent_failed", {
-      session_id: context.sessionId,
-      room_name: context.roomName,
-      capture_profile: context.captureProfile,
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message }
-          : String(error),
-    });
-  }
-}
-
-/** Same keys as {@link videoDateDailyDiagnostic}; use where room name is only on refs (e.g. AppState). */
-function videoDateSessionDiagnostic(
-  message: string,
-  data: Record<string, unknown>,
-) {
-  const safeData = sanitizeNativeDiagnosticRecord(data);
-  Sentry.addBreadcrumb({
-    category: "video-date-session",
-    message,
-    level: "info",
-    data: safeData as Record<string, unknown> | undefined,
-  });
-}
-
-function addVideoDateBreadcrumb(
-  message: string,
-  level: "info" | "warning" | "error",
-  data?: Record<string, unknown>,
-) {
-  const safeData = sanitizeNativeDiagnosticRecord(data);
-  Sentry.addBreadcrumb({
-    category: "video-date",
-    message,
-    level,
-    data: safeData as Record<string, unknown> | undefined,
-  });
-}
-
-function shouldRecoverPendingPostDateSurvey(
-  session: {
-    participant_1_id?: string | null;
-    participant_2_id?: string | null;
-    ended_at?: string | null;
-    ended_reason?: string | null;
-    date_started_at?: string | null;
-    participant_1_joined_at?: string | null;
-    participant_2_joined_at?: string | null;
-    participant_1_remote_seen_at?: string | null;
-    participant_2_remote_seen_at?: string | null;
-    state?: string | null;
-    phase?: string | null;
-  } | null,
-  userId: string,
-  verdict: unknown,
-): boolean {
-  if (verdict) return false;
-  if (!getVideoSessionPartnerIdForUser(session, userId)) return false;
-  return videoSessionHasPostDateSurveyTruth(session);
-}
-
-function nativeVideoSessionIndicatesTerminalEnd(
-  session: {
-    ended_at?: string | null;
-    state?: string | null;
-    phase?: string | null;
-  } | null,
-): boolean {
-  return Boolean(
-    session &&
-    (session.ended_at ||
-      session.state === "ended" ||
-      session.phase === "ended"),
-  );
-}
-
-function shouldTerminalizeNativePeerMissingAbort(
-  truth: VideoSessionDateEntryTruth | null | undefined,
-): boolean {
-  if (!truth) return false;
-  if (
-    truth.ended_at ||
-    truth.date_started_at ||
-    truth.state === "ended" ||
-    truth.phase === "ended"
-  )
-    return false;
-  if (truth.state === "date" || truth.phase === "date") return false;
-  return (
-    Boolean(truth.participant_1_joined_at) !==
-    Boolean(truth.participant_2_joined_at)
-  );
-}
-
-type NativeTerminalSurveySessionRow = {
-  id?: string | null;
-  participant_1_id?: string | null;
-  participant_2_id?: string | null;
-  event_id?: string | null;
-  daily_room_name?: string | null;
-  daily_room_url?: string | null;
-  ended_at?: string | null;
-  ended_reason?: string | null;
-  date_started_at?: string | null;
-  participant_1_joined_at?: string | null;
-  participant_2_joined_at?: string | null;
-  participant_1_remote_seen_at?: string | null;
-  participant_2_remote_seen_at?: string | null;
-  state?: string | null;
-  phase?: string | null;
-};
-
-type NativeVideoDateEndReason =
-  | "ended_from_client"
-  | "partner_absent_after_confirmed_encounter"
-  | "date_timeout";
-
-type NativeTerminalSurveyRegistrationFallbackRow = {
-  event_id?: string | null;
-  queue_status?: string | null;
-  current_room_id?: string | null;
-  current_partner_id?: string | null;
-  last_active_at?: string | null;
-};
-
-const NATIVE_TERMINAL_SURVEY_SESSION_SELECT =
-  "id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, participant_1_remote_seen_at, participant_2_remote_seen_at, state, phase";
-// Survey-required terminal recovery intentionally uses this smaller projection
-// instead of the hot date-route session row owner.
-
-const NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT =
-  "event_id, queue_status, current_room_id, current_partner_id, last_active_at";
+import {
+  readNativeDailyProviderSessionId,
+  safeNativeDailyMeetingState,
+  NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
+  NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_MAX_ATTEMPTS,
+  NATIVE_VIDEO_DATE_DAILY_GUARD_CREATE_RETRY_BASE_MS,
+  nativeDailyCallSingletonState,
+  nativePrejoinPipelineKey,
+  summarizeSharedDailyError,
+  destroyNativeVideoDateDailyCall,
+  type DailyCallObject,
+  type DailyReceiveSettingsCapable,
+  type SharedDailyCallEntry,
+  type NativeDailyCleanupOptions,
+  type NativePrejoinPipelineEntry,
+  type PrejoinAttemptState,
+  type ActiveNativeDailyCallIdentity,
+} from "@/lib/daily/nativeDailyCallSingleton";
+import {
+  NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS,
+  NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS,
+  NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS,
+  NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS,
+  NATIVE_CAMERA_SWITCH_SAME_TRACK_REMOUNT_GRACE_MS,
+  NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK,
+  NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE,
+  NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS,
+  NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS,
+  getTrack,
+  summarizeVideoTrackSettings,
+  sleepNativeCameraSwitch,
+  normalizeNativeCameraFacingMode,
+  oppositeNativeCameraFacingMode,
+  nativeCameraDeviceId,
+  nativeCameraDeviceKey,
+  nativeCameraDeviceFacingMode,
+  nativeLocalCameraSnapshot,
+  chooseNativeCameraDevice,
+  describeNativeCameraSwitchError,
+  finiteNativeStat,
+  applyLocalMediaUiFromParticipant,
+  dailyParticipantId,
+  dailyParticipantSessionId,
+  nativeRemoteRenderTrackKey,
+  normalizeNativeRemoteRenderRecoveryScope,
+  pruneNativeRemoteRenderAttemptMap,
+  ensureNativeFrontCameraIntent,
+  type NativeMediaStreamTrack,
+  type NativeDailyCameraFacingMode,
+  type NativeDailyCameraControls,
+  type NativeDailyAppMessageControls,
+  type NativeDailyStatsControls,
+  type NativeLocalCameraSnapshot,
+  type NativeCameraSwitchCommit,
+  type NativeCameraSwitchCommitMethod,
+  type NativeCameraSwitchCommitExpectation,
+  type NativeRemoteRenderAttemptEntry,
+  type NativeCameraSwitchRenderWatch,
+} from "@/lib/daily/nativeDailyMediaHelpers";
+import {
+  NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS,
+  NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS,
+  NATIVE_VIDEO_DATE_SURFACE_CLAIM_RELEASE_GRACE_MS,
+  nextNativeSurfaceClaimBackoffMs,
+  nativeVideoDateActiveSurfaceOwners,
+  nativeVideoDateActiveSurfaceKey,
+  nativeVideoDateSurfaceClientInstanceIds,
+  nativeVideoDateSurfaceStorageKey,
+  createNativeVideoDateClientInstanceId,
+  createNativeVideoDateSurfaceOwnerId,
+  getOrCreateNativeVideoDateClientInstanceId,
+  getCachedNativeVideoDateClientInstanceId,
+  isValidNativeVideoDateClientInstanceId,
+  type NativeVideoDateSurfaceClaimResult,
+} from "@/lib/videoDate/nativeVideoDateSurfaceClient";
+import {
+  FIRST_CONNECT_TIMEOUT_MS,
+  PREJOIN_STEP_TIMEOUT_MS,
+  NATIVE_BACKGROUND_GRACE_MS,
+  NATIVE_VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS,
+  NATIVE_DAILY_TRANSPORT_RECONNECT_GRACE_MS,
+  NATIVE_BACKGROUND_GRACE_SECONDS,
+  NATIVE_BACKGROUND_RECOVERED_BANNER_MS,
+  NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS,
+  ICE_BREAKER_CLOCK_TICK_MS,
+  DATE_CONTROLS_STACK_HEIGHT,
+  DATE_PHASE_ICE_BREAKER_MIN_BOTTOM,
+  ENTRY_CTA_STACK_HEIGHT,
+  ENTRY_CTA_DOCK_TIGHTEN_OFFSET,
+  FLOATING_CHROME_GAP,
+  REMOTE_SEEN_RPC_MAX_ATTEMPTS,
+  REMOTE_SEEN_RPC_RETRY_DELAY_MS,
+  REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS,
+  MIN_DECISION_WINDOW_AFTER_MEDIA_MS,
+  sleepNativeRuntimeRecovery,
+  makeMutualExtensionIdempotencyKey,
+  WarmupChoiceNoticeBanner,
+  networkTierFromDailyEvent,
+  userMessageForTokenFailure,
+  READY_GATE_RACE_RETRY_BACKOFFS_MS,
+  NATIVE_PREPARE_DATE_ENTRY_RETRY_DELAYS_MS,
+  dailyRoomTokenRetryDelayMs,
+  refetchTruthAndCheckStartable,
+  videoDateDailyDiagnostic,
+  videoDateSessionDiagnostic,
+  addVideoDateBreadcrumb,
+  shouldRecoverPendingPostDateSurvey,
+  nativeVideoSessionIndicatesTerminalEnd,
+  shouldTerminalizeNativePeerMissingAbort,
+  NATIVE_TERMINAL_SURVEY_SESSION_SELECT,
+  NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT,
+  type DateTheme,
+  type EntryCtaTelemetrySnapshot,
+  type VideoDatePostJoinStage,
+  type DailyTokenRefreshSourceAction,
+  type DailyTokenRefreshFailureState,
+  type NativeTerminalSurveySessionRow,
+  type NativeVideoDateEndReason,
+  type NativeTerminalSurveyRegistrationFallbackRow,
+} from "@/lib/videoDate/videoDateScreenShared";
+import { styles } from "@/lib/videoDate/videoDateScreenStyles";
 
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -2098,40 +1248,40 @@ export default function VideoDateScreen() {
   const releaseSharedCallIfOwned = useCallback(
     (call: DailyCallObject | null, reason: string) => {
       if (!call) return;
-      if (sharedDailyCallEntry?.call !== call) return;
-      if (sharedDailyCallEntry.idleDestroyTimer) {
-        clearTimeout(sharedDailyCallEntry.idleDestroyTimer);
-        sharedDailyCallEntry.idleDestroyTimer = null;
+      if (nativeDailyCallSingletonState.sharedDailyCallEntry?.call !== call) return;
+      if (nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer) {
+        clearTimeout(nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer);
+        nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer = null;
       }
       vdbg("daily_call_singleton_release", {
         reason,
-        sessionId: sharedDailyCallEntry.sessionId,
-        userId: sharedDailyCallEntry.userId,
-        roomName: sharedDailyCallEntry.roomName,
-        state: sharedDailyCallEntry.state,
-        joinInFlight: Boolean(sharedDailyCallEntry.joinPromise),
+        sessionId: nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId,
+        userId: nativeDailyCallSingletonState.sharedDailyCallEntry.userId,
+        roomName: nativeDailyCallSingletonState.sharedDailyCallEntry.roomName,
+        state: nativeDailyCallSingletonState.sharedDailyCallEntry.state,
+        joinInFlight: Boolean(nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise),
       });
-      sharedDailyCallEntry = null;
+      nativeDailyCallSingletonState.sharedDailyCallEntry = null;
     },
     [],
   );
   const parkSharedCallForWarmHandoff = useCallback(
     (call: DailyCallObject, reason: string) => {
-      if (sharedDailyCallEntry?.call !== call) return false;
-      if (sharedDailyCallEntry.idleDestroyTimer) {
-        clearTimeout(sharedDailyCallEntry.idleDestroyTimer);
+      if (nativeDailyCallSingletonState.sharedDailyCallEntry?.call !== call) return false;
+      if (nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer) {
+        clearTimeout(nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer);
       }
       const idleMs = NATIVE_DAILY_CALL_SINGLETON_IDLE_MS;
-      sharedDailyCallEntry.state = "idle";
-      sharedDailyCallEntry.joinPromise = null;
-      sharedDailyCallEntry.joinStartedAtMs = null;
-      sharedDailyCallEntry.lastError = null;
-      sharedDailyCallEntry.parkedAtMs = Date.now();
-      sharedDailyCallEntry.idleDestroyTimer = null;
-      sharedDailyCallEntry.idleDestroyDisabled = idleMs == null;
+      nativeDailyCallSingletonState.sharedDailyCallEntry.state = "idle";
+      nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise = null;
+      nativeDailyCallSingletonState.sharedDailyCallEntry.joinStartedAtMs = null;
+      nativeDailyCallSingletonState.sharedDailyCallEntry.lastError = null;
+      nativeDailyCallSingletonState.sharedDailyCallEntry.parkedAtMs = Date.now();
+      nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer = null;
+      nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyDisabled = idleMs == null;
       if (typeof idleMs === "number") {
-        sharedDailyCallEntry.idleDestroyTimer = setTimeout(() => {
-          const entry = sharedDailyCallEntry;
+        nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer = setTimeout(() => {
+          const entry = nativeDailyCallSingletonState.sharedDailyCallEntry;
           if (!entry || entry.call !== call || entry.state !== "idle") return;
           const idleAgeMs = entry.parkedAtMs
             ? Math.max(0, Date.now() - entry.parkedAtMs)
@@ -2168,16 +1318,16 @@ export default function VideoDateScreen() {
               roomName: entry.roomName,
             },
           ).catch(() => undefined);
-          sharedDailyCallEntry = null;
+          nativeDailyCallSingletonState.sharedDailyCallEntry = null;
         }, idleMs);
       }
       vdbg("daily_call_singleton_parked", {
         reason,
-        sessionId: sharedDailyCallEntry.sessionId,
-        userId: sharedDailyCallEntry.userId,
-        roomName: sharedDailyCallEntry.roomName,
+        sessionId: nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId,
+        userId: nativeDailyCallSingletonState.sharedDailyCallEntry.userId,
+        roomName: nativeDailyCallSingletonState.sharedDailyCallEntry.roomName,
         idleMs,
-        idleDestroyDisabled: sharedDailyCallEntry.idleDestroyDisabled,
+        idleDestroyDisabled: nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyDisabled,
       });
       return true;
     },
@@ -7513,8 +6663,8 @@ export default function VideoDateScreen() {
 
     const prejoinPipelineKey = nativePrejoinPipelineKey(sessionId, user.id);
     const activePrejoinPipeline =
-      sharedNativePrejoinPipelineEntry?.key === prejoinPipelineKey
-        ? sharedNativePrejoinPipelineEntry
+      nativeDailyCallSingletonState.sharedNativePrejoinPipelineEntry?.key === prejoinPipelineKey
+        ? nativeDailyCallSingletonState.sharedNativePrejoinPipelineEntry
         : null;
     if (activePrejoinPipeline) {
       const observerKey = `${activePrejoinPipeline.key}:${activePrejoinPipeline.attemptId}:${activePrejoinPipeline.startedAtMs}`;
@@ -7524,7 +6674,7 @@ export default function VideoDateScreen() {
         ownerAttemptId: activePrejoinPipeline.attemptId,
         ageMs: Date.now() - activePrejoinPipeline.startedAtMs,
         hasCall: Boolean(callRef.current),
-        hasSharedCall: Boolean(sharedDailyCallEntry?.sessionId === sessionId),
+        hasSharedCall: Boolean(nativeDailyCallSingletonState.sharedDailyCallEntry?.sessionId === sessionId),
       });
       setJoining(true);
       setIsConnecting(true);
@@ -7607,7 +6757,7 @@ export default function VideoDateScreen() {
       startedAtMs: Date.now(),
       promise: null,
     };
-    sharedNativePrejoinPipelineEntry = prejoinPipelineEntry;
+    nativeDailyCallSingletonState.sharedNativePrejoinPipelineEntry = prejoinPipelineEntry;
     observedNativePrejoinPipelineKeyRef.current = `${prejoinPipelineEntry.key}:${attemptId}:${prejoinPipelineEntry.startedAtMs}`;
     vdbg("native_prejoin_pipeline_started", {
       sessionId,
@@ -7769,7 +6919,7 @@ export default function VideoDateScreen() {
         });
         return true;
       };
-      const sharedCallCandidate = sharedDailyCallEntry;
+      const sharedCallCandidate = nativeDailyCallSingletonState.sharedDailyCallEntry;
       if (sharedCallCandidate && sharedCallCandidate.userId !== user.id) {
         vdbg("daily_call_singleton_owner_mismatch_destroy", {
           sessionId: sharedCallCandidate.sessionId,
@@ -7779,7 +6929,7 @@ export default function VideoDateScreen() {
         });
         await destroySharedCallForRetry(sharedCallCandidate, "owner_mismatch");
       }
-      const sharedCall = sharedDailyCallEntry;
+      const sharedCall = nativeDailyCallSingletonState.sharedDailyCallEntry;
       if (sharedCall && sharedCall.sessionId === sessionId) {
         const canReuseIdleSharedCall = sharedCall.state === "idle";
         if (canReuseIdleSharedCall) {
@@ -9170,9 +8320,9 @@ export default function VideoDateScreen() {
       }
 
       let idleSingletonEntry =
-        sharedDailyCallEntry &&
-        sharedDailyCallEntry.state === "idle"
-          ? sharedDailyCallEntry
+        nativeDailyCallSingletonState.sharedDailyCallEntry &&
+        nativeDailyCallSingletonState.sharedDailyCallEntry.state === "idle"
+          ? nativeDailyCallSingletonState.sharedDailyCallEntry
           : null;
       if (idleSingletonEntry) {
         const idleAgeMs = idleSingletonEntry.parkedAtMs
@@ -9222,37 +8372,37 @@ export default function VideoDateScreen() {
       }
 
       if (
-        sharedDailyCallEntry &&
-        sharedDailyCallEntry.sessionId !== sessionId &&
+        nativeDailyCallSingletonState.sharedDailyCallEntry &&
+        nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId !== sessionId &&
         !idleSingletonEntry
       ) {
         vdbg("daily_call_singleton_destroy_previous_session", {
-          previousSessionId: sharedDailyCallEntry.sessionId,
+          previousSessionId: nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId,
           nextSessionId: sessionId,
-          roomName: sharedDailyCallEntry.roomName,
-          state: sharedDailyCallEntry.state,
+          roomName: nativeDailyCallSingletonState.sharedDailyCallEntry.roomName,
+          state: nativeDailyCallSingletonState.sharedDailyCallEntry.state,
         });
-        sharedDailyCallEntry.state = "leaving";
+        nativeDailyCallSingletonState.sharedDailyCallEntry.state = "leaving";
         try {
-          await sharedDailyCallEntry.call.leave();
+          await nativeDailyCallSingletonState.sharedDailyCallEntry.call.leave();
         } catch {
           /* best effort */
         }
         try {
           await destroyNativeVideoDateDailyCall(
-            sharedDailyCallEntry.call,
+            nativeDailyCallSingletonState.sharedDailyCallEntry.call,
             "daily_call_singleton_destroy_previous_session",
             {
-              previousSessionId: sharedDailyCallEntry.sessionId,
+              previousSessionId: nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId,
               sessionId,
               userId: user.id,
-              roomName: sharedDailyCallEntry.roomName,
+              roomName: nativeDailyCallSingletonState.sharedDailyCallEntry.roomName,
             },
           );
         } catch {
           /* best effort */
         }
-        sharedDailyCallEntry = null;
+        nativeDailyCallSingletonState.sharedDailyCallEntry = null;
       } else if (idleSingletonEntry) {
         const singletonReuseEvent =
           idleSingletonEntry.sessionId === sessionId
@@ -9379,7 +8529,7 @@ export default function VideoDateScreen() {
         }
         const reusedPrewarmed = reuseKind === "prewarm";
         dailyPrewarmConsumedForJoin = reusedPrewarmed;
-        sharedDailyCallEntry = {
+        nativeDailyCallSingletonState.sharedDailyCallEntry = {
           sessionId,
           userId: user.id,
           call: nextCall,
@@ -9579,12 +8729,12 @@ export default function VideoDateScreen() {
             token: tokenResult.token,
           });
           if (
-            sharedDailyCallEntry?.sessionId === sessionId &&
-            sharedDailyCallEntry.call === call
+            nativeDailyCallSingletonState.sharedDailyCallEntry?.sessionId === sessionId &&
+            nativeDailyCallSingletonState.sharedDailyCallEntry.call === call
           ) {
-            sharedDailyCallEntry.state = "joined";
-            sharedDailyCallEntry.joinPromise = null;
-            sharedDailyCallEntry.lastError = null;
+            nativeDailyCallSingletonState.sharedDailyCallEntry.state = "joined";
+            nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise = null;
+            nativeDailyCallSingletonState.sharedDailyCallEntry.lastError = null;
           }
           setLocalInDailyRoom(true);
           setAwaitingFirstConnect(false);
@@ -9638,15 +8788,15 @@ export default function VideoDateScreen() {
       const markSharedJoinInFlight = () => {
         if (!joinPromise) return;
         if (
-          sharedDailyCallEntry?.sessionId !== sessionId ||
-          sharedDailyCallEntry.call !== call
+          nativeDailyCallSingletonState.sharedDailyCallEntry?.sessionId !== sessionId ||
+          nativeDailyCallSingletonState.sharedDailyCallEntry.call !== call
         )
           return;
-        sharedDailyCallEntry.state = "joining";
-        sharedDailyCallEntry.joinPromise = joinPromise;
-        sharedDailyCallEntry.joinStartedAtMs =
+        nativeDailyCallSingletonState.sharedDailyCallEntry.state = "joining";
+        nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise = joinPromise;
+        nativeDailyCallSingletonState.sharedDailyCallEntry.joinStartedAtMs =
           dailyJoinStartedAtMsRef.current ?? Date.now();
-        sharedDailyCallEntry.lastError = null;
+        nativeDailyCallSingletonState.sharedDailyCallEntry.lastError = null;
       };
       vdbg("prejoin_state_isConnecting", {
         value: true,
@@ -9901,12 +9051,12 @@ export default function VideoDateScreen() {
           captureProfile: callCaptureProfile,
         });
         if (
-          sharedDailyCallEntry?.sessionId === sessionId &&
-          sharedDailyCallEntry.call === call
+          nativeDailyCallSingletonState.sharedDailyCallEntry?.sessionId === sessionId &&
+          nativeDailyCallSingletonState.sharedDailyCallEntry.call === call
         ) {
-          sharedDailyCallEntry.state = "joined";
-          sharedDailyCallEntry.joinPromise = null;
-          sharedDailyCallEntry.lastError = null;
+          nativeDailyCallSingletonState.sharedDailyCallEntry.state = "joined";
+          nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise = null;
+          nativeDailyCallSingletonState.sharedDailyCallEntry.lastError = null;
         }
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         endBootstrapTiming("daily_join", {
@@ -10322,12 +9472,12 @@ export default function VideoDateScreen() {
         }
       } catch (err) {
         if (
-          sharedDailyCallEntry?.sessionId === sessionId &&
-          sharedDailyCallEntry.call === call
+          nativeDailyCallSingletonState.sharedDailyCallEntry?.sessionId === sessionId &&
+          nativeDailyCallSingletonState.sharedDailyCallEntry.call === call
         ) {
-          sharedDailyCallEntry.state = "failed";
-          sharedDailyCallEntry.joinPromise = null;
-          sharedDailyCallEntry.lastError = summarizeSharedDailyError(err);
+          nativeDailyCallSingletonState.sharedDailyCallEntry.state = "failed";
+          nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise = null;
+          nativeDailyCallSingletonState.sharedDailyCallEntry.lastError = summarizeSharedDailyError(err);
         }
         const preparedEntryAtFailure = activePreparedEntryCacheRef.current;
         endBootstrapTiming("daily_join", {
@@ -10527,7 +9677,7 @@ export default function VideoDateScreen() {
     const runPromise = run();
     prejoinPipelineEntry.promise = runPromise;
     void runPromise.finally(() => {
-      if (sharedNativePrejoinPipelineEntry !== prejoinPipelineEntry) return;
+      if (nativeDailyCallSingletonState.sharedNativePrejoinPipelineEntry !== prejoinPipelineEntry) return;
       vdbg("native_prejoin_pipeline_release", {
         sessionId,
         userId: user.id,
@@ -10535,9 +9685,9 @@ export default function VideoDateScreen() {
         completed: attemptState.completed,
         currentStep: attemptState.currentStep,
         cancellationReason: attemptState.cancellationReason,
-        hasSharedCall: Boolean(sharedDailyCallEntry?.sessionId === sessionId),
+        hasSharedCall: Boolean(nativeDailyCallSingletonState.sharedDailyCallEntry?.sessionId === sessionId),
       });
-      sharedNativePrejoinPipelineEntry = null;
+      nativeDailyCallSingletonState.sharedNativePrejoinPipelineEntry = null;
     });
     return () => {
       if (callRef.current) {
@@ -13088,357 +12238,3 @@ export default function VideoDateScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
-  message: { fontSize: 18, marginBottom: 16 },
-  error: { fontSize: 16, textAlign: "center", marginBottom: 16 },
-  errorBar: {
-    position: "absolute",
-    top: 100,
-    left: 16,
-    right: 16,
-    padding: 12,
-    borderRadius: 8,
-  },
-  errorBarText: { color: "#fff", textAlign: "center" },
-  warmupChoiceNotice: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    zIndex: 90,
-    elevation: 20,
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingVertical: 12,
-    paddingLeft: 17,
-    paddingRight: 14,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    overflow: "hidden",
-    shadowColor: "hsl(263, 70%, 66%)",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.22,
-    shadowRadius: 22,
-  },
-  warmupChoiceNoticeRail: {
-    position: "absolute",
-    left: 0,
-    top: 12,
-    bottom: 12,
-    width: 4,
-    borderRadius: 999,
-  },
-  warmupChoiceNoticeIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.24)",
-    backgroundColor: "rgba(139,92,246,0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  warmupChoiceNoticeCopy: { flex: 1, marginLeft: 12 },
-  warmupChoiceNoticeTitle: { fontSize: 14, lineHeight: 18, fontWeight: "700" },
-  warmupChoiceNoticeMessage: { marginTop: 3, fontSize: 12, lineHeight: 17 },
-  extendBanner: {
-    position: "absolute",
-    top: 156,
-    left: 16,
-    right: 16,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  extendBannerText: { textAlign: "center", fontSize: 14, fontWeight: "600" },
-  nativeBackgroundBanner: {
-    position: "absolute",
-    top: 156,
-    left: 16,
-    right: 16,
-    zIndex: 58,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  nativeBackgroundTitle: {
-    textAlign: "center",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  nativeBackgroundText: {
-    marginTop: 3,
-    textAlign: "center",
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  button: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
-  buttonText: { color: "#fff", fontSize: 16 },
-  remoteContainer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
-  },
-  remoteGlassWash: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.08)",
-  },
-  placeholderRemote: { justifyContent: "center", alignItems: "center" },
-  placeholderText: { color: "#888", fontSize: 16 },
-  localPip: {
-    position: "absolute",
-    top: 108,
-    right: 16,
-    width: 112,
-    height: 154,
-    borderRadius: 22,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    backgroundColor: "#000",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.48,
-    shadowRadius: 28,
-    elevation: 10,
-  },
-  localVideo: { width: "100%", height: "100%" },
-  placeholderLocal: { justifyContent: "center", alignItems: "center" },
-  muteBadge: {
-    position: "absolute",
-    top: 6,
-    left: 6,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "hsl(0, 84%, 60%)",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  flipCameraBadge: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  localPipHandle: {
-    position: "absolute",
-    bottom: 8,
-    left: "50%",
-    width: 32,
-    height: 4,
-    marginLeft: -16,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.32)",
-  },
-  topBar: {
-    position: "absolute",
-    top: 50,
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  topBarFullWidth: { width: "100%", alignItems: "center" },
-  topChromeRow: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  partnerChip: {
-    minHeight: 56,
-    maxWidth: 172,
-    flexShrink: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingVertical: 7,
-    paddingLeft: 8,
-    paddingRight: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.36,
-    shadowRadius: 24,
-    elevation: 6,
-  },
-  partnerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  partnerAvatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  partnerAvatarInitial: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  partnerChipCopy: {
-    minWidth: 0,
-    flexShrink: 1,
-    gap: 3,
-  },
-  partnerChipName: {
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  partnerChipAge: {
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  partnerStatusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  partnerStatusText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  timerCluster: {
-    alignItems: "flex-end",
-    flexShrink: 0,
-    gap: 5,
-  },
-  stageTimerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  stagePill: {
-    minHeight: 38,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    justifyContent: "center",
-  },
-  stagePillText: {
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-  },
-  waitingTimerPill: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-  },
-  waitingTimerText: { fontSize: 12, fontWeight: "700" },
-  initialTimeoutWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 55,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: "rgba(0,0,0,0.88)",
-  },
-  initialTimeoutCard: {
-    width: "100%",
-    maxWidth: 360,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  initialTimeoutTitle: { fontSize: 17, fontWeight: "700" },
-  initialTimeoutSub: { fontSize: 14, lineHeight: 20 },
-  initialTimeoutActions: { gap: spacing.sm },
-  initialRetryBtn: {
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  initialRetryText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  initialBackBtn: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  initialBackText: { fontSize: 15, fontWeight: "600" },
-  initialBtnPressed: { opacity: 0.85 },
-  netHint: { fontSize: 11, fontWeight: "600" },
-  entryBottomStack: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  iceBreakerFloat: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    zIndex: 26,
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  iceBreakerCollapsed: {
-    alignSelf: "flex-start",
-    minHeight: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.28,
-    shadowRadius: 22,
-    elevation: 6,
-  },
-  iceBreakerCollapsedText: {
-    fontSize: 12,
-    fontFamily: fonts.display,
-  },
-  keepTheVibeWrap: {
-    position: "absolute",
-    top: 116,
-    right: 16,
-    alignItems: "flex-end",
-  },
-  controlsBar: { position: "absolute", bottom: 0, left: 0, right: 0 },
-});
