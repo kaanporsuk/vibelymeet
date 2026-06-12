@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const migration = readFileSync(
   join(root, "supabase/migrations/20260521234500_video_date_phase3_remaining_transition_rpcs.sql"),
@@ -28,7 +30,7 @@ const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
 );
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
 const webPostDateOutbox = readFileSync(join(root, "src/lib/postDateOutbox/execute.ts"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 // Regression guard for the Video Date handoff/timer-ownership fix.
 //
 // Production session d6178b76 ended in `handshake_timeout` with the Daily room
@@ -24,7 +26,7 @@ const nativeReadyGate = read(
 );
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 
 const readyGateSurfaces: Array<[string, string]> = [

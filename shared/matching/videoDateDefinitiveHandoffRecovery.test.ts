@@ -9,6 +9,8 @@ import {
   videoDateTokenRefreshRetryAfterMs,
 } from "./videoDatePublicApi";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260603215948_video_date_definitive_ready_gate_handoff_recovery.sql"),
   "utf8",
@@ -21,8 +23,8 @@ const earlyConfirmedEncounterPromotionMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260605115657_video_date_early_confirmed_encounter_promotion.sql"),
   "utf8",
 );
-const webVideoCallHook = readFileSync(join(process.cwd(), "src/hooks/useVideoCall.ts"), "utf8");
-const webVideoDatePage = readFileSync(join(process.cwd(), "src/pages/VideoDate.tsx"), "utf8");
+const webVideoCallHook = readWebVideoCallFlowSource(process.cwd());
+const webVideoDatePage = readWebVideoDatePageFlowSource(process.cwd());
 const nativeVideoDateRoute = readFileSync(join(process.cwd(), "apps/mobile/app/date/[id].tsx"), "utf8");
 const nativeVideoDateApi = readFileSync(join(process.cwd(), "apps/mobile/lib/videoDateApi.ts"), "utf8");
 

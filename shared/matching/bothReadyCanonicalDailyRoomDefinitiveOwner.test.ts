@@ -172,11 +172,21 @@ test("web and native hydration/active-session consumers use canonical route deci
     ["web active session", webActiveSession],
     ["native active session", nativeActiveSession],
   ] as const) {
-    assert.match(source, /decideCanonicalVideoDateRoute|decideVideoSessionRouteFromTruth/, name);
-    assert.match(source, /navigate_date|canonicalRoute\.target === ["']date["']|freshDateRoute/, name);
+    assert.match(
+      source,
+      /decideCanonicalVideoDateRoute|decideVideoSessionRouteFromTruth|decideVideoDateSurfaceRoute/,
+      name,
+    );
+    assert.match(
+      source,
+      /navigate_date|canonicalRoute\.target === ["']date["']|decision\.target === ["']date["']|freshDateRoute/,
+      name,
+    );
   }
 
-  assert.match(webHydration, /canonicalRoute\.target === "date"/);
+  // PR 7: web hydration delegates to the shared single surface-route decision.
+  assert.match(webHydration, /decideVideoDateSurfaceRoute/);
+  assert.match(webHydration, /decision\.target === "date"/);
   assert.match(nativeHydration, /canonicalRoute\.target === ["']date["']/);
   assert.match(webActiveSession, /truthDecision === "navigate_date"/);
   assert.match(nativeActiveSession, /truthDecision === 'navigate_date'/);

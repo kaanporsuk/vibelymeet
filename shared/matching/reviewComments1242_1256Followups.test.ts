@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -18,7 +20,7 @@ const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx"
 const nativeReadyOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const packageJson = read("package.json");
 
 function blockBetween(source: string, start: string, end: string): string {

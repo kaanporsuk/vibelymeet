@@ -4,14 +4,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decideCanonicalVideoDateRoute } from "./videoDateRouteDecision";
 
+import { readWebVideoCallFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const webHydration = read("src/components/session/SessionRouteHydration.tsx");
 const nativeHydration = read("apps/mobile/components/NativeSessionRouteHydration.tsx");
-const webLatch = read("src/lib/dateEntryTransitionLatch.ts");
+const webLatch = readWebVideoDateNavigationIntentsSource(root);
 const nativeLatch = read("apps/mobile/lib/dateEntryTransitionLatch.ts");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
@@ -55,9 +57,15 @@ test("registration in_survey dominates stale Ready Gate and missing session trut
 test("date route hydration only owns date-capable or latched routes", () => {
   assert.doesNotMatch(webHydration, /ready_gate_bounce_suppressed_date_owner/);
   assert.doesNotMatch(nativeHydration, /ready_gate_bounce_suppressed_date_owner/);
+  // PR 7: the web ready-gate bounce is decided by the shared surface-route
+  // decision, which releases ownership before hydration navigates.
   assert.match(
     webHydration,
-    /canonicalRoute\.target === "ready_gate"[\s\S]*clearVideoDateRouteOwnership\(sessionIdFromUrl, user\.id\)[\s\S]*navigate\(target, \{[\s\S]{0,220}source: "session_route_hydration_ready_gate_canonical"/,
+    /decision\.target === "ready"[\s\S]*navigate\(target, \{[\s\S]{0,220}source: "session_route_hydration_ready_gate_canonical"/,
+  );
+  assert.match(
+    read("shared/videoDate/routeDecision.ts"),
+    /canonical\.target === "ready_gate"[\s\S]{0,260}clearOwnership\(\);/,
   );
   assert.match(
     nativeHydration,

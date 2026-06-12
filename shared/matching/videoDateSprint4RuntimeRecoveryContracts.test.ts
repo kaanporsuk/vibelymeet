@@ -9,9 +9,11 @@ import {
 } from "./videoDateTimeline";
 import type { VideoDateSnapshotOk } from "./videoDateSnapshot";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
-const webDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
-const webCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
+const webDate = readWebVideoDatePageFlowSource(root);
+const webCall = readWebVideoCallFlowSource(root);
 const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
 

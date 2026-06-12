@@ -68,12 +68,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
-import { claimDateNavigation } from "@/lib/dateNavigationGuard";
 import {
+  claimDateNavigation,
   isDateEntryTransitionActive,
   isVideoDateRouteOwned,
   markVideoDateRouteOwned,
-} from "@/lib/dateEntryTransitionLatch";
+} from "@/lib/videoDateNavigationIntents";
 import {
   canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,

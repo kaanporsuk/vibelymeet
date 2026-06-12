@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const migration = readFileSync(
   join(root, "supabase/migrations/20260522014000_video_date_phase6_safety_extension_certification.sql"),
@@ -25,7 +27,7 @@ const extensionSpend = readFileSync(
   "utf8",
 );
 const extensionCopy = readFileSync(join(root, "shared/matching/videoDateExtensionCopy.ts"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webKeepTheVibe = readFileSync(join(root, "src/components/video-date/KeepTheVibe.tsx"), "utf8");
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const nativeApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");

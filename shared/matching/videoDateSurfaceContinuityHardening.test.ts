@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -14,10 +16,10 @@ const readyGateRouteLabelCleanupMigration = read(
 );
 const webDupGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webLobby = read("src/pages/EventLobby.tsx");
-const webVideoDate = read("src/pages/VideoDate.tsx");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const readyRedirect = read("src/pages/ReadyRedirect.tsx");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
-const webDateEntryLatch = read("src/lib/dateEntryTransitionLatch.ts");
+const webDateEntryLatch = readWebVideoDateNavigationIntentsSource(root);
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");

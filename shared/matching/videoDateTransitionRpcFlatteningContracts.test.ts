@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -11,9 +13,9 @@ const flattenMigration = read(
 );
 
 const activeRpcSources = [
-  ["src/pages/VideoDate.tsx", read("src/pages/VideoDate.tsx")],
+  ["src/pages/VideoDate.tsx", readWebVideoDatePageFlowSource(root)],
   ["src/hooks/useReconnection.ts", read("src/hooks/useReconnection.ts")],
-  ["src/hooks/useVideoCall.ts", read("src/hooks/useVideoCall.ts")],
+  ["src/hooks/useVideoCall.ts", readWebVideoCallFlowSource(root)],
   ["src/pages/Dashboard.tsx", read("src/pages/Dashboard.tsx")],
   ["apps/mobile/lib/videoDateApi.ts", read("apps/mobile/lib/videoDateApi.ts")],
   ["supabase/functions/daily-room/index.ts", read("supabase/functions/daily-room/index.ts")],

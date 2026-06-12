@@ -10,9 +10,11 @@ import {
 } from "./videoDateTimeline";
 import type { VideoDateSnapshotOk } from "./videoDateSnapshot";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const timeline = readFileSync(join(root, "shared/matching/videoDateTimeline.ts"), "utf8");
-const webDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webDate = readWebVideoDatePageFlowSource(root);
 const webVibeCheckButton = readFileSync(join(root, "src/components/video-date/VibeCheckButton.tsx"), "utf8");
 const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const nativeVibeCheckButton = readFileSync(join(root, "apps/mobile/components/video-date/VibeCheckButton.tsx"), "utf8");

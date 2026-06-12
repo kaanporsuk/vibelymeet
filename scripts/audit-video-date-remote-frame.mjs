@@ -48,10 +48,21 @@ function assertNoCropTokens(label, value) {
   assert(!/\boverflow-hidden\b/.test(value), `${label}: must not hide overflow around the remote video`);
 }
 
-const webDatePath = "src/pages/VideoDate.tsx";
-const webDate = read(webDatePath);
-const webVideoCallPath = "src/hooks/useVideoCall.ts";
-const webVideoCall = read(webVideoCallPath);
+// PR 7 decomposed these into file families; concat the families so every
+// existing regex pin guards the same behavior regardless of which family
+// file hosts the symbol (same approach as shared/testUtils/webVideoDateFlowSources.ts).
+const webDatePath = "src/pages/videoDate/videoDatePageShared.tsx + src/pages/VideoDate.tsx";
+const webDate = [
+  "src/pages/videoDate/videoDatePageShared.tsx",
+  "src/pages/VideoDate.tsx",
+].map((p) => read(p)).join("\n");
+const webVideoCallPath =
+  "src/lib/daily/webDailyMediaHelpers.ts + src/lib/daily/webDailyCallSingleton.ts + src/hooks/useVideoCall.ts";
+const webVideoCall = [
+  "src/lib/daily/webDailyMediaHelpers.ts",
+  "src/lib/daily/webDailyCallSingleton.ts",
+  "src/hooks/useVideoCall.ts",
+].map((p) => read(p)).join("\n");
 const webDailyConfigPath = "src/lib/dailyCallObjectConfig.ts";
 const webDailyConfig = read(webDailyConfigPath);
 const webDailyPrewarmPath = "src/lib/videoDateDailyPrewarm.ts";

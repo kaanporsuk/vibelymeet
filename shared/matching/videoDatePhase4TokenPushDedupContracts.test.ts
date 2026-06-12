@@ -11,6 +11,8 @@ import {
   videoDateTimelineFromPushPreload,
 } from "./videoDatePhase4";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const dailyRoom = readFileSync(join(root, "supabase/functions/daily-room/index.ts"), "utf8");
 const tokenRefresh = readFileSync(join(root, "supabase/functions/video-date-token-refresh/index.ts"), "utf8");
@@ -20,7 +22,7 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260524190000_video_date_phase4_token_push_dedup.sql"),
   "utf8",
 );
-const webVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const webOneSignal = readFileSync(join(root, "src/lib/onesignal.ts"), "utf8");
 const nativeDeepLink = readFileSync(join(root, "apps/mobile/components/NotificationDeepLinkHandler.tsx"), "utf8");

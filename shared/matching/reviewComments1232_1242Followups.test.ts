@@ -39,9 +39,17 @@ function publicFunctionRefs(sql: string): string[] {
 test("Ready Gate canonical truth does not claim date route ownership", () => {
   for (const source of [webHydration, nativeHydration] as const) {
     assert.doesNotMatch(source, /ready_gate_bounce_suppressed_date_owner/);
-    assert.match(source, /canonicalRoute\.target === "ready_gate"/);
-    assert.match(source, /clearVideoDateRouteOwnership/);
   }
+  assert.match(nativeHydration, /canonicalRoute\.target === "ready_gate"/);
+  assert.match(nativeHydration, /clearVideoDateRouteOwnership/);
+  // PR 7: web hydration delegates the ready-gate bounce to the shared
+  // surface-route decision, which releases ownership before the redirect.
+  const sharedSurfaceRouteDecision = read("shared/videoDate/routeDecision.ts");
+  assert.match(webHydration, /decision\.target === "ready"/);
+  assert.match(
+    sharedSurfaceRouteDecision,
+    /canonical\.target === "ready_gate"[\s\S]{0,200}clearLatch\(\);[\s\S]{0,200}clearOwnership\(\);/,
+  );
   assert.match(webHydration, /session_route_hydration_ready_gate_canonical/);
   assert.match(nativeHydration, /route_bounced_to_ready/);
 });

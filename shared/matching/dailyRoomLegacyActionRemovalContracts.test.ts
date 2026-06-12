@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 
 function read(path: string): string {
@@ -19,7 +21,7 @@ const dailyRoomFailure = read("shared/matching/dailyRoomFailure.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const sharedPrepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
-const webVideoCall = read("src/hooks/useVideoCall.ts");
+const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
 const webReadiness = read("src/lib/videoDateReadiness.ts");

@@ -9,6 +9,8 @@ import {
   videoDateLifecycleRpcRetryable,
 } from "./videoDateLifecycleRpc";
 
+import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
@@ -39,8 +41,8 @@ const remoteSeenLintCleanupMigration = read(
 const activeOwnerTerminalTruthMigration = read(
   "supabase/migrations/20260608171837_video_date_active_owner_terminal_truth.sql",
 );
-const webHook = read("src/hooks/useVideoCall.ts");
-const webDate = read("src/pages/VideoDate.tsx");
+const webHook = readWebVideoCallFlowSource(root);
+const webDate = readWebVideoDatePageFlowSource(root);
 const nativeDate = read("apps/mobile/app/date/[id].tsx");
 const nativeApi = read("apps/mobile/lib/videoDateApi.ts");
 const supabaseTypes = read("src/integrations/supabase/types.ts");

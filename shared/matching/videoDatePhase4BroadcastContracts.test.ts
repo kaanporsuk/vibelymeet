@@ -9,6 +9,8 @@ import {
   videoDateSessionTopic,
 } from "./videoDateSessionChannel";
 
+import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+
 const root = process.cwd();
 const migration = readFileSync(
   join(root, "supabase/migrations/20260522003000_video_date_phase4_private_broadcast.sql"),
@@ -27,7 +29,7 @@ const sessionChannel = readFileSync(
   "utf8",
 );
 const webReadyGate = readFileSync(join(root, "src/hooks/useReadyGate.ts"), "utf8");
-const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webEventLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeReadyGate = readFileSync(join(root, "apps/mobile/lib/readyGateApi.ts"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
