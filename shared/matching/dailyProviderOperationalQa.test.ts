@@ -82,7 +82,16 @@ const nativeDailyCallInstance = read("apps/mobile/lib/nativeDailyCallInstance.ts
 const nativeDailyPrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");
 const nativeVideoDateReadiness = read("apps/mobile/lib/videoDateReadiness.ts");
 const nativeReadyGateOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-const nativeReadyStandalone = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5 split the standalone ready screen body into lib/videoDate sub-hooks;
+// read the family so pins keep guarding the moved-verbatim bodies.
+const nativeReadyStandalone = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");

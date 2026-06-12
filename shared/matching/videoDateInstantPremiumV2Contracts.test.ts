@@ -243,7 +243,9 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(nativeVideoDate, /daily_call_singleton_idle_reuse_rejected/);
   assert.match(nativeVideoDate, /idleSingletonEntry\.call\.participants\(\)/);
   assert.match(nativeVideoDate, /idleDestroyDisabled: boolean/);
-  assert.match(nativeVideoDate, /sharedDailyCallEntry\.idleDestroyDisabled = idleMs == null/);
+  // PR #1309 narrowed the parked shared entry to a local `entry` const before
+  // the idle-destroy stamping; pin the narrowed assignment.
+  assert.match(nativeVideoDate, /\bentry\.idleDestroyDisabled = idleMs == null/);
   assert.match(nativeVideoDate, /const meetingStateBeforeCleanup = safeNativeDailyMeetingState\(call\)/);
   assert.match(nativeVideoDate, /cleanupMode === "preserve_active_handoff"[\s\S]{0,220}!showFeedback\s*&&\s*!terminalSurveyHardStopRef\.current\s*&&\s*phaseRef\.current !== "ended"/);
   assert.match(nativeVideoDate, /meetingStateBeforeCleanup !== "left-meeting"[\s\S]{0,80}meetingStateBeforeCleanup !== "error"/);

@@ -19,6 +19,10 @@ const nativeReadyGateOverlay = read(
   "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
 );
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5 moved reconcileFromCanonicalTruth into this sub-hook verbatim.
+const nativeReadyTruthReconcile = read(
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+);
 const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeMediaPermissions = read(
@@ -328,10 +332,12 @@ test("standalone native ready route leaves provider entry to prepare-date-entry"
   assert.doesNotMatch(nativeReadyRoute, /startRoomWarmupAfterReady/);
   assert.doesNotMatch(nativeReadyRoute, /videoDateRoomWarmupAfterReadyEnabled/);
   assert.doesNotMatch(nativeReadyRoute, /ensureVideoDateRoomWarmup/);
+  assert.doesNotMatch(nativeReadyTruthReconcile, /startRoomWarmupAfterReady/);
+  assert.doesNotMatch(nativeReadyTruthReconcile, /ensureVideoDateRoomWarmup/);
 
   const canonicalDateEntryBlock =
     /const reconcileFromCanonicalTruth = useCallback\([\s\S]*?\n {6}\/\/ Not startable/.exec(
-      nativeReadyRoute,
+      nativeReadyTruthReconcile,
     )?.[0] ?? "";
   assert.ok(canonicalDateEntryBlock, "standalone ready route should keep authoritative date entry in canonical reconciliation");
   assert.match(canonicalDateEntryBlock, /prepareVideoDateEntry\(sid/);

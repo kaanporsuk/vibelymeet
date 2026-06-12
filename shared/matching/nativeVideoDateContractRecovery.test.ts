@@ -16,7 +16,15 @@ const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");
 const nativeActiveSession = read("apps/mobile/lib/useActiveSession.ts");
 const nativeReadyOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5: ready screen body split across lib/videoDate sub-hooks; read the family.
+const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 
 const nativeVideoDateFiles = [
@@ -120,7 +128,10 @@ test("native video-date lifecycle uses backend RPC surfaces", () => {
 test("native date route handles ended and event-inactive/stale blockers without retry loops", () => {
   assert.match(nativeDateRoute, /case ["']SESSION_ENDED["']:/);
   assert.match(nativeDateRoute, /case ["']EVENT_NOT_ACTIVE["']:/);
-  assert.match(nativeDateRoute, /truthDecision === ['"]ended['"]/);
+  assert.match(
+    nativeDateRoute,
+    /decision\.target === ['"]survey['"] \|\| decision\.target === ['"]ended['"]/,
+  );
   assert.match(nativeDateRoute, /shouldRecoverPendingPostDateSurvey/);
   assert.match(nativeDateRoute, /recoverFromNotStartableDateTruth/);
   assert.match(nativeDateRoute, /clearDateEntryTransition\(sessionId\)/);

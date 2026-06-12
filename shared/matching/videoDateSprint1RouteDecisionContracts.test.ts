@@ -393,7 +393,11 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("apps/mobile/lib/activeSessionRoutes.ts"), /hrefForCanonicalVideoDateRoute/);
   assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /decideCanonicalVideoDateRoute/);
   assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /recommend: ['"]survey['"]/);
-  assert.match(read("apps/mobile/app/ready/[id].tsx"), /startable\.recommend === ['"]survey['"]/);
+  // PR 8.5: the standalone ready reconcile body lives in its sub-hook.
+  const nativeReadyTruthReconcile = read(
+    "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  );
+  assert.match(nativeReadyTruthReconcile, /startable\.recommend === ['"]survey['"]/);
   assert.match(read("apps/mobile/app/ready/[id].tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /startable\.recommend === ['"]survey['"]/);
   assert.match(readNativeVideoDateScreenFlowSource(), /adviseVideoSessionTruthRecovery/);

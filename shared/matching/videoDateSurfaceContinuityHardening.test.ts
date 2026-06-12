@@ -23,7 +23,16 @@ const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const webDateEntryLatch = readWebVideoDateNavigationIntentsSource(root);
 const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
-const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5 split the standalone ready screen body into lib/videoDate sub-hooks;
+// read the family so pins keep guarding the moved-verbatim bodies.
+const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const nativeSurvey = read(
   "apps/mobile/components/video-date/PostDateSurvey.tsx",
 );
@@ -279,13 +288,16 @@ test("date-route ownership suppresses stale Ready Gate and lobby bounces on web 
     nativeDateRoute,
     /phaseRef\.current === ['"]handshake['"][\s\S]{0,220}markVideoDateRouteOwned\(sessionId, user\.id\)/,
   );
+  // PR 8.5 guard port: one shared-decision suppression path (ready/lobby
+  // folded into suppressedBy on the date_route decision).
+  assert.match(nativeDateRoute, /surface: "date_route"/);
   assert.match(
     nativeDateRoute,
-    /date_guard_ready_bounce_suppressed_by_route_ownership/,
+    /date_guard_bounce_suppressed_by_route_ownership/,
   );
   assert.match(
     nativeDateRoute,
-    /date_guard_lobby_bounce_suppressed_by_route_ownership/,
+    /route_bounce_suppressed_by_date_ownership/,
   );
   assert.match(
     nativeDateRoute,

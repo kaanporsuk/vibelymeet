@@ -241,12 +241,13 @@ test("Daily/provider evidence RPCs are owned only by the date surfaces", () => {
       "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
       "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
     ],
+    // PR 8.5 moved the native bodies into their concern hooks too.
     mark_video_date_daily_joined: [
-      "apps/mobile/app/date/[id].tsx",
+      "apps/mobile/lib/videoDate/useNativeVideoDateStartCall.ts",
       "src/hooks/videoCall/useVideoDateStartCall.ts",
     ],
     mark_video_date_remote_seen: [
-      "apps/mobile/app/date/[id].tsx",
+      "apps/mobile/lib/videoDate/useNativeVideoDateRemoteSeen.ts",
       "src/hooks/videoCall/useVideoDateRemoteSeen.ts",
     ],
   };
@@ -258,7 +259,8 @@ test("Daily/provider evidence RPCs are owned only by the date surfaces", () => {
 
 test("surface claim, ready commit, and post-date writes keep separate owners", () => {
   assert.deepEqual(filesWithRpcCall("claim_video_date_surface"), [
-    "apps/mobile/app/date/[id].tsx",
+    // PR 8.5: the native claim loop lives in its concern hook.
+    "apps/mobile/lib/videoDate/useNativeVideoDateSurfaceClaim.ts",
     "src/hooks/useVideoDateDupTabGuard.ts",
   ]);
   assert.deepEqual(filesWithRpcCall("video_session_mark_ready_v2"), [

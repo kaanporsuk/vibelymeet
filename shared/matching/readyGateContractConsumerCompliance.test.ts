@@ -149,7 +149,17 @@ test("web date handoff remains gated by prepare-entry or date-capable backend tr
 test("native date handoff remains gated by prepare-entry or date-capable backend truth", () => {
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /prepareVideoDateEntry/);
   assert.match(read("apps/mobile/lib/videoDatePrepareEntry.ts"), /PREPARE_VIDEO_DATE_ENTRY_ACTION/);
-  assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /prepareVideoDateEntry/);
+  // PR 8 made the startable gate prepare-free: it consumes the prepared-entry
+  // handoff cache instead of calling prepare itself (prepare owners are the
+  // Ready Gate overlay / standalone ready / explicit date-route recovery).
+  assert.match(
+    read("apps/mobile/lib/videoDateEntryStartable.ts"),
+    /peekPreparedVideoDateEntryHandoff/,
+  );
+  assert.match(
+    read("apps/mobile/lib/videoDateEntryStartable.ts"),
+    /'fresh_prepared_handoff'/,
+  );
   assert.match(read("apps/mobile/app/ready/[id].tsx"), /ensureVideoDateStartableBeforeNavigation/);
 });
 

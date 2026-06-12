@@ -93,7 +93,6 @@ import { fetchReadyGateSharedVibes } from '@/lib/readyGateSharedVibes';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
-const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 const READY_GATE_SYNC_TIMEOUT_COOLDOWN_MS = 3_000;
 
 function isReadyGateTransitionTimeoutSignal(input: {
@@ -269,395 +268,43 @@ export default function ReadyGateScreen() {
     [eventId, sessionId, syncSession],
   );
 
-  const refreshNativeMediaDiagnostics = useCallback(
-    async (permission: boolean | null = hasMediaPermission) => {
-      const activeSessionId = activeSessionIdRef.current;
-      setNativeMediaDiagnostics((current) => ({
-        ...current,
-        cameraDeviceStatus: permission
-          ? 'checking'
-          : current.cameraDeviceStatus,
-        microphoneDeviceStatus: permission
-          ? 'checking'
-          : current.microphoneDeviceStatus,
-      }));
-      const next = await inspectNativeReadyGateMediaDevices(permission);
-      if (activeSessionIdRef.current !== activeSessionId) return;
-      setNativeMediaDiagnostics(next);
-    },
-    [hasMediaPermission],
-  );
-
-  const applyMediaPermissionResult = useCallback(
-    (
-      result: Awaited<
-        ReturnType<typeof requestNativeCameraMicrophonePermissions>
-      >,
-    ) => {
-      setHasMediaPermission(result.ok);
-      setPermissionsResolved(true);
-      setNativePermissionDiagnostics((current) => ({
-        cameraPermissionStatus:
-          !result.ok &&
-          current.cameraPermissionStatus === 'blocked' &&
-          result.cameraStatus !== 'granted'
-            ? 'blocked'
-            : result.permissions.cameraPermissionStatus,
-        microphonePermissionStatus:
-          !result.ok &&
-          current.microphonePermissionStatus === 'blocked' &&
-          result.microphoneStatus !== 'granted'
-            ? 'blocked'
-            : result.permissions.microphonePermissionStatus,
-      }));
-      void refreshNativeMediaDiagnostics(result.ok);
-      return result.ok;
-    },
-    [refreshNativeMediaDiagnostics],
-  );
-
-  const checkMediaPermissions = useCallback(async (): Promise<boolean> => {
-    const result = await checkNativeCameraMicrophonePermissions({
-      sessionId: sessionId ? String(sessionId) : null,
-      userId: user?.id ?? null,
-      sources: {
-        androidExisting: 'standalone_ready_android_existing_grants',
-        androidRequest: 'standalone_ready_android_request',
-        nativeExisting: 'standalone_ready_native_existing_grants',
-        nativeRequest: 'standalone_ready_native_request',
-      },
-    });
-    return applyMediaPermissionResult(result);
-  }, [applyMediaPermissionResult, sessionId, user?.id]);
-
-  const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
-    const result = await requestNativeCameraMicrophonePermissions({
-      sessionId: sessionId ? String(sessionId) : null,
-      userId: user?.id ?? null,
-      sources: {
-        androidExisting: 'standalone_ready_android_existing_grants',
-        androidRequest: 'standalone_ready_android_request',
-        nativeExisting: 'standalone_ready_native_existing_grants',
-        nativeRequest: 'standalone_ready_native_request',
-      },
-    });
-    return applyMediaPermissionResult(result);
-  }, [applyMediaPermissionResult, sessionId, user?.id]);
-
-  useSettingsReturnRefresh({
-    wasOpenedRef: permissionSettingsOpenedRef,
-    refresh: checkMediaPermissions,
-    source: 'ready_screen_media',
+  const {
+    refreshNativeMediaDiagnostics,
+    checkMediaPermissions,
+    requestMediaPermissions,
+    openMediaPermissionSettings,
+  } = useNativeReadyGateMediaPermissions({
+    activeSessionIdRef,
+    hasMediaPermission,
+    permissionSettingsOpenedRef,
+    sessionId,
+    setHasMediaPermission,
+    setNativeMediaDiagnostics,
+    setNativePermissionDiagnostics,
+    setPermissionsResolved,
+    user,
   });
-
-  const openMediaPermissionSettings = useCallback(async () => {
-    permissionSettingsOpenedRef.current = true;
-    const opened = await openPermissionSettings('ready_screen_media');
-    if (!opened) {
-      permissionSettingsOpenedRef.current = false;
-      void checkMediaPermissions();
-    }
-  }, [checkMediaPermissions]);
 
   useEffect(() => {
     activeSessionIdRef.current = sessionId ? String(sessionId) : null;
     readyActionInFlightRef.current = false;
   }, [sessionId]);
 
-  const reconcileFromCanonicalTruth = useCallback(
-    async (source: string) => {
-      if (!sessionId || !user?.id) return false;
-      const sid = String(sessionId);
-      const [startable, regRes] = await Promise.all([
-        ensureVideoDateStartableBeforeNavigation({
-          sessionId: sid,
-          source: `ready_standalone_${source}`,
-          userId: user.id,
-        }),
-        supabase
-          .from('event_registrations')
-          .select('queue_status, current_room_id')
-          .eq('profile_id', user.id)
-          .eq('current_room_id', sid)
-          .maybeSingle(),
-      ]);
-      const reg = regRes.data;
-      const vs = startable.truth;
-      const routedTo = startable.ok
-        ? 'date'
-        : startable.recommend === 'ready'
-          ? 'ready'
-          : startable.recommend === 'survey'
-            ? 'survey'
-            : startable.recommend === 'ended'
-              ? 'ended'
-              : 'lobby';
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
-        session_id: sid,
-        user_id: user.id,
-        startable_ok: startable.ok,
-        startable_reason: startable.reason,
-        routed_to: routedTo,
-        source,
-        queue_status: reg?.queue_status ?? null,
-        current_room_id: reg?.current_room_id ?? null,
-        vs_state: vs?.state ?? null,
-        vs_phase: vs?.phase ?? null,
-        entry_started_at: Boolean(vs?.entry_started_at),
-        ready_gate_status: vs?.ready_gate_status ?? null,
-        ready_gate_expires_at:
-          vs?.ready_gate_expires_at == null
-            ? null
-            : String(vs.ready_gate_expires_at),
-      });
-
-      if (startable.ok) {
-        if (dateNavigationStartedRef.current) {
-          rcBreadcrumb(
-            RC_CATEGORY.readyGate,
-            'standalone_duplicate_date_nav_suppressed',
-            {
-              session_id: sid,
-              source,
-              startable_reason: startable.reason,
-            },
-          );
-          return true;
-        }
-        dateNavigationStartedRef.current = true;
-        setPrepareEntryFailureCode(null);
-        setPrepareEntryFailureRetryable(false);
-        const prepared = await prepareVideoDateEntry(sid, {
-          eventId: eventId ?? null,
-          userId: user.id,
-          source: `ready_standalone_${source}`,
-        });
-        if (prepared.ok !== true) {
-          setPrepareEntryFailureCode(prepared.code);
-          setPrepareEntryFailureRetryable(prepared.retryable);
-          setTerminalActionError(null);
-          const prepareRecoveryInput = {
-            code: prepared.code,
-            errorCode: prepared.code,
-            httpStatus: prepared.httpStatus ?? null,
-            reason: prepared.message ?? null,
-            source: 'prepare_entry',
-          };
-          rcBreadcrumb(
-            RC_CATEGORY.readyGate,
-            'standalone_prepare_entry_failed_date_owned',
-            {
-              session_id: sid,
-              user_id: user.id,
-              event_id: eventId,
-              source,
-              code: prepared.code,
-              retryable: prepared.retryable,
-            },
-          );
-          if (isReadyGatePrepareEntryNonRetryable(prepareRecoveryInput)) {
-            const recovery = resolveReadyGateTerminalRecovery(prepareRecoveryInput);
-            dateNavigationStartedRef.current = false;
-            nonRetryablePrepareBlockerRef.current = `${sid}:${prepared.code}:prepare_entry`;
-            clearDateEntryTransition(sid);
-            cancelTerminalReadyGateWork(
-              `ready_standalone_prepare_entry_nonretryable_${recovery.category}`,
-            );
-            setTransitioning(false);
-            setTerminalActionError(recovery.body);
-            return true;
-          }
-          setTransitioning(true);
-          updateVideoDateEntryOwnerState({
-            sessionId: sid,
-            userId: user.id,
-            state: 'navigating',
-            source: 'ready_standalone_prepare_failed_date_owned',
-            entryAttemptId: prepared.entryAttemptId ?? null,
-            videoDateTraceId: prepared.entryAttemptId ?? null,
-            failureCode: prepared.code,
-            failureMessage: prepared.message ?? null,
-          });
-          markVideoDateRouteOwned(sid, user.id);
-          const navigated = navigateToDateSessionGuarded({
-            sessionId: sid,
-            pathname,
-            mode: 'replace',
-            onSuppressed: ({ reason: suppressReason, target }) => {
-              rcBreadcrumb(
-                RC_CATEGORY.readyGate,
-                'standalone_prepare_failed_date_nav_suppressed',
-                {
-                  session_id: sid,
-                  reason: suppressReason,
-                  target: String(target),
-                  source,
-                },
-              );
-            },
-          });
-          if (!navigated) {
-            setTransitioning(false);
-          }
-          if (source === 'both_ready' && navigated) {
-            videoDateLaunchBreadcrumb(
-              'ready_standalone_prepare_failed_date_owned',
-              {
-                session_id: sid,
-              },
-            );
-            markNativeVideoDateLaunchIntent(
-              'ready_standalone_prepare_failed_date_owned',
-            );
-          }
-          return true;
-        }
-        void startNativeVideoDateDailyPrewarm({
-          sessionId: sid,
-          userId: user.id,
-          eventId: eventId ?? null,
-          roomName: prepared.data.room_name,
-          roomUrl: prepared.data.room_url,
-          source: `ready_standalone_${source}`,
-        })
-          .then((prewarm) => {
-            if (prewarm.ok) {
-              // Pre-authenticate only — do NOT join Daily from the ready route. The
-              // real join (which starts the backend entry clock) is owned by
-              // /date (useVideoCall.startCall) so the warm-up window starts there.
-              void preAuthNativeVideoDateDailyPrewarm({
-                sessionId: sid,
-                userId: user.id,
-                eventId: eventId ?? null,
-                roomName: prepared.data.room_name,
-                roomUrl: prepared.data.room_url,
-                token: prepared.data.token,
-                source: `ready_standalone_${source}`,
-              });
-            }
-          })
-          .catch((error) => {
-            rcBreadcrumb(
-              RC_CATEGORY.readyGate,
-              'standalone_daily_prewarm_failed_before_date_nav',
-              {
-                session_id: sid,
-                user_id: user.id,
-                event_id: eventId,
-                source,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          });
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
-          session_id: sid,
-          source,
-          startable_reason: startable.reason,
-          ready_gate_status: vs?.ready_gate_status ?? null,
-          ready_gate_expires_at:
-            vs?.ready_gate_expires_at == null
-              ? null
-              : String(vs.ready_gate_expires_at),
-        });
-        setTransitioning(true);
-        updateVideoDateEntryOwnerState({
-          sessionId: sid,
-          userId: user.id,
-          state: 'navigating',
-          source: `ready_standalone_${source}`,
-          roomName: prepared.data.room_name,
-          entryAttemptId: prepared.data.entry_attempt_id ?? null,
-          videoDateTraceId: prepared.data.video_date_trace_id ?? null,
-        });
-        markVideoDateRouteOwned(sid, user.id);
-        const navigated = navigateToDateSessionGuarded({
-          sessionId: sid,
-          pathname,
-          mode: 'replace',
-          onSuppressed: ({ reason: suppressReason, target }) => {
-            rcBreadcrumb(
-              RC_CATEGORY.readyGate,
-              'standalone_navigate_to_date_suppressed',
-              {
-                session_id: sid,
-                reason: suppressReason,
-                target: String(target),
-                source,
-              },
-            );
-          },
-        });
-        if (!navigated) {
-          setTransitioning(false);
-        }
-        if (source === 'both_ready' && navigated) {
-          videoDateLaunchBreadcrumb('ready_standalone_navigate_to_date', {
-            session_id: sid,
-          });
-          markNativeVideoDateLaunchIntent('ready_standalone_both_ready');
-        }
-        return true;
-      }
-
-      // Not startable — caller stays on /ready unless we have a definitive non-ready route to take.
-      if (startable.recommend === 'ready') {
-        // Ownership/latch suppression is the shared controller's decision:
-        // an owned date route wins over hosting a stale Ready Gate here.
-        const surfaceDecision = decideVideoDateSurfaceRoute({
-          surface: 'ready_redirect',
-          sessionId: sid,
-          profileId: user.id,
-          intents: videoDateNavigationIntents,
-          canonicalInput: {
-            eventId: eventId ?? null,
-            truth: vs,
-            registration: {
-              queue_status: reg?.queue_status ?? null,
-              current_room_id: reg?.current_room_id ?? null,
-              event_id: eventId ?? null,
-            },
-          },
-        });
-        if (surfaceDecision.target === 'date' && surfaceDecision.navigate) {
-          rcBreadcrumb(
-            RC_CATEGORY.readyGate,
-            'standalone_ready_redirect_suppressed_by_date_route_ownership',
-            {
-              session_id: sid,
-              source,
-              startable_reason: startable.reason,
-              suppressed_by: surfaceDecision.suppressedBy,
-            },
-          );
-          navigateToDateSessionGuarded({
-            sessionId: sid,
-            pathname,
-            mode: 'replace',
-          });
-          return true;
-        }
-        return false;
-      }
-
-      // Terminal / lobby fallback. Always clear latch so the new route cannot be suppressed by a
-      // stale entry latch from a previous attempt.
-      clearDateEntryTransition(sid);
-      cancelTerminalReadyGateWork(`ready_standalone_terminal_${startable.reason}`);
-      if (
-        startable.reason === 'prepare_entry_event_inactive' ||
-        isReadyGatePrepareEntryNonRetryable({
-          code: startable.reason,
-          errorCode: startable.reason,
-          source: 'prepare_entry',
-        })
-      ) {
-        nonRetryablePrepareBlockerRef.current = `${sid}:${startable.reason}`;
-      }
-      router.replace(startable.recommendHref);
-      return true;
-    },
-    [cancelTerminalReadyGateWork, eventId, pathname, sessionId, user?.id],
-  );
+  const {
+    reconcileFromCanonicalTruth,
+  } = useNativeReadyGateTruthReconcile({
+    cancelTerminalReadyGateWork,
+    dateNavigationStartedRef,
+    eventId,
+    nonRetryablePrepareBlockerRef,
+    pathname,
+    sessionId,
+    setPrepareEntryFailureCode,
+    setPrepareEntryFailureRetryable,
+    setTerminalActionError,
+    setTransitioning,
+    user,
+  });
 
   useEffect(() => {
     if (sessionId && user?.id) return;
@@ -1135,140 +782,30 @@ export default function ReadyGateScreen() {
     if (isSnoozed) setRequestingSnooze(false);
   }, [isSnoozed]);
 
-  const runReadyGateForfeit = useCallback(
-    async (reason: 'skip') => {
-      if (terminalActionPending) return;
-      setTerminalActionPending(true);
-      setTerminalActionError(null);
-      let transitionFailure: ReturnType<
-        typeof resolveReadyGateTransitionFailureCopy
-      > | null = null;
-      try {
-        const result = await forfeit();
-        if (result.ok === false) {
-          transitionFailure = resolveReadyGateTransitionFailureCopy({
-            action: 'forfeit',
-            code: result.code,
-            errorCode: result.errorCode,
-            reason: result.reason,
-            error: result.error,
-            status: result.status,
-            platform: 'native',
-          });
-          throw new Error(transitionFailure.message);
-        }
-        if (result.status === 'both_ready') {
-          setTerminalActionPending(false);
-          setTerminalActionError(null);
-          return;
-        }
-        const terminal =
-          result.terminal === true ||
-          result.isTerminal === true ||
-          result.status === 'forfeited' ||
-          result.status === 'expired' ||
-          result.status === 'cancelled' ||
-          result.status === 'ended';
-        if (!terminal) {
-          transitionFailure = resolveReadyGateTransitionFailureCopy({
-            action: 'forfeit',
-            code: result.code,
-            errorCode: result.errorCode,
-            reason: result.reason ?? 'ready_gate_forfeit_not_terminal',
-            status: result.status,
-            platform: 'native',
-          });
-          throw new Error(transitionFailure.message);
-        }
-        setTerminalActionPending(false);
-        setTerminalActionError(null);
-        if (eventId) router.replace(eventLobbyHref(eventId));
-        else if (sessionLookupDone) router.replace(tabsRootHref());
-        cancelTerminalReadyGateWork('ready_standalone_forfeit_terminal');
-      } catch (e) {
-        const fallback =
-          transitionFailure ??
-          resolveReadyGateTransitionFailureCopy({
-            action: 'forfeit',
-            error: e instanceof Error ? e.message : String(e),
-            platform: 'native',
-          });
-        setTerminalActionError(fallback.message);
-        setTerminalActionPending(false);
-        rcBreadcrumb(
-          RC_CATEGORY.readyGate,
-          'standalone_forfeit_failed_kept_open',
-          {
-            session_id: sessionId ?? null,
-            event_id: eventId,
-            reason,
-            reason_code: fallback.reasonCode,
-            error_code: fallback.code ?? fallback.reasonCode,
-            multi_device_conflict: fallback.staleOrConflict,
-            message_snippet:
-              e instanceof Error ? e.message.slice(0, 120) : 'unknown',
-          },
-        );
-      }
-    },
-    [
-      cancelTerminalReadyGateWork,
-      eventId,
-      forfeit,
-      sessionId,
-      sessionLookupDone,
-      terminalActionPending,
-    ],
-  );
-
-  const syncExpiredReadyGate = useCallback(
-    async (source: string) => {
-      if (!sessionId || !user?.id) return;
-      const now = Date.now();
-      if (expirySyncInFlightRef.current || expirySyncRetryAtMsRef.current > now)
-        return;
-
-      expirySyncInFlightRef.current = true;
-      expirySyncRetryAtMsRef.current = now + EXPIRY_SYNC_RETRY_DELAY_MS;
-      try {
-        const result = await guardedSyncSession(source);
-        if (result?.ok === true && result.expiresAt) {
-          setTimeLeft(
-            getReadyGateCountdownFromServerClock({
-              expiresAt: phaseDeadlineAtMs ?? result.expiresAt,
-              serverNowMs,
-              clientSyncedAtMs,
-              fallbackDeadlineMs:
-                readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
-              fallbackSeconds: GATE_TIMEOUT_SEC,
-            }).remainingSeconds,
-          );
-          return;
-        }
-        if (result?.ok === false) {
-          rcBreadcrumb(
-            RC_CATEGORY.readyGate,
-            'standalone_countdown_expiry_sync_deferred',
-            {
-              session_id: sessionId,
-              source,
-              error: result.error,
-            },
-          );
-        }
-      } finally {
-        expirySyncInFlightRef.current = false;
-      }
-    },
-    [
-      clientSyncedAtMs,
-      phaseDeadlineAtMs,
-      serverNowMs,
-      sessionId,
-      guardedSyncSession,
-      user?.id,
-    ],
-  );
+  const {
+    runReadyGateForfeit,
+    syncExpiredReadyGate,
+  } = useNativeReadyGateForfeitExpiry({
+    GATE_TIMEOUT_SEC,
+    cancelTerminalReadyGateWork,
+    clientSyncedAtMs,
+    eventId,
+    expirySyncInFlightRef,
+    expirySyncRetryAtMsRef,
+    forfeit,
+    guardedSyncSession,
+    phaseDeadlineAtMs,
+    readyGateOpenedAtMsRef,
+    serverNowMs,
+    sessionId,
+    sessionLookupDone,
+    setTerminalActionError,
+    setTerminalActionPending,
+    setTimeLeft,
+    terminal,
+    terminalActionPending,
+    user,
+  });
 
   useEffect(() => {
     if (
@@ -2104,3 +1641,7 @@ const styles = StyleSheet.create({
   },
   transitioningSub: { fontSize: 14 },
 });
+
+import { useNativeReadyGateMediaPermissions } from "@/lib/videoDate/useNativeReadyGateMediaPermissions";
+import { useNativeReadyGateTruthReconcile } from "@/lib/videoDate/useNativeReadyGateTruthReconcile";
+import { useNativeReadyGateForfeitExpiry } from "@/lib/videoDate/useNativeReadyGateForfeitExpiry";

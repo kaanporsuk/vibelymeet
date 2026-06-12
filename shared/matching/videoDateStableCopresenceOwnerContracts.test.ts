@@ -24,7 +24,15 @@ const webDate = readWebVideoCallFlowSource(root);
 const nativeDate = readNativeVideoDateScreenFlowSource();
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5: ready screen body split across lib/videoDate sub-hooks; read the family.
+const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const migration = read(

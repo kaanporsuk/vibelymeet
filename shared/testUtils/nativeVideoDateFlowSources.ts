@@ -39,12 +39,24 @@ export const NATIVE_VIDEO_DATE_SCREEN_FLOW_FILES = [
   "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
   "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
   "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
+  // PR 8.5 body sub-hooks, listed in their original in-screen source order.
+  "apps/mobile/lib/videoDate/useNativeVideoDateCallListeners.ts",
+  "apps/mobile/lib/videoDate/useNativeVideoDateRemoteSeen.ts",
+  "apps/mobile/lib/videoDate/useNativeVideoDateCallEndCleanup.ts",
+  "apps/mobile/lib/videoDate/useNativeVideoDateAppStateBackground.ts",
+  "apps/mobile/lib/videoDate/useNativeVideoDateSurfaceClaim.ts",
+  "apps/mobile/lib/videoDate/useNativeVideoDateStartCall.ts",
+  "apps/mobile/lib/videoDate/useNativeVideoDateCameraControls.ts",
   "apps/mobile/app/date/[id].tsx",
   "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
 ] as const;
 
 /** The native standalone Ready Gate screen family. */
 export const NATIVE_READY_SCREEN_FLOW_FILES = [
+  // PR 8.5 body sub-hooks, listed in their original in-screen source order.
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
   "apps/mobile/app/ready/[id].tsx",
 ] as const;
 

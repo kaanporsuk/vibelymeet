@@ -154,9 +154,12 @@ test("daily-room already uses SQL prepare-entry and confirm surfaces", () => {
   const confirmIndex = actionBody.indexOf("confirmVideoDateEntryPrepared");
 
   assert.ok(prepareIndex > 0, "daily-room prepare_date_entry must call video_date_transition('prepare_entry')");
-  assert.ok(providerIndex > prepareIndex, "provider room work should occur after SQL prepare-entry");
-  assert.ok(confirmIndex > 0, "daily-room must confirm provider-prepared state through SQL");
-  assert.ok(confirmIndex > providerIndex, "SQL confirm should occur after provider room proof");
+  assert.ok(confirmIndex > prepareIndex, "SQL confirm should occur after SQL prepare-entry");
+  // The provider room verify moved AFTER the SQL confirm (see
+  // videoDateEndToEndHardening prepare-path ordering pins): tokens are minted
+  // only against a provider-proofed room, after confirmed SQL state.
+  assert.ok(providerIndex > 0, "daily-room must verify the provider room before minting tokens");
+  assert.ok(providerIndex > confirmIndex, "provider room proof should occur after SQL confirm");
 });
 
 test("production validation SQL is catalog-only and checks Stream 3 contract", () => {
