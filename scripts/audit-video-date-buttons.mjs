@@ -7,14 +7,25 @@ const root = process.cwd();
 const read = (path) => readFileSync(join(root, path), "utf8");
 
 const files = {
-  webDate: "src/pages/VideoDate.tsx",
+  // PR 7.5 decomposed the page into the videoDate family; PR 7 replaced the
+  // deleted dateNavigationGuard with the shared navigation-intents family.
+  webDate: [
+    "src/pages/videoDate/videoDatePageShared.tsx",
+    "src/pages/videoDate/useTerminalSurveyRecovery.ts",
+    "src/pages/videoDate/useVideoDateBroadcastReconcile.ts",
+    "src/pages/videoDate/useVideoDateLifecycleLeave.ts",
+    "src/pages/VideoDate.tsx",
+  ],
   webConnectionOverlay: "src/components/video-date/ConnectionOverlay.tsx",
   webControls: "src/components/video-date/VideoDateControls.tsx",
   webVibeCheck: "src/components/video-date/VibeCheckButton.tsx",
   webKeepTheVibe: "src/components/video-date/KeepTheVibe.tsx",
   webSafety: "src/components/video-date/InCallSafetyModal.tsx",
   webSurvey: "src/components/video-date/PostDateSurvey.tsx",
-  webDateNavigationGuard: "src/lib/dateNavigationGuard.ts",
+  webDateNavigationGuard: [
+    "shared/videoDate/navigationIntents.ts",
+    "src/lib/videoDateNavigationIntents.ts",
+  ],
   webActiveSession: "src/hooks/useActiveSession.ts",
   webReadyGate: "src/components/lobby/ReadyGateOverlay.tsx",
   webEventLobby: "src/pages/EventLobby.tsx",
@@ -32,7 +43,12 @@ const files = {
   nativeSurvey: "apps/mobile/components/video-date/PostDateSurvey.tsx",
 };
 
-const source = Object.fromEntries(Object.entries(files).map(([key, path]) => [key, read(path)]));
+const source = Object.fromEntries(
+  Object.entries(files).map(([key, path]) => [
+    key,
+    Array.isArray(path) ? path.map(read).join("\n") : read(path),
+  ]),
+);
 
 function mustInclude(key, needle, message) {
   assert.ok(source[key].includes(needle), `${files[key]}: ${message}`);
@@ -65,9 +81,9 @@ mustInclude("webDate", "signalPreDateManualEnd(reason)", "web pre-date exit must
 mustInclude("webDate", "suppressDateNavigationAfterManualExit(id)", "web pre-date exit must suppress immediate lobby bounce-back");
 mustInclude("webDate", "clearDateEntryTransition(id)", "web pre-date exit must clear date-entry latch");
 mustInclude("webDate", "navigate(target, { replace: true })", "web pre-date exit must route out with replace");
-mustInclude(
+mustMatch(
   "webDate",
-  "onLeave={peerMissing.terminal ? handlePeerMissingLeave : handlePreDateExit}",
+  /onLeave=\{\s*peerMissing\.terminal\s*\?\s*handlePeerMissingLeave\s*:\s*handlePreDateExit\s*\}/,
   "non-terminal connection overlay Leave must use pre-date escape, not the survey end path",
 );
 mustInclude(
@@ -83,7 +99,7 @@ mustInclude("webDate", "End date", "web end-date confirmation must keep the dest
 mustInclude("webDate", "isLeaving={isLeavingVideoDate}", "web escape controls must expose in-flight disabled state");
 mustMatch(
   "webDate",
-  /const hasDateEntryTruth = hasEnteredDateFlowRef\.current \|\| phaseRef\.current === "date" \|\| Boolean\(dateStartedAt\)/,
+  /const hasDateEntryTruth =\s*hasEnteredDateFlowRef\.current \|\|\s*phaseRef\.current === "date" \|\|\s*Boolean\(dateStartedAt\) \|\|\s*videoSessionHasEncounterExposureTruth\(entryTruth\)/,
   "web end handler must split pre-date escape from date-phase survey behavior",
 );
 mustInclude(
@@ -144,13 +160,13 @@ mustInclude("webEventLobby", "onManualExitConfirmed={suppressReadyGateSessionAft
 
 mustInclude("nativeDate", "const handleAbortConnection = useCallback", "native must keep a dedicated connection abort path");
 mustInclude("nativeDate", "abortConnectionInFlightRef", "native connection abort must dedupe repeated taps");
-mustInclude("nativeDate", "endVideoDate(sessionId, 'ended_from_client')", "native generic connection abort must use server pre-date cleanup to avoid ghost active sessions");
+mustInclude("nativeDate", "endVideoDate(sessionId, \"ended_from_client\")", "native generic connection abort must use server pre-date cleanup to avoid ghost active sessions");
 mustInclude("nativeDate", "fetchVideoSessionDateEntryTruth(sessionId)", "native peer-missing abort must reconcile server truth before terminalizing");
 mustInclude("nativeDate", "shouldTerminalizeNativePeerMissingAbort(truth)", "native peer-missing abort must gate terminalization on partial-join evidence");
-mustInclude("nativeDate", "reason_code: 'pre_date_manual_end'", "native generic connection abort must emit server pre-date cleanup telemetry");
+mustInclude("nativeDate", "reason_code: \"pre_date_manual_end\"", "native generic connection abort must emit server pre-date cleanup telemetry");
 mustInclude("nativeDate", "server_end_attempted: true", "native pre-date abort telemetry must prove server cleanup was attempted");
 mustInclude("nativeDate", "suppressDateNavigationAfterManualExit(sessionId)", "native connection abort must suppress immediate lobby bounce-back");
-mustInclude("nativeDate", "endVideoDate(sessionId, 'partial_join_peer_timeout')", "native peer-missing abort must preserve canonical server reason");
+mustInclude("nativeDate", "endVideoDate(sessionId, \"partial_join_peer_timeout\")", "native peer-missing abort must preserve canonical server reason");
 mustInclude("nativeDate", "router.replace(target)", "native connection abort must route out");
 mustInclude("nativeDate", "isLeaving={isAbortingConnection}", "native connection overlay must expose in-flight disabled state");
 mustInclude("nativeConnectionOverlay", "disabled={isLeaving}", "native overlay Leave must disable while leaving");

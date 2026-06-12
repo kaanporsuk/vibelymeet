@@ -81,7 +81,7 @@ test("web date route owns from allowed access while Daily singleton excludes ter
   );
 
   const routeOwnerEffect = webVideoDate.match(
-    /useEffect\(\(\) => \{\s*\n\s*if \(!id \|\| !user\?\.id \|\| videoDateAccess !== "allowed"\) return;[\s\S]*?VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,[\s\S]*?\}, \[[\s\S]*?videoDateAccess,[\s\S]*?\]\);/,
+    /useEffect\(\(\) => \{\s*\n\s*if \(!id \|\| !user\?\.id \|\| videoDateAccess !== "allowed"\) return;\s*\n\s*if \(dupBlocked\) return;[\s\S]*?VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,[\s\S]*?\}, \[[\s\S]*?videoDateAccess,[\s\S]*?\]\);/,
   );
   assert.ok(
     routeOwnerEffect,

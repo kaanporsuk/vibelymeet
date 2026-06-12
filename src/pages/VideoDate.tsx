@@ -213,6 +213,9 @@ import {
   WEB_LIFECYCLE_AWAY_GRACE_MS,
   WEB_SOFT_LIFECYCLE_LEAVE_SOURCES,
 } from "./videoDate/videoDatePageShared";
+import { useTerminalSurveyRecovery } from "./videoDate/useTerminalSurveyRecovery";
+import { useVideoDateBroadcastReconcile } from "./videoDate/useVideoDateBroadcastReconcile";
+import { useVideoDateLifecycleLeave } from "./videoDate/useVideoDateLifecycleLeave";
 
 const VideoDate = () => {
   const navigate = useNavigate();
@@ -419,475 +422,46 @@ const VideoDate = () => {
     [id, eventId],
   );
 
-  const enterTerminalSurveyHardStop = useCallback(
-    (reason: string) => {
-      terminalSurveyRecoveryInFlightRef.current = true;
-      setTerminalSurveyRecoveryActive(true);
-      if (id) markVideoDateRouteOwned(id, user?.id ?? null);
-      const stopDailyForTerminal = terminalDailyStopRef.current;
-      if (!terminalDailyStopRequestedRef.current && stopDailyForTerminal) {
-        terminalDailyStopRequestedRef.current = true;
-        stopDailyForTerminal(reason);
-      }
-      clearEntryGraceState();
-      clearCallStartAutoRetryTimer();
-      callStartAutoRetryCountRef.current = 0;
-      setPhase("ended");
-      setTimeLeft(0);
-      setVideoDateAccess("allowed");
-      setTimingReady(true);
-      setCallStarted(false);
-      setCallStartFailure(null);
-      setStatus("in_survey");
-      vdbg("terminal_survey_recovery_hard_stop", {
-        sessionId: id ?? null,
-        userId: user?.id ?? null,
-        eventId: eventId ?? null,
-        reason,
-      });
-    },
-    [
-      clearCallStartAutoRetryTimer,
-      clearEntryGraceState,
-      eventId,
-      id,
-      setStatus,
-      user?.id,
-    ],
-  );
+  const terminalSurveyRecovery = useTerminalSurveyRecovery({
+    callStartAutoRetryCountRef,
+    canonicalRoomNameRef,
+    clearCallStartAutoRetryTimer,
+    clearEntryGraceState,
+    entryStartedAt,
+    eventId,
+    id,
+    isParticipant1,
+    logJourney,
+    navigate,
+    partnerId,
+    phase,
+    setCallStarted,
+    setCallStartFailure,
+    setEventId,
+    setIsParticipant1,
+    setPartnerId,
+    setPhase,
+    setShowFeedback,
+    setStatus,
+    setTerminalSurveyRecoveryActive,
+    setTimeLeft,
+    setTimingReady,
+    setVideoDateAccess,
+    surveyOpenedRef,
+    terminalDailyStopRef,
+    terminalDailyStopRequestedRef,
+    terminalSurveyRecoveryInFlightRef,
+    user,
+  });
+  const {
+    enterTerminalSurveyHardStop,
+    openPostDateSurvey,
+    hydrateTerminalSurveyContext,
+    recoverTerminalPostDateSurvey,
+    recoverLifecycleRpcTerminalSurvey,
+    recoverFromNotStartableDateTruth,
+  } = terminalSurveyRecovery;
 
-  const openPostDateSurvey = useCallback(
-    (reason: string) => {
-      if (surveyOpenedRef.current) return false;
-      surveyOpenedRef.current = true;
-      enterTerminalSurveyHardStop(reason);
-      setShowFeedback(true);
-      vdbg("post_date_survey_opened", { sessionId: id ?? null, reason });
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_OPENED, {
-        platform: "web",
-        session_id: id,
-        event_id: eventId,
-        reason,
-        source_surface: "video_date_route",
-        source_action: reason,
-      });
-      logJourney("survey_opened", { reason }, `survey_opened_${reason}`);
-      if (reason.includes("recovery") || reason === "session_load_terminal") {
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
-          platform: "web",
-          session_id: id,
-          event_id: eventId,
-          source_surface: "video_date_route",
-          source_action: reason,
-          outcome: "recovered",
-          reason_code: reason,
-        });
-        logJourney(
-          "survey_recovered",
-          { reason },
-          `survey_recovered_${reason}`,
-        );
-      }
-      return true;
-    },
-    [enterTerminalSurveyHardStop, id, eventId, logJourney],
-  );
-
-  const hydrateTerminalSurveyContext = useCallback(
-    (
-      sessionRow: {
-        participant_1_id?: string | null;
-        participant_2_id?: string | null;
-        event_id?: string | null;
-        daily_room_name?: string | null;
-      },
-      source: string,
-    ) => {
-      const isP1 = sessionRow.participant_1_id === user?.id;
-      const resolvedPartnerId = isP1
-        ? sessionRow.participant_2_id
-        : sessionRow.participant_1_id;
-      if (sessionRow.daily_room_name) {
-        canonicalRoomNameRef.current = sessionRow.daily_room_name;
-      }
-      setIsParticipant1(isP1);
-      setEventId(sessionRow.event_id ?? undefined);
-      setPartnerId(resolvedPartnerId ?? "");
-      setVideoDateAccess("allowed");
-      setTimingReady(true);
-      setCallStarted(false);
-      clearCallStartAutoRetryTimer();
-      callStartAutoRetryCountRef.current = 0;
-      setCallStartFailure(null);
-      vdbg("terminal_survey_context_hydrated", {
-        sessionId: id ?? null,
-        userId: user?.id ?? null,
-        source,
-        eventId: sessionRow.event_id ?? null,
-        partnerId: resolvedPartnerId ?? null,
-        isParticipant1: isP1,
-      });
-    },
-    [clearCallStartAutoRetryTimer, id, user?.id],
-  );
-
-  const recoverTerminalPostDateSurvey = useCallback(
-    async (
-      source: string,
-      sessionOverride?: TerminalSurveySessionRow | null,
-    ) => {
-      if (!id || !user?.id) return false;
-      const sessionResult = sessionOverride
-        ? { data: sessionOverride, error: null }
-        : await supabase
-            .from("video_sessions")
-            .select(TERMINAL_SURVEY_SESSION_SELECT)
-            .eq("id", id)
-            .maybeSingle();
-      if (sessionResult.error) {
-        captureSupabaseError(
-          "terminal_post_date_survey_session_fetch_failed",
-          sessionResult.error,
-        );
-        recordUserAction("terminal_post_date_survey_session_fetch_failed", {
-          surface: "video_date",
-          session_id: id,
-          user_id: user.id,
-          source,
-          code: sessionResult.error.code,
-        });
-        vdbg("terminal_post_date_survey_session_fetch_failed", {
-          sessionId: id,
-          userId: user.id,
-          source,
-          code: sessionResult.error.code,
-          message: sessionResult.error.message,
-        });
-        const { data: registrationFallback, error: registrationError } =
-          await supabase
-            .from("event_registrations")
-            .select(TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
-            .eq("profile_id", user.id)
-            .eq("queue_status", "in_survey")
-            .order("last_active_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        if (registrationError) {
-          captureSupabaseError(
-            "terminal_post_date_survey_registration_fallback_failed",
-            registrationError,
-          );
-          recordUserAction(
-            "terminal_post_date_survey_registration_fallback_failed",
-            {
-              surface: "video_date",
-              session_id: id,
-              user_id: user.id,
-              source,
-              code: registrationError.code,
-            },
-          );
-          vdbg("terminal_post_date_survey_registration_fallback_failed", {
-            sessionId: id,
-            userId: user.id,
-            source,
-            code: registrationError.code,
-            message: registrationError.message,
-          });
-          return false;
-        }
-        const fallbackRow =
-          (registrationFallback as TerminalSurveyRegistrationFallbackRow | null) ??
-          null;
-        const fallbackMatchesCurrentRoute =
-          fallbackRow?.current_room_id == null ||
-          fallbackRow.current_room_id === id;
-        if (
-          fallbackRow?.queue_status === "in_survey" &&
-          fallbackMatchesCurrentRoute
-        ) {
-          if (fallbackRow.event_id) setEventId(fallbackRow.event_id);
-          if (fallbackRow.current_partner_id) {
-            setPartnerId(fallbackRow.current_partner_id);
-          }
-          setVideoDateAccess("allowed");
-          setTimingReady(true);
-          setCallStarted(false);
-          setCallStartFailure(null);
-          setStatus("in_survey");
-          vdbg("terminal_post_date_survey_registration_fallback", {
-            sessionId: id,
-            userId: user.id,
-            source,
-            eventId: fallbackRow.event_id ?? null,
-            currentRoomId: fallbackRow.current_room_id ?? null,
-            currentPartnerId: fallbackRow.current_partner_id ?? null,
-            lastActiveAt: fallbackRow.last_active_at ?? null,
-          });
-          openPostDateSurvey(`${source}_registration_recovery`);
-          return true;
-        }
-        return false;
-      }
-      const sessionRow = sessionResult.data;
-
-      if (!sessionRow) {
-        setVideoDateAccess("not_found");
-        return true;
-      }
-
-      if (!videoSessionIndicatesTerminalEnd(sessionRow)) {
-        return false;
-      }
-
-      const hasPostDateSurveyTruth =
-        videoSessionHasPostDateSurveyTruth(sessionRow);
-      if (hasPostDateSurveyTruth) {
-        enterTerminalSurveyHardStop(source);
-        hydrateTerminalSurveyContext(sessionRow, source);
-      }
-
-      let verdict: { id?: string | null } | null = null;
-      const { data: verdictData, error: verdictError } = await supabase
-        .from("date_feedback")
-        .select("id")
-        .eq("session_id", id)
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (verdictError) {
-        captureSupabaseError(
-          "terminal_post_date_survey_verdict_fetch_failed",
-          verdictError,
-        );
-        recordUserAction("terminal_post_date_survey_verdict_fetch_failed", {
-          surface: "video_date",
-          session_id: id,
-          user_id: user.id,
-          source,
-          code: verdictError.code,
-        });
-        vdbg("terminal_post_date_survey_verdict_fetch_failed", {
-          sessionId: id,
-          userId: user.id,
-          source,
-          code: verdictError.code,
-          message: verdictError.message,
-        });
-        if (!hasPostDateSurveyTruth) {
-          return false;
-        }
-      } else {
-        verdict = verdictData ?? null;
-      }
-      const verdictFetchFailed = Boolean(verdictError);
-
-      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(
-        sessionRow,
-        verdict,
-      );
-      vdbg("terminal_post_date_survey_recovery_checked", {
-        sessionId: id,
-        userId: user.id,
-        source,
-        shouldOpenSurvey,
-        hardStopApplied: hasPostDateSurveyTruth,
-        verdictFetchFailed,
-        verdictId: verdict?.id ?? null,
-        endedAt: sessionRow.ended_at ?? null,
-        endedReason: sessionRow.ended_reason ?? null,
-        state: sessionRow.state ?? null,
-        phase: sessionRow.phase ?? null,
-        participant1Joined: Boolean(sessionRow.participant_1_joined_at),
-        participant2Joined: Boolean(sessionRow.participant_2_joined_at),
-        participant1RemoteSeen: Boolean(
-          sessionRow.participant_1_remote_seen_at,
-        ),
-        participant2RemoteSeen: Boolean(
-          sessionRow.participant_2_remote_seen_at,
-        ),
-      });
-
-      if (shouldOpenSurvey || (hasPostDateSurveyTruth && verdictFetchFailed)) {
-        hydrateTerminalSurveyContext(sessionRow, source);
-        openPostDateSurvey(source);
-        return true;
-      }
-
-      clearEntryGraceState();
-      terminalSurveyRecoveryInFlightRef.current = false;
-      setTerminalSurveyRecoveryActive(false);
-      setPhase("ended");
-      setTimeLeft(0);
-      setShowFeedback(false);
-      const target = sessionRow.event_id
-        ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-        : "/events";
-      clearDateEntryTransition(id);
-      clearVideoDateRouteOwnership(id, user.id);
-      vdbgRedirect(target, source, {
-        sessionId: id,
-        userId: user.id,
-        eventId: sessionRow.event_id ?? null,
-        endedAt: sessionRow.ended_at ?? null,
-        endedReason: sessionRow.ended_reason ?? null,
-      });
-      navigate(target, { replace: true });
-      return true;
-    },
-    [
-      clearEntryGraceState,
-      enterTerminalSurveyHardStop,
-      hydrateTerminalSurveyContext,
-      id,
-      navigate,
-      openPostDateSurvey,
-      setStatus,
-      user?.id,
-    ],
-  );
-
-  const recoverLifecycleRpcTerminalSurvey = useCallback(
-    async (source: string, payload: unknown) => {
-      const rpcPayload =
-        payload && typeof payload === "object" && !Array.isArray(payload)
-          ? (payload as Record<string, unknown>)
-          : null;
-      if (!videoDateLifecycleRpcIndicatesTerminalSurvey(rpcPayload)) {
-        return false;
-      }
-      return recoverTerminalPostDateSurvey(source);
-    },
-    [recoverTerminalPostDateSurvey],
-  );
-
-  const recoverFromNotStartableDateTruth = useCallback(
-    async (source: string) => {
-      if (!id || !user?.id) return false;
-      const [vsRes, regRes] = await Promise.all([
-        supabase
-          .from("video_sessions")
-          .select(
-            "event_id, ended_at, ended_reason, state, phase, entry_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url",
-          )
-          .eq("id", id)
-          .maybeSingle(),
-        supabase
-          .from("event_registrations")
-          .select("queue_status, current_room_id")
-          .eq("profile_id", user.id)
-          .eq("current_room_id", id)
-          .maybeSingle(),
-      ]);
-      const vs = vsRes.data;
-      const reg = regRes.data;
-      const recovery = adviseVideoSessionTruthRecovery({
-        sessionId: id,
-        eventId,
-        truth: vs,
-        platform: "web",
-        surface: "video_date",
-      });
-      const decision = recovery.routeDecision ?? "stay_lobby";
-      const canAttemptDaily = recovery.canAttemptDaily === true;
-      const reason =
-        recovery.action === "go_date"
-          ? null
-          : recovery.action === "show_terminal" ||
-              recovery.action === "go_survey"
-            ? "session_ended"
-            : canAttemptDaily
-              ? "video_truth_startable_after_refetch"
-              : "video_truth_not_startable";
-      vdbg("date_route_decision", {
-        sessionId: id,
-        userId: user.id,
-        source,
-        decision,
-        reason,
-        canAttemptDaily,
-        queueStatus: reg?.queue_status ?? null,
-        currentRoomId: reg?.current_room_id ?? null,
-        vsState: vs?.state ?? null,
-        vsPhase: vs?.phase ?? null,
-        entryStartedAt: vs?.entry_started_at ?? null,
-        readyGateStatus: vs?.ready_gate_status ?? null,
-        readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
-        dateRouteOwned: isVideoDateRouteOwned(id, user.id),
-      });
-
-      if (
-        isVideoDateRouteOwned(id, user.id) &&
-        !canAttemptDaily &&
-        (recovery.action === "go_ready_gate" || recovery.action === "go_lobby")
-      ) {
-        vdbg("date_route_bounce_suppressed_by_route_ownership", {
-          sessionId: id,
-          userId: user.id,
-          source,
-          action: recovery.action,
-          queueStatus: reg?.queue_status ?? null,
-          currentRoomId: reg?.current_room_id ?? null,
-          vsState: vs?.state ?? null,
-          vsPhase: vs?.phase ?? null,
-          readyGateStatus: vs?.ready_gate_status ?? null,
-        });
-        setVideoDateAccess("allowed");
-        return false;
-      }
-
-      if (!canAttemptDaily && recovery.action === "go_ready_gate") {
-        const target = `/ready/${encodeURIComponent(id)}`;
-        clearDateEntryTransition(id);
-        logJourney(
-          "date_route_bounced",
-          { reason: source, target },
-          `date_route_bounced_${source}`,
-        );
-        vdbgRedirect(target, source, { sessionId: id, userId: user.id });
-        navigate(target, { replace: true });
-        return true;
-      }
-
-      const fallbackEventId = vs?.event_id ?? eventId;
-      if (
-        !canAttemptDaily &&
-        recovery.action === "go_lobby" &&
-        fallbackEventId
-      ) {
-        const target = `/event/${encodeURIComponent(fallbackEventId)}/lobby`;
-        clearDateEntryTransition(id);
-        logJourney(
-          "date_route_bounced",
-          { reason: source, target },
-          `date_route_bounced_${source}`,
-        );
-        vdbgRedirect(target, source, {
-          sessionId: id,
-          userId: user.id,
-          eventId: fallbackEventId,
-        });
-        navigate(target, { replace: true });
-        return true;
-      }
-
-      if (
-        recovery.action === "show_terminal" ||
-        recovery.action === "go_survey"
-      ) {
-        return recoverTerminalPostDateSurvey(`${source}_ended_truth`);
-      }
-
-      return false;
-    },
-    [
-      eventId,
-      id,
-      logJourney,
-      navigate,
-      recoverTerminalPostDateSurvey,
-      user?.id,
-    ],
-  );
 
   const recoverFromEndedSessionTruth = recoverTerminalPostDateSurvey;
 
@@ -2918,320 +2492,26 @@ const VideoDate = () => {
     recoverFromNotStartableDateTruth,
   ]);
 
-  const handleExtensionBroadcastEvent = useCallback(
-    (event: VideoDateSessionBroadcastEvent) => {
-      if (extensionBroadcastSeenRef.current.has(event.id)) return;
-      if (
-        event.kind !== "date_extension_requested" &&
-        event.kind !== "date_extension_applied"
-      )
-        return;
-      extensionBroadcastSeenRef.current.add(event.id);
-
-      const addedSeconds =
-        typeof event.payload.added_seconds === "number" &&
-        Number.isFinite(event.payload.added_seconds)
-          ? Math.max(0, Math.floor(event.payload.added_seconds))
-          : 0;
-      const minutes = addedSeconds > 0 ? addedSeconds / 60 : null;
-      const minutesLabel =
-        minutes === null
-          ? null
-          : Number.isInteger(minutes)
-            ? String(minutes)
-            : minutes.toFixed(1);
-      const creditType =
-        event.payload.credit_type === "extra_time" ||
-        event.payload.credit_type === "extended_vibe"
-          ? event.payload.credit_type
-          : null;
-      const requestExpiresAt =
-        typeof event.payload.request_expires_at === "string"
-          ? event.payload.request_expires_at
-          : null;
-      const effectiveRequestExpiresAt =
-        requestExpiresAt ?? new Date(Date.now() + 45_000).toISOString();
-
-      if (event.kind === "date_extension_requested") {
-        if (event.actor && event.actor === user?.id) return;
-        if (creditType) {
-          setPendingPartnerExtension({
-            type: creditType,
-            expiresAt: effectiveRequestExpiresAt,
-          });
-        }
-        toast(
-          minutesLabel
-            ? `Your date asked for +${minutesLabel} min. Tap Accept +${minutesLabel} if you do too.`
-            : "Your date wants to keep going. Tap +time if you do too.",
-          { duration: 4000 },
-        );
-        trackEvent("video_date_extension_partner_requested", {
-          platform: "web",
-          session_id: id,
-          event_id: eventId,
-          credit_type: creditType,
-          added_seconds: addedSeconds || null,
-        });
-        return;
-      }
-
-      setPendingPartnerExtension(null);
-      void refetchCredits();
-      if (event.actor && event.actor === user?.id) return;
-      toast.success(
-        `${minutesLabel ?? "Extra"} ${minutes === 1 ? "minute" : "minutes"} added!`,
-        {
-          duration: 2500,
-        },
-      );
-    },
-    [eventId, id, refetchCredits, user?.id],
-  );
-
-  const clearBroadcastGapRetryTimer = useCallback(() => {
-    if (!broadcastGapRetryTimerRef.current) return;
-    clearTimeout(broadcastGapRetryTimerRef.current);
-    broadcastGapRetryTimerRef.current = null;
-  }, []);
-
-  const attemptBroadcastGapSnapshotRecovery = useCallback(
-    async (source: string) => {
-      if (!id || !user?.id || videoDateAccess !== "allowed") return;
-      const state = broadcastGapRecoveryRef.current;
-      if (!shouldAttemptVideoDateBroadcastGapRecovery(state)) return;
-      if (broadcastRefetchInFlightRef.current) return;
-
-      broadcastRefetchInFlightRef.current = true;
-      try {
-        const snapshot = await fetchVideoDateSnapshot(id, {
-          includeToken: false,
-        });
-        const latestState =
-          broadcastGapRecoveryRef.current?.sessionId === state.sessionId
-            ? broadcastGapRecoveryRef.current
-            : state;
-        if (snapshot.ok === true) {
-          applyTimelineSnapshot(snapshot, source);
-          sessionSeqRef.current = Math.max(
-            sessionSeqRef.current ?? 0,
-            snapshot.seq,
-          );
-          broadcastGapRecoveryRef.current =
-            recordVideoDateBroadcastGapRecoverySuccess(
-              latestState,
-              snapshot.seq,
-            );
-          if (snapshot.phase === "ended") {
-            const handled = await recoverTerminalPostDateSurvey(
-              `${source}_terminal`,
-            );
-            if (handled) return;
-          }
-        } else {
-          broadcastGapRecoveryRef.current =
-            recordVideoDateBroadcastGapRecoveryFailure(
-              latestState,
-              snapshot.error,
-            );
-        }
-        Sentry.addBreadcrumb({
-          category: "video-date-broadcast",
-          message: "snapshot_refetch_on_seq_gap_retry",
-          level: snapshot.ok ? "info" : "warning",
-          data: {
-            session_id: id,
-            event_id: eventId ?? null,
-            source,
-            target_seq: state.targetSeq,
-            expected_seq: state.expectedSeq,
-            attempt: state.attempts + 1,
-            snapshot_ok: snapshot.ok,
-          },
-        });
-        setTimingRefreshNonce((n) => n + 1);
-      } catch (error) {
-        broadcastGapRecoveryRef.current =
-          recordVideoDateBroadcastGapRecoveryFailure(state, error);
-      } finally {
-        broadcastRefetchInFlightRef.current = false;
-      }
-
-      clearBroadcastGapRetryTimer();
-      const delayMs = videoDateBroadcastGapRetryDelayMs(
-        broadcastGapRecoveryRef.current,
-      );
-      if (delayMs != null) {
-        broadcastGapRetryTimerRef.current = setTimeout(() => {
-          broadcastGapRetryTimerRef.current = null;
-          void attemptBroadcastGapSnapshotRecovery("bounded_timer");
-        }, delayMs);
-      }
-    },
-    [
-      applyTimelineSnapshot,
-      clearBroadcastGapRetryTimer,
-      eventId,
-      id,
-      recoverTerminalPostDateSurvey,
-      user?.id,
-      videoDateAccess,
-    ],
-  );
-  attemptBroadcastGapSnapshotRecoveryRef.current = (source: string) => {
-    void attemptBroadcastGapSnapshotRecovery(source);
-  };
-
-  const reconcileBroadcastEvent = useCallback(
-    async (event: VideoDateSessionBroadcastEvent) => {
-      if (!id || !user?.id || videoDateAccess !== "allowed") return;
-      const decision = resolveVideoDateSessionSeqDecision(
-        sessionSeqRef.current,
-        event.sessionSeq,
-      );
-      if (decision.action === "invalid" || decision.action === "duplicate")
-        return;
-
-      handleExtensionBroadcastEvent(event);
-      if (decision.action === "gap") {
-        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(
-          broadcastGapRecoveryRef.current,
-          {
-            sessionId: id,
-            targetSeq: event.sessionSeq,
-            expectedSeq: decision.expectedSeq,
-          },
-        );
-        if (broadcastRefetchInFlightRef.current) {
-          broadcastPendingRefetchSeqRef.current = Math.max(
-            broadcastPendingRefetchSeqRef.current ?? 0,
-            event.sessionSeq,
-          );
-          return;
-        }
-        void attemptBroadcastGapSnapshotRecovery("broadcast_seq_gap");
-        return;
-      }
-
-      const shouldRetainGapRecovery =
-        shouldRetainVideoDateBroadcastGapRecoveryForEvent(
-          broadcastGapRecoveryRef.current,
-          event.sessionSeq,
-        );
-      if (!shouldRetainGapRecovery) {
-        clearBroadcastGapRetryTimer();
-        broadcastGapRecoveryRef.current = null;
-      }
-      sessionSeqRef.current = event.sessionSeq;
-      if (broadcastRefetchInFlightRef.current) {
-        broadcastPendingRefetchSeqRef.current = Math.max(
-          broadcastPendingRefetchSeqRef.current ?? 0,
-          event.sessionSeq,
-        );
-        return;
-      }
-      broadcastRefetchInFlightRef.current = true;
-      try {
-        let pendingRefetchSeq: number | null = event.sessionSeq;
-        while (pendingRefetchSeq !== null) {
-          const refetchSeq = pendingRefetchSeq;
-          broadcastPendingRefetchSeqRef.current = null;
-          const snapshot = await fetchVideoDateSnapshot(id, {
-            includeToken: false,
-          });
-          if (snapshot.ok === true) {
-            applyTimelineSnapshot(
-              snapshot,
-              refetchSeq === event.sessionSeq
-                ? "broadcast_seq_gap"
-                : "broadcast_queued_seq",
-            );
-            sessionSeqRef.current = Math.max(
-              sessionSeqRef.current ?? 0,
-              snapshot.seq,
-            );
-            if (snapshot.phase === "ended") {
-              const handled = await recoverTerminalPostDateSurvey(
-                "broadcast_snapshot_terminal",
-              );
-              if (handled) return;
-            }
-          }
-          Sentry.addBreadcrumb({
-            category: "video-date-broadcast",
-            message: "snapshot_refetch_on_seq_gap",
-            level: snapshot.ok ? "info" : "warning",
-            data: {
-              session_id: id,
-              event_id: eventId ?? null,
-              event_kind: event.kind,
-              incoming_seq: refetchSeq,
-              expected_seq: null,
-              snapshot_ok: snapshot.ok,
-            },
-          });
-          pendingRefetchSeq = broadcastPendingRefetchSeqRef.current;
-        }
-        setTimingRefreshNonce((n) => n + 1);
-      } finally {
-        broadcastRefetchInFlightRef.current = false;
-      }
-      if (shouldRetainGapRecovery) {
-        void attemptBroadcastGapSnapshotRecovery("broadcast_event_progress");
-      } else if (broadcastGapRecoveryRef.current) {
-        void attemptBroadcastGapSnapshotRecovery("broadcast_refetch_complete");
-      }
-    },
-    [
-      applyTimelineSnapshot,
-      attemptBroadcastGapSnapshotRecovery,
-      clearBroadcastGapRetryTimer,
-      eventId,
-      handleExtensionBroadcastEvent,
-      id,
-      recoverTerminalPostDateSurvey,
-      user?.id,
-      videoDateAccess,
-    ],
-  );
-
-  useEffect(() => {
-    if (!id || !user?.id || videoDateAccess !== "allowed") return;
-    const subscription = createVideoDateSessionChannel(supabase, {
-      sessionId: id,
-      onEvent: (event) => {
-        void reconcileBroadcastEvent(event);
-      },
-      onInvalidPayload: () => {
-        vdbg("video_date_broadcast_invalid_payload_ignored", {
-          sessionId: id,
-          eventId: eventId ?? null,
-        });
-      },
-      onStatusChange: (status, error) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          vdbg("video_date_broadcast_channel_degraded", {
-            sessionId: id,
-            eventId: eventId ?? null,
-            status,
-            error: error instanceof Error ? error.message : String(error ?? ""),
-          });
-        }
-      },
-    });
-    return () => {
-      subscription.unsubscribe();
-      clearBroadcastGapRetryTimer();
-      broadcastGapRecoveryRef.current = null;
-    };
-  }, [
-    clearBroadcastGapRetryTimer,
+  useVideoDateBroadcastReconcile({
+    applyTimelineSnapshot,
+    attemptBroadcastGapSnapshotRecoveryRef,
+    broadcastGapRecoveryRef,
+    broadcastGapRetryTimerRef,
+    broadcastPendingRefetchSeqRef,
+    broadcastRefetchInFlightRef,
     eventId,
+    extensionBroadcastSeenRef,
     id,
-    reconcileBroadcastEvent,
-    user?.id,
+    phase,
+    recoverTerminalPostDateSurvey,
+    refetchCredits,
+    sessionSeqRef,
+    setPendingPartnerExtension,
+    setTimingRefreshNonce,
+    user,
     videoDateAccess,
-  ]);
+  });
+
 
   // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
@@ -4740,420 +4020,58 @@ const VideoDate = () => {
     user?.id,
   ]);
 
-  const resolveVideoDateExitTarget = useCallback(
-    (overrideEventId?: string | null) => {
-      const destinationEventId = overrideEventId ?? eventId;
-      return destinationEventId
-        ? `/event/${encodeURIComponent(destinationEventId)}/lobby`
-        : "/events";
-    },
-    [eventId],
-  );
-
-  const signalPreDateManualEnd = useCallback(
-    async (reason: VideoDateEndReason) => {
-      if (!id) return false;
-      const args = {
-        p_session_id: id,
-        p_action: "end",
-        p_reason: reason,
-      };
-      vdbg("video_date_transition_before", {
-        action: "end",
-        source: "manual_pre_date_exit",
-        args,
-      });
-      const transitionResult = await sendVideoDateSignalWithRetry({
-        sessionId: id,
-        action: "end",
-        operation: async (attempt, idempotencyKey) => {
-          const { data, error } = await supabase.rpc(
-            "video_date_transition",
-            args,
-          );
-          vdbg("video_date_transition_after", {
-            action: "end",
-            source: "manual_pre_date_exit",
-            ok: !error,
-            payload: data ?? null,
-            error: error ? { code: error.code, message: error.message } : null,
-            attempt,
-            idempotencyKey,
-          });
-          if (error) throw error;
-          return data;
-        },
-        isSuccess: (data) =>
-          (data as { success?: boolean } | null)?.success !== false,
-      });
-
-      recordUserAction(
-        transitionResult.ok
-          ? "video_date_pre_date_exit_end_signal_succeeded"
-          : "video_date_pre_date_exit_end_signal_failed",
-        {
-          surface: "video_date",
-          session_id: id,
-          phase: phaseRef.current,
-          reason,
-          attempts: transitionResult.attempts,
-        },
-      );
-      return transitionResult.ok;
-    },
-    [id],
-  );
-
-  const retryPreDateManualEndInBackground = useCallback(
-    (
-      reason: VideoDateEndReason,
-      source: string,
-      firstStatus: VideoDateManualExitStepStatus,
-    ) => {
-      if (!id) return;
-      window.setTimeout(() => {
-        void signalPreDateManualEnd(reason).then(
-          (ok) => {
-            recordUserAction(
-              ok
-                ? "video_date_pre_date_exit_end_background_retry_succeeded"
-                : "video_date_pre_date_exit_end_background_retry_failed",
-              {
-                surface: "video_date",
-                session_id: id,
-                phase: phaseRef.current,
-                reason,
-                source,
-                first_status: firstStatus,
-              },
-            );
-            if (!ok) {
-              Sentry.captureMessage(
-                "video_date_pre_date_exit_end_background_retry_failed",
-                {
-                  level: "warning",
-                  tags: { surface: "video_date", flow: "manual_pre_date_exit" },
-                  extra: {
-                    session_id: id,
-                    reason,
-                    source,
-                    first_status: firstStatus,
-                  },
-                },
-              );
-            }
-          },
-          (error) => {
-            recordUserAction(
-              "video_date_pre_date_exit_end_background_retry_exception",
-              {
-                surface: "video_date",
-                session_id: id,
-                phase: phaseRef.current,
-                reason,
-                source,
-                first_status: firstStatus,
-                error: serializeManualExitError(error),
-              },
-            );
-            Sentry.captureException(error, {
-              tags: { surface: "video_date", flow: "manual_pre_date_exit" },
-              extra: {
-                session_id: id,
-                reason,
-                source,
-                first_status: firstStatus,
-              },
-            });
-          },
-        );
-      }, 750);
-    },
-    [id, signalPreDateManualEnd],
-  );
-
-  const handlePreDateExit = useCallback(
-    async (opts?: { reason?: VideoDateEndReason; source?: string }) => {
-      const reason = opts?.reason ?? "ended_from_client";
-      const source = opts?.source ?? "connection_overlay_leave";
-      if (manualExitInFlightRef.current) return;
-      manualExitInFlightRef.current = true;
-      setIsLeavingVideoDate(true);
-      recordUserAction("video_date_pre_date_leave_clicked", {
-        surface: "video_date",
-        session_id: id,
-        phase: phaseRef.current,
-        reason,
-        source,
-      });
-      clearEntryGraceState();
-      if (id) {
-        clearDateEntryTransition(id);
-        clearVideoDateRouteOwnership(id, user?.id ?? null);
-        suppressDateNavigationAfterManualExit(id);
-      }
-      setPhase("ended");
-      setTimeLeft(0);
-      setShowFeedback(false);
-      void setStatus("browsing");
-
-      const [dailyCleanup, serverEnd] = await Promise.all([
-        runVideoDateManualExitStep("daily_cleanup", () => endCall(source)),
-        runVideoDateManualExitStep("server_end", () =>
-          signalPreDateManualEnd(reason),
-        ),
-      ]);
-      if (serverEnd.status !== "completed") {
-        retryPreDateManualEndInBackground(reason, source, serverEnd.status);
-      }
-
-      const target = resolveVideoDateExitTarget();
-      recordUserAction("video_date_pre_date_leave_navigating", {
-        surface: "video_date",
-        session_id: id,
-        phase: phaseRef.current,
-        reason,
-        source,
-        daily_cleanup_status: dailyCleanup.status,
-        server_end_status: serverEnd.status,
-        target,
-      });
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
-        platform: "web",
-        session_id: id,
-        event_id: eventId ?? null,
-        source,
-        daily_cleanup_status: dailyCleanup.status,
-        server_end_status: serverEnd.status,
-      });
-      vdbgRedirect(target, "manual_pre_date_exit", {
-        sessionId: id ?? null,
-        eventId: eventId ?? null,
-        reason,
-        source,
-        dailyCleanupStatus: dailyCleanup.status,
-        serverEndStatus: serverEnd.status,
-      });
-      navigate(target, { replace: true });
-    },
-    [
-      clearEntryGraceState,
-      endCall,
-      eventId,
-      id,
-      navigate,
-      resolveVideoDateExitTarget,
-      retryPreDateManualEndInBackground,
-      setStatus,
-      signalPreDateManualEnd,
-      user?.id,
-    ],
-  );
-
-  const handleLeave = useCallback(
-    async (opts?: { reason?: VideoDateEndReason }) => {
-      const hasDateEntryTruth =
-        hasEnteredDateFlowRef.current ||
-        phaseRef.current === "date" ||
-        Boolean(dateStartedAt) ||
-        videoSessionHasEncounterExposureTruth(entryTruth);
-      if (!hasDateEntryTruth) {
-        await handlePreDateExit({
-          reason: opts?.reason ?? "ended_from_client",
-          source: "pre_date_leave_button",
-        });
-        return;
-      }
-
-      recordUserAction("video_date_leave_clicked", {
-        surface: "video_date",
-        session_id: id,
-        phase,
-        reason: opts?.reason ?? "ended_from_client",
-      });
-      clearEntryGraceState();
-      await endCall("user_leave_button");
-      toast("You left the date — stay safe! 💚", { duration: 2000 });
-      await handleCallEnd(opts?.reason);
-    },
-    [
-      dateStartedAt,
-      endCall,
-      handleCallEnd,
-      handlePreDateExit,
-      clearEntryGraceState,
-      entryTruth,
-      id,
-      phase,
-    ],
-  );
-
-  const requestEndDateConfirmation = useCallback(() => {
-    if (isLeavingVideoDate || isEndDateConfirming) return;
-    setShowEndDateConfirm(true);
-  }, [isEndDateConfirming, isLeavingVideoDate]);
-
-  const confirmEndDate = useCallback(async () => {
-    if (isLeavingVideoDate || isEndDateConfirming) return;
-    setIsEndDateConfirming(true);
-    try {
-      await handleLeave();
-      setShowEndDateConfirm(false);
-    } finally {
-      setIsEndDateConfirming(false);
-    }
-  }, [handleLeave, isEndDateConfirming, isLeavingVideoDate]);
-
-  useEffect(() => {
-    if (!peerMissing.terminal || !id) return;
-    trackEvent(
-      LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION,
-      {
-        platform: "web",
-        session_id: id,
-        event_id: eventId ?? null,
-      },
-    );
-  }, [eventId, id, peerMissing.terminal]);
-
-  useEffect(() => {
-    if (
-      !id ||
-      videoDateAccess !== "allowed" ||
-      showFeedback ||
-      terminalSurveyRecoveryActive ||
-      phase === "ended"
-    )
-      return;
-    if (mediaPermissionError) return;
-    const shouldReconcileTerminalSurvey =
-      peerMissing.terminal ||
-      remotePlayback.playRejected ||
-      isConnecting ||
-      !isConnected;
-    if (!shouldReconcileTerminalSurvey) return;
-
-    let cancelled = false;
-    let inFlight = false;
-    const reconcileTerminalSurvey = async (source: string) => {
-      if (
-        cancelled ||
-        inFlight ||
-        surveyOpenedRef.current ||
-        terminalSurveyRecoveryInFlightRef.current
-      )
-        return;
-      if (explicitEndRequestedRef.current !== "idle") return;
-      inFlight = true;
-      try {
-        await recoverTerminalPostDateSurvey(source);
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    void reconcileTerminalSurvey("peer_wait_terminal_reconcile_initial");
-    const interval = window.setInterval(() => {
-      void reconcileTerminalSurvey("peer_wait_terminal_reconcile_interval");
-    }, TERMINAL_SURVEY_RECONCILE_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [
-    id,
-    videoDateAccess,
-    showFeedback,
-    terminalSurveyRecoveryActive,
-    phase,
-    mediaPermissionError,
-    peerMissing.terminal,
-    remotePlayback.playRejected,
-    isConnecting,
-    isConnected,
-    recoverTerminalPostDateSurvey,
-  ]);
-
-  const handlePeerMissingRetry = useCallback(() => {
-    if (!id) return;
-    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_RETRY_TAP, {
-      platform: "web",
-      session_id: id,
-      event_id: eventId ?? null,
-    });
-    void (async () => {
-      clearPeerMissing();
-      setCallStartFailure(null);
-      try {
-        await endCall("peer_missing_retry");
-      } finally {
-        setCallStarted(false);
-      }
-    })();
-  }, [clearPeerMissing, endCall, eventId, id]);
-
-  const handlePeerMissingKeepWaiting = useCallback(() => {
-    if (id) {
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP, {
-        platform: "web",
-        session_id: id,
-        event_id: eventId ?? null,
-      });
-    }
-    clearPeerMissing();
-  }, [clearPeerMissing, eventId, id]);
-
-  const handlePeerMissingLeave = useCallback(() => {
-    if (id) {
-      trackEvent(
-        LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP,
-        {
-          platform: "web",
-          session_id: id,
-          event_id: eventId ?? null,
-        },
-      );
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
-        platform: "web",
-        session_id: id,
-        event_id: eventId ?? null,
-        source: "peer_missing_back_to_lobby",
-      });
-    }
-    const hasDateEntryTruth =
-      hasEnteredDateFlowRef.current ||
-      phaseRef.current === "date" ||
-      Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(entryTruth);
-    if (hasDateEntryTruth) {
-      void handleLeave({ reason: "partner_absent_after_confirmed_encounter" });
-      return;
-    }
-    void handlePreDateExit({
-      reason: "partial_join_peer_timeout",
-      source: "peer_missing_back_to_lobby",
-    });
-  }, [
+  const lifecycleLeave = useVideoDateLifecycleLeave({
+    clearEntryGraceState,
+    clearPeerMissing,
     dateStartedAt,
-    eventId,
-    handleLeave,
-    handlePreDateExit,
+    endCall,
     entryTruth,
+    eventId,
+    explicitEndRequestedRef,
+    handleCallEnd,
+    hasEnteredDateFlowRef,
     id,
-  ]);
+    isConnected,
+    isConnecting,
+    isEndDateConfirming,
+    isLeavingVideoDate,
+    manualExitInFlightRef,
+    mediaPermissionError,
+    navigate,
+    peerMissing,
+    phase,
+    phaseRef,
+    recoverTerminalPostDateSurvey,
+    remotePlayback,
+    setCallStarted,
+    setCallStartFailure,
+    setIsEndDateConfirming,
+    setIsLeavingVideoDate,
+    setPhase,
+    setShowEndDateConfirm,
+    setShowFeedback,
+    setStatus,
+    setTimeLeft,
+    showFeedback,
+    surveyOpenedRef,
+    terminalSurveyRecoveryActive,
+    terminalSurveyRecoveryInFlightRef,
+    user,
+    videoDateAccess,
+  });
+  const {
+    resolveVideoDateExitTarget,
+    signalPreDateManualEnd,
+    retryPreDateManualEndInBackground,
+    handlePreDateExit,
+    handleLeave,
+    requestEndDateConfirmation,
+    confirmEndDate,
+    handlePeerMissingRetry,
+    handlePeerMissingKeepWaiting,
+    handlePeerMissingLeave,
+  } = lifecycleLeave;
 
-  useEffect(() => {
-    if (phase === "date" || phase === "ended") {
-      clearEntryGraceState();
-    }
-  }, [phase, clearEntryGraceState]);
-
-  useEffect(() => {
-    return () => {
-      clearEntryGraceState();
-    };
-  }, [clearEntryGraceState]);
 
   /** After in-call "End & report" succeeds (report RPC already sent). */
   const handleEndAfterInCallReport = useCallback(async () => {
