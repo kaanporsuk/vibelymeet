@@ -13070,18 +13070,6 @@ export type Database = {
         Args: { p_ended_at: string; p_phase: string; p_state: string }
         Returns: boolean
       }
-      video_date_session_is_post_date_survey_eligible: {
-        Args: {
-          p_date_started_at: string
-          p_ended_at: string
-          p_ended_reason: string
-          p_participant_1_joined_at: string
-          p_participant_2_joined_at: string
-          p_phase: string
-          p_state: string
-        }
-        Returns: boolean
-      }
       video_date_session_is_post_date_survey_eligible_v2: {
         Args: {
           p_date_started_at: string

@@ -60,19 +60,21 @@ BEGIN
             WHEN 'video_date' THEN
               public.video_date_session_is_active_surface(v_session.ended_at, v_session.state::text, v_session.phase)
               AND (
-                v_session.state IN ('handshake'::public.video_date_state, 'date'::public.video_date_state)
-                OR v_session.handshake_started_at IS NOT NULL
+                v_session.state IN ('entry'::public.video_date_state, 'date'::public.video_date_state)
+                OR v_session.entry_started_at IS NOT NULL
                 OR v_session.date_started_at IS NOT NULL
               )
             WHEN 'post_date_survey' THEN
-              public.video_date_session_is_post_date_survey_eligible(
+              public.video_date_session_is_post_date_survey_eligible_v2(
                 v_session.ended_at,
                 v_session.ended_reason,
                 v_session.date_started_at,
                 v_session.state::text,
                 v_session.phase,
                 v_session.participant_1_joined_at,
-                v_session.participant_2_joined_at
+                v_session.participant_2_joined_at,
+                v_session.participant_1_remote_seen_at,
+                v_session.participant_2_remote_seen_at
               )
             ELSE false
           END;
