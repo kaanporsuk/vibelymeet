@@ -73,9 +73,11 @@ import {
   isVideoDateRouteOwned,
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
+  suppressDateNavigationAfterManualExit,
+  videoDateNavigationIntents,
   VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
-} from "@/lib/dateEntryTransitionLatch";
-import { suppressDateNavigationAfterManualExit } from "@/lib/dateNavigationGuard";
+} from "@/lib/videoDateNavigationIntents";
+import { decideVideoDateSurfaceRoute } from "@clientShared/videoDate/routeDecision";
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
@@ -2399,139 +2401,82 @@ const VideoDate = () => {
 
           if (cancelled) return;
           registrationQueueStatus = reg?.queue_status ?? null;
-          const dateRouteOwned = isVideoDateRouteOwned(id, user.id);
-
-          if (registrationQueueStatus === "in_ready_gate") {
-            const rgStatus =
-              (sessionRow as { ready_gate_status?: string | null })
-                .ready_gate_status ?? null;
-            const rgExpiresRaw =
-              (sessionRow as { ready_gate_expires_at?: string | number | null })
-                .ready_gate_expires_at ?? null;
-            const readyGateBranch =
-              rgStatus === "both_ready"
-                ? "both_ready_not_provider_prepared_redirecting"
-                : "no_both_ready_redirecting";
-            const shouldRouteReadyGate =
-              routeRecovery.action === "go_ready_gate";
-            vdbg("date_guard_ready_gate_branch", {
-              sessionId: id,
-              userId: user.id,
+          // The bounce/suppression decision is delegated to the shared
+          // controller's single surface-route decision (ownership + entry
+          // latch + survey continuity live in shared/videoDate). This guard
+          // keeps only navigation effects and diagnostics.
+          const surfaceDecision = decideVideoDateSurfaceRoute({
+            surface: "date_route",
+            sessionId: id,
+            profileId: user.id,
+            intents: videoDateNavigationIntents,
+            routeStateForceSurvey:
+              readyRedirectForceSurveyState?.forceSurvey === true,
+            canonicalInput: {
               eventId: sessionRow.event_id,
-              branch: readyGateBranch,
-              truthDecision: routeRecovery.routeDecision ?? "stay_lobby",
-              canAttemptDaily,
-              routeOverride: null,
-              finalRoute: shouldRouteReadyGate ? "ready" : "lobby",
-              readyGateStatus: rgStatus,
-              readyGateExpiresAt: rgExpiresRaw,
-              latchActive: isDateEntryTransitionActive(id),
-              dateRouteOwned,
-              state: sessionRow.state,
-              phase: sessionRow.phase,
-              entryStarted: Boolean(sessionRow.entry_started_at),
-            });
-            if (dateRouteOwned) {
-              vdbg(
-                "date_guard_ready_gate_bounce_suppressed_by_route_ownership",
-                {
-                  sessionId: id,
-                  userId: user.id,
-                  eventId: sessionRow.event_id,
-                  queueStatus: registrationQueueStatus,
-                  state: sessionRow.state,
-                  phase: sessionRow.phase,
-                  readyGateStatus: rgStatus,
-                  readyGateExpiresAt: rgExpiresRaw,
-                },
-              );
-              logRegistrationStatus(registrationQueueStatus);
-              setVideoDateAccess("allowed");
-              markVideoDateRouteOwned(id, user.id);
-              return;
-            }
-            clearDateEntryTransition(id);
-            videoDateDebug("bouncing ready_gate session back to lobby", {
-              sessionId: id,
-              eventId: sessionRow.event_id,
-              queueStatus: registrationQueueStatus,
-              state: sessionRow.state,
-              phase: sessionRow.phase,
-            });
-            videoDateDebug("date_refresh_routing", {
-              outcome: shouldRouteReadyGate
-                ? "redirect_ready_gate"
-                : "redirect_lobby",
-              reason: shouldRouteReadyGate
-                ? "canonical_ready_gate_without_provider_prepared_truth"
-                : "in_ready_gate_without_provider_prepared_truth",
-              sessionId: id,
-              queueStatus: registrationQueueStatus,
-              sessionTruth: {
-                state: sessionRow.state ?? null,
-                phase: sessionRow.phase ?? null,
-                entry_started_at: sessionRow.entry_started_at ?? null,
-                date_started_at: sessionRow.date_started_at ?? null,
-                ready_gate_status:
-                  (sessionRow as { ready_gate_status?: string | null })
-                    .ready_gate_status ?? null,
+              truth: sessionRow,
+              registration: {
+                queue_status: registrationQueueStatus,
+                current_room_id: null,
+                event_id: sessionRow.event_id,
               },
-              latchActive: isDateEntryTransitionActive(id),
-              target: shouldRouteReadyGate
-                ? `/ready/${encodeURIComponent(id)}`
-                : `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`,
-            });
-            const target = shouldRouteReadyGate
-              ? `/ready/${encodeURIComponent(id)}`
-              : `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`;
-            vdbgRedirect(
-              target,
-              shouldRouteReadyGate
-                ? "canonical_ready_gate_without_provider_prepared_truth"
-                : "in_ready_gate_without_provider_prepared_truth",
-              {
+            },
+          });
+          const inReadyGateRegistration =
+            registrationQueueStatus === "in_ready_gate";
+          const canonicalTarget = surfaceDecision.canonical?.target ?? null;
+
+          if (surfaceDecision.target === "survey") {
+            const recovered = await recoverTerminalPostDateSurvey(
+              "date_guard_registration_survey",
+            );
+            if (recovered) return;
+            logRegistrationStatus(registrationQueueStatus);
+            setVideoDateAccess("allowed");
+            markVideoDateRouteOwned(id, user.id);
+            return;
+          }
+
+          if (surfaceDecision.target === "ended") {
+            await recoverTerminalPostDateSurvey("date_guard_ended_truth");
+            return;
+          }
+
+          if (surfaceDecision.target === "date") {
+            if (surfaceDecision.suppressedBy === "route_ownership" ||
+                surfaceDecision.suppressedBy === "entry_latch") {
+              const suppressionEvent = inReadyGateRegistration
+                ? "date_guard_ready_gate_bounce_suppressed_by_route_ownership"
+                : canonicalTarget === "ready_gate"
+                  ? "date_guard_canonical_ready_bounce_suppressed_by_route_ownership"
+                  : "date_guard_lobby_bounce_suppressed_by_route_ownership";
+              vdbg(suppressionEvent, {
                 sessionId: id,
                 userId: user.id,
                 eventId: sessionRow.event_id,
                 queueStatus: registrationQueueStatus,
+                suppressedBy: surfaceDecision.suppressedBy,
                 state: sessionRow.state,
                 phase: sessionRow.phase,
-                entryStarted: Boolean(sessionRow.entry_started_at),
-                latchActive: isDateEntryTransitionActive(id),
-              },
-            );
-            logJourney("date_route_bounced", {
-              reason: shouldRouteReadyGate
-                ? "canonical_ready_gate_without_provider_prepared_truth"
-                : "in_ready_gate_without_provider_prepared_truth",
-              target,
-            });
-            navigate(target, { replace: true });
+                readyGateStatus:
+                  (sessionRow as { ready_gate_status?: string | null })
+                    .ready_gate_status ?? null,
+              });
+            }
+            logRegistrationStatus(registrationQueueStatus);
+            setVideoDateAccess("allowed");
+            markVideoDateRouteOwned(id, user.id);
             return;
           }
 
-          if (routeRecovery.action === "go_ready_gate") {
+          if (surfaceDecision.target === "ready") {
             const target = `/ready/${encodeURIComponent(id)}`;
-            if (dateRouteOwned) {
-              vdbg(
-                "date_guard_canonical_ready_bounce_suppressed_by_route_ownership",
-                {
-                  sessionId: id,
-                  userId: user.id,
-                  eventId: sessionRow.event_id,
-                  queueStatus: registrationQueueStatus,
-                  state: sessionRow.state,
-                  phase: sessionRow.phase,
-                },
-              );
-              setVideoDateAccess("allowed");
-              markVideoDateRouteOwned(id, user.id);
-              return;
-            }
-            clearDateEntryTransition(id);
+            const bounceReason = inReadyGateRegistration
+              ? "canonical_ready_gate_without_provider_prepared_truth"
+              : "date_guard_canonical_ready_gate";
             videoDateDebug("date_refresh_routing", {
               outcome: "redirect_ready_gate",
-              reason: "date_guard_canonical_ready_gate",
+              reason: bounceReason,
               sessionId: id,
               queueStatus: registrationQueueStatus,
               sessionTruth: {
@@ -2546,7 +2491,7 @@ const VideoDate = () => {
               latchActive: isDateEntryTransitionActive(id),
               target,
             });
-            vdbgRedirect(target, "date_guard_canonical_ready_gate", {
+            vdbgRedirect(target, bounceReason, {
               sessionId: id,
               userId: user.id,
               eventId: sessionRow.event_id,
@@ -2557,41 +2502,27 @@ const VideoDate = () => {
               latchActive: isDateEntryTransitionActive(id),
             });
             logJourney("date_route_bounced", {
-              reason: "date_guard_canonical_ready_gate",
+              reason: bounceReason,
               target,
             });
             navigate(target, { replace: true });
             return;
           }
 
-          if (
-            routeRecovery.action === "go_lobby" ||
-            routeRecovery.action === "go_home"
-          ) {
+          if (surfaceDecision.target === "lobby") {
             const target =
-              routeRecovery.action === "go_lobby" && sessionRow.event_id
+              canonicalTarget !== "home" && sessionRow.event_id
                 ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
                 : "/home";
-            if (routeRecovery.action === "go_lobby" && dateRouteOwned) {
-              vdbg("date_guard_lobby_bounce_suppressed_by_route_ownership", {
-                sessionId: id,
-                userId: user.id,
-                eventId: sessionRow.event_id,
-                queueStatus: registrationQueueStatus,
-                state: sessionRow.state,
-                phase: sessionRow.phase,
-              });
-              setVideoDateAccess("allowed");
-              markVideoDateRouteOwned(id, user.id);
-              return;
-            }
-            clearDateEntryTransition(id);
+            const bounceReason = inReadyGateRegistration
+              ? "in_ready_gate_without_provider_prepared_truth"
+              : "date_guard_canonical_not_startable";
             videoDateDebug("date_refresh_routing", {
               outcome:
-                routeRecovery.action === "go_lobby"
+                canonicalTarget !== "home" && sessionRow.event_id
                   ? "redirect_lobby"
                   : "redirect_home",
-              reason: "date_guard_canonical_not_startable",
+              reason: bounceReason,
               sessionId: id,
               queueStatus: registrationQueueStatus,
               sessionTruth: {
@@ -2606,7 +2537,7 @@ const VideoDate = () => {
               latchActive: isDateEntryTransitionActive(id),
               target,
             });
-            vdbgRedirect(target, "date_guard_canonical_not_startable", {
+            vdbgRedirect(target, bounceReason, {
               sessionId: id,
               userId: user.id,
               eventId: sessionRow.event_id,
@@ -2617,7 +2548,7 @@ const VideoDate = () => {
               latchActive: isDateEntryTransitionActive(id),
             });
             logJourney("date_route_bounced", {
-              reason: "date_guard_canonical_not_startable",
+              reason: bounceReason,
               target,
             });
             navigate(target, { replace: true });

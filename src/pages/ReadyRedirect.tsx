@@ -7,7 +7,9 @@ import {
   isVideoDateRouteOwned,
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
-} from "@/lib/dateEntryTransitionLatch";
+  videoDateNavigationIntents,
+} from "@/lib/videoDateNavigationIntents";
+import { decideVideoDateSurfaceRoute } from "@clientShared/videoDate/routeDecision";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
@@ -226,7 +228,24 @@ const ReadyRedirect = () => {
       }
 
       if (canonicalRoute.target === "ready_gate") {
-        if (isVideoDateRouteOwned(candidate, user.id)) {
+        // Ownership/latch suppression is the shared controller's decision:
+        // an owned date route wins over hosting a stale Ready Gate here.
+        const surfaceDecision = decideVideoDateSurfaceRoute({
+          surface: "ready_redirect",
+          sessionId: candidate,
+          profileId: user.id,
+          intents: videoDateNavigationIntents,
+          canonicalInput: {
+            eventId: startSnapshot.eventId,
+            truth: canonicalTruth,
+            registration: {
+              queue_status: readyGateRegistration?.queue_status ?? null,
+              current_room_id: readyGateRegistration?.current_room_id ?? null,
+              event_id: startSnapshot.eventId,
+            },
+          },
+        });
+        if (surfaceDecision.target === "date" && surfaceDecision.navigate) {
           setRouteState({ kind: "redirecting" });
           navigateToDate(candidate, "ready_redirect_canonical_route_ownership");
           return;

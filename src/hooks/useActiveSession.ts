@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
-import { isDateNavigationSuppressedAfterManualExit } from "@/lib/dateNavigationGuard";
+import { isDateNavigationSuppressedAfterManualExit } from "@/lib/videoDateNavigationIntents";
 import { fetchVideoDateStartSnapshot } from "@/lib/videoDateStartSnapshot";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
