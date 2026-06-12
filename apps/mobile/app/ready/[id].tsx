@@ -31,12 +31,13 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
-import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import {
   clearDateEntryTransition,
-  isVideoDateRouteOwned,
   markVideoDateRouteOwned,
-} from '@/lib/dateEntryTransitionLatch';
+  navigateToDateSessionGuarded,
+  videoDateNavigationIntents,
+} from '@/lib/videoDateNavigationIntents';
+import { decideVideoDateSurfaceRoute } from '@clientShared/videoDate/routeDecision';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import {
   defaultNativeReadyGateMediaDiagnostics,
@@ -600,7 +601,24 @@ export default function ReadyGateScreen() {
 
       // Not startable — caller stays on /ready unless we have a definitive non-ready route to take.
       if (startable.recommend === 'ready') {
-        if (isVideoDateRouteOwned(sid, user.id)) {
+        // Ownership/latch suppression is the shared controller's decision:
+        // an owned date route wins over hosting a stale Ready Gate here.
+        const surfaceDecision = decideVideoDateSurfaceRoute({
+          surface: 'ready_redirect',
+          sessionId: sid,
+          profileId: user.id,
+          intents: videoDateNavigationIntents,
+          canonicalInput: {
+            eventId: eventId ?? null,
+            truth: vs,
+            registration: {
+              queue_status: reg?.queue_status ?? null,
+              current_room_id: reg?.current_room_id ?? null,
+              event_id: eventId ?? null,
+            },
+          },
+        });
+        if (surfaceDecision.target === 'date' && surfaceDecision.navigate) {
           rcBreadcrumb(
             RC_CATEGORY.readyGate,
             'standalone_ready_redirect_suppressed_by_date_route_ownership',
@@ -608,9 +626,9 @@ export default function ReadyGateScreen() {
               session_id: sid,
               source,
               startable_reason: startable.reason,
+              suppressed_by: surfaceDecision.suppressedBy,
             },
           );
-          markVideoDateRouteOwned(sid, user.id);
           navigateToDateSessionGuarded({
             sessionId: sid,
             pathname,

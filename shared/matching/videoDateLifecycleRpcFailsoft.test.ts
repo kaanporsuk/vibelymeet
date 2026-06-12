@@ -10,6 +10,7 @@ import {
 } from "./videoDateLifecycleRpc";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -43,7 +44,7 @@ const activeOwnerTerminalTruthMigration = read(
 );
 const webHook = readWebVideoCallFlowSource(root);
 const webDate = readWebVideoDatePageFlowSource(root);
-const nativeDate = read("apps/mobile/app/date/[id].tsx");
+const nativeDate = readNativeVideoDateScreenFlowSource();
 const nativeApi = read("apps/mobile/lib/videoDateApi.ts");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");

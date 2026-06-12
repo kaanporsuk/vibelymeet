@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -16,7 +17,7 @@ const identifierHygieneMigration = read(
 const webHydration = read("src/components/session/SessionRouteHydration.tsx");
 const nativeHydration = read("apps/mobile/components/NativeSessionRouteHydration.tsx");
 const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const invariantSql = read("docs/sql/video-date-invariants.sql");
 const invariantRunner = read("scripts/check-video-date-invariants.mjs");
 const functionVerifier = read("scripts/verify-video-date-functions.mjs");
@@ -40,12 +41,11 @@ test("Ready Gate canonical truth does not claim date route ownership", () => {
   for (const source of [webHydration, nativeHydration] as const) {
     assert.doesNotMatch(source, /ready_gate_bounce_suppressed_date_owner/);
   }
-  assert.match(nativeHydration, /canonicalRoute\.target === "ready_gate"/);
-  assert.match(nativeHydration, /clearVideoDateRouteOwnership/);
-  // PR 7: web hydration delegates the ready-gate bounce to the shared
+  // PR 7/8: both hydrations delegate the ready-gate bounce to the shared
   // surface-route decision, which releases ownership before the redirect.
   const sharedSurfaceRouteDecision = read("shared/videoDate/routeDecision.ts");
   assert.match(webHydration, /decision\.target === "ready"/);
+  assert.match(nativeHydration, /decision\.target === "ready"/);
   assert.match(
     sharedSurfaceRouteDecision,
     /canonical\.target === "ready_gate"[\s\S]{0,200}clearLatch\(\);[\s\S]{0,200}clearOwnership\(\);/,

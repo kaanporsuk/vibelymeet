@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -19,7 +20,7 @@ const webReadyRedirect = read("src/pages/ReadyRedirect.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource();
 const nativeNotificationDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
 const packageJson = read("package.json");
 

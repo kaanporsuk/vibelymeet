@@ -29,8 +29,20 @@ const files = {
   webActiveSession: "src/hooks/useActiveSession.ts",
   webReadyGate: "src/components/lobby/ReadyGateOverlay.tsx",
   webEventLobby: "src/pages/EventLobby.tsx",
-  nativeDate: "apps/mobile/app/date/[id].tsx",
-  nativeDateNavigationGuard: "apps/mobile/lib/dateNavigationGuard.ts",
+  // PR 8 decomposed the native date screen into its module family.
+  nativeDate: [
+    "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
+    "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
+    "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
+    "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
+    "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
+  "apps/mobile/app/date/[id].tsx",
+    "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
+  ],
+  nativeDateNavigationGuard: [
+    "shared/videoDate/navigationIntents.ts",
+    "apps/mobile/lib/videoDateNavigationIntents.ts",
+  ],
   nativeActiveSession: "apps/mobile/lib/useActiveSession.ts",
   nativeReadyGate: "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
   nativeEventLobby: "apps/mobile/app/event/[eventId]/lobby.tsx",

@@ -15,6 +15,7 @@ import {
 } from "./videoDateRouteDecision";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const NOW_MS = Date.parse("2026-05-25T12:00:00.000Z");
@@ -383,7 +384,10 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /fetchPostDateNextSessionTruth/);
   assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /decideCanonicalVideoDateRoute/);
   assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /canonicalVideoDateRouteLogDetail/);
-  assert.match(read("apps/mobile/components/NativeSessionRouteHydration.tsx"), /decideCanonicalVideoDateRoute/);
+  // PR 8: native hydration consumes the canonical contract through the shared
+  // single surface-route decision (decideVideoDateSurfaceRoute composes
+  // decideCanonicalVideoDateRoute in shared/videoDate/routeDecision.ts).
+  assert.match(read("apps/mobile/components/NativeSessionRouteHydration.tsx"), /decideVideoDateSurfaceRoute/);
   assert.match(read("apps/mobile/components/NativeSessionRouteHydration.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/components/NotificationDeepLinkHandler.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/lib/activeSessionRoutes.ts"), /hrefForCanonicalVideoDateRoute/);
@@ -392,7 +396,7 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("apps/mobile/app/ready/[id].tsx"), /startable\.recommend === ['"]survey['"]/);
   assert.match(read("apps/mobile/app/ready/[id].tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /startable\.recommend === ['"]survey['"]/);
-  assert.match(read("apps/mobile/app/date/[id].tsx"), /adviseVideoSessionTruthRecovery/);
+  assert.match(readNativeVideoDateScreenFlowSource(), /adviseVideoSessionTruthRecovery/);
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /pending_survey_navigation_started/);
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /router\.replace\(`\/date\/\$\{sessionId\}` as Href\)/);
   assert.match(read("apps/mobile/components/video-date/PostDateSurvey.tsx"), /decideCanonicalVideoDateRoute/);

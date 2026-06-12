@@ -11,6 +11,7 @@ import {
 } from "./videoDateInstantExperience";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -24,7 +25,7 @@ const swipeResultMigration = read(
 );
 const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource();
 const webLobbyEmptyState = read("src/components/lobby/LobbyEmptyState.tsx");
 const webLobbyProfileCard = read("src/components/lobby/LobbyProfileCard.tsx");
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");

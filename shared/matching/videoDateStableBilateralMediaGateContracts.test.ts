@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -33,7 +34,7 @@ const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
 const webSurfaceGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webPostDateSurvey = read("src/components/video-date/PostDateSurvey.tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativePostDateSurvey = read(
   "apps/mobile/components/video-date/PostDateSurvey.tsx",
 );
@@ -419,5 +420,7 @@ test("stable bilateral media gate is part of the required video-date suites", ()
   assert.match(supabaseTypes, /video_date_stable_bilateral_media_gate_v1/);
   assert.match(supabaseTypes, /vd_provider_overlap_stable_media_base/);
   assert.match(supabaseTypes, /vd_promote_ce_stable_media_base/);
-  assert.match(supabaseTypes, /vd_auto_promote_stable_media_base/);
+  // PR 8 dropped the frozen auto-promote RPC and its chain-private bases;
+  // the live gate runs inside the evidence single bodies.
+  assert.doesNotMatch(supabaseTypes, /vd_auto_promote_stable_media_base/);
 });

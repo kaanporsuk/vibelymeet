@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -75,7 +76,7 @@ const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoDatePage = readWebVideoDatePageFlowSource(root);
 const videoDateMediaContract = read("shared/matching/videoDateMediaContract.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeVideoDateDailyMediaConfig = read("apps/mobile/lib/videoDateDailyMediaConfig.ts");
 const nativeDailyCallInstance = read("apps/mobile/lib/nativeDailyCallInstance.ts");
 const nativeDailyPrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");

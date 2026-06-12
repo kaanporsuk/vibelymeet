@@ -12653,22 +12653,6 @@ export type Database = {
         Args: { p_session_id: string; p_source?: string }
         Returns: Json
       }
-      vd_auto_promote_eligible_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      vd_auto_promote_stable_media_base: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       vd_daily_webhook_terminal_truth_base: {
         Args: {
           p_event_type: string
@@ -13178,43 +13162,10 @@ export type Database = {
         }
         Returns: Json
       }
-      video_session_continue_entry_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_date_timeout_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_entry_auto_promote_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       video_session_extend_date_v2: {
         Args: {
           p_credit_type: string
           p_idempotency_key?: string
-          p_request_hash?: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      video_session_forfeit_v2: {
-        Args: {
-          p_idempotency_key?: string
-          p_reason?: string
           p_request_hash?: string
           p_session_id: string
         }

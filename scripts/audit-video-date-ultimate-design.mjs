@@ -27,7 +27,16 @@ const files = {
     "src/hooks/videoCall/useVideoDateStartCall.ts",
     "src/hooks/useVideoCall.ts",
   ],
-  nativeDate: "apps/mobile/app/date/[id].tsx",
+  // PR 8 decomposed the native date screen into its module family.
+  nativeDate: [
+    "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
+    "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
+    "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
+    "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
+    "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
+  "apps/mobile/app/date/[id].tsx",
+    "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
+  ],
   nativeTimer: "apps/mobile/components/video-date/EntryPhaseTimer.tsx",
   nativeIceBreaker: "apps/mobile/components/video-date/IceBreakerCard.tsx",
   nativeVibeCheck: "apps/mobile/components/video-date/VibeCheckButton.tsx",

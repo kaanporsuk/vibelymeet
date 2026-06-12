@@ -11,12 +11,13 @@ import {
 import type { VideoDateSnapshotOk } from "./videoDateSnapshot";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const timeline = readFileSync(join(root, "shared/matching/videoDateTimeline.ts"), "utf8");
 const webDate = readWebVideoDatePageFlowSource(root);
 const webVibeCheckButton = readFileSync(join(root, "src/components/video-date/VibeCheckButton.tsx"), "utf8");
-const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeDate = readNativeVideoDateScreenFlowSource(root);
 const nativeVibeCheckButton = readFileSync(join(root, "apps/mobile/components/video-date/VibeCheckButton.tsx"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
 const webDupTabGuard = readFileSync(join(root, "src/hooks/useVideoDateDupTabGuard.ts"), "utf8");

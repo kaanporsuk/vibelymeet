@@ -18,8 +18,9 @@
  *  - prepared-entry handoff cache inspection
  *  - `readyGateHref` / `eventLobbyHref` / `tabsRootHref`
  *
- * Does NOT mark or clear `dateEntryTransitionLatch` — `navigateToDateSessionGuarded` owns marking
- * after a successful `router.replace/push`, and `/date/[id].tsx` owns clearing on recovery /
+ * Does NOT mark or clear the date-entry transition latch (shared navigation
+ * intents) — `navigateToDateSessionGuarded` owns marking after a successful
+ * `router.replace/push`, and `/date/[id].tsx` owns clearing on recovery /
  * cleanup. Keeping the latch contract isolated to those two surfaces avoids duplicate writes.
  */
 import type { Href } from 'expo-router';

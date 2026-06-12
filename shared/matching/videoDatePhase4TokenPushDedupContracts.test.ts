@@ -12,6 +12,7 @@ import {
 } from "./videoDatePhase4";
 
 import { readWebVideoCallFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const dailyRoom = readFileSync(join(root, "supabase/functions/daily-room/index.ts"), "utf8");
@@ -23,7 +24,7 @@ const migration = readFileSync(
   "utf8",
 );
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeDate = readNativeVideoDateScreenFlowSource(root);
 const webOneSignal = readFileSync(join(root, "src/lib/onesignal.ts"), "utf8");
 const nativeDeepLink = readFileSync(join(root, "apps/mobile/components/NotificationDeepLinkHandler.tsx"), "utf8");
 const webConnectionOverlay = readFileSync(join(root, "src/components/video-date/ConnectionOverlay.tsx"), "utf8");

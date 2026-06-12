@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { decideCanonicalVideoDateRoute } from "./videoDateRouteDecision";
 
 import { readWebVideoCallFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -12,10 +13,10 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const webHydration = read("src/components/session/SessionRouteHydration.tsx");
 const nativeHydration = read("apps/mobile/components/NativeSessionRouteHydration.tsx");
 const webLatch = readWebVideoDateNavigationIntentsSource(root);
-const nativeLatch = read("apps/mobile/lib/dateEntryTransitionLatch.ts");
+const nativeLatch = readNativeVideoDateNavigationIntentsSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
 const webLobby = read("src/pages/EventLobby.tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const packageJson = read("package.json");
 
@@ -57,7 +58,7 @@ test("registration in_survey dominates stale Ready Gate and missing session trut
 test("date route hydration only owns date-capable or latched routes", () => {
   assert.doesNotMatch(webHydration, /ready_gate_bounce_suppressed_date_owner/);
   assert.doesNotMatch(nativeHydration, /ready_gate_bounce_suppressed_date_owner/);
-  // PR 7: the web ready-gate bounce is decided by the shared surface-route
+  // PR 7/8: both ready-gate bounces are decided by the shared surface-route
   // decision, which releases ownership before hydration navigates.
   assert.match(
     webHydration,
@@ -69,7 +70,7 @@ test("date route hydration only owns date-capable or latched routes", () => {
   );
   assert.match(
     nativeHydration,
-    /canonicalRoute\.target === "ready_gate"[\s\S]*clearVideoDateRouteOwnership\(sid, user\.id\)[\s\S]*router\.replace\(target\)/,
+    /decision\.target === "ready"[\s\S]*route_bounced_to_ready[\s\S]*router\.replace\(target\)/,
   );
   assert.doesNotMatch(webHydration, /webPathForCanonicalVideoDateRoute/);
   assert.doesNotMatch(nativeHydration, /hrefForCanonicalVideoDateRoute/);

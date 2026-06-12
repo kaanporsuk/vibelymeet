@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const migration = readFileSync(
@@ -34,7 +35,7 @@ const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
 const webPostDateOutbox = readFileSync(join(root, "src/lib/postDateOutbox/execute.ts"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
-const nativeVideoDateScreen = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDateScreen = readNativeVideoDateScreenFlowSource(root);
 const nativePostDateOutbox = readFileSync(join(root, "apps/mobile/lib/postDateOutbox/execute.ts"), "utf8");
 const postDateVerdictEdge = readFileSync(join(root, "supabase/functions/post-date-verdict/index.ts"), "utf8");
 const outboxTypes = readFileSync(join(root, "shared/postDateOutbox/types.ts"), "utf8");

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -21,7 +22,7 @@ const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
 const webReconnectionHook = read("src/hooks/useReconnection.ts");
 const webDupTabGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const handshakePersistence = read(
   "shared/matching/videoDateEntryPersistence.ts",

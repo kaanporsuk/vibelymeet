@@ -10,6 +10,7 @@ import {
 } from "./videoDatePublicApi";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260603215948_video_date_definitive_ready_gate_handoff_recovery.sql"),
@@ -25,7 +26,7 @@ const earlyConfirmedEncounterPromotionMigration = readFileSync(
 );
 const webVideoCallHook = readWebVideoCallFlowSource(process.cwd());
 const webVideoDatePage = readWebVideoDatePageFlowSource(process.cwd());
-const nativeVideoDateRoute = readFileSync(join(process.cwd(), "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDateRoute = readNativeVideoDateScreenFlowSource(process.cwd());
 const nativeVideoDateApi = readFileSync(join(process.cwd(), "apps/mobile/lib/videoDateApi.ts"), "utf8");
 
 test("Daily token refresh failures are classified before retrying or rejoining", () => {

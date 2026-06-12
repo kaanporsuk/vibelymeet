@@ -52,6 +52,13 @@ export type CreateVideoDateNavigationIntentsOptions = {
   ownershipStorage?: () => VideoDateIntentsStorage | null;
   /** Persistence for the manual-exit suppression map (web: sessionStorage). */
   manualExitStorage?: () => VideoDateIntentsStorage | null;
+  /**
+   * Duplicate-navigation burst window. Web keeps the 15s default; native uses
+   * 30s because realtime delivers the same ready/date convergence from
+   * registration + video_sessions within a burst that must cover the full
+   * native Daily join pipeline (~30s typical).
+   */
+  duplicateNavigationMs?: number;
 };
 
 export type VideoDateNavigationIntents = ReturnType<
@@ -71,6 +78,8 @@ export function createVideoDateNavigationIntents(
   const nowMs = init.now ?? (() => Date.now());
   const resolveOwnershipStorage = init.ownershipStorage ?? (() => null);
   const resolveManualExitStorage = init.manualExitStorage ?? (() => null);
+  const duplicateNavigationMs =
+    init.duplicateNavigationMs ?? VIDEO_DATE_DUPLICATE_NAVIGATION_MS;
 
   const latch = new Map<string, number>();
   const routeOwnership = new Map<string, number>();
@@ -353,7 +362,7 @@ export function createVideoDateNavigationIntents(
     if (
       !force &&
       lastDateNavigation?.sessionId === sessionId &&
-      now - lastDateNavigation.ts < VIDEO_DATE_DUPLICATE_NAVIGATION_MS
+      now - lastDateNavigation.ts < duplicateNavigationMs
     ) {
       return { ok: false, reason: "recent_duplicate_navigation" };
     }

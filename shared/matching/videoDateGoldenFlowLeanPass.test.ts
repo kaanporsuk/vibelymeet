@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 // Golden-flow lean pass (2026-06-11): the successful 2026-06-10 run showed
 // three redundant client traffic patterns on the launch path — ~30 single
@@ -37,7 +38,7 @@ const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoDatePage = readWebVideoDatePageFlowSource(root);
 const nativeSessionReader = read("apps/mobile/lib/videoDateSessionRow.ts");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 
 test("launch latency checkpoints are buffered and flushed through the batch RPC", () => {
   assert.match(checkpointModule, /record_video_date_launch_latency_checkpoints_v1/);

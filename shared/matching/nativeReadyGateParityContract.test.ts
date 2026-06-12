@@ -6,6 +6,7 @@ import {
   isReadyGatePrepareEntryNonRetryable,
   resolveReadyGateTerminalRecovery,
 } from "./readyGateTerminalRecovery";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -19,7 +20,7 @@ const nativeReadyGateOverlay = read(
 );
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeMediaPermissions = read(
   "apps/mobile/lib/nativeMediaPermissions.ts",
 );
@@ -33,7 +34,12 @@ const nativeConsumerFiles = [
   "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
   "apps/mobile/app/ready/[id].tsx",
   "apps/mobile/app/event/[eventId]/lobby.tsx",
+  "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
   "apps/mobile/app/date/[id].tsx",
+  "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
+  "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
+  "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
+  "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
   "apps/mobile/lib/videoDateApi.ts",
   "apps/mobile/lib/videoDatePrepareEntry.ts",
   "apps/mobile/lib/videoDateEntryStartable.ts",
@@ -231,7 +237,7 @@ test("native ready and date surfaces share one camera and microphone permission 
       nativeReadyGateOverlay,
     ],
     ["apps/mobile/app/ready/[id].tsx", nativeReadyRoute],
-    ["apps/mobile/app/date/[id].tsx", nativeDateRoute],
+    ["native video date screen family", nativeDateRoute],
   ] as const) {
     assert.match(
       source,

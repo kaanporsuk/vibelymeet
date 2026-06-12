@@ -10,6 +10,7 @@ import {
 } from "./videoDateSafetyCopy";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -143,7 +144,7 @@ test("video-date safety submit outcome and retryability stay privacy-safe", () =
 test("web and native safety surfaces consume shared submit copy", () => {
   const webSafetyModal = read("src/components/video-date/InCallSafetyModal.tsx");
   const webVideoDate = readWebVideoDatePageFlowSource(root);
-  const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
+  const nativeVideoDate = readNativeVideoDateScreenFlowSource();
   const nativeSafetySheet = read("apps/mobile/components/video-date/InCallSafetySheet.tsx");
   assert.match(webSafetyModal, /resolveVideoDateSafetySubmitCopy/);
   assert.match(webSafetyModal, /submitInFlightRef/);

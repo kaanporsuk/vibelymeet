@@ -184,10 +184,11 @@ test("web and native hydration/active-session consumers use canonical route deci
     );
   }
 
-  // PR 7: web hydration delegates to the shared single surface-route decision.
+  // PR 7/8: both hydrations delegate to the shared single surface-route decision.
   assert.match(webHydration, /decideVideoDateSurfaceRoute/);
   assert.match(webHydration, /decision\.target === "date"/);
-  assert.match(nativeHydration, /canonicalRoute\.target === ["']date["']/);
+  assert.match(nativeHydration, /decideVideoDateSurfaceRoute/);
+  assert.match(nativeHydration, /decision\.target === ["']date["']/);
   assert.match(webActiveSession, /truthDecision === "navigate_date"/);
   assert.match(nativeActiveSession, /truthDecision === 'navigate_date'/);
 });

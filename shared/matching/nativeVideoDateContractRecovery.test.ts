@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -9,7 +10,7 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");
@@ -19,7 +20,12 @@ const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 
 const nativeVideoDateFiles = [
+  "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
   "apps/mobile/app/date/[id].tsx",
+  "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
+  "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
+  "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
+  "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
   "apps/mobile/lib/videoDateApi.ts",
   "apps/mobile/lib/videoDatePrepareEntry.ts",
   "apps/mobile/lib/videoDateEntryStartable.ts",

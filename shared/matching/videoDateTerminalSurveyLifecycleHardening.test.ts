@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -37,7 +38,7 @@ const pendingSurveyRegistrationRepairMigration = read(
 );
 const webDateRoute = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const observability = read("shared/observability/videoDateClientStuckObservability.ts");
 const activeSession = read("shared/matching/activeSession.ts");
 const packageJson = read("package.json");

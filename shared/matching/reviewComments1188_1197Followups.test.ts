@@ -4,13 +4,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const webDateRoute = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const markReadyFollowup = read("supabase/migrations/20260604131708_review_comments_1183_1188_followups.sql");
 const latestPresenceRepair = read("supabase/migrations/20260604193140_video_date_latest_presence_grace_repair.sql");
 const remoteSeenLatestState = read("supabase/migrations/20260604205645_video_date_remote_seen_latest_state.sql");

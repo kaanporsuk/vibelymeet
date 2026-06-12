@@ -18,10 +18,11 @@ import {
 } from "./videoDateBroadcastGapRecovery";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const webVideoCall = readWebVideoCallFlowSource(root);
-const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource(root);
 const webStatusHook = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
 const nativeStatusHook = readFileSync(join(root, "apps/mobile/lib/eventStatus.ts"), "utf8");
 const webVideoDate = readWebVideoDatePageFlowSource(root);

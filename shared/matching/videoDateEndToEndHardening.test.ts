@@ -28,6 +28,7 @@ import {
 } from "./videoDateCameraSwitchRenderHint";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -304,9 +305,8 @@ const webActiveSessionHook = readFileSync(
   "utf8",
 );
 const webDateNavigationGuard = readWebVideoDateNavigationIntentsSource(process.cwd());
-const nativeDateNavigationGuard = readFileSync(
-  join(process.cwd(), "apps/mobile/lib/dateNavigationGuard.ts"),
-  "utf8",
+const nativeDateNavigationGuard = readNativeVideoDateNavigationIntentsSource(
+  process.cwd(),
 );
 const webEventStatusHook = readFileSync(
   join(process.cwd(), "src/hooks/useEventStatus.ts"),
@@ -396,9 +396,8 @@ const webEntryPhaseTimer = readFileSync(
   join(process.cwd(), "src/components/video-date/EntryPhaseTimer.tsx"),
   "utf8",
 );
-const nativeVideoDateRoute = readFileSync(
-  join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
-  "utf8",
+const nativeVideoDateRoute = readNativeVideoDateScreenFlowSource(
+  process.cwd(),
 );
 const nativeIceBreakerCard = readFileSync(
   join(process.cwd(), "apps/mobile/components/video-date/IceBreakerCard.tsx"),
@@ -2184,10 +2183,11 @@ test("transition wrapper cannot open survey from failed or one-sided date starts
   assert.match(remoteSeenEncounterGuardMigration, /RENAME TO video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
   assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_continue_handshake_v2_20260603090000_remote_seen_base/);
   assert.match(remoteSeenEncounterGuardMigration, /public\.video_session_handshake_auto_promote_v2_20260603090000_remote_seen_base/);
-  // PR-5 vocabulary flip: the dated remote-seen generations are folded into
-  // the entry-vocabulary single bodies and dropped from the live schema.
-  assert.match(supabaseTypes, /video_session_continue_entry_v2/);
-  assert.match(supabaseTypes, /video_session_entry_auto_promote_v2/);
+  // PR-5 vocabulary flip folded the dated remote-seen generations into the
+  // entry-vocabulary single bodies; PR 8 then dropped the frozen v2 transition
+  // RPCs themselves (zero client and zero live SQL callers).
+  assert.doesNotMatch(supabaseTypes, /video_session_continue_entry_v2/);
+  assert.doesNotMatch(supabaseTypes, /video_session_entry_auto_promote_v2/);
   assert.doesNotMatch(supabaseTypes, /video_session_continue_handshake_v2/);
   assert.doesNotMatch(supabaseTypes, /video_session_handshake_auto_promote_v2/);
   assert.match(remoteSeenEncounterGuardMigration, /NOT public\.video_date_session_has_confirmed_encounter[\s\S]*'video_session_continue_handshake_v2'/s);

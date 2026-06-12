@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import { readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const read = (path: string) => readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const exists = (path: string) => existsSync(new URL(`../../${path}`, import.meta.url));
@@ -260,7 +261,7 @@ test("native chat and matches route profile actions to the canonical user route"
   const nativeProfilePreview = read("apps/mobile/app/profile-preview.tsx");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
   const nativeEventDetails = read("apps/mobile/app/(tabs)/events/[id].tsx");
-  const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
+  const nativeVideoDate = readNativeVideoDateScreenFlowSource();
   const nativePartnerSheet = read("apps/mobile/components/video-date/PartnerProfileSheet.tsx");
   const nativeUserProfile = read("apps/mobile/app/user/[userId].tsx");
 

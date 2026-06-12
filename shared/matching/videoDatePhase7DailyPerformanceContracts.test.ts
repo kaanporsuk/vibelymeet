@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const migration = readFileSync(
@@ -27,7 +28,7 @@ const nativePrepareEntry = readFileSync(join(root, "apps/mobile/lib/videoDatePre
 const sharedPrepareEntry = readFileSync(join(root, "shared/matching/videoDatePrepareEntry.ts"), "utf8");
 const webUseVideoCall = readWebVideoCallFlowSource(root);
 const webVideoDate = readWebVideoDatePageFlowSource(root);
-const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource(root);
 const adminOps = readFileSync(join(root, "supabase/functions/admin-video-date-ops/index.ts"), "utf8");
 const adminLiveMetrics = readFileSync(join(root, "src/components/admin/AdminLiveEventMetrics.tsx"), "utf8");
 const packageJson = readFileSync(join(root, "package.json"), "utf8");

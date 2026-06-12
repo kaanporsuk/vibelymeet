@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -48,7 +49,7 @@ const nativeReadyGateTest = read("shared/matching/nativeReadyGateParityContract.
 const nativeVideoDateTest = read("shared/matching/nativeVideoDateContractRecovery.test.ts");
 const nativeReadyOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
-const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");
 const nativeNotificationDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
 const nativeVibeVideoApi = read("apps/mobile/lib/vibeVideoApi.ts");

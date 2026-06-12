@@ -174,7 +174,7 @@ test("web media surfaces classify denials with browser permission state", () => 
     "src/components/chat/VoiceRecorder.tsx",
     "src/components/chat/PhotoCameraCaptureDialog.tsx",
     "src/components/lobby/ReadyGateOverlay.tsx",
-    "src/hooks/useVideoCall.ts",
+    "src/hooks/videoCall/useVideoDateMediaPreflight.ts",
   ];
 
   for (const path of surfaces) {

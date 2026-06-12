@@ -13,6 +13,7 @@ import {
 } from "./videoDateInstantExperience";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
@@ -20,7 +21,7 @@ const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lob
 const webVideoDate = readWebVideoDatePageFlowSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
 const webLobbyProfileCard = readFileSync(join(root, "src/components/lobby/LobbyProfileCard.tsx"), "utf8");
-const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVideoDate = readNativeVideoDateScreenFlowSource(root);
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
 const nativeSurvey = readFileSync(join(root, "apps/mobile/components/video-date/PostDateSurvey.tsx"), "utf8");
 const webReconnectOverlay = readFileSync(join(root, "src/components/video-date/ReconnectionOverlay.tsx"), "utf8");
