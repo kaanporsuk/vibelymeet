@@ -31,12 +31,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
-import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import {
   clearDateEntryTransition,
   isVideoDateRouteOwned,
   markVideoDateRouteOwned,
-} from '@/lib/dateEntryTransitionLatch';
+  navigateToDateSessionGuarded,
+} from '@/lib/videoDateNavigationIntents';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import {
   defaultNativeReadyGateMediaDiagnostics,

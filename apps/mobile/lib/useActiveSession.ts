@@ -27,7 +27,7 @@ import {
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
-import { isDateNavigationSuppressedAfterManualExit } from '@/lib/dateNavigationGuard';
+import { isDateNavigationSuppressedAfterManualExit } from '@/lib/videoDateNavigationIntents';
 import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 

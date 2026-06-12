@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 
@@ -30,7 +31,7 @@ const webDateNavGuard = readWebVideoDateNavigationIntentsSource(root);
 const nativeRouteHydration = read(
   "apps/mobile/components/NativeSessionRouteHydration.tsx",
 );
-const nativeDateNavGuard = read("apps/mobile/lib/dateNavigationGuard.ts");
+const nativeDateNavGuard = readNativeVideoDateNavigationIntentsSource(root);
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
@@ -166,7 +167,7 @@ test("native route hydration and navigation guard force terminal survey ownershi
   );
   assert.match(
     nativeDateNavGuard,
-    /!force &&[\s\S]{0,120}lastDateNav\?\.sessionId === sessionId/,
+    /!force &&[\s\S]{0,120}lastDateNavigation\?\.sessionId === sessionId/,
   );
   assert.match(
     nativeReadyRoute,

@@ -36,7 +36,7 @@ import {
   clearDateEntryTransition,
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
-} from '@/lib/dateEntryTransitionLatch';
+} from '@/lib/videoDateNavigationIntents';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,

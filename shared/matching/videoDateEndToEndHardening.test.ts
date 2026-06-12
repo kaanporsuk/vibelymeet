@@ -28,6 +28,7 @@ import {
 } from "./videoDateCameraSwitchRenderHint";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -304,9 +305,8 @@ const webActiveSessionHook = readFileSync(
   "utf8",
 );
 const webDateNavigationGuard = readWebVideoDateNavigationIntentsSource(process.cwd());
-const nativeDateNavigationGuard = readFileSync(
-  join(process.cwd(), "apps/mobile/lib/dateNavigationGuard.ts"),
-  "utf8",
+const nativeDateNavigationGuard = readNativeVideoDateNavigationIntentsSource(
+  process.cwd(),
 );
 const webEventStatusHook = readFileSync(
   join(process.cwd(), "src/hooks/useEventStatus.ts"),

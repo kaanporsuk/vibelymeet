@@ -79,15 +79,13 @@ import { RC_CATEGORY, rcBreadcrumb } from "@/lib/nativeRcDiagnostics";
 import { endAccountBreakForUser } from "@/lib/endAccountBreak";
 import { isVdbgEnabled, vdbg } from "@/lib/vdbg";
 import {
-  isDateNavigationSuppressedAfterManualExit,
-  navigateToDateSessionGuarded,
-} from "@/lib/dateNavigationGuard";
-import {
   clearDateEntryTransition,
   isDateEntryTransitionActive,
+  isDateNavigationSuppressedAfterManualExit,
   isVideoDateRouteOwned,
   markVideoDateRouteOwned,
-} from "@/lib/dateEntryTransitionLatch";
+  navigateToDateSessionGuarded,
+} from "@/lib/videoDateNavigationIntents";
 import { ensureVideoDateStartableBeforeNavigation } from "@/lib/videoDateEntryStartable";
 import {
   persistReadyGateSuppressionV2,

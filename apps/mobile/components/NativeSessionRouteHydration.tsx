@@ -8,7 +8,7 @@ import {
   clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
   markVideoDateRouteOwned,
-} from "@/lib/dateEntryTransitionLatch";
+} from "@/lib/videoDateNavigationIntents";
 import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateApi";
 import { RC_CATEGORY, rcBreadcrumb } from "@/lib/nativeRcDiagnostics";
 import { videoSessionHasPostDateSurveyTruth } from "@clientShared/matching/activeSession";

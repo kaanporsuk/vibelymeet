@@ -352,8 +352,13 @@ const nativeVideoDateDailyConfigPath = "apps/mobile/lib/videoDateDailyMediaConfi
 const nativeVideoDateDailyConfig = read(nativeVideoDateDailyConfigPath);
 const nativeEventLobbyPath = "apps/mobile/app/event/[eventId]/lobby.tsx";
 const nativeEventLobby = read(nativeEventLobbyPath);
-const nativeDateNavigationGuardPath = "apps/mobile/lib/dateNavigationGuard.ts";
-const nativeDateNavigationGuard = read(nativeDateNavigationGuardPath);
+const nativeDateNavigationGuardPaths = [
+  "shared/videoDate/navigationIntents.ts",
+  "apps/mobile/lib/videoDateNavigationIntents.ts",
+];
+const nativeDateNavigationGuard = nativeDateNavigationGuardPaths
+  .map(read)
+  .join("\n");
 const nativeRemoteBlock = sliceBetweenRegex(
   nativeDate,
   /<View\s+style=\{styles\.remoteContainer\}>/,

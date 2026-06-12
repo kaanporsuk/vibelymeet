@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { decideCanonicalVideoDateRoute } from "./videoDateRouteDecision";
 
 import { readWebVideoCallFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -12,7 +13,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const webHydration = read("src/components/session/SessionRouteHydration.tsx");
 const nativeHydration = read("apps/mobile/components/NativeSessionRouteHydration.tsx");
 const webLatch = readWebVideoDateNavigationIntentsSource(root);
-const nativeLatch = read("apps/mobile/lib/dateEntryTransitionLatch.ts");
+const nativeLatch = readNativeVideoDateNavigationIntentsSource(root);
 const webVideoCall = readWebVideoCallFlowSource(root);
 const webLobby = read("src/pages/EventLobby.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");

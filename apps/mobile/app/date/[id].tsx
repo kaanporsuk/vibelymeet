@@ -169,8 +169,8 @@ import {
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
   VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
-} from "@/lib/dateEntryTransitionLatch";
-import { suppressDateNavigationAfterManualExit } from "@/lib/dateNavigationGuard";
+  suppressDateNavigationAfterManualExit,
+} from "@/lib/videoDateNavigationIntents";
 import {
   eventLobbyHref,
   eventLobbyHrefPostSurveyComplete,

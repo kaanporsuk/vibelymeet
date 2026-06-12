@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
+import { readNativeVideoDateNavigationIntentsSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -26,9 +27,7 @@ const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeSurvey = read(
   "apps/mobile/components/video-date/PostDateSurvey.tsx",
 );
-const nativeDateEntryLatch = read(
-  "apps/mobile/lib/dateEntryTransitionLatch.ts",
-);
+const nativeDateEntryLatch = readNativeVideoDateNavigationIntentsSource(root);
 const sharedContinuity = read("shared/matching/postDateContinuity.ts");
 const postDateVerdictFunction = read(
   "supabase/functions/post-date-verdict/index.ts",
@@ -204,7 +203,7 @@ test("date-route ownership suppresses stale Ready Gate and lobby bounces on web 
   assert.match(webDateEntryLatch, /clearStoredRouteOwnershipForSession/);
   assert.match(
     nativeDateEntryLatch,
-    /routeOwnership\.delete\(routeOwnershipKey\(sessionId, null\)\)/,
+    /const keysToClear = \[routeOwnershipKey\(sessionId, null\)\]/,
   );
 
   assert.match(
@@ -216,9 +215,12 @@ test("date-route ownership suppresses stale Ready Gate and lobby bounces on web 
     "markVideoDateEntryPipelineStarted(id);",
   );
   assert.doesNotMatch(webDateEntryMount, /markVideoDateRouteOwned/);
+  // The dedicated `terminalSurveyOwner` variable became inline guard
+  // conditions during the PR 7/7.5 decomposition; the ownership semantics
+  // (feedback shown / terminal recovery active / ended) are unchanged.
   assert.match(
     webVideoDate,
-    /terminalSurveyOwner =[\s\S]{0,80}showFeedback \|\| terminalSurveyRecoveryActive \|\| phase === "ended"/,
+    /showFeedback \|\|\s*terminalSurveyRecoveryActive \|\|\s*phase === "ended"/,
   );
   assert.match(
     webVideoDate,
@@ -246,7 +248,9 @@ test("date-route ownership suppresses stale Ready Gate and lobby bounces on web 
     /clearVideoDateRouteOwnership\(id, user\?\.id \?\? null\)/,
   );
   assert.match(webLobby, /ready_gate_open_suppressed_by_date_route_ownership/);
-  assert.match(webLobby, /date_route_ownership_active/);
+  // The `date_route_ownership_active` log label was renamed during the PR 7
+  // EventLobby port; pin the suppression condition itself instead.
+  assert.match(webLobby, /isVideoDateRouteOwned\(sessionId, user\?\.id \?\? null\)/);
   assert.match(readyRedirect, /ready_redirect_route_ownership/);
   assert.match(readyRedirect, /ready_redirect_canonical_route_ownership/);
 
@@ -319,10 +323,15 @@ test("post-date continuity is backend-resolved before client event fallback", ()
   assert.match(sharedContinuity, /normalizeServerPostDateNextSurface/);
   assert.match(webSurvey, /resolve_post_date_next_surface/);
   assert.match(nativeSurvey, /resolve_post_date_next_surface/);
-  assert.match(nativeSurvey, /onVideoDateReady/);
+  // Post-date instant-next was removed (2026-06-10): ready_gate / video_date
+  // server-next actions are deliberately ignored instead of auto-routed.
+  assert.match(nativeSurvey, /removed_auto_next_target_ignored/);
   assert.match(webSurvey, /fetchPostDateNextSessionTruth/);
   assert.match(nativeSurvey, /fetchPostDateNextSessionTruth/);
-  assert.match(nativeSurvey, /route: ['"]date['"]/);
+  assert.match(
+    nativeSurvey,
+    /serverNext\.action === 'ready_gate' \|\| serverNext\.action === 'video_date'/,
+  );
   assert.ok(
     webSurvey.indexOf("resolve_post_date_next_surface") <
       webSurvey.indexOf("const active = await checkEventActive"),

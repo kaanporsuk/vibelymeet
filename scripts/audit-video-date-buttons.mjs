@@ -30,7 +30,10 @@ const files = {
   webReadyGate: "src/components/lobby/ReadyGateOverlay.tsx",
   webEventLobby: "src/pages/EventLobby.tsx",
   nativeDate: "apps/mobile/app/date/[id].tsx",
-  nativeDateNavigationGuard: "apps/mobile/lib/dateNavigationGuard.ts",
+  nativeDateNavigationGuard: [
+    "shared/videoDate/navigationIntents.ts",
+    "apps/mobile/lib/videoDateNavigationIntents.ts",
+  ],
   nativeActiveSession: "apps/mobile/lib/useActiveSession.ts",
   nativeReadyGate: "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
   nativeEventLobby: "apps/mobile/app/event/[eventId]/lobby.tsx",
