@@ -176,6 +176,14 @@ import {
   VideoCallStartFailure,
   VideoCallStartResult,
 } from "@/lib/daily/webDailyCallSingleton";
+import { useDailyAliveHeartbeat } from "./videoCall/useDailyAliveHeartbeat";
+import { useVideoDateRemoteSeen } from "./videoCall/useVideoDateRemoteSeen";
+import { useRemoteRenderPipeline } from "./videoCall/useRemoteRenderPipeline";
+import type {
+  ActiveDailyCallIdentity,
+  UseVideoCallOptions,
+  VideoCallSharedRuntime,
+} from "./videoCall/videoCallRuntime";
 
 export type {
   DailyReconnectState,
@@ -188,21 +196,7 @@ export type {
   VideoCallStartFailure,
   VideoCallStartResult,
 } from "@/lib/daily/webDailyCallSingleton";
-
-interface UseVideoCallOptions {
-  roomId?: string;
-  userId?: string;
-  eventId?: string;
-  videoSessionState?: string;
-  localDecisionPersisted?: boolean;
-  onCallEnded?: () => void;
-  onPartnerJoined?: () => void;
-  onPartnerLeft?: () => void;
-  onPartnerTransientDisconnect?: () => void;
-  onPartnerTransientRecover?: () => void;
-  onTerminalSurveyTruth?: (source: string) => void;
-  dailyCallSingletonEligible?: boolean;
-}
+export type { UseVideoCallOptions } from "./videoCall/videoCallRuntime";
 
 type VideoCallStartOptions = {
   internalRetry?: boolean;
@@ -210,18 +204,6 @@ type VideoCallStartOptions = {
   skipStartGate?: boolean;
 };
 
-type ActiveDailyCallIdentity = {
-  sessionId: string;
-  userId: string;
-  ownerId: string | null;
-  callInstanceId: string;
-  entryAttemptId: string | null;
-  videoDateTraceId: string | null;
-};
-
-const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
-const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
-const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
 
 type VideoDateTruthRow = {
   id: string;
@@ -293,14 +275,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const firstRemoteObservedRef = useRef(false);
   const localVideoReadyTrackedRef = useRef(false);
   const remoteFirstFrameTrackedRef = useRef(false);
-  const remoteSeenInFlightSessionRef = useRef<string | null>(null);
-  const remoteSeenLastStampRef = useRef<{
-    sessionId: string;
-    stampedAtMs: number;
-  } | null>(null);
-  const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const activeDailyCallIdentityRef = useRef<ActiveDailyCallIdentity | null>(
     null,
   );
@@ -314,40 +288,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     null,
   );
   const peerMissingTruthRefreshCountRef = useRef(0);
-  const remoteRenderValidationDelayRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  const remoteRenderValidationTimeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  const remoteRenderValidationFrameCallbackRef = useRef<number | null>(null);
-  const remoteRenderValidationSeqRef = useRef(0);
-  const remoteRenderRecoveryReattachTimeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  const remoteRenderRecoveryTrackAttemptsRef = useRef<
-    Map<string, RemoteRenderRecoveryAttemptEntry>
-  >(new Map());
-  const remoteRenderRecoveryScopedAttemptsRef = useRef<
-    Map<string, RemoteRenderRecoveryAttemptEntry>
-  >(new Map());
-  const remoteRenderRecoveryInFlightRef = useRef<{
-    trackKey: string;
-    scopeKey: string;
-    trackAttempt: number;
-    scopeAttempt: number;
-    source: string;
-  } | null>(null);
-  const scheduleRemoteRenderValidationRef = useRef<
-    | ((
-        participant: DailyParticipant | undefined,
-        source: string,
-        roomName: string | null,
-        recoveryScope?: string,
-        options?: RemoteRenderValidationOptions,
-      ) => void)
-    | null
-  >(null);
   const lastRemoteRenderParticipantIdRef = useRef<string | null>(null);
   const startAttemptNonceRef = useRef(0);
   const startCallInFlightSessionRef = useRef<string | null>(null);
@@ -386,7 +326,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     useRef<PreparedVideoDateEntryCacheEntry | null>(null);
   const activePreparedEntryCacheHitRef = useRef<boolean | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
-  const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
   const appAcquiredMediaRef = useRef<AppAcquiredVideoDateMedia | null>(null);
   const lastMediaHandoffUsedRef = useRef(false);
   const lastMediaHandoffMissReasonRef = useRef<string | null>(null);
@@ -394,17 +333,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastPrewarmedJoinInFlightRef = useRef(false);
   const lastPrewarmedAlreadyJoinedRef = useRef(false);
   const lastProviderVerifySkippedRef = useRef<boolean | null>(null);
-  const resilienceReceiveSettingsKeyRef = useRef<string | null>(null);
   const dailyListenerGenerationRef = useRef(0);
   const dailyEventListenerCleanupsRef = useRef<Array<() => void>>([]);
   const dailyTokenRefreshTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
   const dailyTokenRecoveryInFlightRef = useRef(false);
-  const dailyAliveHeartbeatTimerRef = useRef<ReturnType<
-    typeof setInterval
-  > | null>(null);
-  const dailyAliveHeartbeatKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -453,1585 +387,117 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [],
   );
 
-  const clearDailyEventListeners = useCallback((reason: string) => {
-    const cleanups = dailyEventListenerCleanupsRef.current;
-    if (cleanups.length === 0) return;
-    dailyEventListenerCleanupsRef.current = [];
-    for (const cleanup of cleanups) {
-      try {
-        cleanup();
-      } catch (error) {
-        vdbg("daily_call_listener_cleanup_failed", {
-          reason,
-          error:
-            error instanceof Error
-              ? { name: error.name, message: error.message }
-              : String(error),
-        });
-      }
-    }
-    vdbg("daily_call_listeners_cleared", {
-      reason,
-      count: cleanups.length,
-    });
-  }, []);
-
-  const clearDailyTokenRefreshTimer = useCallback(() => {
-    if (!dailyTokenRefreshTimerRef.current) return;
-    clearTimeout(dailyTokenRefreshTimerRef.current);
-    dailyTokenRefreshTimerRef.current = null;
-  }, []);
-
-  const clearDailyAliveHeartbeatTimer = useCallback((reason: string) => {
-    if (dailyAliveHeartbeatTimerRef.current) {
-      clearInterval(dailyAliveHeartbeatTimerRef.current);
-      dailyAliveHeartbeatTimerRef.current = null;
-    }
-    if (dailyAliveHeartbeatKeyRef.current) {
-      vdbg("mark_video_date_daily_alive_stopped", {
-        reason,
-        heartbeatKey: dailyAliveHeartbeatKeyRef.current,
-      });
-      dailyAliveHeartbeatKeyRef.current = null;
-    }
-  }, []);
-
-  const markVideoDateDailyAlive = useCallback(
-    async (input: {
-      sessionId: string;
-      userId: string;
-      roomName: string | null;
-      entryAttemptId?: string | null;
-      videoDateTraceId?: string | null;
-      callInstanceId?: string | null;
-      source: string;
-    }) => {
-      const call = callObjectRef.current;
-      const providerSessionId = readDailyProviderSessionId(call);
-      const meetingState = safeMeetingState(call);
-      const providerBackedJoined =
-        meetingState === "joined-meeting" && Boolean(providerSessionId);
-      const dailyOwnerState = providerBackedJoined
-        ? "joined"
-        : meetingState === "left-meeting" || meetingState === "error"
-          ? "lost"
-          : "joining";
-      const entryOwner = getVideoDateEntryOwner(input.sessionId, input.userId);
-      const ownerId = entryOwner?.ownerId ?? null;
-      updateVideoDateDailyOwnerState({
-        sessionId: input.sessionId,
-        userId: input.userId,
-        ownerId,
-        roomName: input.roomName,
-        state: dailyOwnerState,
-        source: input.source,
-        entryAttemptId:
-          input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
-        videoDateTraceId:
-          input.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
-        callInstanceId: input.callInstanceId ?? null,
-        providerSessionId,
-      });
-      updateVideoDateEntryOwnerState({
-        sessionId: input.sessionId,
-        userId: input.userId,
-        ownerId,
-        state: providerBackedJoined ? "joined" : "joining",
-        source: input.source,
-        roomName: input.roomName,
-        entryAttemptId:
-          input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
-        videoDateTraceId:
-          input.videoDateTraceId ?? entryOwner?.videoDateTraceId ?? null,
-        callInstanceId: input.callInstanceId ?? null,
-        providerSessionId,
-      });
-
-      if (!providerBackedJoined) {
-        vdbg("mark_video_date_daily_alive_skipped_provider_missing", {
-          sessionId: input.sessionId,
-          userId: input.userId,
-          roomName: input.roomName,
-          source: input.source,
-          ownerId,
-          callInstanceId: input.callInstanceId ?? null,
-          providerSessionId,
-          meetingState,
-          ownerState: dailyOwnerState,
-          terminal: dailyOwnerState === "lost",
-        });
-        if (dailyOwnerState === "lost") {
-          clearDailyAliveHeartbeatTimer("provider_missing_terminal_state");
-        }
-        return;
-      }
-
-      const args = {
-        p_session_id: input.sessionId,
-        p_owner_id: ownerId,
-        p_call_instance_id: input.callInstanceId ?? null,
-        p_provider_session_id: providerSessionId,
-        p_entry_attempt_id:
-          input.entryAttemptId ?? entryOwner?.entryAttemptId ?? null,
-        p_owner_state: dailyOwnerState,
-      };
-      try {
-        const { data, error } = await (
-          supabase as unknown as {
-            rpc: (
-              name: string,
-              args: Record<string, unknown>,
-            ) => Promise<{
-              data: unknown;
-              error: { code?: string; message?: string } | null;
-            }>;
-          }
-        ).rpc("mark_video_date_daily_alive", args);
-        vdbg("mark_video_date_daily_alive_after", {
-          sessionId: input.sessionId,
-          userId: input.userId,
-          roomName: input.roomName,
-          source: input.source,
-          ownerId,
-          callInstanceId: input.callInstanceId ?? null,
-          providerSessionId,
-          providerBackedJoined,
-          meetingState,
-          ownerState: dailyOwnerState,
-          payload: data ?? null,
-          error: error ? { code: error.code, message: error.message } : null,
-        });
-        const payload =
-          data && typeof data === "object" && !Array.isArray(data)
-            ? (data as Record<string, unknown>)
-            : null;
-        const terminalSurvey =
-          videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
-        const terminalStop =
-          terminalSurvey ||
-          videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
-          payload?.provider_presence_terminal === true;
-        if (terminalStop) {
-          clearDailyAliveHeartbeatTimer(
-            videoDateLifecycleRpcCode(payload) === "session_ended"
-              ? "server_session_ended"
-              : payload?.provider_presence_terminal === true
-                ? "provider_presence_terminal"
-                : "server_terminal_truth",
-          );
-          if (terminalSurvey) {
-            optionsRef.current?.onTerminalSurveyTruth?.(
-              "daily_alive_terminal_survey_truth",
-            );
-          }
-        }
-      } catch (error) {
-        vdbg("mark_video_date_daily_alive_failed", {
-          sessionId: input.sessionId,
-          userId: input.userId,
-          roomName: input.roomName,
-          source: input.source,
-          ownerId,
-          callInstanceId: input.callInstanceId ?? null,
-          providerSessionId,
-          providerBackedJoined,
-          meetingState,
-          ownerState: dailyOwnerState,
-          error:
-            error instanceof Error
-              ? { name: error.name, message: error.message }
-              : String(error),
-        });
-      }
-    },
-    [clearDailyAliveHeartbeatTimer],
-  );
-
-  const startDailyAliveHeartbeat = useCallback(
-    (input: {
-      sessionId: string;
-      userId: string;
-      roomName: string | null;
-      entryAttemptId?: string | null;
-      videoDateTraceId?: string | null;
-      callInstanceId?: string | null;
-      source: string;
-    }) => {
-      const heartbeatKey = `${input.sessionId}:${input.userId}:${input.roomName ?? ""}:${input.callInstanceId ?? ""}`;
-      if (dailyAliveHeartbeatKeyRef.current === heartbeatKey) {
-        void markVideoDateDailyAlive(input);
-        return;
-      }
-      clearDailyAliveHeartbeatTimer("heartbeat_replaced");
-      dailyAliveHeartbeatKeyRef.current = heartbeatKey;
-      void markVideoDateDailyAlive(input);
-      dailyAliveHeartbeatTimerRef.current = setInterval(() => {
-        void markVideoDateDailyAlive({
-          ...input,
-          source: "daily_alive_heartbeat",
-        });
-      }, VIDEO_DATE_DAILY_ALIVE_HEARTBEAT_MS);
-    },
-    [clearDailyAliveHeartbeatTimer, markVideoDateDailyAlive],
-  );
-
-  useEffect(() => {
-    const sessionId = options?.roomId ?? null;
-    if (!sessionId) return;
-    if (!isConnected) {
-      resilienceReceiveSettingsKeyRef.current = null;
-      return;
-    }
-
-    const mode = networkTier === "poor" ? "audio_priority" : "standard";
-    if (mode === "standard" && resilienceReceiveSettingsKeyRef.current === null)
-      return;
-
-    const key = `${sessionId}:${mode}`;
-    if (resilienceReceiveSettingsKeyRef.current === key) return;
-
-    const call = callObjectRef.current;
-    const payload = {
-      platform: "web",
-      session_id: sessionId,
-      event_id: options?.eventId ?? null,
-      network_tier: networkTier,
-      adaptation: mode,
-    };
-
-    if (!call || typeof call.updateReceiveSettings !== "function") {
-      resilienceReceiveSettingsKeyRef.current = key;
-      trackEvent("video_date_resilience_daily_adaptation", {
-        ...payload,
-        capability_available: false,
-        outcome: "unsupported",
-      });
-      return;
-    }
-
-    const receiveSettings: Parameters<DailyCall["updateReceiveSettings"]>[0] =
-      mode === "audio_priority"
-        ? { "*": { video: { layer: 0 } } }
-        : { "*": "inherit" };
-    resilienceReceiveSettingsKeyRef.current = key;
-    void call
-      .updateReceiveSettings(receiveSettings)
-      .then(() => {
-        trackEvent("video_date_resilience_daily_adaptation", {
-          ...payload,
-          capability_available: true,
-          outcome: "applied",
-        });
-      })
-      .catch((error) => {
-        trackEvent("video_date_resilience_daily_adaptation", {
-          ...payload,
-          capability_available: true,
-          outcome: "failed",
-          reason:
-            error instanceof Error ? error.message.slice(0, 120) : "unknown",
-        });
-      });
-  }, [
+  const sharedRuntime: VideoCallSharedRuntime = {
+    options,
+    isConnecting,
     isConnected,
+    isVideoOff,
+    isFlippingCamera,
+    localStream,
     networkTier,
-    options?.eventId,
-    options?.roomId,
-  ]);
+    dailyMeetingState,
+    captureProfile,
+    setIsConnecting,
+    setIsConnected,
+    setCanFlipCamera,
+    setIsFlippingCamera,
+    setHasPermission,
+    setLocalStream,
+    setNetworkTier,
+    setRemotePlayback,
+    setPeerMissing,
+    setDailyReconnectState,
+    setDailyMeetingState,
+    setLocalInDailyRoom,
+    setReconnectGraceTimeLeft,
+    setMediaPermissionError,
+    setMediaPermissionResult,
+    setCaptureProfile,
+    localVideoRef,
+    remoteVideoRef,
+    callObjectRef,
+    roomNameRef,
+    optionsRef,
+    firstRemoteObservedRef,
+    localVideoReadyTrackedRef,
+    remoteFirstFrameTrackedRef,
+    activeDailyCallIdentityRef,
+    lastLocalTrackIdsRef,
+    lastLocalStreamRef,
+    lastRemoteTrackIdsRef,
+    lastRemoteStreamRef,
+    lastLocalMountedTrackKeyRef,
+    lastRemoteMountedTrackKeyRef,
+    firstRemoteWatchdogRef,
+    peerMissingTruthRefreshCountRef,
+    lastRemoteRenderParticipantIdRef,
+    startAttemptNonceRef,
+    startCallInFlightSessionRef,
+    activeCallSessionIdRef,
+    latestLocalParticipantRef,
+    latestRemoteParticipantRef,
+    cameraSwitchInFlightRef,
+    lastRemoteCameraSwitchHintIdRef,
+    activeRemoteCameraSwitchRenderWatchRef,
+    reconnectGraceTimeoutRef,
+    reconnectGraceTickerRef,
+    reconnectRecoveryResetTimeoutRef,
+    reconnectGraceActiveRef,
+    reconnectPartnerAwayTriggeredRef,
+    reconnectSyncRequestedRef,
+    playbackBlockedRef,
+    captureProfileRef,
+    activePreparedEntryCacheRef,
+    activePreparedEntryCacheHitRef,
+    dailyJoinStartedAtMsRef,
+    appAcquiredMediaRef,
+    lastMediaHandoffUsedRef,
+    lastMediaHandoffMissReasonRef,
+    lastDailyPrewarmConsumedRef,
+    lastPrewarmedJoinInFlightRef,
+    lastPrewarmedAlreadyJoinedRef,
+    lastProviderVerifySkippedRef,
+    dailyListenerGenerationRef,
+    dailyEventListenerCleanupsRef,
+    dailyTokenRefreshTimerRef,
+    dailyTokenRecoveryInFlightRef,
+    latchSameSessionDailyContinuity,
+    clearSameSessionDailyContinuity,
+    hasSameSessionDailyContinuity,
+  };
 
-  useEffect(() => {
-    if (!isConnecting && !isConnected) {
-      dailySdkUnresponsiveKeyRef.current = null;
-      return;
-    }
+  const heartbeat = useDailyAliveHeartbeat(sharedRuntime);
+  const {
+    clearDailyEventListeners,
+    clearDailyTokenRefreshTimer,
+    clearDailyAliveHeartbeatTimer,
+    startDailyAliveHeartbeat,
+  } = heartbeat;
 
-    const emitUnresponsive = (
-      reason: string,
-      meetingState: string | null,
-      error?: unknown,
-    ) => {
-      const sessionId = optionsRef.current?.roomId ?? null;
-      const key = `${sessionId ?? "unknown"}:${reason}:${meetingState ?? "none"}`;
-      if (dailySdkUnresponsiveKeyRef.current === key) return;
-      dailySdkUnresponsiveKeyRef.current = key;
-      const payload = {
-        platform: "web",
-        session_id: sessionId,
-        event_id: optionsRef.current?.eventId ?? null,
-        source_surface: "video_date_daily",
-        source_action: "daily_sdk_heartbeat",
-        reason,
-        daily_meeting_state: meetingState,
-        connected: isConnected,
-        connecting: isConnecting,
-      };
-      trackEvent(
-        LobbyPostDateEvents.VIDEO_DATE_DAILY_SDK_UNRESPONSIVE,
-        payload,
-      );
-      Sentry.captureMessage("video_date_daily_sdk_unresponsive", {
-        level: "warning",
-        extra: {
-          ...payload,
-          error:
-            error instanceof Error
-              ? { name: error.name, message: error.message }
-              : (error ?? null),
-        },
-      });
-    };
+  const remoteSeen = useVideoDateRemoteSeen({
+    ...sharedRuntime,
+    ...heartbeat,
+  });
+  const { markRemoteFirstFrameRendered } = remoteSeen;
 
-    const intervalId = setInterval(() => {
-      const call = callObjectRef.current as
-        | (DailyCall & { meetingState?: () => unknown })
-        | null;
-      if (!call || typeof call.meetingState !== "function") return;
-      let meetingState: string | null = null;
-      try {
-        const state = call.meetingState();
-        meetingState =
-          typeof state === "string"
-            ? state
-            : state == null
-              ? null
-              : String(state);
-      } catch (error) {
-        emitUnresponsive("meeting_state_throw", null, error);
-        return;
-      }
-      if (
-        meetingState === "error" ||
-        (isConnected && meetingState === "left-meeting")
-      ) {
-        emitUnresponsive("unexpected_meeting_state", meetingState);
-      }
-    }, 5_000);
 
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [isConnected, isConnecting]);
+  const renderPipeline = useRemoteRenderPipeline({
+    ...sharedRuntime,
+    ...remoteSeen,
+  });
+  const {
+    attachTracks,
+    needsTrackReattach,
+    logTrackMounted,
+    clearFirstRemoteWatchdog,
+    remoteRenderDiagnostics,
+    resetRemoteRenderRecoveryAttempts,
+    clearRemoteRenderValidation,
+    resetRemoteRenderRecoveryForParticipant,
+    forceRemoteMediaReattach,
+    scheduleRemoteRenderValidation,
+  } = renderPipeline;
 
-  const markRemoteSeenOnServer = useCallback(
-    (source: string) => {
-      const currentOptions = optionsRef.current;
-      const sessionId = currentOptions?.roomId ?? null;
-      if (!sessionId) return;
-      const activeSessionId = sessionId;
-      const eventId = currentOptions?.eventId ?? null;
-      const currentUserId = currentOptions?.userId;
-      if (!currentUserId) return;
-      const userId = currentUserId;
-      if (remoteSeenInFlightSessionRef.current === sessionId) return;
-      const nowMs = Date.now();
-      const lastStamp = remoteSeenLastStampRef.current;
-      const forceRestamp =
-        source === "loadeddata" ||
-        source === "playing" ||
-        source === "remote_track_mounted" ||
-        source === "first_remote_frame" ||
-        source === "request_video_frame_callback";
-      if (
-        !forceRestamp &&
-        lastStamp?.sessionId === sessionId &&
-        nowMs - lastStamp.stampedAtMs < REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS
-      ) {
-        return;
-      }
-
-      const baseEvidenceSource = source;
-      const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
-        const call = callObjectRef.current;
-        const providerSessionId = readDailyProviderSessionId(call);
-        const meetingState = safeMeetingState(call);
-        const providerBackedJoined =
-          meetingState === "joined-meeting" && Boolean(providerSessionId);
-        const identity = activeDailyCallIdentityRef.current;
-        const identityCurrent =
-          identity?.sessionId === sessionId && identity.userId === userId
-            ? identity
-            : null;
-        const entryOwner = getVideoDateEntryOwner(sessionId, userId);
-        const ownerId = identityCurrent?.ownerId ?? entryOwner?.ownerId ?? null;
-        const callInstanceId = identityCurrent?.callInstanceId ?? null;
-        const entryAttemptId =
-          identityCurrent?.entryAttemptId ?? entryOwner?.entryAttemptId ?? null;
-        const videoDateTraceId =
-          identityCurrent?.videoDateTraceId ??
-          entryOwner?.videoDateTraceId ??
-          null;
-
-        if (!providerBackedJoined || !providerSessionId || !callInstanceId) {
-          const terminal =
-            meetingState === "left-meeting" || meetingState === "error";
-          if (terminal) {
-            clearDailyAliveHeartbeatTimer(
-              "remote_seen_provider_missing_terminal_state",
-            );
-          }
-          const code = !providerSessionId
-            ? "REMOTE_SEEN_PROVIDER_SESSION_MISSING"
-            : !callInstanceId
-              ? "REMOTE_SEEN_CALL_INSTANCE_MISSING"
-              : "REMOTE_SEEN_OWNER_NOT_JOINED";
-          vdbg("mark_video_date_remote_seen_skipped_provider_missing", {
-            sessionId,
-            eventId,
-            userId,
-            source: attemptSource,
-            providerSessionId,
-            meetingState,
-            providerBackedJoined,
-            callInstanceId,
-            ownerId,
-            terminal,
-          });
-          return {
-            ok: false as const,
-            code,
-            payload: {
-              ok: false,
-              error: code.toLowerCase(),
-              code,
-              retryable: false,
-              provider_presence_required: true,
-              provider_presence_missing: true,
-              provider_presence_terminal: terminal,
-            },
-          };
-        }
-
-        return {
-          ok: true as const,
-          providerSessionId,
-          meetingState,
-          ownerId,
-          callInstanceId,
-          entryAttemptId,
-          videoDateTraceId,
-          args: {
-            p_session_id: sessionId,
-            p_owner_id: ownerId,
-            p_call_instance_id: callInstanceId,
-            p_provider_session_id: providerSessionId,
-            p_entry_attempt_id: entryAttemptId,
-            p_owner_state: "joined",
-            p_evidence_source: baseEvidenceSource,
-          },
-        };
-      };
-
-      const initialProof = buildProviderBoundRemoteSeenArgs(source);
-      if (!initialProof.ok) return;
-
-      if (remoteSeenRetryTimerRef.current) {
-        clearTimeout(remoteSeenRetryTimerRef.current);
-        remoteSeenRetryTimerRef.current = null;
-      }
-      remoteSeenInFlightSessionRef.current = sessionId;
-
-      const scheduleRetry = (attemptSource: string, nextAttempt: number) => {
-        if (
-          optionsRef.current?.roomId !== sessionId ||
-          remoteSeenRetryTimerRef.current
-        )
-          return;
-        remoteSeenRetryTimerRef.current = setTimeout(() => {
-          remoteSeenRetryTimerRef.current = null;
-          if (
-            optionsRef.current?.roomId !== sessionId ||
-            remoteSeenInFlightSessionRef.current === sessionId
-          )
-            return;
-          remoteSeenInFlightSessionRef.current = sessionId;
-          stamp(`${attemptSource}_retry_${nextAttempt}`, nextAttempt);
-        }, REMOTE_SEEN_RPC_RETRY_DELAY_MS);
-      };
-
-      const handleFailure = (
-        attemptSource: string,
-        attempt: number,
-        code: string,
-        errorDetail: unknown,
-        payload?: Record<string, unknown> | null,
-      ) => {
-        if (remoteSeenInFlightSessionRef.current === sessionId) {
-          remoteSeenInFlightSessionRef.current = null;
-        }
-        const terminalSurvey =
-          videoDateLifecycleRpcIndicatesTerminalSurvey(payload);
-        const terminalStop =
-          terminalSurvey ||
-          videoDateLifecycleRpcIndicatesTerminalStop(payload) ||
-          payload?.provider_presence_terminal === true;
-        const retryable =
-          videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
-        if (terminalStop) {
-          if (remoteSeenRetryTimerRef.current) {
-            clearTimeout(remoteSeenRetryTimerRef.current);
-            remoteSeenRetryTimerRef.current = null;
-          }
-          clearDailyAliveHeartbeatTimer(
-            terminalSurvey
-              ? "remote_seen_terminal_survey_truth"
-              : "remote_seen_terminal_truth",
-          );
-          if (terminalSurvey) {
-            optionsRef.current?.onTerminalSurveyTruth?.(
-              "remote_seen_terminal_survey_truth",
-            );
-          }
-        }
-        vdbg("mark_video_date_remote_seen_failed", {
-          sessionId,
-          eventId,
-          userId,
-          source: attemptSource,
-          code,
-          error: errorDetail,
-          attempt,
-          retryable,
-          terminalStop,
-          payload: payload ?? null,
-        });
-        if (!retryable || terminalStop) {
-          return;
-        }
-        if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
-          scheduleRetry(attemptSource, attempt + 1);
-          return;
-        }
-        void emitWebVideoDateClientStuckState({
-          sessionId,
-          eventName: "remote_seen_canonical_repair_failed",
-          payload: {
-            source_surface: "video_date_daily",
-            source_action: "mark_video_date_remote_seen",
-            reason_code: code,
-            code,
-            source: attemptSource,
-            attempt_count: attempt,
-            retryable,
-            exhausted: true,
-          },
-        });
-      };
-
-      function stamp(attemptSource: string, attempt: number) {
-        const proof = buildProviderBoundRemoteSeenArgs(attemptSource);
-        if (!proof.ok) {
-          handleFailure(
-            attemptSource,
-            attempt,
-            proof.code,
-            null,
-            proof.payload,
-          );
-          return;
-        }
-        void Promise.resolve(
-          supabase.rpc("mark_video_date_remote_seen", proof.args),
-        )
-          .then(({ data, error }) => {
-            const payload =
-              data && typeof data === "object" && !Array.isArray(data)
-                ? (data as Record<string, unknown>)
-                : null;
-            if (error || payload?.ok !== true) {
-              handleFailure(
-                attemptSource,
-                attempt,
-                error?.code ??
-                  videoDateLifecycleRpcCode(payload) ??
-                  String(payload?.error ?? "unknown"),
-                error ? { code: error.code, message: error.message } : null,
-                payload,
-              );
-              return;
-            }
-            if (remoteSeenRetryTimerRef.current) {
-              clearTimeout(remoteSeenRetryTimerRef.current);
-              remoteSeenRetryTimerRef.current = null;
-            }
-            if (remoteSeenInFlightSessionRef.current === sessionId) {
-              remoteSeenInFlightSessionRef.current = null;
-            }
-            remoteSeenLastStampRef.current = {
-              sessionId: activeSessionId,
-              stampedAtMs: Date.now(),
-            };
-            updateVideoDateEntryOwnerState({
-              sessionId: activeSessionId,
-              userId,
-              ownerId: proof.ownerId,
-              state: "remote_seen",
-              source: `remote_seen_${attemptSource}`,
-              roomName: roomNameRef.current,
-              entryAttemptId: proof.entryAttemptId,
-              videoDateTraceId: proof.videoDateTraceId,
-              callInstanceId: proof.callInstanceId,
-              providerSessionId: proof.providerSessionId,
-            });
-            updateVideoDateDailyOwnerState({
-              sessionId: activeSessionId,
-              userId,
-              ownerId: proof.ownerId,
-              roomName: roomNameRef.current,
-              state: "remote_seen",
-              source: `remote_seen_${attemptSource}`,
-              entryAttemptId: proof.entryAttemptId,
-              videoDateTraceId: proof.videoDateTraceId,
-              callInstanceId: proof.callInstanceId,
-              providerSessionId: proof.providerSessionId,
-            });
-            vdbg("mark_video_date_remote_seen_after", {
-              sessionId,
-              eventId,
-              userId,
-              source: attemptSource,
-              providerSessionId: proof.providerSessionId,
-              callInstanceId: proof.callInstanceId,
-              participant1RemoteSeenAt:
-                payload?.participant_1_remote_seen_at ?? null,
-              participant2RemoteSeenAt:
-                payload?.participant_2_remote_seen_at ?? null,
-            });
-          })
-          .catch((error: unknown) => {
-            handleFailure(
-              attemptSource,
-              attempt,
-              "promise_rejected",
-              error instanceof Error
-                ? { name: error.name, message: error.message }
-                : { message: String(error) },
-            );
-          });
-      }
-
-      stamp(source, 1);
-    },
-    [clearDailyAliveHeartbeatTimer],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (remoteSeenRetryTimerRef.current) {
-        clearTimeout(remoteSeenRetryTimerRef.current);
-        remoteSeenRetryTimerRef.current = null;
-      }
-      remoteSeenInFlightSessionRef.current = null;
-      const sessionId = optionsRef.current?.roomId ?? null;
-      const call = callObjectRef.current;
-      const shouldPreserveActiveIdentity =
-        Boolean(sessionId) &&
-        Boolean(call) &&
-        hasSameSessionDailyContinuity(sessionId) &&
-        optionsRef.current?.videoSessionState !== "ended" &&
-        !isTerminalDailyMeetingState(safeMeetingState(call));
-      if (shouldPreserveActiveIdentity) {
-        vdbg("daily_call_live_remount_identity_preserved", {
-          sessionId,
-          eventId: optionsRef.current?.eventId ?? null,
-          userId: optionsRef.current?.userId ?? null,
-          meetingState: safeMeetingState(call),
-        });
-        return;
-      }
-      activeDailyCallIdentityRef.current = null;
-    };
-  }, [hasSameSessionDailyContinuity]);
-
-  const markRemoteFirstFrameRendered = useCallback(
-    (source: string) => {
-      setRemotePlayback((prev) => {
-        if (prev.firstFrameRendered) return prev;
-        return {
-          ...prev,
-          mediaAttached: true,
-          playRejected: false,
-          firstFrameRendered: true,
-        };
-      });
-
-      const currentOptions = optionsRef.current;
-      if (!currentOptions?.roomId) return;
-      const sessionId = currentOptions.roomId;
-      markRemoteSeenOnServer(source);
-      if (remoteFirstFrameTrackedRef.current) return;
-      remoteFirstFrameTrackedRef.current = true;
-
-      const nowMs = Date.now();
-      const entry = activePreparedEntryCacheRef.current;
-      const bothReadyToFirstRemoteFrameMs =
-        entry?.bothReadyObservedAtMs == null
-          ? null
-          : Math.max(0, nowMs - entry.bothReadyObservedAtMs);
-      vdbg("daily_remote_first_frame_rendered", {
-        sessionId: optionsRef.current?.roomId ?? null,
-        eventId: optionsRef.current?.eventId ?? null,
-        userId: optionsRef.current?.userId ?? null,
-        source,
-        bothReadyToFirstRemoteFrameMs,
-      });
-      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
-        sessionId,
-        platform: "web",
-        eventId: currentOptions.eventId ?? null,
-        sourceSurface: "video_date_daily",
-        checkpoint: "first_remote_frame",
-        nowMs,
-        entryAttemptId:
-          entry?.entryAttemptId ?? entry?.value.entry_attempt_id ?? null,
-        videoDateTraceId:
-          entry?.value.video_date_trace_id ?? entry?.entryAttemptId ?? null,
-        cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
-        providerVerifySkipped:
-          entry?.value.provider_verify_skipped ??
-          lastProviderVerifySkippedRef.current,
-      });
-      trackEvent(
-        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-        buildReadyGateToDateLatencyPayload({
-          context: latencyContext,
-          checkpoint: "first_remote_frame",
-          sourceAction: source,
-          outcome: "success",
-          durationMs: bothReadyToFirstRemoteFrameMs,
-        }),
-      );
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_FIRST_REMOTE_FRAME, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: currentOptions.eventId ?? null,
-        source_surface: "video_date_daily",
-        source_action: source,
-        source,
-        bothReadyToFirstRemoteFrameMs,
-        duration_ms: bothReadyToFirstRemoteFrameMs,
-        latency_bucket: bucketVideoDateLatencyMs(bothReadyToFirstRemoteFrameMs),
-        media_handoff_used: lastMediaHandoffUsedRef.current,
-        media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
-        daily_prewarm_consumed: lastDailyPrewarmConsumedRef.current,
-        prewarmed_join_in_flight: lastPrewarmedJoinInFlightRef.current,
-        prewarmed_already_joined: lastPrewarmedAlreadyJoinedRef.current,
-        provider_verify_skipped:
-          entry?.value.provider_verify_skipped ??
-          lastProviderVerifySkippedRef.current,
-      });
-    },
-    [markRemoteSeenOnServer],
-  );
-
-  const attachTracks = useCallback(
-    (
-      participant: DailyParticipant | undefined,
-      videoEl: HTMLVideoElement | null,
-      isLocal: boolean,
-    ) => {
-      if (!isLocal && participant) {
-        setRemotePlayback((prev) => ({ ...prev, participantPresent: true }));
-      }
-      if (!videoEl || !participant?.tracks) return;
-      const stream = new MediaStream();
-      const videoTrack = participant.tracks.video?.persistentTrack;
-      const audioTrack = participant.tracks.audio?.persistentTrack;
-      const remoteTrackKey = isLocal ? "" : getTrackIdsKey(participant, true);
-      if (videoTrack) stream.addTrack(videoTrack);
-      if (audioTrack && !isLocal) stream.addTrack(audioTrack);
-      const hasRemoteVideo = !isLocal && Boolean(videoTrack);
-      const hasRemoteMedia =
-        !isLocal && (Boolean(videoTrack) || Boolean(audioTrack));
-      try {
-        videoEl.srcObject = stream;
-        if (!isLocal) {
-          setRemotePlayback((prev) => ({
-            ...prev,
-            participantPresent: true,
-            mediaAttached: hasRemoteMedia,
-            playRejected: hasRemoteMedia ? false : prev.playRejected,
-            error: hasRemoteMedia ? undefined : prev.error,
-          }));
-          if (hasRemoteVideo) {
-            videoEl.addEventListener(
-              "loadeddata",
-              () => markRemoteFirstFrameRendered("loadeddata"),
-              { once: true },
-            );
-            videoEl.addEventListener(
-              "playing",
-              () => markRemoteFirstFrameRendered("playing"),
-              { once: true },
-            );
-          }
-          const playPromise = videoEl.play();
-          if (playPromise && typeof playPromise.then === "function") {
-            void playPromise
-              .then(() => {
-                const recoveredFromBlock = playbackBlockedRef.current;
-                playbackBlockedRef.current = false;
-                if (!isLocal && remoteTrackKey) {
-                  const recovery = remoteRenderRecoveryInFlightRef.current;
-                  if (recovery?.trackKey === remoteTrackKey) {
-                    vdbg("daily_remote_render_recovery_play_resolved", {
-                      sessionId: optionsRef.current?.roomId ?? null,
-                      eventId: optionsRef.current?.eventId ?? null,
-                      userId: optionsRef.current?.userId ?? null,
-                      participantSessionId: participant.session_id ?? null,
-                      videoTrackId: videoTrack?.id ?? null,
-                      audioTrackId: audioTrack?.id ?? null,
-                      source: recovery.source,
-                      scopeKey: recovery.scopeKey,
-                      trackAttempt: recovery.trackAttempt,
-                      scopeAttempt: recovery.scopeAttempt,
-                      videoElementReadyState: videoEl.readyState,
-                      videoElementWidth: videoEl.videoWidth,
-                      videoElementHeight: videoEl.videoHeight,
-                    });
-                  }
-                }
-                setRemotePlayback((prev) => ({
-                  ...prev,
-                  playSucceeded: true,
-                  playRejected: false,
-                  error: undefined,
-                }));
-                if (recoveredFromBlock) {
-                  trackEvent(
-                    LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_RECOVERED,
-                    {
-                      platform: "web",
-                      session_id: optionsRef.current?.roomId ?? null,
-                      event_id: optionsRef.current?.eventId ?? null,
-                    },
-                  );
-                }
-              })
-              .catch((error: unknown) => {
-                playbackBlockedRef.current = true;
-                if (!isLocal && remoteTrackKey) {
-                  const recovery = remoteRenderRecoveryInFlightRef.current;
-                  if (recovery?.trackKey === remoteTrackKey) {
-                    vdbg("daily_remote_render_recovery_failed", {
-                      sessionId: optionsRef.current?.roomId ?? null,
-                      eventId: optionsRef.current?.eventId ?? null,
-                      userId: optionsRef.current?.userId ?? null,
-                      participantSessionId: participant.session_id ?? null,
-                      videoTrackId: videoTrack?.id ?? null,
-                      audioTrackId: audioTrack?.id ?? null,
-                      source: recovery.source,
-                      scopeKey: recovery.scopeKey,
-                      trackAttempt: recovery.trackAttempt,
-                      scopeAttempt: recovery.scopeAttempt,
-                      error:
-                        error instanceof Error
-                          ? { name: error.name, message: error.message }
-                          : String(error),
-                    });
-                    remoteRenderRecoveryInFlightRef.current = null;
-                  }
-                }
-                setRemotePlayback((prev) => ({
-                  ...prev,
-                  playSucceeded: false,
-                  playRejected: true,
-                  error: describeMediaError(error),
-                }));
-                vdbg("daily_remote_video_play_rejected", {
-                  sessionId: optionsRef.current?.roomId ?? null,
-                  eventId: optionsRef.current?.eventId ?? null,
-                  userId: optionsRef.current?.userId ?? null,
-                  participantSessionId: participant.session_id ?? null,
-                  videoTrackId: videoTrack?.id ?? null,
-                  audioTrackId: audioTrack?.id ?? null,
-                  error:
-                    error instanceof Error
-                      ? { name: error.name, message: error.message }
-                      : String(error),
-                });
-                trackEvent(
-                  LobbyPostDateEvents.VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE,
-                  {
-                    platform: "web",
-                    session_id: optionsRef.current?.roomId ?? null,
-                    event_id: optionsRef.current?.eventId ?? null,
-                  },
-                );
-                trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_BLOCKED, {
-                  platform: "web",
-                  session_id: optionsRef.current?.roomId ?? null,
-                  event_id: optionsRef.current?.eventId ?? null,
-                  reason: error instanceof Error ? error.name : "play_rejected",
-                });
-              });
-          }
-        }
-      } catch (error) {
-        if (!isLocal) {
-          setRemotePlayback((prev) => ({
-            ...prev,
-            mediaAttached: false,
-            playRejected: true,
-            error: describeMediaError(error),
-          }));
-        }
-        vdbg(
-          isLocal
-            ? "daily_local_video_attach_failed"
-            : "daily_remote_video_attach_failed",
-          {
-            sessionId: optionsRef.current?.roomId ?? null,
-            eventId: optionsRef.current?.eventId ?? null,
-            userId: optionsRef.current?.userId ?? null,
-            participantSessionId: participant.session_id ?? null,
-            videoTrackId: videoTrack?.id ?? null,
-            audioTrackId: isLocal ? null : (audioTrack?.id ?? null),
-            error:
-              error instanceof Error
-                ? { name: error.name, message: error.message }
-                : String(error),
-          },
-        );
-      }
-    },
-    [markRemoteFirstFrameRendered],
-  );
-
-  const needsTrackReattach = useCallback(
-    (
-      videoEl: HTMLVideoElement | null,
-      participant: DailyParticipant | undefined,
-      isLocal: boolean,
-    ) => {
-      if (!videoEl || !participant?.tracks) return false;
-
-      const expectedVideoId =
-        participant.tracks.video?.persistentTrack?.id ?? "";
-      const expectedAudioId = isLocal
-        ? ""
-        : (participant.tracks.audio?.persistentTrack?.id ?? "");
-      if (!expectedVideoId && !expectedAudioId) return false;
-
-      const current = videoEl.srcObject as MediaStream | null;
-      if (!current) return true;
-
-      const hasExpectedVideo =
-        !expectedVideoId || streamHasTrackId(current, expectedVideoId);
-      const hasExpectedAudio =
-        !expectedAudioId || streamHasTrackId(current, expectedAudioId);
-      return !(hasExpectedVideo && hasExpectedAudio);
-    },
-    [],
-  );
-
-  const logTrackMounted = useCallback(
-    (
-      source: string,
-      opts: {
-        isLocal: boolean;
-        participant: DailyParticipant | undefined;
-        roomName: string | null;
-      },
-    ) => {
-      const videoTrack = opts.participant?.tracks?.video?.persistentTrack;
-      const videoTrackId = videoTrack?.id ?? "";
-      const audioTrackId = opts.isLocal
-        ? ""
-        : (opts.participant?.tracks?.audio?.persistentTrack?.id ?? "");
-      const mountedKey = `${videoTrackId}|${audioTrackId}`;
-      if (!mountedKey || mountedKey === "|") return;
-
-      const mountedRef = opts.isLocal
-        ? lastLocalMountedTrackKeyRef
-        : lastRemoteMountedTrackKeyRef;
-      if (mountedRef.current === mountedKey) return;
-      mountedRef.current = mountedKey;
-
-      vdbg(
-        opts.isLocal
-          ? "daily_local_track_mounted"
-          : "daily_remote_track_mounted",
-        {
-          sessionId: optionsRef.current?.roomId ?? null,
-          eventId: optionsRef.current?.eventId ?? null,
-          userId: optionsRef.current?.userId ?? null,
-          roomName: opts.roomName,
-          source,
-          captureProfile: captureProfileRef.current,
-          videoTrackId: videoTrackId || null,
-          videoTrack: summarizeVideoTrackSettings(videoTrack),
-          audioTrackId: audioTrackId || null,
-        },
-      );
-    },
-    [],
-  );
-
-  const clearFirstRemoteWatchdog = useCallback(() => {
-    if (!firstRemoteWatchdogRef.current) return;
-    clearTimeout(firstRemoteWatchdogRef.current);
-    firstRemoteWatchdogRef.current = null;
-  }, []);
-
-  const remoteRenderDiagnostics = useCallback(
-    (
-      participant: DailyParticipant | undefined,
-      videoEl: HTMLVideoElement | null,
-    ) => {
-      const videoTrack = participant?.tracks?.video?.persistentTrack;
-      const audioTrack = participant?.tracks?.audio?.persistentTrack;
-      return {
-        sessionId: optionsRef.current?.roomId ?? null,
-        eventId: optionsRef.current?.eventId ?? null,
-        userId: optionsRef.current?.userId ?? null,
-        participantSessionId: participant?.session_id ?? null,
-        remoteTrackKey: getTrackIdsKey(participant, true) || null,
-        videoTrackId: videoTrack?.id ?? null,
-        audioTrackId: audioTrack?.id ?? null,
-        videoTrackReadyState: videoTrack?.readyState ?? null,
-        videoTrackMuted:
-          typeof videoTrack?.muted === "boolean" ? videoTrack.muted : null,
-        videoTrackEnabled:
-          typeof videoTrack?.enabled === "boolean" ? videoTrack.enabled : null,
-        videoElementReadyState: videoEl?.readyState ?? null,
-        videoElementPaused: videoEl?.paused ?? null,
-        videoElementWidth: videoEl?.videoWidth ?? null,
-        videoElementHeight: videoEl?.videoHeight ?? null,
-        videoElementCurrentTime:
-          typeof videoEl?.currentTime === "number"
-            ? Number(videoEl.currentTime.toFixed(3))
-            : null,
-      };
-    },
-    [],
-  );
-
-  const resetRemoteRenderRecoveryAttempts = useCallback(() => {
-    remoteRenderRecoveryTrackAttemptsRef.current.clear();
-    remoteRenderRecoveryScopedAttemptsRef.current.clear();
-    remoteRenderRecoveryInFlightRef.current = null;
-  }, []);
-
-  const clearRemoteRenderValidation = useCallback(
-    (options?: { cancelReattach?: boolean }) => {
-      remoteRenderValidationSeqRef.current += 1;
-      if (remoteRenderValidationDelayRef.current) {
-        clearTimeout(remoteRenderValidationDelayRef.current);
-        remoteRenderValidationDelayRef.current = null;
-      }
-      if (remoteRenderValidationTimeoutRef.current) {
-        clearTimeout(remoteRenderValidationTimeoutRef.current);
-        remoteRenderValidationTimeoutRef.current = null;
-      }
-      const videoEl =
-        remoteVideoRef.current as RemoteVideoElementWithFrameCallback | null;
-      if (
-        videoEl &&
-        remoteRenderValidationFrameCallbackRef.current != null &&
-        typeof videoEl.cancelVideoFrameCallback === "function"
-      ) {
-        videoEl.cancelVideoFrameCallback(
-          remoteRenderValidationFrameCallbackRef.current,
-        );
-      }
-      remoteRenderValidationFrameCallbackRef.current = null;
-      if (
-        options?.cancelReattach !== false &&
-        remoteRenderRecoveryReattachTimeoutRef.current
-      ) {
-        clearTimeout(remoteRenderRecoveryReattachTimeoutRef.current);
-        remoteRenderRecoveryReattachTimeoutRef.current = null;
-      }
-    },
-    [],
-  );
-
-  const resetRemoteRenderRecoveryForParticipant = useCallback(
-    (participant: DailyParticipant | undefined) => {
-      const participantId = getParticipantIdentity(participant);
-      if (
-        !participantId ||
-        participantId === lastRemoteRenderParticipantIdRef.current
-      )
-        return;
-      lastRemoteRenderParticipantIdRef.current = participantId;
-      resetRemoteRenderRecoveryAttempts();
-    },
-    [resetRemoteRenderRecoveryAttempts],
-  );
-
-  const forceRemoteMediaReattach = useCallback(
-    (
-      participant: DailyParticipant | undefined,
-      source: string,
-      roomName: string | null,
-      recoveryScope = source,
-      validationOptions: RemoteRenderValidationOptions = {},
-    ) => {
-      const videoEl = remoteVideoRef.current;
-      const remoteKey = getTrackIdsKey(participant, true);
-      const scopeKey = normalizeRemoteRenderRecoveryScope(recoveryScope);
-      const scopedAttemptKey = `${remoteKey}:${scopeKey}`;
-      const videoTrack = participant?.tracks?.video?.persistentTrack;
-      if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack) {
-        vdbg("daily_remote_render_recovery_skipped", {
-          ...remoteRenderDiagnostics(participant, videoEl),
-          source,
-          recoveryScope,
-          scopeKey,
-          reason: !videoEl
-            ? "missing_video_element"
-            : !remoteKey || !videoTrack
-              ? "missing_video_track"
-              : "missing_tracks",
-        });
-        return;
-      }
-
-      const currentRecovery = remoteRenderRecoveryInFlightRef.current;
-      if (
-        currentRecovery?.trackKey === remoteKey &&
-        currentRecovery.scopeKey === scopeKey &&
-        validationOptions.recoveryFollowUp !== true
-      ) {
-        vdbg("daily_remote_render_recovery_skipped", {
-          ...remoteRenderDiagnostics(participant, videoEl),
-          source,
-          recoveryScope,
-          scopeKey,
-          reason: "recovery_already_in_flight",
-          recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
-          trackAttempt: currentRecovery.trackAttempt,
-          scopeAttempt: currentRecovery.scopeAttempt,
-          originalSource: currentRecovery.source,
-        });
-        return;
-      }
-
-      const nowMs = Date.now();
-      pruneRemoteRenderRecoveryAttempts(
-        remoteRenderRecoveryTrackAttemptsRef.current,
-        nowMs,
-      );
-      pruneRemoteRenderRecoveryAttempts(
-        remoteRenderRecoveryScopedAttemptsRef.current,
-        nowMs,
-      );
-      const trackAttempts =
-        remoteRenderRecoveryTrackAttemptsRef.current.get(remoteKey)?.attempts ??
-        0;
-      const scopeAttempts =
-        remoteRenderRecoveryScopedAttemptsRef.current.get(scopedAttemptKey)
-          ?.attempts ?? 0;
-      // Camera-switch hints get a single last-resort reattach. The freshness
-      // watchdog already gave the natural keyframe ~3s to arrive; if it
-      // didn't, one teardown-and-rebind is enough. A second one would just
-      // produce another black-screen window.
-      const maxScopeAttemptsForScope =
-        scopeKey === "camera_switch_hint"
-          ? 1
-          : REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE;
-      if (
-        trackAttempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK ||
-        scopeAttempts >= maxScopeAttemptsForScope
-      ) {
-        if (remoteRenderRecoveryInFlightRef.current?.trackKey === remoteKey) {
-          remoteRenderRecoveryInFlightRef.current = null;
-        }
-        if (remoteRenderRecoveryReattachTimeoutRef.current) {
-          clearTimeout(remoteRenderRecoveryReattachTimeoutRef.current);
-          remoteRenderRecoveryReattachTimeoutRef.current = null;
-        }
-        vdbg("daily_remote_render_recovery_skipped", {
-          ...remoteRenderDiagnostics(participant, videoEl),
-          source,
-          recoveryScope,
-          scopeKey,
-          reason: "max_attempts_exhausted",
-          trackAttempts,
-          scopeAttempts,
-          maxTrackAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
-          maxScopeAttempts: maxScopeAttemptsForScope,
-        });
-        setRemotePlayback((prev) => ({
-          ...prev,
-          mediaAttached: true,
-          playSucceeded: false,
-          playRejected: true,
-          error: "Remote video paused. Tap to resume.",
-        }));
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_BLOCKED, {
-          platform: "web",
-          session_id: optionsRef.current?.roomId ?? null,
-          event_id: optionsRef.current?.eventId ?? null,
-          reason: "remote_render_recovery_exhausted",
-        });
-        return;
-      }
-
-      const nextTrackAttempt = trackAttempts + 1;
-      const nextScopeAttempt = scopeAttempts + 1;
-      remoteRenderRecoveryTrackAttemptsRef.current.set(remoteKey, {
-        attempts: nextTrackAttempt,
-        updatedAtMs: nowMs,
-      });
-      remoteRenderRecoveryScopedAttemptsRef.current.set(scopedAttemptKey, {
-        attempts: nextScopeAttempt,
-        updatedAtMs: nowMs,
-      });
-      pruneRemoteRenderRecoveryAttempts(
-        remoteRenderRecoveryTrackAttemptsRef.current,
-        nowMs,
-      );
-      pruneRemoteRenderRecoveryAttempts(
-        remoteRenderRecoveryScopedAttemptsRef.current,
-        nowMs,
-      );
-      remoteRenderRecoveryInFlightRef.current = {
-        trackKey: remoteKey,
-        scopeKey,
-        trackAttempt: nextTrackAttempt,
-        scopeAttempt: nextScopeAttempt,
-        source,
-      };
-      clearRemoteRenderValidation({ cancelReattach: true });
-
-      vdbg("daily_remote_render_recovery_started", {
-        ...remoteRenderDiagnostics(participant, videoEl),
-        source,
-        recoveryScope,
-        scopeKey,
-        trackAttempt: nextTrackAttempt,
-        scopeAttempt: nextScopeAttempt,
-        maxTrackAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
-        maxScopeAttempts: maxScopeAttemptsForScope,
-      });
-
-      try {
-        videoEl.pause();
-        videoEl.srcObject = null;
-      } catch {
-        videoEl.srcObject = null;
-      }
-
-      remoteRenderRecoveryReattachTimeoutRef.current = setTimeout(() => {
-        remoteRenderRecoveryReattachTimeoutRef.current = null;
-        const latestParticipant =
-          latestRemoteParticipantRef.current ?? participant;
-        const latestKey = getTrackIdsKey(latestParticipant, true);
-        if (latestKey !== remoteKey) {
-          vdbg("daily_remote_render_recovery_skipped", {
-            ...remoteRenderDiagnostics(
-              latestParticipant,
-              remoteVideoRef.current,
-            ),
-            source,
-            reason: "stale_track_key",
-            expectedTrackKey: remoteKey,
-            latestTrackKey: latestKey || null,
-            trackAttempt: nextTrackAttempt,
-            scopeAttempt: nextScopeAttempt,
-          });
-          if (remoteRenderRecoveryInFlightRef.current?.trackKey === remoteKey) {
-            remoteRenderRecoveryInFlightRef.current = null;
-          }
-          return;
-        }
-        attachTracks(latestParticipant, remoteVideoRef.current, false);
-        logTrackMounted("remote_render_recovery", {
-          isLocal: false,
-          participant: latestParticipant,
-          roomName,
-        });
-        scheduleRemoteRenderValidationRef.current?.(
-          latestParticipant,
-          "remote_render_recovery_followup",
-          roomName,
-          scopeKey,
-          {
-            allowRecovery: true,
-            recoveryFollowUp: true,
-            requireFreshFrame: validationOptions.requireFreshFrame,
-            freshFrameBaseline: validationOptions.freshFrameBaseline,
-          },
-        );
-      }, 0);
-    },
-    [
-      attachTracks,
-      clearRemoteRenderValidation,
-      logTrackMounted,
-      remoteRenderDiagnostics,
-    ],
-  );
-
-  const scheduleRemoteRenderValidation = useCallback(
-    (
-      participant: DailyParticipant | undefined,
-      source: string,
-      roomName: string | null,
-      recoveryScope = source,
-      validationOptions: RemoteRenderValidationOptions = {},
-    ) => {
-      const videoEl = remoteVideoRef.current;
-      const remoteKey = getTrackIdsKey(participant, true);
-      const videoTrack = participant?.tracks?.video?.persistentTrack;
-      const requireFreshFrame = validationOptions.requireFreshFrame === true;
-      const freshFrameBaseline =
-        validationOptions.freshFrameBaseline !== undefined
-          ? validationOptions.freshFrameBaseline
-          : requireFreshFrame
-            ? readRemoteRenderFrameState(videoEl)
-            : null;
-      if (
-        !videoEl ||
-        !participant?.tracks ||
-        !remoteKey ||
-        !videoTrack ||
-        videoTrack.readyState === "ended"
-      ) {
-        clearRemoteRenderValidation({ cancelReattach: true });
-        vdbg("daily_remote_render_validation_skipped", {
-          ...remoteRenderDiagnostics(participant, videoEl),
-          source,
-          recoveryScope,
-          requireFreshFrame,
-          freshFrameBaseline,
-          reason: !videoEl
-            ? "missing_video_element"
-            : !remoteKey || !videoTrack
-              ? "missing_video_track"
-              : videoTrack?.readyState === "ended"
-                ? "video_track_ended"
-                : "missing_tracks",
-        });
-        return;
-      }
-
-      clearRemoteRenderValidation({ cancelReattach: true });
-      const validationSeq = remoteRenderValidationSeqRef.current + 1;
-      remoteRenderValidationSeqRef.current = validationSeq;
-      remoteRenderValidationDelayRef.current = setTimeout(() => {
-        remoteRenderValidationDelayRef.current = null;
-        if (remoteRenderValidationSeqRef.current !== validationSeq) return;
-
-        const latestParticipant =
-          latestRemoteParticipantRef.current ?? participant;
-        const latestVideoEl = remoteVideoRef.current;
-        const latestKey = getTrackIdsKey(latestParticipant, true);
-        if (!latestVideoEl || latestKey !== remoteKey) {
-          vdbg("daily_remote_render_validation_skipped", {
-            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-            source,
-            reason: !latestVideoEl
-              ? "missing_video_element"
-              : "stale_track_key",
-            expectedTrackKey: remoteKey,
-            latestTrackKey: latestKey || null,
-          });
-          return;
-        }
-
-        const effectiveFrameTimeoutMs =
-          typeof validationOptions.freshFrameTimeoutMs === "number" &&
-          Number.isFinite(validationOptions.freshFrameTimeoutMs) &&
-          validationOptions.freshFrameTimeoutMs > 0
-            ? validationOptions.freshFrameTimeoutMs
-            : REMOTE_RENDER_FRAME_TIMEOUT_MS;
-
-        vdbg("daily_remote_same_track_render_validation_started", {
-          ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-          source,
-          delayMs: REMOTE_RENDER_VALIDATION_DELAY_MS,
-          timeoutMs: effectiveFrameTimeoutMs,
-          requireFreshFrame,
-          freshFrameBaseline,
-        });
-
-        function finishTimedOut(reason: string) {
-          if (remoteRenderValidationSeqRef.current !== validationSeq) return;
-          if (remoteRenderValidationTimeoutRef.current) {
-            clearTimeout(remoteRenderValidationTimeoutRef.current);
-            remoteRenderValidationTimeoutRef.current = null;
-          }
-          remoteRenderValidationFrameCallbackRef.current = null;
-          const latestFrameState = readRemoteRenderFrameState(latestVideoEl);
-          if (reconnectGraceActiveRef.current) {
-            vdbg("daily_remote_render_validation_deferred", {
-              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-              source,
-              recoveryScope,
-              reason: "reconnect_grace_active",
-              timeoutReason: reason,
-              requireFreshFrame,
-              freshFrameBaseline,
-              latestFrameState,
-            });
-            return;
-          }
-          vdbg("daily_remote_render_validation_timed_out", {
-            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-            source,
-            recoveryScope,
-            recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
-            reason,
-            timeoutMs: effectiveFrameTimeoutMs,
-            requireFreshFrame,
-            freshFrameBaseline,
-            latestFrameState,
-          });
-          if (validationOptions.allowRecovery === false) {
-            setRemotePlayback((prev) => ({
-              ...prev,
-              mediaAttached: true,
-              playSucceeded: false,
-              playRejected: true,
-              error: "Remote video paused. Tap to resume.",
-            }));
-            return;
-          }
-          forceRemoteMediaReattach(
-            latestParticipant,
-            `${source}:${reason}`,
-            roomName,
-            recoveryScope,
-            {
-              ...validationOptions,
-              requireFreshFrame,
-              freshFrameBaseline,
-            },
-          );
-        }
-
-        function finishValidated(
-          method: string,
-          metadata?: RemoteVideoFrameCallbackMetadata,
-        ) {
-          if (remoteRenderValidationSeqRef.current !== validationSeq) return;
-          const latestFrameState = readRemoteRenderFrameState(latestVideoEl);
-          if (
-            requireFreshFrame &&
-            !hasFreshRemoteRenderFrame(
-              freshFrameBaseline,
-              latestFrameState,
-              metadata,
-            )
-          ) {
-            finishTimedOut("fresh_frame_not_observed");
-            return;
-          }
-          if (remoteRenderValidationTimeoutRef.current) {
-            clearTimeout(remoteRenderValidationTimeoutRef.current);
-            remoteRenderValidationTimeoutRef.current = null;
-          }
-          remoteRenderValidationFrameCallbackRef.current = null;
-          const recovery = remoteRenderRecoveryInFlightRef.current;
-          if (recovery?.trackKey === remoteKey) {
-            remoteRenderRecoveryTrackAttemptsRef.current.delete(remoteKey);
-            remoteRenderRecoveryScopedAttemptsRef.current.delete(
-              `${remoteKey}:${recovery.scopeKey}`,
-            );
-            remoteRenderRecoveryInFlightRef.current = null;
-            vdbg("daily_remote_render_recovery_succeeded", {
-              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-              source: recovery.source,
-              validationSource: source,
-              scopeKey: recovery.scopeKey,
-              trackAttempt: recovery.trackAttempt,
-              scopeAttempt: recovery.scopeAttempt,
-              method,
-              presentedFrames: metadata?.presentedFrames ?? null,
-              mediaTime: metadata?.mediaTime ?? null,
-              frameWidth: metadata?.width ?? null,
-              frameHeight: metadata?.height ?? null,
-              requireFreshFrame,
-              freshFrameBaseline,
-              latestFrameState,
-            });
-          }
-          if (recoveryScope === "camera_switch_hint") {
-            activeRemoteCameraSwitchRenderWatchRef.current = null;
-            // The receiver kept decoding the same persistentTrack and observed
-            // a fresh frame on its own. No srcObject teardown was needed.
-            // This is the desired path; track its frequency to confirm the
-            // fix is preventing unnecessary reattachments.
-            vdbg("daily_camera_switch_no_reattach_needed", {
-              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-              source,
-              method,
-              presentedFrames: metadata?.presentedFrames ?? null,
-              mediaTime: metadata?.mediaTime ?? null,
-              frameWidth: metadata?.width ?? null,
-              frameHeight: metadata?.height ?? null,
-              freshFrameBaseline,
-              latestFrameState,
-            });
-          }
-          setRemotePlayback((prev) => ({
-            ...prev,
-            mediaAttached: true,
-            playRejected: false,
-            error: undefined,
-          }));
-          markRemoteFirstFrameRendered(
-            method === "request_video_frame_callback"
-              ? "request_video_frame_callback"
-              : "first_remote_frame",
-          );
-          vdbg("daily_remote_same_track_render_validated", {
-            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-            source,
-            recoveryScope,
-            recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
-            method,
-            presentedFrames: metadata?.presentedFrames ?? null,
-            mediaTime: metadata?.mediaTime ?? null,
-            frameWidth: metadata?.width ?? null,
-            frameHeight: metadata?.height ?? null,
-            requireFreshFrame,
-            freshFrameBaseline,
-            latestFrameState,
-          });
-        }
-
-        const videoWithFrameCallback =
-          latestVideoEl as RemoteVideoElementWithFrameCallback;
-        if (
-          typeof videoWithFrameCallback.requestVideoFrameCallback === "function"
-        ) {
-          remoteRenderValidationFrameCallbackRef.current =
-            videoWithFrameCallback.requestVideoFrameCallback((_now, metadata) =>
-              finishValidated("request_video_frame_callback", metadata),
-            );
-          remoteRenderValidationTimeoutRef.current = setTimeout(
-            () => finishTimedOut("request_video_frame_callback_timeout"),
-            effectiveFrameTimeoutMs,
-          );
-          return;
-        }
-
-        remoteRenderValidationTimeoutRef.current = setTimeout(() => {
-          const hasRenderableMedia =
-            latestVideoEl.readyState >= 2 &&
-            latestVideoEl.videoWidth > 0 &&
-            latestVideoEl.videoHeight > 0;
-          if (hasRenderableMedia) {
-            finishValidated("ready_state_fallback");
-            return;
-          }
-          finishTimedOut("ready_state_fallback_timeout");
-        }, effectiveFrameTimeoutMs);
-      }, REMOTE_RENDER_VALIDATION_DELAY_MS);
-    },
-    [
-      clearRemoteRenderValidation,
-      forceRemoteMediaReattach,
-      markRemoteFirstFrameRendered,
-      remoteRenderDiagnostics,
-    ],
-  );
-
-  scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;
 
   const readLocalCameraSnapshot = useCallback(
     (call: DailyCall): LocalCameraSnapshot => {
@@ -6620,38 +5086,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     ],
   );
 
-  useEffect(() => {
-    const intervalId = setInterval(() => {
-      const localParticipant = latestLocalParticipantRef.current;
-      const remoteParticipant = latestRemoteParticipantRef.current;
-
-      if (
-        localVideoRef.current &&
-        needsTrackReattach(localVideoRef.current, localParticipant, true)
-      ) {
-        attachTracks(localParticipant, localVideoRef.current, true);
-        logTrackMounted("maintenance_reattach", {
-          isLocal: true,
-          participant: localParticipant,
-          roomName: roomNameRef.current,
-        });
-      }
-
-      if (
-        remoteVideoRef.current &&
-        needsTrackReattach(remoteVideoRef.current, remoteParticipant, false)
-      ) {
-        attachTracks(remoteParticipant, remoteVideoRef.current, false);
-        logTrackMounted("maintenance_reattach", {
-          isLocal: false,
-          participant: remoteParticipant,
-          roomName: roomNameRef.current,
-        });
-      }
-    }, 1000);
-
-    return () => clearInterval(intervalId);
-  }, [attachTracks, logTrackMounted, needsTrackReattach]);
 
   const retryRemotePlayback = useCallback(() => {
     const participant = latestRemoteParticipantRef.current;
