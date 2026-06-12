@@ -127,12 +127,6 @@ export type SwipeRecoverySummary = {
   recovery_rate: number | null;
 };
 
-export type FirstFrameDedupeInputRow = {
-  session_id?: string | null;
-  actor_id?: string | null;
-  created_at?: string | null;
-};
-
 export const RECOVERABLE_COLLISION_REASON_CODE = "already_matched";
 
 export const COLLISION_REASON_CODES = new Set([
@@ -192,34 +186,6 @@ export function summarizeSwipeRecovery(rows: SwipeRecoveryInputRow[]): SwipeReco
     collision_rate: safeRate(collisionCount, rows.length),
     recovery_rate: safeRate(recoveredCount, collisionCount),
   };
-}
-
-function firstFrameDedupeTime(row: FirstFrameDedupeInputRow): number {
-  const time = new Date(row.created_at ?? "").getTime();
-  return Number.isFinite(time) ? time : Number.MAX_SAFE_INTEGER;
-}
-
-export function dedupeEarliestRowsBySessionActor<T extends FirstFrameDedupeInputRow>(rows: T[]): T[] {
-  const keyedRows = new Map<string, { row: T; index: number; time: number }>();
-  const unkeyedRows: Array<{ row: T; index: number; time: number }> = [];
-
-  rows.forEach((row, index) => {
-    const time = firstFrameDedupeTime(row);
-    if (!row.session_id || !row.actor_id) {
-      unkeyedRows.push({ row, index, time });
-      return;
-    }
-
-    const key = `${row.session_id}:${row.actor_id}`;
-    const existing = keyedRows.get(key);
-    if (!existing || time < existing.time || (time === existing.time && index < existing.index)) {
-      keyedRows.set(key, { row, index, time });
-    }
-  });
-
-  return [...keyedRows.values(), ...unkeyedRows]
-    .sort((a, b) => a.time - b.time || a.index - b.index)
-    .map((entry) => entry.row);
 }
 
 export function classifyLowerIsBetter(

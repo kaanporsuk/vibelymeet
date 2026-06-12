@@ -18,9 +18,6 @@ const queuedPurgeMigration = read(
 const readyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webPartnerProfile = read("src/lib/videoDatePartnerProfile.ts");
 const nativePartnerProfile = read("apps/mobile/lib/videoDatePartnerProfile.ts");
-const checkpointModule = read(
-  "shared/observability/videoDateLaunchLatencyCheckpointObservability.ts",
-);
 const operatorDashboards = read("docs/observability/video-date-operator-dashboards.md");
 const branchDelta = read("docs/branch-deltas/review-comments-1281-1290-followups.md");
 const packageJson = read("package.json");
@@ -95,17 +92,6 @@ test("Video Date partner profile memoization is viewer-scoped on web and native"
     assert.match(source, /inFlight\.get\(cacheKey\)/, `${label} should coalesce by scoped key`);
     assert.match(source, /cache\.set\(cacheKey,/, `${label} should write by scoped key`);
   }
-});
-
-test("launch latency batch fail-soft failures fall back to single checkpoint RPCs", () => {
-  assert.match(checkpointModule, /function isLaunchLatencyBatchFailure\(data: unknown\)/);
-  assert.match(checkpointModule, /payload\.ok === false \|\| payload\.success === false/);
-  assert.match(checkpointModule, /const \{ data, error \} = await buffer\.client\.rpc/);
-  assert.match(checkpointModule, /!error && !isLaunchLatencyBatchFailure\(data\)/);
-  assert.match(
-    checkpointModule,
-    /await buffer\.client\.rpc\("record_video_date_launch_latency_checkpoint"/,
-  );
 });
 
 test("review-comments 1281-1290 follow-up is wired into Video Date suites", () => {

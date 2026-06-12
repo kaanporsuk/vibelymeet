@@ -140,16 +140,15 @@ test("required runtime RLS command is explicit and fails fast when env is missin
   assert.match(command, /videoDateRealtimeRlsRuntime\.test\.ts/);
   assert.match(command, /videoDatePublicApiRlsRuntime\.test\.ts/);
   assert.match(certificationCommand, /certify-video-date-required\.mjs/);
-  assert.match(packageJson, /phase8:config-readiness/);
   assert.match(packageJson, /test:video-date-runtime-rls:required/);
+  // PR 9 ops purge: the phase8 certification scripts are retired.
+  assert.doesNotMatch(packageJson, /phase8:config-readiness|phase8:certify|phase8:live-certify|phase8:rollout/);
   for (const requiredStep of [
     "npm run typecheck",
     "npm run test:video-date-v4",
     "npm run test:event-lobby-regression",
     "npm run test:daily-room-contract",
     "npm run test:video-date-runtime-rls:required",
-    "npm run phase8:config-readiness",
-    "npm run phase8:live-certify",
   ]) {
     assert.match(requiredCertificationGate, new RegExp(requiredStep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }

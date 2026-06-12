@@ -1,7 +1,4 @@
 import {
-  emitWebVideoDateClientStuckState,
-} from "@/lib/videoDateClientStuckObservability";
-import {
   bucketVideoDateLatencyMs,
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
@@ -262,20 +259,6 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
           scheduleRetry(attemptSource, attempt + 1);
           return;
         }
-        void emitWebVideoDateClientStuckState({
-          sessionId,
-          eventName: "remote_seen_canonical_repair_failed",
-          payload: {
-            source_surface: "video_date_daily",
-            source_action: "mark_video_date_remote_seen",
-            reason_code: code,
-            code,
-            source: attemptSource,
-            attempt_count: attempt,
-            retryable,
-            exhausted: true,
-          },
-        });
       };
 
       function stamp(attemptSource: string, attempt: number) {

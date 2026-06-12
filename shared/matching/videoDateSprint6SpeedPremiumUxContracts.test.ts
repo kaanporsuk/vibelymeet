@@ -19,7 +19,6 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const webSwipe = read("src/hooks/useSwipeAction.ts");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const operatorMetrics = read("shared/observability/videoDateOperatorMetrics.ts");
-const launchLatencyMirror = read("shared/observability/videoDateLaunchLatencyCheckpointObservability.ts");
 const swipeResultMigration = read(
   "supabase/migrations/20260525234000_video_date_sprint6_swipe_result_latency_checkpoint.sql",
 );
@@ -54,16 +53,10 @@ test("Sprint 6 latency checkpoints cover the full swipe-to-playable-frame path",
 
   for (const checkpoint of VIDEO_DATE_SPRINT6_LATENCY_CHECKPOINTS) {
     assert.match(operatorMetrics, new RegExp(`["']${checkpoint}["']`), `${checkpoint} missing from operator metrics`);
-    assert.match(launchLatencyMirror, new RegExp(`["']${checkpoint}["']`), `${checkpoint} missing from client mirror`);
   }
 
   assert.match(operatorMetrics, /swipeResultObservedAtMs/);
   assert.match(operatorMetrics, /case "swipe_result":[\s\S]+return "swipeResultObservedAtMs"/);
-  assert.match(launchLatencyMirror, /"swipe_result_ms"/);
-  assert.match(launchLatencyMirror, /checkpoint === "swipe_result"[\s\S]+payload\.swipe_result_ms/);
-  assert.match(launchLatencyMirror, /checkpoint === "daily_join_success"[\s\S]+payload\.date_route_to_daily_join_ms/);
-  assert.match(launchLatencyMirror, /checkpoint === "remote_seen"[\s\S]+payload\.daily_join_to_remote_seen_ms/);
-  assert.match(launchLatencyMirror, /checkpoint === "remote_readable"[\s\S]+payload\.first_remote_frame_to_readable_ms/);
   assert.match(operatorDashboards, /first remote media proxy/);
   assert.match(operatorDashboards, /not proof that a remote frame was rendered on screen/);
   assert.match(operatorDashboards, /first-playable-media proxy/);

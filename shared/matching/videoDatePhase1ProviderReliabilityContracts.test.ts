@@ -59,7 +59,6 @@ test("Phase 1 reliability migration adds worker leases, row refresh, rate limits
 
 test("Phase 1 public interfaces are present in generated Supabase types", () => {
   for (const table of [
-    "video_date_worker_runs",
     "video_date_provider_rate_limits",
     "video_date_provider_outbox_failure_log",
     "video_date_provider_dead_letters",
@@ -68,15 +67,17 @@ test("Phase 1 public interfaces are present in generated Supabase types", () => 
   }
 
   for (const fn of [
-    "begin_video_date_worker_run_v1",
-    "refresh_video_date_worker_run_v1",
-    "finish_video_date_worker_run_v1",
     "refresh_video_date_provider_outbox_claim_v1",
     "refresh_video_session_deadline_claim_v1",
     "take_provider_rate_limit_token_v1",
   ]) {
     assert.match(supabaseTypes, new RegExp(`${fn}: \\{\\s+Args:`));
   }
+
+  // PR 9 ops purge: the worker-run mutex layer is retired; per-row claim
+  // leases are the only worker concurrency mechanism.
+  assert.doesNotMatch(supabaseTypes, /video_date_worker_runs: \{/);
+  assert.doesNotMatch(supabaseTypes, /begin_video_date_worker_run_v1/);
 });
 
 test("Phase 1 reliability helper provides bounded fetch, rate limiting, leases, Sentry, and DLQ logging", () => {
@@ -87,7 +88,6 @@ test("Phase 1 reliability helper provides bounded fetch, rate limiting, leases, 
   assert.match(helper, /AbortController/);
   assert.match(helper, /take_provider_rate_limit_token_v1/);
   assert.match(helper, /error\.message\.match\(\//);
-  assert.match(helper, /begin_video_date_worker_run_v1/);
   assert.match(helper, /refresh_video_date_provider_outbox_claim_v1/);
   assert.match(helper, /refresh_video_session_deadline_claim_v1/);
   assert.match(helper, /video_date_provider_outbox_failure_log/);
@@ -96,17 +96,15 @@ test("Phase 1 reliability helper provides bounded fetch, rate limiting, leases, 
   assert.match(helper, /SECRET_KEY_PATTERN/);
 });
 
-test("Phase 1 outbox and deadline workers use mutexes, row lease refresh, failure logs, and no raw provider fetch", () => {
+test("Phase 1 outbox and deadline workers use row lease refresh, failure logs, and no raw provider fetch", () => {
   for (const source of [outboxDrainer, deadlineFinalizer]) {
-    assert.match(source, /beginWorkerRun/);
-    assert.match(source, /createWorkerRunRefresher/);
-    assert.match(source, /finishWorkerRun/);
     assert.match(source, /createClaimLeaseRefresher/);
     assert.match(source, /logVideoDateProviderFailure/);
     assert.match(source, /deadLetterVideoDateProviderFailure/);
     assert.match(source, /captureVideoDateProviderException/);
-    assert.match(source, /isWorkerAlreadyRunningError\(workerError\)[\s\S]+ok: true,[\s\S]+skipped: workerError/);
-    assert.match(source, /ok: false,[\s\S]+error: workerError,[\s\S]+\}, 500\)/);
+    // PR 9 ops purge: the run-level worker mutex is retired; row claims are
+    // the concurrency mechanism.
+    assert.doesNotMatch(source, /beginWorkerRun|createWorkerRunRefresher|finishWorkerRun/);
     assert.doesNotMatch(source, /(?<!WithTimeout)fetch\(/);
   }
 

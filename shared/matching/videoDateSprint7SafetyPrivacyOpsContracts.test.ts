@@ -9,7 +9,6 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const sprint7Migration = read("supabase/migrations/20260525235000_video_date_sprint7_safety_privacy_ops.sql");
 const sprint7FastPathMigration = read("supabase/migrations/20260525235500_video_date_sprint7_ops_health_fast_path.sql");
 const reviewFollowupMigration = read("supabase/migrations/20260525235900_review_comments_1060_1070_followups.sql");
-const validationPack = read("supabase/validation/video_date_sprint7_safety_privacy_ops.sql");
 const adminOps = read("supabase/functions/admin-video-date-ops/index.ts");
 const adminShared = read("supabase/functions/_shared/admin-video-date-ops.ts");
 const safetyRpc = read("shared/safety/submitUserReportRpc.ts");
@@ -37,7 +36,6 @@ const phase5Outbox = read("supabase/migrations/20260524203000_video_date_phase5_
 const providerReliability = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
 const sprint7Docs = read("docs/observability/video-date-sprint7-safety-privacy-ops.md");
 const operatorDashboards = read("docs/observability/video-date-operator-dashboards.md");
-const operatorMetrics = read("docs/observability/video-date-operator-metrics.md");
 const packageJson = read("package.json");
 
 function sourceBetween(source: string, startNeedle: string, endNeedle: string): string {
@@ -48,67 +46,26 @@ function sourceBetween(source: string, startNeedle: string, endNeedle: string): 
   return source.slice(start, end);
 }
 
-test("Sprint 7 service-role operator health RPC is aggregate-only and wired into admin metrics", () => {
-  assert.match(sprint7Migration, /CREATE OR REPLACE FUNCTION public\.get_video_date_sprint7_ops_health\(/);
-  assert.match(sprint7Migration, /SECURITY DEFINER/);
-  assert.match(sprint7Migration, /auth\.role\(\) IS DISTINCT FROM 'service_role'/);
-  assert.match(sprint7Migration, /REVOKE ALL ON FUNCTION public\.get_video_date_sprint7_ops_health\(uuid\)[\s\S]+FROM PUBLIC, anon, authenticated/);
-  assert.match(sprint7Migration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_sprint7_ops_health\(uuid\)[\s\S]+TO service_role/);
-
-  for (const metric of [
-    "stuck_ready_gate_count",
-    "stuck_handshake_count",
-    "overdue_date_count",
-    "pending_survey_recovery_count",
-    "prepare_entry_failure_count",
-    "daily_join_failure_count",
-    "webhook_dlq_count",
-    "orphan_room_cleanup_failed_count",
-    "report_with_block_count",
-    "block_count",
-  ]) {
-    assert.match(sprint7Migration, new RegExp(metric), `${metric} missing from Sprint 7 health RPC`);
-  }
-
-  for (const excluded of [
-    "daily_tokens",
-    "provider_secrets",
-    "auth_headers",
-    "profile_text",
-    "profile_names",
-    "emails",
-    "phone_numbers",
-    "media_urls",
-    "freeform_report_details",
-  ]) {
-    assert.match(sprint7Migration, new RegExp(excluded), `${excluded} missing from privacy contract`);
-  }
-
-  assert.match(adminOps, /getSprint7SafetyPrivacyOpsHealthPayload/);
-  assert.match(adminOps, /SPRINT7_OPS_HEALTH_RPC_TIMEOUT_MS/);
-  assert.match(adminOps, /withOpsTimeout/);
-  assert.match(adminOps, /sprint7_ops_health_timeout/);
-  assert.match(adminOps, /service\.rpc\("get_video_date_sprint7_ops_health"/);
-  assert.match(adminOps, /safety_privacy_ops_health:\s*selectSprint7SafetyPrivacyOpsHealth/);
-  assert.match(adminOps, /SPRINT7_PRIVACY_CONTRACT_FALLBACK/);
+test("admin-video-date-ops is read-only diagnostics with the retired ops-health surface removed", () => {
+  // PR 9 ops purge: the sprint7 aggregate RPC is dropped; admin ops keeps only
+  // read-only metrics + the session timeline action.
+  assert.doesNotMatch(adminOps, /get_video_date_sprint7_ops_health/);
+  assert.doesNotMatch(adminOps, /safety_privacy_ops_health/);
+  assert.doesNotMatch(adminOps, /ready_tap_to_first_remote_frame_latency/);
+  assert.doesNotMatch(adminOps, /vw_video_date_daily_pool_decision/);
+  assert.doesNotMatch(adminOps, /vw_video_date_daily_performance_emission_health/);
+  assert.match(adminOps, /"metrics" \| "get_session_timeline"/);
+  assert.match(adminOps, /get_video_date_session_timeline/);
+  assert.match(adminOps, /ready_gate_open_to_date_join_latency/);
+  assert.match(adminOps, /simultaneous_swipe_recovery/);
+  assert.match(adminOps, /notification_outbox_health/);
   assert.doesNotMatch(adminOps, /silently_queued_count/);
   assert.match(adminShared, /SENSITIVE_TIMELINE_KEY_PATTERN/);
-  assert.match(sprint7Migration, /COALESCE\(sa\.pending_report_count, 0\) > 0 THEN 'warning'/);
-  assert.match(sprint7Migration, /public\.event_registrations er_reporter/);
-  assert.match(sprint7Migration, /public\.event_registrations er_reported/);
-  assert.match(sprint7Migration, /public\.event_registrations er_blocker/);
-  assert.match(sprint7Migration, /public\.event_registrations er_blocked/);
+
+  // Historical provenance: the applied sprint7 migrations keep their shape.
+  assert.match(sprint7Migration, /CREATE OR REPLACE FUNCTION public\.get_video_date_sprint7_ops_health\(/);
   assert.match(sprint7FastPathMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_sprint7_ops_health\(/);
-  assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+public\.event_loop_observability_events eo[\s\S]+eo\.operation IN/);
-  assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+FROM public\.user_reports ur/);
-  assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+FROM public\.blocked_users bu/);
-  assert.match(sprint7FastPathMigration, /REVOKE ALL ON FUNCTION public\.get_video_date_sprint7_ops_health\(uuid\)[\s\S]+FROM PUBLIC, anon, authenticated/);
-  assert.match(sprint7Migration, /RESET statement_timeout/);
-  assert.match(sprint7FastPathMigration, /RESET statement_timeout/);
-  assert.match(reviewFollowupMigration, /eo\.outcome NOT IN \('success', 'no_op', 'blocked'\)/);
   assert.match(reviewFollowupMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_sprint7_ops_health\(/);
-  assert.match(validationPack, /video_date_sprint7_ops_health_service_role_only/);
-  assert.match(validationPack, /video_date_sprint7_ops_health_dashboard_dimensions/);
   assert.match(packageJson, /videoDateSprint7SafetyPrivacyOpsContracts\.test\.ts/);
 });
 
@@ -216,16 +173,6 @@ test("Sprint 7 blocked and reported pairs cannot rematch, re-enter queue, route 
 });
 
 test("Sprint 7 RLS and payload privacy boundaries cover sessions, feedback, reports, snapshots, tokens, outbox, webhook, and ops data", () => {
-  assert.match(validationPack, /video_date_sprint7_private_operator_tables/);
-  assert.match(validationPack, /video_date_sprint7_runtime_access_boundaries/);
-  assert.match(validationPack, /video_date_sprint7_payload_sanitization_contract/);
-  assert.match(validationPack, /event_loop_observability_events/);
-  assert.match(validationPack, /video_date_webhook_dlq/);
-  assert.match(validationPack, /video_date_provider_dead_letters/);
-  assert.match(validationPack, /get_video_date_snapshot_core/);
-  assert.match(validationPack, /record_video_date_launch_latency_checkpoint/);
-  assert.match(validationPack, /record_video_date_client_stuck_observability/);
-
   assert.match(v4Foundation, /ALTER TABLE public\.video_date_provider_outbox ENABLE ROW LEVEL SECURITY/);
   assert.match(v4Foundation, /REVOKE ALL ON TABLE public\.video_date_provider_outbox FROM PUBLIC, anon, authenticated/);
   assert.match(v4Foundation, /video_date_provider_outbox_no_top_level_token/);
@@ -298,8 +245,4 @@ test("Sprint 7 dashboards, runbooks, launch checklist, and final certification a
   }
 
   assert.match(operatorDashboards, /video-date-sprint7-safety-privacy-ops\.md/);
-  assert.match(operatorDashboards, /application-level timeout/);
-  assert.match(operatorDashboards, /source_error/);
-  assert.match(operatorMetrics, /get_video_date_sprint7_ops_health/);
-  assert.match(operatorMetrics, /safety_privacy_ops_health/);
 });

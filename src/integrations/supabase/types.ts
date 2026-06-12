@@ -1225,20 +1225,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "date_feedback_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "date_feedback_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       date_plan_completion_confirmations: {
@@ -2251,20 +2237,6 @@ export type Database = {
             referencedColumns: ["session_id"]
           },
           {
-            foreignKeyName: "event_profile_impression_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "event_profile_impression_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
-          {
             foreignKeyName: "event_profile_impression_events_target_id_fkey"
             columns: ["target_id"]
             isOneToOne: false
@@ -2350,20 +2322,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "event_profile_impressions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "event_profile_impressions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
           {
@@ -4434,20 +4392,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "post_date_client_submissions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "post_date_client_submissions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       post_date_pending_verdicts: {
@@ -4512,106 +4456,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: true
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: true
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: true
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
-      post_date_zero_feedback_reminders: {
-        Row: {
-          completed_at: string | null
-          created_at: string
-          event_id: string | null
-          first_detected_at: string
-          last_seen_at: string
-          missing_user_id: string
-          participant_role: string
-          queue_status: string | null
-          registration_id: string | null
-          reminder_eligible_at: string
-          reminder_error: string | null
-          reminder_sent_at: string | null
-          session_id: string
-          stale_at: string | null
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          completed_at?: string | null
-          created_at?: string
-          event_id?: string | null
-          first_detected_at?: string
-          last_seen_at?: string
-          missing_user_id: string
-          participant_role: string
-          queue_status?: string | null
-          registration_id?: string | null
-          reminder_eligible_at?: string
-          reminder_error?: string | null
-          reminder_sent_at?: string | null
-          session_id: string
-          stale_at?: string | null
-          status?: string
-          updated_at?: string
-        }
-        Update: {
-          completed_at?: string | null
-          created_at?: string
-          event_id?: string | null
-          first_detected_at?: string
-          last_seen_at?: string
-          missing_user_id?: string
-          participant_role?: string
-          queue_status?: string | null
-          registration_id?: string | null
-          reminder_eligible_at?: string
-          reminder_error?: string | null
-          reminder_sent_at?: string | null
-          session_id?: string
-          stale_at?: string | null
-          status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "video_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "post_date_zero_feedback_reminders_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -6936,86 +6780,6 @@ export type Database = {
           },
         ]
       }
-      video_date_certification_feedback_exceptions: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          event_id: string | null
-          evidence: Json
-          exception_kind: string
-          expires_at: string | null
-          missing_user_id: string
-          participant_role: string
-          reason: string
-          revoked_at: string | null
-          revoked_reason: string | null
-          session_id: string
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          event_id?: string | null
-          evidence?: Json
-          exception_kind: string
-          expires_at?: string | null
-          missing_user_id: string
-          participant_role: string
-          reason: string
-          revoked_at?: string | null
-          revoked_reason?: string | null
-          session_id: string
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          event_id?: string | null
-          evidence?: Json
-          exception_kind?: string
-          expires_at?: string | null
-          missing_user_id?: string
-          participant_role?: string
-          reason?: string
-          revoked_at?: string | null
-          revoked_reason?: string | null
-          session_id?: string
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "video_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_certification_feedback_exceptions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
       video_date_credit_extension_spends: {
         Row: {
           added_seconds: number
@@ -7060,20 +6824,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
           {
@@ -7147,20 +6897,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -7250,20 +6986,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "video_date_extension_requests_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_extension_requests_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       video_date_orphan_room_cleanup_audit: {
@@ -7320,86 +7042,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
-        ]
-      }
-      video_date_phase8_certification_runs: {
-        Row: {
-          certified_at: string | null
-          certified_by: string | null
-          commit_sha: string | null
-          created_at: string
-          event_id: string | null
-          expires_at: string | null
-          id: string
-          notes: string | null
-          platform: string
-          report: Json
-          rollout_bps: number | null
-          run_kind: string
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          certified_at?: string | null
-          certified_by?: string | null
-          commit_sha?: string | null
-          created_at?: string
-          event_id?: string | null
-          expires_at?: string | null
-          id?: string
-          notes?: string | null
-          platform: string
-          report?: Json
-          rollout_bps?: number | null
-          run_kind: string
-          status: string
-          updated_at?: string
-        }
-        Update: {
-          certified_at?: string | null
-          certified_by?: string | null
-          commit_sha?: string | null
-          created_at?: string
-          event_id?: string | null
-          expires_at?: string | null
-          id?: string
-          notes?: string | null
-          platform?: string
-          report?: Json
-          rollout_bps?: number | null
-          run_kind?: string
-          status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
           },
         ]
       }
@@ -7465,20 +7107,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_presence_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_presence_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -7549,20 +7177,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       video_date_provider_outbox: {
@@ -7630,20 +7244,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -7724,20 +7324,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -7930,20 +7516,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "video_date_surface_claims_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_date_surface_claims_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       video_date_webhook_dlq: {
@@ -8000,36 +7572,6 @@ export type Database = {
           signature_timestamp?: string | null
           state?: string
           updated_at?: string
-        }
-        Relationships: []
-      }
-      video_date_worker_runs: {
-        Row: {
-          claim_expires_at: string | null
-          claimed_by: string | null
-          heartbeat_at: string | null
-          metadata: Json
-          run_started_at: string | null
-          updated_at: string
-          worker_kind: string
-        }
-        Insert: {
-          claim_expires_at?: string | null
-          claimed_by?: string | null
-          heartbeat_at?: string | null
-          metadata?: Json
-          run_started_at?: string | null
-          updated_at?: string
-          worker_kind: string
-        }
-        Update: {
-          claim_expires_at?: string | null
-          claimed_by?: string | null
-          heartbeat_at?: string | null
-          metadata?: Json
-          run_started_at?: string | null
-          updated_at?: string
-          worker_kind?: string
         }
         Relationships: []
       }
@@ -8095,20 +7637,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "video_session_commands_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_commands_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       video_session_deadlines: {
@@ -8167,20 +7695,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_deadlines_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_deadlines_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -8242,20 +7756,6 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "vw_session_health"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
             referencedColumns: ["session_id"]
           },
         ]
@@ -8903,20 +8403,6 @@ export type Database = {
             referencedRelation: "vw_session_health"
             referencedColumns: ["session_id"]
           },
-          {
-            foreignKeyName: "video_session_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_extension_refund_certification"
-            referencedColumns: ["session_id"]
-          },
-          {
-            foreignKeyName: "video_session_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "vw_video_date_provider_room_reconciliation"
-            referencedColumns: ["session_id"]
-          },
         ]
       }
       vw_outbox_health: {
@@ -9030,152 +8516,6 @@ export type Database = {
         }
         Relationships: []
       }
-      vw_video_date_daily_performance_emission_health: {
-        Row: {
-          blocks_rollout_gate: boolean | null
-          emission_status: string | null
-          event_id: string | null
-          failure_count: number | null
-          last_sample_at: string | null
-          minimum_samples: number | null
-          missing_for_rollout_gate: boolean | null
-          p95_ms: number | null
-          p99_ms: number | null
-          sample_count: number | null
-          segment_key: string | null
-          segment_label: string | null
-          success_count: number | null
-          window_id: string | null
-          window_label: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_daily_performance_samples: {
-        Row: {
-          actor_id: string | null
-          created_at: string | null
-          detail: Json | null
-          event_id: string | null
-          latency_ms: number | null
-          outcome: string | null
-          platform: string | null
-          reason_code: string | null
-          segment_key: string | null
-          segment_label: string | null
-          session_id: string | null
-          source_operation: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_daily_performance_segment_health: {
-        Row: {
-          event_id: string | null
-          failure_count: number | null
-          last_sample_at: string | null
-          max_ms: number | null
-          p50_ms: number | null
-          p95_ms: number | null
-          p95_target_ms: number | null
-          p99_ms: number | null
-          p99_target_ms: number | null
-          platform: string | null
-          sample_count: number | null
-          segment_key: string | null
-          segment_label: string | null
-          segment_status: string | null
-          success_count: number | null
-          window_id: string | null
-          window_label: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_daily_pool_decision: {
-        Row: {
-          decision_reason: string | null
-          decision_status: string | null
-          event_id: string | null
-          extension_refresh_p95_ms: number | null
-          extension_refresh_sample_count: number | null
-          first_frame_p95_ms: number | null
-          first_frame_p99_ms: number | null
-          first_frame_sample_count: number | null
-          join_p95_ms: number | null
-          join_p99_ms: number | null
-          join_sample_count: number | null
-          reconnect_p95_ms: number | null
-          reconnect_sample_count: number | null
-          room_p95_ms: number | null
-          room_p99_ms: number | null
-          room_pool_recommended: boolean | null
-          room_sample_count: number | null
-          token_p95_ms: number | null
-          token_p99_ms: number | null
-          token_sample_count: number | null
-          window_id: string | null
-          window_label: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_extension_mutual_health: {
-        Row: {
-          applied_requests: number | null
-          event_id: string | null
-          expired_requests: number | null
-          failed_requests: number | null
-          insufficient_credit_failures: number | null
-          last_applied_at: string | null
-          last_request_at: string | null
-          pending_requests: number | null
-          room_expiry_failures: number | null
-          stale_pending_requests: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
-          },
-        ]
-      }
-      vw_video_date_extension_refund_certification: {
-        Row: {
-          ended_reason: string | null
-          event_id: string | null
-          extended_vibe_spend_count: number | null
-          extension_spend_count: number | null
-          extra_time_spend_count: number | null
-          has_mutual_extension_spend: boolean | null
-          refund_breakdown: Json | null
-          refund_granted_at: string | null
-          refund_status: string | null
-          session_id: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
-          },
-        ]
-      }
       vw_video_date_flag_rollout: {
         Row: {
           description: string | null
@@ -9219,254 +8559,6 @@ export type Database = {
         }
         Relationships: []
       }
-      vw_video_date_legacy_deck_cleanup_readiness: {
-        Row: {
-          cleanup_readiness_reason: string | null
-          current_state_since: string | null
-          deck_deal_100pct_active: boolean | null
-          deck_deal_100pct_baked: boolean | null
-          enabled: boolean | null
-          flag_key: string | null
-          kill_switch_active: boolean | null
-          rollout_bps: number | null
-        }
-        Relationships: []
-      }
-      vw_video_date_multi_device_health: {
-        Row: {
-          active_surface_conflict_count: number | null
-          active_surface_conflicts: Json | null
-          expired_unreleased_claim_count: number | null
-          live_claim_count: number | null
-          live_video_date_claim_count: number | null
-          observed_at: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_orphan_room_cleanup_health: {
-        Row: {
-          action: string | null
-          bucket_hour: string | null
-          destructive_candidate_count: number | null
-          failed_count: number | null
-          last_seen_at: string | null
-          reason: string | null
-          row_count: number | null
-        }
-        Relationships: []
-      }
-      vw_video_date_phase5_circuit_breaker_decision: {
-        Row: {
-          current_enabled: boolean | null
-          evaluated_at: string | null
-          feature_area: string | null
-          flag_key: string | null
-          kill_switch_active: boolean | null
-          observed_count: number | null
-          reason: string | null
-          should_disable: boolean | null
-          trip_threshold: number | null
-          window_label: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_phase8_certification_latest: {
-        Row: {
-          certified_at: string | null
-          certified_by: string | null
-          commit_sha: string | null
-          created_at: string | null
-          event_id: string | null
-          expires_at: string | null
-          id: string | null
-          notes: string | null
-          platform: string | null
-          report: Json | null
-          rollout_bps: number | null
-          run_kind: string | null
-          status: string | null
-          updated_at: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
-          },
-        ]
-      }
-      vw_video_date_phase8_release_closure: {
-        Row: {
-          core_flags_enabled: boolean | null
-          core_flags_killed: boolean | null
-          core_flags_present: boolean | null
-          current_rollout_bps: number | null
-          deck_deal_100pct_baked: boolean | null
-          generated_at: string | null
-          legacy_cleanup_passed: boolean | null
-          legacy_deck_cleanup_reason: string | null
-          present_flag_count: number | null
-          recovery_page_alerts: number | null
-          recovery_watch_alerts: number | null
-          release_blockers: string[] | null
-          release_track: string | null
-          required_flag_count: number | null
-          rollout_100pct_passed: boolean | null
-          rollout_10pct_passed: boolean | null
-          rollout_1pct_passed: boolean | null
-          rollout_50pct_passed: boolean | null
-          stuck_active_sessions_over_2m: number | null
-        }
-        Relationships: []
-      }
-      vw_video_date_phase8_rollout_readiness: {
-        Row: {
-          can_advance_rollout: boolean | null
-          chaos_passed: boolean | null
-          core_flags_enabled: boolean | null
-          core_flags_killed: boolean | null
-          core_flags_present: boolean | null
-          current_rollout_bps: number | null
-          deck_deal_100pct_baked: boolean | null
-          event_id: string | null
-          first_frame_p95_ms: number | null
-          first_frame_p99_ms: number | null
-          first_frame_sample_count: number | null
-          generated_at: string | null
-          legacy_deck_cleanup_reason: string | null
-          load_passed: boolean | null
-          recovery_page_alerts: number | null
-          recovery_watch_alerts: number | null
-          rls_negative_passed: boolean | null
-          rollout_10pct_passed: boolean | null
-          rollout_1pct_passed: boolean | null
-          rollout_50pct_passed: boolean | null
-          rollout_blockers: string[] | null
-          stuck_active_sessions_over_2m: number | null
-          target_label: string | null
-          target_rollout_bps: number | null
-          two_user_native_passed: boolean | null
-          two_user_web_passed: boolean | null
-          window_id: string | null
-          window_label: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_phase8_rollout_step_latest: {
-        Row: {
-          certified_at: string | null
-          certified_by: string | null
-          commit_sha: string | null
-          created_at: string | null
-          event_id: string | null
-          expires_at: string | null
-          id: string | null
-          notes: string | null
-          platform: string | null
-          report: Json | null
-          rollout_bps: number | null
-          run_kind: string | null
-          status: string | null
-          updated_at: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
-          },
-        ]
-      }
-      vw_video_date_provider_room_reconciliation: {
-        Row: {
-          cleanup_candidate: boolean | null
-          daily_room_expires_at: string | null
-          daily_room_verified_at: string | null
-          ended_at: string | null
-          ended_reason: string | null
-          event_id: string | null
-          has_join_evidence: boolean | null
-          is_terminal: boolean | null
-          phase: string | null
-          room_name: string | null
-          room_url: string | null
-          session_id: string | null
-          session_seq: number | null
-          started_at: string | null
-          state: Database["public"]["Enums"]["video_date_state"] | null
-          terminal_age_seconds: number | null
-        }
-        Insert: {
-          cleanup_candidate?: never
-          daily_room_expires_at?: string | null
-          daily_room_verified_at?: string | null
-          ended_at?: string | null
-          ended_reason?: string | null
-          event_id?: string | null
-          has_join_evidence?: never
-          is_terminal?: never
-          phase?: string | null
-          room_name?: string | null
-          room_url?: string | null
-          session_id?: string | null
-          session_seq?: never
-          started_at?: string | null
-          state?: Database["public"]["Enums"]["video_date_state"] | null
-          terminal_age_seconds?: never
-        }
-        Update: {
-          cleanup_candidate?: never
-          daily_room_expires_at?: string | null
-          daily_room_verified_at?: string | null
-          ended_at?: string | null
-          ended_reason?: string | null
-          event_id?: string | null
-          has_join_evidence?: never
-          is_terminal?: never
-          phase?: string | null
-          room_name?: string | null
-          room_url?: string | null
-          session_id?: string | null
-          session_seq?: never
-          started_at?: string | null
-          state?: Database["public"]["Enums"]["video_date_state"] | null
-          terminal_age_seconds?: never
-        }
-        Relationships: [
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "video_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "vw_synthetic_video_date_health"
-            referencedColumns: ["event_id"]
-          },
-        ]
-      }
       vw_video_date_recovery_alerts: {
         Row: {
           details: Json | null
@@ -9475,14 +8567,6 @@ export type Database = {
           queue_name: string | null
           severity: string | null
           state: string | null
-        }
-        Relationships: []
-      }
-      vw_video_date_v4_schema_inventory: {
-        Row: {
-          object_kind: string | null
-          object_name: string | null
-          present: boolean | null
         }
         Relationships: []
       }
@@ -10320,10 +9404,6 @@ export type Database = {
         Args: { p_referrer_id: string }
         Returns: Json
       }
-      apply_video_date_circuit_breaker_v1: {
-        Args: { p_dry_run?: boolean; p_reason?: string }
-        Returns: Json
-      }
       assert_tier_config_override_valid: {
         Args: { p_capability_key: string; p_value: Json }
         Returns: undefined
@@ -10352,15 +9432,6 @@ export type Database = {
       }
       backfill_chat_message_media_lifecycle: {
         Args: { p_limit?: number }
-        Returns: Json
-      }
-      begin_video_date_worker_run_v1: {
-        Args: {
-          p_lease_seconds?: number
-          p_metadata?: Json
-          p_worker_id: string
-          p_worker_kind: string
-        }
         Returns: Json
       }
       block_user_with_cleanup: {
@@ -10560,17 +9631,6 @@ export type Database = {
           reminder_sent_at: string
           session_id: string
           submitted_by: string
-        }[]
-      }
-      claim_post_date_zero_feedback_reminders_v1: {
-        Args: { p_limit?: number }
-        Returns: {
-          event_id: string
-          first_detected_at: string
-          missing_user_id: string
-          participant_role: string
-          reminder_sent_at: string
-          session_id: string
         }[]
       }
       claim_support_reply_delivery_jobs_v1: {
@@ -10873,10 +9933,6 @@ export type Database = {
           total_video_sessions: number
         }[]
       }
-      detect_post_date_half_verdict_timeouts: {
-        Args: { p_limit?: number; p_older_than?: string }
-        Returns: number
-      }
       dismiss_notification: {
         Args: { notification_id: string }
         Returns: boolean
@@ -11103,10 +10159,6 @@ export type Database = {
       }
       finalize_video_session_deadline_v2: {
         Args: { p_deadline_id: number; p_worker_id: string }
-        Returns: Json
-      }
-      finish_video_date_worker_run_v1: {
-        Args: { p_metadata?: Json; p_worker_id: string; p_worker_kind: string }
         Returns: Json
       }
       generate_recurring_events: {
@@ -11393,125 +10445,6 @@ export type Database = {
       }
       get_user_tier: { Args: { p_user_id: string }; Returns: string }
       get_user_tier_capabilities: { Args: { p_user_id: string }; Returns: Json }
-      get_video_date_circuit_breaker_decision_v1: {
-        Args: never
-        Returns: {
-          current_enabled: boolean
-          evaluated_at: string
-          feature_area: string
-          flag_key: string
-          kill_switch_active: boolean
-          observed_count: number
-          reason: string
-          should_disable: boolean
-          trip_threshold: number
-          window_label: string
-        }[]
-      }
-      get_video_date_daily_performance_decision: {
-        Args: { p_event_id?: string }
-        Returns: {
-          decision_reason: string
-          decision_status: string
-          event_id: string
-          extension_refresh_p95_ms: number
-          extension_refresh_sample_count: number
-          first_frame_p95_ms: number
-          first_frame_p99_ms: number
-          first_frame_sample_count: number
-          join_p95_ms: number
-          join_p99_ms: number
-          join_sample_count: number
-          reconnect_p95_ms: number
-          reconnect_sample_count: number
-          room_p95_ms: number
-          room_p99_ms: number
-          room_pool_recommended: boolean
-          room_sample_count: number
-          token_p95_ms: number
-          token_p99_ms: number
-          token_sample_count: number
-          window_id: string
-          window_label: string
-        }[]
-      }
-      get_video_date_daily_performance_emission_health: {
-        Args: { p_event_id?: string }
-        Returns: {
-          blocks_rollout_gate: boolean
-          emission_status: string
-          event_id: string
-          failure_count: number
-          last_sample_at: string
-          minimum_samples: number
-          missing_for_rollout_gate: boolean
-          p95_ms: number
-          p99_ms: number
-          sample_count: number
-          segment_key: string
-          segment_label: string
-          success_count: number
-          window_id: string
-          window_label: string
-        }[]
-      }
-      get_video_date_phase2_recovery_health: { Args: never; Returns: Json }
-      get_video_date_phase8_release_closure: {
-        Args: never
-        Returns: {
-          can_close_phase8: boolean
-          core_flags_enabled: boolean
-          core_flags_killed: boolean
-          core_flags_present: boolean
-          current_rollout_bps: number
-          deck_deal_100pct_baked: boolean
-          generated_at: string
-          legacy_cleanup_passed: boolean
-          legacy_deck_cleanup_reason: string
-          recovery_page_alerts: number
-          recovery_watch_alerts: number
-          release_blockers: string[]
-          release_track: string
-          rollout_100pct_passed: boolean
-          rollout_10pct_passed: boolean
-          rollout_1pct_passed: boolean
-          rollout_50pct_passed: boolean
-          stuck_active_sessions_over_2m: number
-        }[]
-      }
-      get_video_date_phase8_rollout_readiness: {
-        Args: { p_event_id?: string }
-        Returns: {
-          can_advance_rollout: boolean
-          chaos_passed: boolean
-          core_flags_enabled: boolean
-          core_flags_killed: boolean
-          core_flags_present: boolean
-          current_rollout_bps: number
-          deck_deal_100pct_baked: boolean
-          event_id: string
-          first_frame_p95_ms: number
-          first_frame_p99_ms: number
-          first_frame_sample_count: number
-          generated_at: string
-          legacy_deck_cleanup_reason: string
-          load_passed: boolean
-          recovery_page_alerts: number
-          recovery_watch_alerts: number
-          rls_negative_passed: boolean
-          rollout_10pct_passed: boolean
-          rollout_1pct_passed: boolean
-          rollout_50pct_passed: boolean
-          rollout_blockers: string[]
-          stuck_active_sessions_over_2m: number
-          target_label: string
-          target_rollout_bps: number
-          two_user_native_passed: boolean
-          two_user_web_passed: boolean
-          window_id: string
-          window_label: string
-        }[]
-      }
       get_video_date_session_timeline: {
         Args: { p_session_id: string }
         Returns: {
@@ -11529,10 +10462,6 @@ export type Database = {
       }
       get_video_date_snapshot_core: {
         Args: { p_session_id: string }
-        Returns: Json
-      }
-      get_video_date_sprint7_ops_health: {
-        Args: { p_event_id?: string }
         Returns: Json
       }
       get_video_date_start_snapshot_v1: {
@@ -11821,10 +10750,6 @@ export type Database = {
         Args: { p_limit?: number; p_older_than?: string }
         Returns: number
       }
-      mark_post_date_zero_feedback_reminders_stale_v1: {
-        Args: { p_limit?: number; p_older_than?: string }
-        Returns: number
-      }
       mark_profile_email_verified_from_server: {
         Args: { p_user_id: string; p_verified_email: string }
         Returns: undefined
@@ -12088,15 +11013,6 @@ export type Database = {
         Args: { p_error?: string; p_session_id: string; p_success: boolean }
         Returns: Json
       }
-      record_post_date_zero_feedback_reminder_result_v1: {
-        Args: {
-          p_error?: string
-          p_missing_user_id: string
-          p_session_id: string
-          p_success: boolean
-        }
-        Returns: undefined
-      }
       record_public_account_deletion_request: {
         Args: { p_email_hash: string; p_ip_hash: string }
         Returns: Json
@@ -12107,15 +11023,6 @@ export type Database = {
           p_client_platform?: string
           p_event_id: string
           p_status: string
-        }
-        Returns: Json
-      }
-      record_video_date_client_stuck_observability: {
-        Args: {
-          p_event_name: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
         }
         Returns: Json
       }
@@ -12132,19 +11039,6 @@ export type Database = {
         }
         Returns: Json
       }
-      record_video_date_launch_latency_checkpoint: {
-        Args: {
-          p_checkpoint: string
-          p_latency_ms?: number
-          p_payload?: Json
-          p_session_id: string
-        }
-        Returns: Json
-      }
-      record_video_date_launch_latency_checkpoints_v1: {
-        Args: { p_checkpoints?: Json; p_session_id: string }
-        Returns: Json
-      }
       record_video_date_orphan_room_cleanup_audit_v2: {
         Args: {
           p_action: string
@@ -12156,40 +11050,6 @@ export type Database = {
           p_reason: string
           p_room_name: string
           p_session_id?: string
-        }
-        Returns: Json
-      }
-      record_video_date_phase8_certification_run_v2: {
-        Args: {
-          p_commit_sha?: string
-          p_event_id?: string
-          p_expires_at?: string
-          p_notes?: string
-          p_platform: string
-          p_report?: Json
-          p_rollout_bps?: number
-          p_run_kind: string
-          p_status: string
-        }
-        Returns: Json
-      }
-      record_video_date_phase8_legacy_cleanup_v2: {
-        Args: {
-          p_commit_sha?: string
-          p_expires_at?: string
-          p_notes?: string
-          p_report?: Json
-        }
-        Returns: Json
-      }
-      record_video_date_phase8_rollout_step_v2: {
-        Args: {
-          p_commit_sha?: string
-          p_event_id: string
-          p_expires_at?: string
-          p_notes?: string
-          p_report?: Json
-          p_rollout_bps: number
         }
         Returns: Json
       }
@@ -12222,15 +11082,6 @@ export type Database = {
           p_lease_seconds?: number
           p_outbox_id: number
           p_worker_id: string
-        }
-        Returns: Json
-      }
-      refresh_video_date_worker_run_v1: {
-        Args: {
-          p_lease_seconds?: number
-          p_metadata?: Json
-          p_worker_id: string
-          p_worker_kind: string
         }
         Returns: Json
       }
@@ -12353,14 +11204,6 @@ export type Database = {
           p_status?: string
         }
         Returns: number
-      }
-      revoke_video_date_certification_feedback_exception_v1: {
-        Args: {
-          p_missing_user_id: string
-          p_revoked_reason?: string
-          p_session_id: string
-        }
-        Returns: Json
       }
       sanitize_profile_display_name: {
         Args: { p_input: string }
@@ -12495,10 +11338,6 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
-      sync_post_date_zero_feedback_reminders_v1: {
-        Args: { p_limit?: number; p_older_than?: string }
-        Returns: number
-      }
       sync_profile_photo_media: {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
         Returns: Json
@@ -12630,17 +11469,6 @@ export type Database = {
         }
         Returns: Json
       }
-      upsert_video_date_certification_feedback_exception_v1: {
-        Args: {
-          p_evidence?: Json
-          p_exception_kind: string
-          p_expires_at?: string
-          p_missing_user_id: string
-          p_reason: string
-          p_session_id: string
-        }
-        Returns: Json
-      }
       validate_video_date_registration_session_drift_v1: {
         Args: { p_event_id?: string; p_limit?: number }
         Returns: Json
@@ -12745,18 +11573,6 @@ export type Database = {
         Args: { p_topic: string }
         Returns: boolean
       }
-      video_date_certification_feedback_exception_active_v1: {
-        Args: { p_missing_user_id: string; p_session_id: string }
-        Returns: boolean
-      }
-      video_date_client_stuck_safe_bool: {
-        Args: { p_value: string }
-        Returns: boolean
-      }
-      video_date_client_stuck_safe_int: {
-        Args: { p_max?: number; p_min?: number; p_value: string }
-        Returns: number
-      }
       video_date_client_stuck_safe_text: {
         Args: { p_max_len?: number; p_value: string }
         Returns: string
@@ -12810,18 +11626,6 @@ export type Database = {
       video_date_latest_presence_is_active: {
         Args: { p_away_at: string; p_joined_at: string }
         Returns: boolean
-      }
-      video_date_launch_latency_safe_bool: {
-        Args: { p_value: string }
-        Returns: boolean
-      }
-      video_date_launch_latency_safe_int: {
-        Args: { p_max?: number; p_min?: number; p_value: string }
-        Returns: number
-      }
-      video_date_launch_latency_safe_text: {
-        Args: { p_max_len?: number; p_value: string }
-        Returns: string
       }
       video_date_lifecycle_client_safe_payload_v2: {
         Args: { p_payload: Json }
@@ -12932,22 +11736,6 @@ export type Database = {
       video_date_mark_stable_bilateral_media_v1: {
         Args: { p_gate: Json; p_session_id: string; p_source: string }
         Returns: Json
-      }
-      video_date_missing_feedback_operator_diagnostics_v1: {
-        Args: { p_event_id?: string; p_limit?: number; p_stale_after?: string }
-        Returns: {
-          age_seconds: number
-          ended_at: string
-          event_id: string
-          feedback_count: number
-          missing_user_id: string
-          participant_role: string
-          queue_status: string
-          release_blocker: boolean
-          reminder_sent_at: string
-          reminder_status: string
-          session_id: string
-        }[]
       }
       video_date_orphan_safety_interlock_v1: {
         Args: { p_room_name?: string; p_session_id: string }

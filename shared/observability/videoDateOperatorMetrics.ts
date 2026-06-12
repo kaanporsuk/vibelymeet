@@ -4,7 +4,6 @@ import {
 } from "../analytics/lobbyToPostDateJourney";
 
 export type VideoDateOperatorMetricId =
-  | "ready_tap_to_first_remote_frame_latency"
   | "ready_gate_open_to_date_join_latency"
   | "simultaneous_swipe_collision_rate"
   | "timer_drift_recovered_by_server_truth";
@@ -36,15 +35,6 @@ export type VideoDateOperatorMetricDefinition = {
 };
 
 export const VIDEO_DATE_OPERATOR_METRIC_DEFINITIONS = [
-  {
-    id: "ready_tap_to_first_remote_frame_latency",
-    label: "Ready tap to first remote frame latency",
-    source: "mixed",
-    primarySources: ["video_date_launch_latency_checkpoint", "ready_gate_to_date_latency_checkpoint"],
-    thresholds: { warning: 8_000, critical: 15_000, direction: "lower_is_better" },
-    unit: "milliseconds",
-    limitation: "Durable samples require the authenticated client launch-latency checkpoint mirror.",
-  },
   {
     id: "ready_gate_open_to_date_join_latency",
     label: "Ready Gate open to date join latency",

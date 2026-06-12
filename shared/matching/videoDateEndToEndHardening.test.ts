@@ -144,28 +144,12 @@ const partialJoinManualEndMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501145000_video_date_peer_missing_manual_end.sql"),
   "utf8",
 );
-const clientStuckObservabilityMigration = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260501151000_video_date_client_stuck_observability.sql"),
-  "utf8",
-);
-const launchLatencyCheckpointObservabilityMigration = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260505120000_video_date_launch_latency_checkpoint_observability.sql"),
-  "utf8",
-);
 const rpcShortCircuitAndKeepwarmMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505214500_video_date_rpc_short_circuit_and_daily_keepwarm.sql"),
   "utf8",
 );
-const launchLatencyJoinPrewarmCheckpointsMigration = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260505231000_video_date_launch_latency_join_prewarm_checkpoints.sql"),
-  "utf8",
-);
 const launchLatencyPermissionPrewarmSkipCheckpointMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505234000_video_date_permission_prewarm_skip_checkpoint.sql"),
-  "utf8",
-);
-const launchLatencyPrepareTimingSlicesMigration = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260506101000_video_date_launch_latency_prepare_timing_slices.sql"),
   "utf8",
 );
 const launchLatencyPrepareTimingBaseNamePolishMigration = readFileSync(
@@ -228,10 +212,6 @@ const videoDateValidationSql = readFileSync(
   join(process.cwd(), "supabase/validation/video_date_end_to_end_hardening.sql"),
   "utf8",
 );
-const launchLatencyBaselineSql = readFileSync(
-  join(process.cwd(), "supabase/validation/video_date_launch_latency_baseline.sql"),
-  "utf8",
-);
 const postDateAutoNextRemovalMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260610000100_remove_post_date_instant_next.sql"),
   "utf8",
@@ -289,10 +269,6 @@ const webAnalytics = readFileSync(
 );
 const nativeAnalytics = readFileSync(
   join(process.cwd(), "apps/mobile/lib/analytics.ts"),
-  "utf8",
-);
-const launchLatencyCheckpointObservability = readFileSync(
-  join(process.cwd(), "shared/observability/videoDateLaunchLatencyCheckpointObservability.ts"),
   "utf8",
 );
 const videoDateOperatorMetrics = readFileSync(
@@ -1032,7 +1008,6 @@ test("web ready-gate paths keep date ownership after both-ready prepare failures
   assert.match(readyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
   assert.match(readyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(readyGateOverlay, /navigateToDate\(["']both_ready_prepare_success["']\)/);
-  assert.match(readyGateOverlay, /source_action: "prepare_entry_failed_date_owned"/);
   assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_failed_date_owned"\)/);
   assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_exception_date_owned"\)/);
 
@@ -1062,7 +1037,6 @@ test("native ready-gate paths keep date ownership after both-ready prepare failu
   assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
   assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\) \{[\s\S]*preAuthNativeVideoDateDailyPrewarm[\s\S]*navigateWithLatency\(`\$\{source\}_prepare_success`\)/s);
-  assert.match(nativeReadyGateOverlay, /source_action: 'prepare_entry_failed_date_owned'/);
   assert.match(nativeReadyGateOverlay, /navigateWithLatency\(`\$\{source\}_prepare_failed_date_owned`\)/);
   assert.match(nativeReadyGateOverlay, /navigateWithLatency\(`\$\{source\}_prepare_exception_date_owned`\)/);
 });
@@ -1217,7 +1191,6 @@ test("ready-gate mark_ready both_ready uses RPC short-circuit telemetry", () => 
     nativeReadyGateOverlay,
     /sourceAction:[\s\S]{0,120}'both_ready_observed'[\s\S]{0,80}'both_ready_observed_via_rpc_short_circuit'/,
   );
-  assert.match(launchLatencyCheckpointObservability, /both_ready_observed_via_rpc_short_circuit/);
   assert.match(videoDateOperatorMetrics, /both_ready_observed_via_rpc_short_circuit/);
 });
 
@@ -2977,167 +2950,6 @@ test("observability v2 adds Daily provider lifecycle rows to the service-role ti
   assert.match(videoDateObservabilityV2Migration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_session_timeline\(uuid\) TO service_role/);
 });
 
-test("client stuck observability is authenticated, allowlisted, deduped, and timeline-visible", () => {
-  assert.match(
-    clientStuckObservabilityMigration,
-    /CREATE OR REPLACE FUNCTION public\.record_video_date_client_stuck_observability/,
-  );
-  assert.match(clientStuckObservabilityMigration, /v_actor uuid := auth\.uid\(\)/);
-  assert.match(clientStuckObservabilityMigration, /participant_1_id IS DISTINCT FROM v_actor/);
-  assert.match(clientStuckObservabilityMigration, /participant_2_id IS DISTINCT FROM v_actor/);
-  for (const eventName of [
-    "ready_gate_handoff_slow",
-    "prepare_date_entry_failed",
-    "daily_join_confirmation_failed",
-    "peer_missing_terminal",
-    "native_background_recovery_started",
-    "native_background_recovery_failed",
-    "native_background_expired",
-  ]) {
-    assert.match(clientStuckObservabilityMigration, new RegExp(`'${eventName}'`));
-  }
-  assert.match(clientStuckObservabilityMigration, /'unknown_event_name'/);
-  assert.match(clientStuckObservabilityMigration, /event_loop_obs_video_date_client_stuck_once_idx/);
-  assert.match(
-    clientStuckObservabilityMigration,
-    /ON CONFLICT \(session_id, actor_id, operation, reason_code\)[\s\S]*WHERE operation = 'video_date_client_stuck_state'/,
-  );
-  assert.match(clientStuckObservabilityMigration, /REVOKE ALL ON FUNCTION public\.record_video_date_client_stuck_observability\(uuid, text, jsonb, integer\)[\s\S]*FROM PUBLIC, anon, authenticated, service_role/);
-  assert.match(clientStuckObservabilityMigration, /GRANT EXECUTE ON FUNCTION public\.record_video_date_client_stuck_observability\(uuid, text, jsonb, integer\)[\s\S]*TO authenticated/);
-  assert.match(clientStuckObservabilityMigration, /'video_date_client_stuck_state'/);
-  assert.match(clientStuckObservabilityMigration, /video_date_client_stuck_safe_text/);
-  assert.match(clientStuckObservabilityMigration, /video_date_client_stuck_safe_int/);
-  assert.match(clientStuckObservabilityMigration, /video_date_client_stuck_safe_bool/);
-  assert.match(readyGateOverlay, /emitWebVideoDateClientStuckState/);
-  assert.match(readyGateOverlay, /ready_gate_handoff_slow/);
-  assert.match(readyGateOverlay, /prepare_date_entry_failed/);
-  assert.match(nativeReadyGateOverlay, /emitNativeVideoDateClientStuckState/);
-  assert.match(nativeReadyGateOverlay, /ready_gate_handoff_slow/);
-  assert.match(nativeReadyGateOverlay, /prepare_date_entry_failed/);
-  assert.match(webVideoCallHook, /daily_join_confirmation_failed/);
-  assert.match(webVideoCallHook, /peer_missing_terminal/);
-  assert.match(nativeVideoDateRoute, /daily_join_confirmation_failed/);
-  assert.match(nativeVideoDateRoute, /peer_missing_terminal/);
-  assert.match(nativeVideoDateRoute, /native_background_recovery_started/);
-  assert.match(nativeVideoDateRoute, /native_background_recovery_failed/);
-  assert.match(nativeVideoDateRoute, /native_background_expired/);
-  assert.match(videoDateValidationSql, /client_stuck_observability_rpc_granted_authenticated_only/);
-  assert.match(videoDateValidationSql, /timeline_includes_client_stuck_events/);
-});
-
-test("launch latency checkpoints are durable, allowlisted, and admin-visible", () => {
-  assert.match(
-    launchLatencyCheckpointObservabilityMigration,
-    /CREATE OR REPLACE FUNCTION public\.record_video_date_launch_latency_checkpoint/,
-  );
-  assert.match(launchLatencyCheckpointObservabilityMigration, /v_actor uuid := auth\.uid\(\)/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /participant_1_id IS DISTINCT FROM v_actor/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /participant_2_id IS DISTINCT FROM v_actor/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'video_date_launch_latency_checkpoint'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'first_remote_frame'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'ready_tap_to_first_remote_frame_ms'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'date_route_bootstrap_ms'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'daily_join_to_remote_seen_ms'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'cached_prepare_entry'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'provider_verify_skipped'/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /'permission_handoff_used'/);
-  assert.match(launchLatencyPrepareTimingSlicesMigration, /record_video_date_launch_latency_checkpoint_20260506101000_prepare_timing_base/);
-  assert.match(launchLatencyPrepareTimingBaseNamePolishMigration, /record_vd_launch_latency_202605061020_base/);
-  assert.match(videoDateValidationSql, /record_vd_launch_latency_202605061020_base/);
-  for (const field of [
-    "auth_ms",
-    "prepare_rpc_ms",
-    "room_create_or_verify_ms",
-    "token_ms",
-    "confirm_prepare_ms",
-    "edge_total_ms",
-    "provider_verify_reason",
-  ]) {
-    assert.match(launchLatencyCheckpointObservability, new RegExp(`"${field}"`));
-    assert.match(launchLatencyPrepareTimingSlicesMigration, new RegExp(`'${field}'`));
-    assert.match(launchLatencyPrepareTimingBaseNamePolishMigration, new RegExp(`'${field}'`));
-    assert.match(videoDateValidationSql, new RegExp(field));
-  }
-  assert.match(launchLatencyCheckpointObservabilityMigration, /v_ready_actor_order/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /TO authenticated/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /video_date_launch_latency_checkpoint/);
-  assert.match(launchLatencyCheckpointObservabilityMigration, /get_video_date_session_timeline/);
-  assert.match(launchLatencyCheckpointObservability, /emitVideoDateLaunchLatencyCheckpointObservability/);
-  assert.match(launchLatencyCheckpointObservability, /ready_tap_to_first_remote_frame_ms/);
-  for (const checkpoint of [
-    "daily_prewarm_join_started",
-    "daily_prewarm_join_success",
-    "daily_prewarm_join_failure",
-    "video_date_route_preload_started",
-    "video_date_route_preload_success",
-  ]) {
-    assert.match(videoDateOperatorMetrics, new RegExp(`"${checkpoint}"`));
-    assert.match(launchLatencyCheckpointObservability, new RegExp(`"${checkpoint}"`));
-    assert.match(launchLatencyJoinPrewarmCheckpointsMigration, new RegExp(`'${checkpoint}'`));
-  }
-  for (const removedCheckpoint of [
-    "daily_prewarm_solo_join_started",
-    "daily_prewarm_solo_join_success",
-    "daily_prewarm_solo_join_failure",
-  ]) {
-    assert.doesNotMatch(videoDateOperatorMetrics, new RegExp(`"${removedCheckpoint}"`));
-    assert.doesNotMatch(launchLatencyCheckpointObservability, new RegExp(`"${removedCheckpoint}"`));
-    assert.match(launchLatencyJoinPrewarmCheckpointsMigration, new RegExp(`'${removedCheckpoint}'`));
-  }
-  assert.match(videoDateOperatorMetrics, /"permission_check_skipped"/);
-  assert.match(launchLatencyCheckpointObservability, /"permission_check_skipped"/);
-  assert.match(launchLatencyPermissionPrewarmSkipCheckpointMigration, /'permission_check_skipped'/);
-  assert.match(webAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
-  assert.match(nativeAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
-  assert.match(webAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
-  assert.match(nativeAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
-  assert.doesNotMatch(webAnalytics, /setTimeout\(emit, 0\)/);
-  assert.doesNotMatch(nativeAnalytics, /setTimeout\(emit, 0\)/);
-  for (const prepareEntrySource of [webPrepareEntry, nativePrepareEntry]) {
-    assert.equal(prepareEntrySource.match(/\bprepareBackendTimingExtra\b/g)?.length, 2);
-    assert.match(prepareEntrySource, /const providerVerifyExtra = \{[\s\S]*provider_verify_reason/);
-    assert.match(
-      prepareEntrySource,
-      /const prepareEntrySuccessExtra = result\.cached[\s\S]{0,80}\? providerVerifyExtra[\s\S]{0,80}: prepareBackendTimingExtra/,
-    );
-    assert.match(prepareEntrySource, /['"]prepare_entry_success['"][\s\S]*prepareEntrySuccessExtra/);
-    assert.doesNotMatch(prepareEntrySource, /trackLatencyCheckpoint\(\s*providerVerifyCheckpoint[\s\S]*?prepareBackendTimingExtra/);
-    assert.doesNotMatch(prepareEntrySource, /['"]enter_handshake_success['"][\s\S]{0,250}prepareBackendTimingExtra/);
-    assert.doesNotMatch(prepareEntrySource, /['"]daily_token_success['"][\s\S]{0,250}prepareBackendTimingExtra/);
-    assert.doesNotMatch(prepareEntrySource, /checkpoint: ['"]token_created['"][\s\S]*?extra: prepareBackendTimingExtra/);
-  }
-  assert.match(launchLatencyBaselineSql, /backend_timing_rows AS \(/);
-  assert.match(launchLatencyBaselineSql, /WHERE checkpoint = 'prepare_entry_success'/);
-  assert.match(launchLatencyBaselineSql, /FROM backend_timing_rows GROUP BY platform/);
-  assert.match(webAnalytics, /operational reliability telemetry/);
-  assert.match(nativeAnalytics, /operational reliability telemetry/);
-  assert.match(webVideoDatePage, /date_guard_registration_status_failed/);
-  assert.match(webVideoCallHook, /activePreparedEntryCacheHitRef/);
-  assert.doesNotMatch(webVideoCallHook, /cachedPrepareEntry:\s*Boolean\(entry\)/);
-  assert.doesNotMatch(nativeVideoDateRoute, /cachedPrepareEntry:\s*Boolean\(activePreparedEntryCacheRef\.current\)/);
-  assert.match(nativeVideoDateApi, /cached_prepare_entry: result\.cached/);
-  assert.match(adminVideoDateOpsFunction, /getReadyTapToFirstRemoteFrameLatency/);
-  assert.match(adminVideoDateOpsFunction, /ready_tap_to_first_remote_frame_latency/);
-  assert.match(adminVideoDateOpsFunction, /segment_breakdown/);
-  assert.match(adminVideoDateOpsFunction, /cohort_breakdown/);
-  assert.match(adminVideoDateOpsFunction, /slowest_sessions/);
-  assert.match(adminVideoDateOpsFunction, /attachSlowLaunchTimelines/);
-  assert.match(adminVideoDateOpsFunction, /get_video_date_session_timeline/);
-  assert.match(adminVideoDateOpsFunction, /SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5/);
-  assert.match(adminVideoDateOpsFunction, /SLOW_LAUNCH_TIMELINE_ROW_LIMIT = 12/);
-  assert.match(adminVideoDateOpsFunction, /\.slice\(0, SLOW_LAUNCH_TIMELINE_SESSION_LIMIT\)/);
-  assert.match(adminVideoDateOpsFunction, /\.slice\(-SLOW_LAUNCH_TIMELINE_ROW_LIMIT\)/);
-  assert.match(adminLiveEventMetrics, /Slowest sessions/);
-  assert.match(adminVideoDateOpsFunction, /daily_prewarm_consumed/);
-  assert.match(adminVideoDateOpsFunction, /daily_prewarm_fallback/);
-  assert.match(videoDateValidationSql, /launch_latency_checkpoint_rpc_granted_authenticated_only/);
-  assert.match(videoDateValidationSql, /launch_latency_checkpoint_primary_fields_allowlisted/);
-  assert.match(videoDateValidationSql, /record_video_date_launch_latency_checkpoint_20260505214500_rpc_short_circuit_base/);
-  assert.match(videoDateValidationSql, /permission_check_skipped/);
-  assert.match(videoDateValidationSql, /both_ready_observed_via_rpc_short_circuit/);
-  assert.match(videoDateValidationSql, /timeline_includes_launch_latency_checkpoints/);
-});
-
 test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrumented", () => {
   assert.match(webDailyPrewarm, /VITE_VIDEO_DATE_DAILY_PREWARM/);
   assert.match(webDailyPrewarm, /VITE_VIDEO_DATE_DAILY_JOIN_PREWARM/);
@@ -3397,7 +3209,6 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500/);
   assert.match(webVideoCallHook, /stamp\(`\$\{attemptSource\}_retry_\$\{nextAttempt\}`, nextAttempt\)/);
   assert.match(webVideoCallHook, /attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS/);
-  assert.match(webVideoCallHook, /eventName: "remote_seen_canonical_repair_failed"/);
   assert.match(webVideoCallHook, /const hasRemoteVideo = !isLocal && Boolean\(videoTrack\)/);
   assert.match(webVideoCallHook, /if \(hasRemoteVideo\) \{[\s\S]*markRemoteFirstFrameRendered\("loadeddata"\)[\s\S]*markRemoteFirstFrameRendered\("playing"\)/);
   assert.match(webVideoCallHook, /markRemoteSeenOnServer\(source\)[\s\S]*if \(remoteFirstFrameTrackedRef\.current\) return/);
@@ -3462,7 +3273,6 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(nativeVideoDateRoute, /REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500/);
   assert.match(nativeVideoDateRoute, /stamp\(`\$\{attemptSource\}_retry_\$\{nextAttempt\}`, nextAttempt\)/);
   assert.match(nativeVideoDateRoute, /attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS/);
-  assert.match(nativeVideoDateRoute, /eventName: ["']remote_seen_canonical_repair_failed["']/);
   assert.match(nativeVideoDateRoute, /remoteSeenActiveSessionRef\.current !== sessionId/);
   assert.match(
     nativeVideoDateRoute,
@@ -3527,8 +3337,6 @@ test("operator timeline UI uses admin Edge Function instead of direct browser RP
   assert.match(adminDashboardPage, /panelFromSearchParams/);
   assert.match(adminDashboardPage, /nextSearchParams\.delete\("session_id"\)/);
   assert.match(adminDashboardPage, /<AdminVideoDateTimelinePanel \/>/);
-  assert.match(adminLiveEventMetrics, /Open timeline/);
-  assert.match(adminLiveEventMetrics, /panel=video-date-timeline&session_id=/);
   assert.match(adminVideoDateTimelinePanel, /functions\.invoke<AdminVideoDateTimelineResponse>\(\s*"admin-video-date-ops"/);
   assert.match(adminVideoDateTimelinePanel, /action: "get_session_timeline"/);
   assert.match(adminVideoDateTimelinePanel, /searchParams\.get\("session_id"\)/);

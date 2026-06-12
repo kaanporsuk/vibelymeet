@@ -1,6 +1,5 @@
 import { DailyCall } from "@daily-co/daily-js";
 import { vdbg } from "@/lib/vdbg";
-import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import {
   readDailyMeetingState,
   registerWebVideoDateDailyCleanup,
@@ -55,10 +54,6 @@ export function isWebDailyCallSingletonIdleExpired(entry: WebDailyCallSingletonE
   );
 }
 
-export function shouldPersistWebDailyCallSingletonDestroy(reason: string) {
-  return reason.includes("idle") || reason.includes("expired");
-}
-
 export function destroyWebDailyCallSingleton(reason: string) {
   const entry = webDailyCallSingletonEntry;
   if (!entry) return;
@@ -84,26 +79,6 @@ export function destroyWebDailyCallSingleton(reason: string) {
       onDiagnostic: (eventName, payload) => vdbg(eventName, payload),
     },
   ).catch(() => undefined);
-  if (shouldPersistWebDailyCallSingletonDestroy(reason)) {
-    void emitWebVideoDateClientStuckState({
-      sessionId: entry.previousSessionId,
-      eventName: "daily_call_singleton_idle_destroy",
-      dedupe: false,
-      payload: {
-        source_surface: "video_date_daily",
-        source_action: "daily_call_singleton_destroyed",
-        reason_code: reason,
-        previous_session_id: entry.previousSessionId ?? undefined,
-        previous_room_name: entry.previousRoomName ?? undefined,
-        singleton_parking_mode: entry.parkingMode,
-        idle_ms: entry.idleMs ?? undefined,
-        idle_age_ms: getWebDailyCallSingletonIdleAgeMs(entry),
-        idle_destroy_disabled: entry.idleMs == null,
-        leave_called: true,
-        destroy_called: true,
-      },
-    });
-  }
   vdbg("daily_call_singleton_destroyed", {
     platform: "web",
     reason,

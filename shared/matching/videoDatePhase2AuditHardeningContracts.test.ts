@@ -62,7 +62,10 @@ test("audit hardening dispatches recovery alerts without exposing them to client
   assert.match(hardening, /\*\/5 \* \* \* \*/);
   assert.match(dispatcher, /CRON_SECRET/);
   assert.match(dispatcher, /safeEqual/);
-  assert.match(dispatcher, /get_video_date_phase2_recovery_health/);
+  // PR 9 ops purge: the dispatcher reads vw_video_date_recovery_alerts
+  // directly; the phase2 aggregate RPC is dropped.
+  assert.match(dispatcher, /from\("vw_video_date_recovery_alerts"\)/);
+  assert.doesNotMatch(dispatcher, /get_video_date_phase2_recovery_health/);
   assert.match(dispatcher, /video_date_recovery_alert_dispatches/);
   assert.match(dispatcher, /SENTRY_DSN/);
   assert.match(dispatcher, /captureMessage\("video_date_recovery_alert_page"/);

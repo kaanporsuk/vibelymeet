@@ -191,8 +191,7 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.match(webVideoCall, /hasReusableWebDailyCallSingleton/);
   assert.match(webVideoCall, /isWebDailyCallSingletonIdleExpired/);
   assert.match(webVideoCall, /typeof entry\.idleMs === "number"/);
-  assert.match(webVideoCall, /idle_destroy_disabled:\s*shouldParkLiveSingleton &&\s*WEB_DAILY_CALL_LIVE_REMOUNT_IDLE_MS == null/);
-  assert.match(webVideoCall, /eventName: "daily_call_singleton_idle_destroy"/);
+  assert.match(webVideoCall, /if \(shouldParkLiveSingleton && userId\) \{/);
   assert.match(webVideoCall, /expired_before_preflight/);
   assert.match(webVideoCall, /destroyed_before_preflight/);
   assert.match(webVideoCall, /local_media_not_live_before_preflight/);
@@ -214,8 +213,6 @@ test("Daily call continuity is explicit: web same-session remount, native gated 
   assert.doesNotMatch(webVideoCall, /warm_handoff/);
   assert.match(webVideoCall, /meetingState !== "joined-meeting" && meetingState !== "joining-meeting"/);
   assert.match(webVideoCall, /daily_call_live_remount_leave_destroy_skipped_for_singleton/);
-  assert.match(webVideoCall, /leave_called: Boolean\(callObject\) && !shouldParkLiveSingleton/);
-  assert.match(webVideoCall, /destroy_called: Boolean\(callObject\) && !shouldParkLiveSingleton/);
   assert.match(webVideoCall, /waitForDailyMeetingState/);
   assert.match(webVideoCall, /daily_join_skipped_singleton_already_joined/);
   assert.match(webVideoCall, /daily_join_completed_by_singleton_inflight/);

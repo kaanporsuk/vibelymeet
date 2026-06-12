@@ -137,7 +137,6 @@ import { fonts, spacing } from "@/constants/theme";
 import Colors from "@/constants/Colors";
 import { useColorScheme } from "@/components/useColorScheme";
 import { trackEvent } from "@/lib/analytics";
-import { emitNativeVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import { setSafeAudioMode } from "@/lib/safeAudioMode";
 import { requestNativeCameraMicrophonePermissions } from "@/lib/nativeMediaPermissions";
 import {
@@ -1300,21 +1299,6 @@ export default function VideoDateScreen() {
             roomName: entry.roomName,
             idleMs,
             idleAgeMs,
-          });
-          void emitNativeVideoDateClientStuckState({
-            sessionId: entry.sessionId,
-            eventName: "daily_call_singleton_idle_destroy",
-            payload: {
-              source_surface: "video_date_daily",
-              source_action: "daily_call_singleton_destroyed",
-              reason_code: "idle_timeout",
-              previous_session_id: entry.sessionId,
-              previous_room_name: entry.roomName ?? undefined,
-              idle_ms: idleMs,
-              idle_age_ms: idleAgeMs ?? undefined,
-              idle_destroy_disabled: false,
-              destroy_called: true,
-            },
           });
           void destroyNativeVideoDateDailyCall(
             entry.call,
@@ -2896,18 +2880,6 @@ export default function VideoDateScreen() {
           room_name: roomNameRef.current ?? null,
           truth_refresh_attempt: truthRefreshAttempt,
         });
-        void emitNativeVideoDateClientStuckState({
-          sessionId,
-          eventName: "peer_missing_terminal",
-          latencyMs: FIRST_CONNECT_TIMEOUT_MS,
-          payload: {
-            source_surface: "video_date_daily",
-            source_action: "first_remote_watchdog",
-            reason_code: "peer_missing_timeout",
-            watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
-            truth_refresh_attempt: truthRefreshAttempt,
-          },
-        });
         setPeerMissingTerminal(true);
         vdbg("prejoin_state_awaitingFirstConnect", {
           value: false,
@@ -2958,19 +2930,6 @@ export default function VideoDateScreen() {
               has_historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
               truth_refresh_attempt: truthRefreshAttempt,
             });
-            void emitNativeVideoDateClientStuckState({
-              sessionId,
-              eventName: "peer_missing_suppressed_survey_truth",
-              latencyMs: FIRST_CONNECT_TIMEOUT_MS,
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "first_remote_watchdog",
-                reason_code: "survey_required_truth",
-                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
-                truth_refresh_attempt: truthRefreshAttempt,
-                historical_remote_seen_truth: hasHistoricalRemoteSeenTruth,
-              },
-            });
             void openNativePostDateSurveyFromTerminalTruth(
               "peer_missing_watchdog_survey_truth",
               truth ?? null,
@@ -2990,19 +2949,6 @@ export default function VideoDateScreen() {
                 truth_refresh_attempt: truthRefreshAttempt,
               },
             );
-            void emitNativeVideoDateClientStuckState({
-              sessionId,
-              eventName: "peer_missing_suppressed_remote_seen",
-              latencyMs: FIRST_CONNECT_TIMEOUT_MS,
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "first_remote_watchdog",
-                reason_code: "historical_remote_seen_truth",
-                watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
-                truth_refresh_attempt: truthRefreshAttempt,
-                historical_remote_seen_truth: true,
-              },
-            });
             return;
           }
           markPeerMissingTerminal();

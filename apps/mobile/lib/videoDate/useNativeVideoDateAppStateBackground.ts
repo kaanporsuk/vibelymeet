@@ -27,9 +27,6 @@ import {
   useVideoDateSession,
 } from "@/lib/videoDateApi";
 import {
-  emitNativeVideoDateClientStuckState,
-} from "@/lib/videoDateClientStuckObservability";
-import {
   LobbyPostDateEvents,
 } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
@@ -149,19 +146,6 @@ export function useNativeVideoDateAppStateBackground(deps: NativeVideoDateAppSta
                   elapsed_ms: backgroundElapsedMs,
                 },
               );
-              void emitNativeVideoDateClientStuckState({
-                sessionId,
-                eventName: "native_background_expired",
-                latencyMs: backgroundElapsedMs,
-                payload: {
-                  source_surface: "video_date_native_background",
-                  source_action: "app_foreground_after_background_timeout",
-                  reason_code: "app_background_timeout",
-                  source: "app_foreground_after_background_timeout",
-                  grace_ms: NATIVE_BACKGROUND_GRACE_MS,
-                  elapsed_ms: backgroundElapsedMs,
-                },
-              });
             }
             void (async () => {
               await cleanupDailyAndLocalState({
@@ -280,18 +264,6 @@ export function useNativeVideoDateAppStateBackground(deps: NativeVideoDateAppSta
             source: "app_background",
             grace_ms: NATIVE_BACKGROUND_GRACE_MS,
           });
-          void emitNativeVideoDateClientStuckState({
-            sessionId,
-            eventName: "native_background_recovery_started",
-            latencyMs: NATIVE_BACKGROUND_GRACE_MS,
-            payload: {
-              source_surface: "video_date_native_background",
-              source_action: "app_background",
-              reason_code: "app_background_grace_started",
-              source: "app_background",
-              grace_ms: NATIVE_BACKGROUND_GRACE_MS,
-            },
-          });
           vdbg("native_background_grace_started", {
             sessionId,
             eventId: eventId || null,
@@ -337,18 +309,6 @@ export function useNativeVideoDateAppStateBackground(deps: NativeVideoDateAppSta
               source: "app_background_timeout",
               grace_ms: NATIVE_BACKGROUND_GRACE_MS,
             });
-            void emitNativeVideoDateClientStuckState({
-              sessionId,
-              eventName: "native_background_expired",
-              latencyMs: NATIVE_BACKGROUND_GRACE_MS,
-              payload: {
-                source_surface: "video_date_native_background",
-                source_action: "app_background_timeout",
-                reason_code: "app_background_timeout",
-                source: "app_background_timeout",
-                grace_ms: NATIVE_BACKGROUND_GRACE_MS,
-              },
-            });
             vdbg("native_background_grace_expired", {
               sessionId,
               eventId: eventId || null,
@@ -369,16 +329,6 @@ export function useNativeVideoDateAppStateBackground(deps: NativeVideoDateAppSta
                     source: "app_background_timeout",
                   },
                 );
-                void emitNativeVideoDateClientStuckState({
-                  sessionId,
-                  eventName: "native_background_recovery_failed",
-                  payload: {
-                    source_surface: "video_date_native_background",
-                    source_action: "signal_video_date_leave",
-                    reason_code: "leave_signal_failed",
-                    source: "app_background_timeout",
-                  },
-                });
               }
               await cleanupDailyAndLocalState({
                 mode: "destructive",

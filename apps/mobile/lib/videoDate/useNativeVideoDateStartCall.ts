@@ -72,9 +72,6 @@ import {
   VideoDateRequestTimeoutError,
 } from "@/lib/videoDateApi";
 import {
-  emitNativeVideoDateClientStuckState,
-} from "@/lib/videoDateClientStuckObservability";
-import {
   createVideoDateDailyCallObjectGuarded,
   isVideoDateCameraConstraintError as isNativeVideoDateCameraConstraintError,
   type NativeVideoDateCaptureProfile,
@@ -3085,23 +3082,6 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
             }
           },
         }).then((result) => {
-          if (!result.ok) {
-            void emitNativeVideoDateClientStuckState({
-              sessionId,
-              eventName: "daily_join_confirmation_failed",
-              payload: {
-                source_surface: "video_date_daily",
-                source_action: "mark_video_date_daily_joined",
-                reason_code: result.code ?? "unknown",
-                code: result.code ?? "unknown",
-                retryable: result.retryable,
-                exhausted: result.exhausted,
-                attempt_count: result.attempts,
-                entry_attempt_id: entryAttemptId ?? undefined,
-                video_date_trace_id: videoDateTraceId ?? undefined,
-              },
-            });
-          }
           if (result.ok) {
             setCallError(null);
             void refetchVideoSession();
