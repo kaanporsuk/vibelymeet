@@ -18,7 +18,7 @@ const packageJson = read("package.json");
 
 test("web date route ownership starts from allowed route access, not optimistic phase or Daily state", () => {
   const effectStart = webDateRoute.indexOf(
-    'if (!id || !user?.id || videoDateAccess !== "allowed") return;',
+    'if (!id || !user?.id || videoDateAccess !== "allowed") return;\n    if (dupBlocked) return;',
   );
   assert.notEqual(effectStart, -1, "date route ownership effect should exist");
   const effectEnd = webDateRoute.indexOf("}, [", effectStart);

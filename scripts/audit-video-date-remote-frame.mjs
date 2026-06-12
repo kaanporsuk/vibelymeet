@@ -51,16 +51,26 @@ function assertNoCropTokens(label, value) {
 // PR 7 decomposed these into file families; concat the families so every
 // existing regex pin guards the same behavior regardless of which family
 // file hosts the symbol (same approach as shared/testUtils/webVideoDateFlowSources.ts).
-const webDatePath = "src/pages/videoDate/videoDatePageShared.tsx + src/pages/VideoDate.tsx";
+const webDatePath = "src/pages/videoDate family + src/pages/VideoDate.tsx";
 const webDate = [
   "src/pages/videoDate/videoDatePageShared.tsx",
+  "src/pages/videoDate/useTerminalSurveyRecovery.ts",
+  "src/pages/videoDate/useVideoDateBroadcastReconcile.ts",
+  "src/pages/videoDate/useVideoDateLifecycleLeave.ts",
   "src/pages/VideoDate.tsx",
 ].map((p) => read(p)).join("\n");
-const webVideoCallPath =
-  "src/lib/daily/webDailyMediaHelpers.ts + src/lib/daily/webDailyCallSingleton.ts + src/hooks/useVideoCall.ts";
+const webVideoCallPath = "src/hooks/videoCall family + src/hooks/useVideoCall.ts";
 const webVideoCall = [
   "src/lib/daily/webDailyMediaHelpers.ts",
   "src/lib/daily/webDailyCallSingleton.ts",
+  "src/hooks/videoCall/videoCallRuntime.ts",
+  "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
+  "src/hooks/videoCall/useVideoDateRemoteSeen.ts",
+  "src/hooks/videoCall/useRemoteRenderPipeline.ts",
+  "src/hooks/videoCall/useWebCameraSwitch.ts",
+  "src/hooks/videoCall/useVideoDateMediaPreflight.ts",
+  "src/hooks/videoCall/useDailyCallCleanup.ts",
+  "src/hooks/videoCall/useVideoDateStartCall.ts",
   "src/hooks/useVideoCall.ts",
 ].map((p) => read(p)).join("\n");
 const webDailyConfigPath = "src/lib/dailyCallObjectConfig.ts";

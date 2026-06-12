@@ -19,7 +19,14 @@ const files = {
   webPip: "src/components/video-date/SelfViewPIP.tsx",
   webSafety: "src/components/video-date/InCallSafetyModal.tsx",
   webKeepTheVibe: "src/components/video-date/KeepTheVibe.tsx",
-  webCall: "src/hooks/useVideoCall.ts",
+  // PR 7.5 decomposed useVideoCall.ts into the videoCall family; read the
+  // members hosting the pinned behavior so existing checks keep guarding it.
+  webCall: [
+    "src/lib/daily/webDailyMediaHelpers.ts",
+    "src/hooks/videoCall/useWebCameraSwitch.ts",
+    "src/hooks/videoCall/useVideoDateStartCall.ts",
+    "src/hooks/useVideoCall.ts",
+  ],
   nativeDate: "apps/mobile/app/date/[id].tsx",
   nativeTimer: "apps/mobile/components/video-date/EntryPhaseTimer.tsx",
   nativeIceBreaker: "apps/mobile/components/video-date/IceBreakerCard.tsx",
@@ -34,7 +41,10 @@ const files = {
 };
 
 const source = Object.fromEntries(
-  Object.entries(files).map(([key, path]) => [key, read(path)]),
+  Object.entries(files).map(([key, path]) => [
+    key,
+    Array.isArray(path) ? path.map(read).join("\n") : read(path),
+  ]),
 );
 
 const results = [];

@@ -230,17 +230,27 @@ test("canonical route ownership preserves every false finish line before feedbac
 });
 
 test("Daily/provider evidence RPCs are owned only by the date surfaces", () => {
-  const dateOwners = [
-    "apps/mobile/app/date/[id].tsx",
-    "src/hooks/useVideoCall.ts",
-  ];
+  // PR 7.5 split the web date call surface into the videoCall concern
+  // family; each evidence RPC now has exactly one web concern owner plus
+  // the native date route (a strictly tighter contract than the previous
+  // single-file ownership).
+  const evidenceRpcOwners: Record<string, string[]> = {
+    mark_video_date_daily_alive: [
+      "apps/mobile/app/date/[id].tsx",
+      "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
+    ],
+    mark_video_date_daily_joined: [
+      "apps/mobile/app/date/[id].tsx",
+      "src/hooks/videoCall/useVideoDateStartCall.ts",
+    ],
+    mark_video_date_remote_seen: [
+      "apps/mobile/app/date/[id].tsx",
+      "src/hooks/videoCall/useVideoDateRemoteSeen.ts",
+    ],
+  };
 
-  for (const rpcName of [
-    "mark_video_date_daily_alive",
-    "mark_video_date_daily_joined",
-    "mark_video_date_remote_seen",
-  ]) {
-    assert.deepEqual(filesWithRpcCall(rpcName), dateOwners, rpcName);
+  for (const [rpcName, owners] of Object.entries(evidenceRpcOwners)) {
+    assert.deepEqual(filesWithRpcCall(rpcName), owners, rpcName);
   }
 });
 

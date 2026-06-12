@@ -135,7 +135,8 @@ test("date-path session row reads go through the single-owner coalescing reader"
   for (const path of [
     "src/components/session/SessionRouteHydration.tsx",
     "src/components/video-date/IceBreakerCard.tsx",
-    "src/hooks/useVideoCall.ts",
+    // PR 7.5: date-path session reads moved with the start-call pipeline.
+    "src/hooks/videoCall/useVideoDateStartCall.ts",
     "src/pages/VideoDate.tsx",
   ]) {
     const source = read(path);
