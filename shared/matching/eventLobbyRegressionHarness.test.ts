@@ -91,7 +91,6 @@ test("regression runner executes the focused Event Lobby contract pack", () => {
     "npx tsx shared/matching/eventLobbyActiveEventContract.test.ts",
     "npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts",
     "npx tsx shared/matching/eventLobbySwipeAuthContract.test.ts",
-    "npx tsx shared/matching/eventLobbyDeckAuditClosure.test.ts",
     "npx tsx shared/matching/mysteryMatchRemovalContracts.test.ts",
     "npx tsx shared/matching/dailyRoomLegacyActionRemovalContracts.test.ts",
     "npx tsx shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts",

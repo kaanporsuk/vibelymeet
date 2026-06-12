@@ -60,7 +60,7 @@
 |------------------------------|------------|
 | “Did server block promotion?” | `event_loop_observability_events` + `v_event_loop_promotion_events` — already documented in `watchdog-no-remote-query-pack.md`. |
 | “Was reconnect sync useless churn?” | Sentry `vdbg` trail + outcomes — **requires** disciplined session-level export. |
-| “Queue vs media failure?” | Runbook correlation: `docs/video-date-diagnostics-runbook.md` § Authoritative layers. |
+| “Queue vs media failure?” | Runbook correlation: `docs/archive/video-date/video-date-diagnostics-runbook.md` § Authoritative layers. |
 
 **Remaining gap:** A **single dashboard** combining PostHog funnel + Supabase drain rate + Sentry reconnect counts per `session_id` is still **manual**. This doc does not add SQL views (would need DB migration + approval).
 
@@ -114,6 +114,6 @@ Any future PR that modifies `nextConvergenceDelayMs` or reconnect scheduling mus
 
 - `shared/matching/convergenceScheduling.ts`
 - `docs/observability/watchdog-no-remote-query-pack.md`
-- `docs/video-date-diagnostics-runbook.md`
+- `docs/archive/video-date/video-date-diagnostics-runbook.md`
 - `shared/analytics/lobbyToPostDateJourney.ts`
 - `shared/matching/videoDateDiagnostics.ts`

@@ -20,7 +20,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | **RevenueCat** | SDK init, logIn, offerings fetch (post–logIn), purchase, restore, backend refetch; premium UI states; webhook + trigger in repo. | — | Code and design validated in Phase 7 Stage 2; offerings refetch fix applied. | Real-device sandbox purchase + restore; webhook delivery to Supabase; DB sync. |
 | **OneSignal (mobile)** | Init, permission, login(userId), register `push_subscriptions`, mirror `notification_preferences`; unregister/opt out on sign out; app.config.js APNs mode. | — | Code path validated in Phase 7 Stage 3. | Real-device push receive; dashboard → device delivery; APNs/FCM configured. |
 | **OneSignal (web)** | Web SDK and notification_preferences; send-notification targets web + mobile. | Production worker + authenticated subscribed browser session + `notification_preferences` sync (see `docs/browser-auth-runtime-proof-results.md`). | Interactive permission prompt + delivered-notification tap (manual-only; automation cannot own). | Residual: confirm dashboard origin / service-worker paths still match production after deploys (quick operator audit). |
-| **Daily** | Room/token, join, permissions, tracks, leave/endVideoDate on unmount; backend session cleanup fix in Phase 7 Stage 3. Video Date Handshake release is deployed and QA-closed in `docs/video-date-hardening-closure-report.md`. | Handshake timer starts after both Daily joins for the released web/backend path. | Native binary/device validation remains in the native matrix. | Native real-device/simulator join, media, end; backend state after leave for store submission. |
+| **Daily** | Room/token, join, permissions, tracks, leave/endVideoDate on unmount; backend session cleanup fix in Phase 7 Stage 3. Video Date Handshake release is deployed and QA-closed in `docs/archive/video-date/video-date-hardening-closure-report.md`. | Handshake timer starts after both Daily joins for the released web/backend path. | Native binary/device validation remains in the native matrix. | Native real-device/simulator join, media, end; backend state after leave for store submission. |
 | **Env/config** | .env.example and checklist list all EXPO_PUBLIC_*; app.config.js OneSignal mode; EAS profiles (development, preview, production). | — | Env vars documented; EAS secrets must be set by operator. | EAS build with secrets; production env verification. |
 | **Store metadata / submission** | Bundle ID and package `com.vibelymeet.vibely`; eas.json profiles; store listing not in repo. | — | — | App Store Connect / Play Console listing; screenshots; privacy; submission. |
 
@@ -98,7 +98,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | Item | Status |
 |------|--------|
 | **Code** | getDailyRoomToken, join, leave, endVideoDate on unmount (Phase 7 Stage 3 fix); PermissionsAndroid on Android. |
-| **Proven** | Handshake release path is complete for web/backend per `docs/video-date-hardening-closure-report.md`. Native store-submission confidence still requires a native dev/preview build, then join from lobby/Ready Gate → camera/mic → see local/remote → end/leave → confirm backend session ended. |
+| **Proven** | Handshake release path is complete for web/backend per `docs/archive/video-date/video-date-hardening-closure-report.md`. Native store-submission confidence still requires a native dev/preview build, then join from lobby/Ready Gate → camera/mic → see local/remote → end/leave → confirm backend session ended. |
 
 **Verdict:** Code path correct and unmount cleanup fixed. The Video Date Handshake release is closed; native binary/device confidence remains a recurring release-validation item.
 
@@ -161,7 +161,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 3. **Real-device provider validation (Kaan)**
    - RevenueCat: sandbox purchase + restore on device; confirm webhook and DB.
    - OneSignal: test push send from dashboard to device; confirm receive.
-   - Daily: repeat a native build/device video-date join when preparing store submission; the web/backend Video Date Handshake release is already recorded as complete in `docs/video-date-hardening-closure-report.md`.
+   - Daily: repeat a native build/device video-date join when preparing store submission; the web/backend Video Date Handshake release is already recorded as complete in `docs/archive/video-date/video-date-hardening-closure-report.md`.
 
 4. **Web and rehearsal (Kaan / implementation agent)**
    - OneSignal web: production service-worker at root; OneSignal dashboard origin/service-worker for production; verify web push.

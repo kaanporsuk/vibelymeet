@@ -288,5 +288,5 @@ Do **not** conclude backend bug from watchdog alone without **`event_loop_observ
 1. **Sentry:** `session_id` → trace breadcrumbs `rc.video_date.entry` + `video-date-daily`.
 2. **PostHog:** same `session_id` → join + peer-missing events.
 3. **Supabase:** `event_loop_observability_events` WHERE `session_id` = … ; optional `video_sessions` row by id.
-4. Classify: **queue**, **handshake**, **Daily join**, **first remote**, **reconnect** — use runbook section “Authoritative sources” in `docs/video-date-diagnostics-runbook.md`.
+4. Classify: **queue**, **handshake**, **Daily join**, **first remote**, **reconnect** — use runbook section “Authoritative sources” in `docs/archive/video-date/video-date-diagnostics-runbook.md`.
 5. If the report started from a native notification tap, also classify **route owner / pending survey**: notification payload path, `video_sessions` terminal survey truth, missing/present `date_feedback`, and `pending_survey_terminal_encounter` / `navigate_date` route details.

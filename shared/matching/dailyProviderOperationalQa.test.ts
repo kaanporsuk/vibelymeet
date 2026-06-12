@@ -340,10 +340,16 @@ test("native Ready Gate prepare handoff can recover after prepare failure or exc
   assert.match(nativeReadyStandalone, /standalone_daily_prewarm_failed_before_date_nav/);
   assert.doesNotMatch(nativeReadyGateOverlay, /const prewarm = await startNativeVideoDateDailyPrewarm\(\{[^}]*source: 'ready_gate_prepare_success'/);
   assert.doesNotMatch(nativeReadyStandalone, /const prewarm = await startNativeVideoDateDailyPrewarm/);
-  assert.match(nativeReadyGateOverlay, /if \(exhausted\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false/);
   assert.match(nativeReadyGateOverlay, /if \(exhausted\)/);
   assert.match(nativeReadyGateOverlay, /setPrepareEntryStatus\('failed'\)/);
-  assert.match(nativeReadyGateOverlay, /catch \(error\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false[\s\S]*PREPARE_ENTRY_CLIENT_EXCEPTION/);
+  // Post-rebuild date-route guard: retryable prepare exhaustion and prepare
+  // exceptions hand recovery to the /date route owner instead of resetting the
+  // lobby handoff for another lobby-owned retry.
+  assert.match(nativeReadyGateOverlay, /prepare_failed_date_owned/);
+  assert.match(
+    nativeReadyGateOverlay,
+    /catch \(error\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = true;[\s\S]*ready_gate_prepare_entry_exception_date_owned[\s\S]*prepare_exception_date_owned/,
+  );
 });
 
 test("Video Date media contract preserves full remote frame on web and native", () => {
