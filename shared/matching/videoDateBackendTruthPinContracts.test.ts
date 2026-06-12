@@ -423,10 +423,17 @@ test("deadline and expiry heads pin their live delegation targets", () => {
   const autoPromote = fixture("functions/public-heads/video_session_handshake_auto_promote_v2.sql");
 
   assert.match(expire, /RETURN public\.expire_stale_video_sessions_bounded\(100\)/);
-  assert.match(entryDeadline, /RETURN public\.finalize_video_date_handshake_deadline\(p_session_id, p_actor, p_source, p_reason\)/);
+  // The handshake-named head was absorbed into finalize_video_date_entry_deadline
+  // (vocab flip + chain inlining); the entry head is the live full body. The
+  // handshake fixture stays as a dropped-name historical reference (inventory
+  // test pins its existence); live delegation pins live on the entry head.
+  assert.match(entryDeadline, /public\.video_date_promote_confirmed_encounter_v1\(/);
+  assert.match(entryDeadline, /public\.video_date_restore_canonical_room_metadata_v1\(/);
+  // Survey-eligibility consolidation (20260612200500): v2 confirmed-encounter
+  // semantics are the only survey gate in the deadline finalizer.
+  assert.match(entryDeadline, /public\.video_date_session_is_post_date_survey_eligible_v2\(/);
+  assert.doesNotMatch(entryDeadline, /video_date_session_is_post_date_survey_eligible\(/);
   assert.match(handshakeDeadline, /public\.video_date_promote_confirmed_encounter_v1\(/);
-  assert.match(handshakeDeadline, /public\.finalize_vd_handshake_deadline_20260605115657_base\(/);
-  assert.match(handshakeDeadline, /public\.video_date_restore_canonical_room_metadata_v1\(/);
   assert.match(autoPromote, /public\.video_date_session_lifecycle_eligibility_v1\(/);
   assert.match(autoPromote, /public\.video_date_stable_bilateral_media_gate_v1\(p_session_id\)/);
   assert.match(autoPromote, /public\.video_date_mark_stable_bilateral_media_v1\(/);
