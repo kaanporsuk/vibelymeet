@@ -35,7 +35,8 @@ const files = {
     "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
     "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
     "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
-    "apps/mobile/app/date/[id].tsx",
+    "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
+  "apps/mobile/app/date/[id].tsx",
     "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
   ],
   nativeDateNavigationGuard: [

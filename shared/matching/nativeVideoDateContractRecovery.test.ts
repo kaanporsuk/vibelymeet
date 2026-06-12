@@ -20,6 +20,7 @@ const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 
 const nativeVideoDateFiles = [
+  "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
   "apps/mobile/app/date/[id].tsx",
   "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
   "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",

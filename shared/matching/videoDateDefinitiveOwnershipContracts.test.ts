@@ -236,8 +236,9 @@ test("Daily/provider evidence RPCs are owned only by the date surfaces", () => {
   // the native date route (a strictly tighter contract than the previous
   // single-file ownership).
   const evidenceRpcOwners: Record<string, string[]> = {
+    // PR 8 moved the native daily_alive heartbeat into its concern hook.
     mark_video_date_daily_alive: [
-      "apps/mobile/app/date/[id].tsx",
+      "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
       "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
     ],
     mark_video_date_daily_joined: [

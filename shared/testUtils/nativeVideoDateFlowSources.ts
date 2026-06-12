@@ -38,6 +38,7 @@ export const NATIVE_VIDEO_DATE_SCREEN_FLOW_FILES = [
   "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
   "apps/mobile/lib/daily/nativeDailyMediaHelpers.ts",
   "apps/mobile/lib/videoDate/nativeVideoDateSurfaceClient.ts",
+  "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
   "apps/mobile/app/date/[id].tsx",
   "apps/mobile/lib/videoDate/videoDateScreenStyles.ts",
 ] as const;

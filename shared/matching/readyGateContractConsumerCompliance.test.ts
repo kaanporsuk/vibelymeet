@@ -38,6 +38,7 @@ const nativeConsumerFiles = [
   "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
   "apps/mobile/app/ready/[id].tsx",
   "apps/mobile/app/event/[eventId]/lobby.tsx",
+  "apps/mobile/lib/videoDate/useNativeDailyAliveHeartbeat.ts",
   "apps/mobile/app/date/[id].tsx",
   "apps/mobile/lib/videoDate/videoDateScreenShared.tsx",
   "apps/mobile/lib/daily/nativeDailyCallSingleton.ts",
