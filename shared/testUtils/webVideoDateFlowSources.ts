@@ -22,6 +22,7 @@ export const WEB_VIDEO_CALL_FLOW_FILES = [
 ] as const;
 
 export const WEB_VIDEO_DATE_PAGE_FLOW_FILES = [
+  "src/pages/videoDate/videoDatePageShared.tsx",
   "src/pages/VideoDate.tsx",
 ] as const;
 
