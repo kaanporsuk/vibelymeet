@@ -4,18 +4,14 @@ import { useAuth } from "@/context/AuthContext";
 import { useSessionHydration } from "@/context/SessionHydrationContext";
 import { readyGateHref, videoDateHref } from "@/lib/activeSessionRoutes";
 import {
-  clearDateEntryTransition,
-  clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
   markVideoDateRouteOwned,
+  videoDateNavigationIntents,
 } from "@/lib/videoDateNavigationIntents";
 import { fetchVideoSessionDateEntryTruthCoalesced } from "@/lib/videoDateApi";
 import { RC_CATEGORY, rcBreadcrumb } from "@/lib/nativeRcDiagnostics";
-import { videoSessionHasPostDateSurveyTruth } from "@clientShared/matching/activeSession";
-import {
-  canonicalVideoDateRouteLogDetail,
-  decideCanonicalVideoDateRoute,
-} from "@clientShared/matching/videoDateRouteDecision";
+import { canonicalVideoDateRouteLogDetail } from "@clientShared/matching/videoDateRouteDecision";
+import { decideVideoDateSurfaceRoute } from "@clientShared/videoDate/routeDecision";
 
 /**
  * Stack-level owner for `/date/[id]` when `useActiveSession` is **ready_gate** for that id →
@@ -88,54 +84,63 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      const canonicalRoute = decideCanonicalVideoDateRoute({
+      // Video Date decisions are delegated to the shared controller's single
+      // surface-route decision (intents marked/cleared inside); this component
+      // keeps only native navigation effects — it never re-navigates onto the
+      // same /date route (native remounts are the incident class), so the only
+      // router action here is the canonical Ready Gate bounce.
+      const decision = decideVideoDateSurfaceRoute({
+        surface: "route_hydration",
         sessionId: sid,
-        eventId: activeSession.eventId,
-        truth: vs,
-        registration: {
-          queue_status: activeSession.queueStatus,
-          current_room_id: sid,
-          event_id: activeSession.eventId,
+        profileId: user.id,
+        intents: videoDateNavigationIntents,
+        canonicalInput: {
+          eventId: activeSession.eventId,
+          truth: vs,
+          registration: {
+            queue_status: activeSession.queueStatus,
+            current_room_id: sid,
+            event_id: activeSession.eventId,
+          },
         },
       });
-      const canonicalLog = canonicalVideoDateRouteLogDetail(canonicalRoute, {
-        sourceSurface: "native_session_route_hydration",
-        sourceAction: "date_route_guard",
-      });
-      const canAttemptDaily = canonicalRoute.canAttemptDaily;
-      if (
-        canonicalRoute.target === "ended" ||
-        canonicalRoute.target === "survey"
-      ) {
-        const pendingSurveyTerminalEncounter =
-          canonicalRoute.target === "survey" || videoSessionHasPostDateSurveyTruth(vs);
-        if (pendingSurveyTerminalEncounter) {
-          markVideoDateRouteOwned(sid, user.id);
-        }
+      const canonicalLog = decision.canonical
+        ? canonicalVideoDateRouteLogDetail(decision.canonical, {
+            sourceSurface: "native_session_route_hydration",
+            sourceAction: "date_route_guard",
+          })
+        : {};
+      const canAttemptDaily = decision.canonical?.canAttemptDaily ?? false;
+      if (decision.target === "survey" || decision.target === "ended") {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
           session_id: sid,
-          reason: pendingSurveyTerminalEncounter
-            ? "pending_survey_terminal_encounter"
-            : "video_sessions_ended",
+          reason:
+            decision.target === "survey"
+              ? "pending_survey_terminal_encounter"
+              : "video_sessions_ended",
           ...canonicalLog,
-          canonical_target: canonicalRoute.target,
-          canonical_reason: canonicalRoute.reason,
+          canonical_target: decision.canonical?.target ?? null,
+          canonical_reason: decision.reason,
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
-          survey_required: pendingSurveyTerminalEncounter,
+          survey_required: decision.target === "survey",
         });
         return;
       }
-      if (canonicalRoute.target === "date") {
-        markVideoDateRouteOwned(sid, user.id);
+      if (decision.target === "date") {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "navigate_to_date_blocked", {
           session_id: sid,
-          reason: canAttemptDaily
-            ? "video_sessions_daily_startable"
-            : "video_sessions_entry_or_date",
+          reason:
+            decision.suppressedBy === "entry_latch"
+              ? "date_entry_latch"
+              : decision.suppressedBy === "route_ownership"
+                ? "date_route_ownership"
+                : canAttemptDaily
+                  ? "video_sessions_daily_startable"
+                  : "video_sessions_entry_or_date",
           ...canonicalLog,
-          canonical_target: canonicalRoute.target,
-          canonical_reason: canonicalRoute.reason,
+          canonical_target: decision.canonical?.target ?? null,
+          canonical_reason: decision.reason,
           can_attempt_daily: canAttemptDaily,
           routed_to: "date",
           entry_started_at: Boolean(vs?.entry_started_at),
@@ -149,9 +154,7 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      if (canonicalRoute.target === "ready_gate") {
-        clearDateEntryTransition(sid);
-        clearVideoDateRouteOwnership(sid, user.id);
+      if (decision.target === "ready") {
         const target = readyGateHref(sid);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "route_bounced_to_ready", {
           session_id: sid,
@@ -159,8 +162,8 @@ export function NativeSessionRouteHydration() {
           source: "native_session_route_hydration",
           can_attempt_daily: canAttemptDaily,
           ...canonicalLog,
-          canonical_target: canonicalRoute.target,
-          canonical_reason: canonicalRoute.reason,
+          canonical_target: decision.canonical?.target ?? null,
+          canonical_reason: decision.reason,
           ready_gate_status: vs?.ready_gate_status ?? null,
           ready_gate_expires_at:
             vs?.ready_gate_expires_at == null
@@ -176,8 +179,8 @@ export function NativeSessionRouteHydration() {
         session_id: sid,
         reason: "video_sessions_not_ready_gate_eligible",
         ...canonicalLog,
-        canonical_target: canonicalRoute.target,
-        canonical_reason: canonicalRoute.reason,
+        canonical_target: decision.canonical?.target ?? null,
+        canonical_reason: decision.reason,
         vs_state: vs?.state ?? null,
         vs_phase: vs?.phase ?? null,
         ready_gate_status: vs?.ready_gate_status ?? null,
