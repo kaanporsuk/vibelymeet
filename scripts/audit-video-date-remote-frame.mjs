@@ -56,11 +56,18 @@ const webDate = [
   "src/pages/videoDate/videoDatePageShared.tsx",
   "src/pages/VideoDate.tsx",
 ].map((p) => read(p)).join("\n");
-const webVideoCallPath =
-  "src/lib/daily/webDailyMediaHelpers.ts + src/lib/daily/webDailyCallSingleton.ts + src/hooks/useVideoCall.ts";
+const webVideoCallPath = "src/hooks/videoCall family + src/hooks/useVideoCall.ts";
 const webVideoCall = [
   "src/lib/daily/webDailyMediaHelpers.ts",
   "src/lib/daily/webDailyCallSingleton.ts",
+  "src/hooks/videoCall/videoCallRuntime.ts",
+  "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
+  "src/hooks/videoCall/useVideoDateRemoteSeen.ts",
+  "src/hooks/videoCall/useRemoteRenderPipeline.ts",
+  "src/hooks/videoCall/useWebCameraSwitch.ts",
+  "src/hooks/videoCall/useVideoDateMediaPreflight.ts",
+  "src/hooks/videoCall/useDailyCallCleanup.ts",
+  "src/hooks/videoCall/useVideoDateStartCall.ts",
   "src/hooks/useVideoCall.ts",
 ].map((p) => read(p)).join("\n");
 const webDailyConfigPath = "src/lib/dailyCallObjectConfig.ts";

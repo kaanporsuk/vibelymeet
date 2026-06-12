@@ -18,6 +18,14 @@ import { join } from "node:path";
 export const WEB_VIDEO_CALL_FLOW_FILES = [
   "src/lib/daily/webDailyMediaHelpers.ts",
   "src/lib/daily/webDailyCallSingleton.ts",
+  "src/hooks/videoCall/videoCallRuntime.ts",
+  "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
+  "src/hooks/videoCall/useVideoDateRemoteSeen.ts",
+  "src/hooks/videoCall/useRemoteRenderPipeline.ts",
+  "src/hooks/videoCall/useWebCameraSwitch.ts",
+  "src/hooks/videoCall/useVideoDateMediaPreflight.ts",
+  "src/hooks/videoCall/useDailyCallCleanup.ts",
+  "src/hooks/videoCall/useVideoDateStartCall.ts",
   "src/hooks/useVideoCall.ts",
 ] as const;
 
