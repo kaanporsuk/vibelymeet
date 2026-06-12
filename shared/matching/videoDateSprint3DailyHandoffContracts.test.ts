@@ -30,7 +30,15 @@ const nativePrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-const nativeStandaloneReady = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5: ready screen body split across lib/videoDate sub-hooks; read the family.
+const nativeStandaloneReady = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const nativeDate = readNativeVideoDateScreenFlowSource();
 const prepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
 const phase8Certification = read("shared/matching/videoDatePhase8Certification.ts");

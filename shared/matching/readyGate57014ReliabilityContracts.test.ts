@@ -24,7 +24,15 @@ const nativeReadyGateOverlay = read(
   "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
 );
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
-const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5: ready screen body split across lib/videoDate sub-hooks; read the family.
+const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const sendNotification = read("supabase/functions/send-notification/index.ts");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
@@ -34,14 +42,16 @@ test("web and native lobbies pause deck pressure while Ready Gate is active", ()
   assert.match(webLobby, /const readyGatePressureActive = Boolean\(/);
   assert.match(webLobby, /const deckFetchEnabled = deckEnabled && !readyGatePressureActive/);
   assert.match(webLobby, /useEventDeck\([\s\S]*enabled: deckFetchEnabled/s);
-  assert.match(webLobby, /deckPrefetchPolishEnabled\s*\|\|\s*readyGatePressureActive/);
+  // The deckPrefetchPolish flag was purged; prefetch warmup now gates on
+  // Ready Gate pressure directly.
+  assert.match(webLobby, /if \(readyGatePressureActive \|\| typeof window === "undefined"\)\s*return;\s*for \(const item of deckPrefetchItems\)/);
   assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)[\s\S]{0,140}!readyGatePressureActive/s);
 
   assert.match(nativeLobby, /const sameEventActiveSession = useMemo/);
   assert.match(nativeLobby, /const readyGatePressureActive =\s*Boolean\(activeSessionId\)\s*\|\|\s*sameEventActiveSession\?\.kind === ['"]ready_gate['"]/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]*!readyGatePressureActive/s);
   assert.match(nativeLobby, /if \(readyGatePressureActive\) \{[\s\S]*lobby_deck_refresh_suppressed_ready_gate/s);
-  assert.match(nativeLobby, /deckPrefetchPolishEnabled\s*\|\|\s*readyGatePressureActive/);
+  assert.match(nativeLobby, /if \(readyGatePressureActive\) return;\s*for \(const item of deckPrefetchItems\)/);
   assert.match(nativeLobby, /shouldTopUp && !readyGatePressureActive/);
 });
 

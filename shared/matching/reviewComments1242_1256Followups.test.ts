@@ -18,7 +18,16 @@ const invariantSql = read("docs/sql/video-date-invariants.sql");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
 const nativeReadyOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5: the standalone ready screen reconcile body lives in its sub-hook;
+// read the family so the prepare-recovery pins keep guarding the moved body.
+const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const webVideoCall = readWebVideoCallFlowSource(root);
 const packageJson = read("package.json");

@@ -165,12 +165,13 @@ import {
   clearDateEntryTransition,
   clearVideoDateRouteOwnership,
   isDateEntryTransitionActive,
-  isVideoDateRouteOwned,
   markVideoDateEntryPipelineStarted,
   markVideoDateRouteOwned,
   VIDEO_DATE_ROUTE_OWNERSHIP_REFRESH_MS,
   suppressDateNavigationAfterManualExit,
+  videoDateNavigationIntents,
 } from "@/lib/videoDateNavigationIntents";
+import { decideVideoDateSurfaceRoute } from "@clientShared/videoDate/routeDecision";
 import {
   eventLobbyHref,
   eventLobbyHrefPostSurveyComplete,
@@ -2305,34 +2306,38 @@ export default function VideoDateScreen() {
       }
       const { data: reg } = await regQuery.maybeSingle();
       if (cancelled) return;
-      const recovery = adviseVideoSessionTruthRecovery({
+      // PR 8.5: the shared controller owns the date-route decision (canonical
+      // truth + ownership/latch suppression; intent mutations applied inside).
+      // This effect keeps only native navigation side effects and diagnostics
+      // — same contract as the web `date_route` guard in `VideoDate.tsx`.
+      const decision = decideVideoDateSurfaceRoute({
+        surface: "date_route",
         sessionId,
-        eventId: vs.event_id,
-        truth: vs,
-        platform: "native",
-        surface: "video_date",
+        profileId: user.id,
+        intents: videoDateNavigationIntents,
+        canonicalInput: {
+          eventId: (vs.event_id as string | null) ?? null,
+          truth: vs,
+          registration: {
+            queue_status: reg?.queue_status ?? null,
+            current_room_id: null,
+            event_id: (vs.event_id as string | null) ?? null,
+          },
+        },
       });
-      const truthDecision = recovery.routeDecision ?? "stay_lobby";
-      const canAttemptDaily = recovery.canAttemptDaily === true;
-      const dateRouteOwned = isVideoDateRouteOwned(sessionId, user.id);
+      const canAttemptDaily = decision.canonical?.canAttemptDaily === true;
       const routedTo =
-        recovery.action === "go_date"
-          ? "date"
-          : recovery.action === "go_ready_gate"
-            ? "ready"
-            : recovery.action === "show_terminal" ||
-                recovery.action === "go_survey"
-              ? "ended"
-              : "lobby";
+        decision.target === "survey" || decision.target === "ended"
+          ? "ended"
+          : decision.target;
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, "date_route_decision", {
         session_id: sessionId,
         user_id: user.id,
-        truth_decision: truthDecision,
+        truth_decision: decision.reason,
         can_attempt_daily: canAttemptDaily,
-        route_override:
-          canAttemptDaily && truthDecision !== "navigate_date"
-            ? "daily_startable"
-            : null,
+        canonical_target: decision.canonical?.target ?? null,
+        suppressed_by: decision.suppressedBy,
+        applied_intents: decision.appliedIntents,
         final_route: routedTo,
         source: "route_guard",
         queue_status: reg?.queue_status ?? null,
@@ -2348,28 +2353,22 @@ export default function VideoDateScreen() {
         sessionId,
         userId: user.id,
         source: "route_guard",
-        truthDecision,
+        truthDecision: decision.reason,
         canAttemptDaily,
-        routeOverride:
-          canAttemptDaily && truthDecision !== "navigate_date"
-            ? "daily_startable"
-            : null,
+        canonicalTarget: decision.canonical?.target ?? null,
+        suppressedBy: decision.suppressedBy,
+        appliedIntents: decision.appliedIntents,
         finalRoute: routedTo,
         queueStatus: reg?.queue_status ?? null,
         vsState: vs.state ?? null,
         vsPhase: vs.phase ?? null,
         readyGateStatus: vs.ready_gate_status ?? null,
         readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
-        dateRouteOwned,
       });
-      if (
-        truthDecision === "ended" ||
-        recovery.action === "show_terminal" ||
-        recovery.action === "go_survey"
-      ) {
+      if (decision.target === "survey" || decision.target === "ended") {
         setDateEntryPermissionEligible(false);
         const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(
-          recovery.action === "go_survey"
+          decision.target === "survey"
             ? "go_survey_route_guard"
             : "ended_route_guard",
           vs,
@@ -2412,48 +2411,50 @@ export default function VideoDateScreen() {
         }
         return;
       }
-      if (canAttemptDaily || truthDecision === "navigate_date") {
-        setDateEntryPermissionEligible(true);
-        return;
-      }
-      if (truthDecision === "navigate_ready") {
-        if (dateRouteOwned) {
+      if (decision.target === "date") {
+        if (
+          decision.suppressedBy === "route_ownership" ||
+          decision.suppressedBy === "entry_latch"
+        ) {
           rcBreadcrumb(
             RC_CATEGORY.videoDateEntry,
             "route_bounce_suppressed_by_date_ownership",
             {
               session_id: sessionId,
               user_id: user.id,
-              target: "ready",
+              target:
+                decision.canonical?.target === "ready_gate" ? "ready" : "lobby",
+              suppressed_by: decision.suppressedBy,
               queue_status: reg?.queue_status ?? null,
               vs_state: vs.state,
               vs_phase: vs.phase,
               ready_gate_status: vs.ready_gate_status ?? null,
             },
           );
-          vdbg("date_guard_ready_bounce_suppressed_by_route_ownership", {
+          vdbg("date_guard_bounce_suppressed_by_route_ownership", {
             sessionId,
             userId: user.id,
+            suppressedBy: decision.suppressedBy,
             queueStatus: reg?.queue_status ?? null,
             state: vs.state,
             phase: vs.phase,
             readyGateStatus: vs.ready_gate_status ?? null,
           });
-          setDateEntryPermissionEligible(true);
-          markVideoDateRouteOwned(sessionId, user.id);
-          return;
         }
+        setDateEntryPermissionEligible(true);
+        return;
+      }
+      if (decision.target === "ready") {
         setDateEntryPermissionEligible(false);
         vdbg("date_guard_ready_gate_branch", {
           sessionId,
           userId: user.id,
-          branch: "navigate_ready",
+          branch: "canonical_ready_gate",
           canAttemptDaily,
           routed_to: "ready",
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         });
-        clearDateEntryTransition(sessionId);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, "route_bounced_to_ready", {
           session_id: sessionId,
           user_id: user.id,
@@ -2487,31 +2488,6 @@ export default function VideoDateScreen() {
         return;
       }
       setDateEntryPermissionEligible(false);
-      if (dateRouteOwned && recovery.action === "go_lobby") {
-        rcBreadcrumb(
-          RC_CATEGORY.videoDateEntry,
-          "route_bounce_suppressed_by_date_ownership",
-          {
-            session_id: sessionId,
-            user_id: user.id,
-            target: "lobby",
-            queue_status: reg?.queue_status ?? null,
-            vs_state: vs.state,
-            vs_phase: vs.phase,
-          },
-        );
-        vdbg("date_guard_lobby_bounce_suppressed_by_route_ownership", {
-          sessionId,
-          userId: user.id,
-          queueStatus: reg?.queue_status ?? null,
-          state: vs.state,
-          phase: vs.phase,
-        });
-        setDateEntryPermissionEligible(true);
-        markVideoDateRouteOwned(sessionId, user.id);
-        return;
-      }
-      clearDateEntryTransition(sessionId);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, "route_bounced_to_lobby", {
         session_id: sessionId,
         user_id: user.id,

@@ -32,7 +32,15 @@ const nativeRouteHydration = read(
   "apps/mobile/components/NativeSessionRouteHydration.tsx",
 );
 const nativeDateNavGuard = readNativeVideoDateNavigationIntentsSource(root);
-const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5: ready screen body split across lib/videoDate sub-hooks; read the family.
+const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeDateRoute = readNativeVideoDateScreenFlowSource();
 const nativeActiveSessionRoutes = read(
@@ -243,7 +251,8 @@ test("native lobby treats in_survey as date-stack owned across active session, r
 test("native date guard opens terminal survey for explicit recovery actions, not only legacy ended decisions", () => {
   assert.match(
     nativeDateRoute,
-    /truthDecision === ["']ended["'] \|\|[\s\S]{0,120}recovery\.action === ["']show_terminal["'] \|\|[\s\S]{0,120}recovery\.action === ["']go_survey["']/,
+    // PR 8.5 guard port: the shared date_route decision owns terminal opens.
+    /decision\.target === ["']survey["'] \|\| decision\.target === ["']ended["']/,
   );
   assert.match(nativeDateRoute, /go_survey_route_guard/);
   assert.match(nativeDateRoute, /terminalSurveyHardStopRef/);

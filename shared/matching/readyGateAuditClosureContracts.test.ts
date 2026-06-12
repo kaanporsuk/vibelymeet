@@ -10,11 +10,25 @@ test("web and native Ready Gate surfaces render shared vibe chips from existing 
   const helper = read("apps/mobile/lib/readyGateSharedVibes.ts");
   const webOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
   const overlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-  const standalone = read("apps/mobile/app/ready/[id].tsx");
+  // PR 8.5: ready screen split; read the family.
+  const standalone = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+    .map(read)
+    .join("\n");
 
   assert.match(helper, /from\('video_sessions'\)[\s\S]+participant_1_id, participant_2_id/);
   assert.match(helper, /from\('profile_vibes'\)[\s\S]+vibe_tags\(label\)/);
-  assert.match(helper, /rpc\('get_profile_for_viewer'/);
+  // The shared-vibes helper now delegates the profile read to the shared
+  // partner-profile lib (same viewer-scoped RPC, one owner).
+  assert.match(helper, /fetchVideoDatePartnerProfile\(/);
+  assert.match(
+    read("apps/mobile/lib/videoDatePartnerProfile.ts"),
+    /rpc\('get_profile_for_viewer'/,
+  );
   assert.match(helper, /resolvePartnerId/);
 
   for (const source of [overlay, standalone]) {
@@ -43,7 +57,15 @@ test("Ready Gate transition failures use shared multi-device conflict copy", () 
   const sharedCopy = read("shared/matching/readyGateDiagnosticCopy.ts");
   const webOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
   const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-  const nativeRoute = read("apps/mobile/app/ready/[id].tsx");
+  // PR 8.5: ready screen split; read the family.
+  const nativeRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+    .map(read)
+    .join("\n");
 
   assert.match(sharedCopy, /READY_GATE_TRANSITION_STALE_OR_CONFLICT_SIGNALS/);
   assert.match(sharedCopy, /SURFACE_CLAIM_CONFLICT/i);

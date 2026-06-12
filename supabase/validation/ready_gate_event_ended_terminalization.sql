@@ -116,10 +116,10 @@ select
   as ok
 from fn;
 
--- The confirm head delegates to confirm_vde_prepared_202605031300_base, which
--- owns the event-inactive rejection path.
+-- The confirm fn is a single body since the VD-rebuild generation drops; it
+-- owns the event-inactive rejection path directly.
 with fn as (
-  select pg_get_functiondef('public.confirm_vde_prepared_202605031300_base(uuid,text,text,text)'::regprocedure) as def
+  select pg_get_functiondef('public.confirm_video_date_entry_prepared(uuid,text,text,text)'::regprocedure) as def
 )
 select
   'confirm_prepare_entry_rejects_inactive_unprepared_rows' as check_name,

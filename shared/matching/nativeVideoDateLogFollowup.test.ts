@@ -14,7 +14,7 @@ test("native video-date partner avatar fallback resolves CDN-safe URLs before Im
   assert.match(api, /import \{ avatarUrl \} from '@\/lib\/imageUrl'/);
   assert.match(api, /const rawAvatarUrl = typeof row\.avatar_url === 'string' \? row\.avatar_url : null/);
   assert.match(api, /avatar_url: rawAvatarUrl \? avatarUrl\(rawAvatarUrl, 'avatar'\) : null/);
-  assert.match(route, /partnerAvatarUri = fullPartner\?\.avatarUrl \?\? fullPartner\?\.photos\?\.\[0\] \?\? basicPartner\?\.avatar_url \?\? null/);
+  assert.match(route, /partnerAvatarUri =\s*fullPartner\?\.avatarUrl \?\?\s*fullPartner\?\.photos\?\.\[0\] \?\?\s*basicPartner\?\.avatar_url \?\?\s*null/);
 });
 
 test("native Supabase auth installs SHA-256 WebCrypto before client creation", async () => {
@@ -46,20 +46,21 @@ test("native Apple Sign-In treats ASAuthorization 1001 as cancellation with diag
   assert.match(signIn, /addAppleAuthDiagnostic\('Authorization failed'/);
 });
 
-test("native handshake CTA emits visibility, final-ten, and timeout context telemetry", () => {
+// PR 5 vocab flip: handshake -> entry across the CTA telemetry names.
+test("native entry CTA emits visibility, final-ten, and timeout context telemetry", () => {
   const route = readNativeVideoDateScreenFlowSource();
 
-  assert.match(route, /handshakeCtaImpressionRef/);
-  assert.match(route, /handshake_cta_visible/);
-  assert.match(route, /video_date_handshake_cta_visible/);
-  assert.match(route, /handshake_cta_hidden/);
-  assert.match(route, /video_date_handshake_cta_hidden/);
-  assert.match(route, /handshake_final_10s_nudge/);
-  assert.match(route, /const hasEntryPeerEvidence = hasRemotePartner \|\| \(peerServerJoinedAt != null && !isPartnerDisconnected\)/);
+  assert.match(route, /entryCtaImpressionRef/);
+  assert.match(route, /entry_cta_visible/);
+  assert.match(route, /video_date_entry_cta_visible/);
+  assert.match(route, /entry_cta_hidden/);
+  assert.match(route, /video_date_entry_cta_hidden/);
+  assert.match(route, /entry_final_10s_nudge/);
+  assert.match(route, /const hasEntryPeerEvidence =\s*hasRemotePartner \|\| \(peerServerJoinedAt != null && !isPartnerDisconnected\)/);
   assert.match(route, /hasEntryPeerEvidence &&/);
   assert.match(route, /peer_server_joined: peerServerJoinedAt != null/);
-  assert.match(route, /Haptics\.notificationAsync\(Haptics\.NotificationFeedbackType\.Warning\)/);
-  assert.match(route, /ctaTelemetry: handshakeCtaLatestRef\.current/);
+  assert.match(route, /Haptics\.notificationAsync\(\s*Haptics\.NotificationFeedbackType\.Warning,?\s*\)/);
+  assert.match(route, /ctaTelemetry: entryCtaLatestRef\.current/);
 });
 
 test("OneSignal app group is explicit in source config and native preflight", () => {

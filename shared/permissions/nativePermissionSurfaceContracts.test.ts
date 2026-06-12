@@ -94,7 +94,15 @@ test("native reusable permission card uses fixed-height actions", () => {
 });
 
 test("native Ready Gate checks existing media permission before showing an OS prompt", () => {
-  const standalone = readRepo("apps/mobile/app/ready/[id].tsx");
+  // PR 8.5: ready screen split; read the family.
+  const standalone = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+    .map(readRepo)
+    .join("\n");
   const overlay = readRepo("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
 
   for (const source of [standalone, overlay]) {

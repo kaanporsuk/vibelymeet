@@ -17,7 +17,16 @@ const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeReadyGateOverlay = read(
   "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
 );
-const nativeStandaloneReady = read("apps/mobile/app/ready/[id].tsx");
+// PR 8.5 split the standalone ready screen body into lib/videoDate sub-hooks;
+// read the whole family so pins keep guarding the moved-verbatim bodies.
+const nativeStandaloneReady = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+  .map(read)
+  .join("\n");
 
 function blockBetween(source: string, start: string, end: string): string {
   const startIndex = source.indexOf(start);

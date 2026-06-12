@@ -142,14 +142,19 @@ test("Ready Gate prepare-entry failure copy preserves web and native provider wo
     resolveReadyGatePrepareEntryFailureCopy({ code: "ACCESS_DENIED", platform: "native" }).message,
     "This date is no longer available.",
   );
-  assert.equal(
-    resolveReadyGatePrepareEntryFailureCopy({ code: "DAILY_AUTH_FAILED", platform: "web" }).message,
-    "Video provider authentication failed. Please try again later.",
-  );
-  assert.equal(
-    resolveReadyGatePrepareEntryFailureCopy({ code: "DAILY_AUTH_FAILED", platform: "native" }).message,
-    "Video setup is unavailable right now. Please try again later.",
-  );
+  // PR #1260 classified provider auth failures as terminal prepare blockers:
+  // the terminal-recovery advisor owns the copy before per-code wording.
+  for (const platform of ["web", "native"] as const) {
+    const dailyAuthCopy = resolveReadyGatePrepareEntryFailureCopy({
+      code: "DAILY_AUTH_FAILED",
+      platform,
+    });
+    assert.equal(
+      dailyAuthCopy.message,
+      "The Ready Gate changed before video could start. Return to the lobby to continue.",
+    );
+    assert.equal(dailyAuthCopy.retryable, false);
+  }
   assert.equal(resolveReadyGatePrepareEntryFailureCopy({ code: "EVENT_NOT_ACTIVE" }).retryable, false);
   assert.equal(
     resolveReadyGatePrepareEntryFailureCopy({ code: "DAILY_PROVIDER_UNAVAILABLE" }).message,
@@ -190,7 +195,15 @@ test("Ready Gate transition failure copy distinguishes multi-device conflicts fr
 test("web and native Ready Gate surfaces consume shared failure copy", () => {
   const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
   const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-  const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+  // PR 8.5: ready screen split; read the family.
+  const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+    .map(read)
+    .join("\n");
 
   for (const source of [webReadyGate, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /resolveReadyGatePrepareEntryFailureCopy/);
@@ -201,7 +214,15 @@ test("web and native Ready Gate surfaces consume shared failure copy", () => {
 test("web and native Ready Gate surfaces consume shared diagnostic checklist copy", () => {
   const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
   const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
-  const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+  // PR 8.5: ready screen split; read the family.
+  const nativeReadyRoute = [
+  "apps/mobile/lib/videoDate/useNativeReadyGateMediaPermissions.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateTruthReconcile.ts",
+  "apps/mobile/lib/videoDate/useNativeReadyGateForfeitExpiry.ts",
+  "apps/mobile/app/ready/[id].tsx",
+]
+    .map(read)
+    .join("\n");
 
   for (const source of [webReadyGate, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /resolveReadyGateDiagnosticChecklist/);

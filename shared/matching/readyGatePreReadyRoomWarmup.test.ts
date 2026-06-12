@@ -193,7 +193,8 @@ test("native Ready Gate refetches backend truth when mark_ready success omits re
 test("validation SQL covers the repair wrapper contract", () => {
   for (const marker of [
     "ready_gate_transition_repair_signature_security",
-    "ready_gate_transition_repair_delegates_to_base",
+    // PR 4 inlined the rgt_* chain; the pack now proves single-body truth.
+    "ready_gate_transition_repair_is_single_body",
     "ready_gate_transition_repairs_only_participant_pre_date_ready_gate",
     "ready_gate_transition_clears_stale_room_metadata_only",
     "ready_gate_transition_enriches_participant_safe_truth",

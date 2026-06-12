@@ -28,7 +28,7 @@ import {
 } from "./videoDateCameraSwitchRenderHint";
 
 import { readWebVideoCallFlowSource, readWebVideoDatePageFlowSource, readWebVideoDateNavigationIntentsSource } from "../testUtils/webVideoDateFlowSources";
-import { readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
+import { readNativeReadyScreenFlowSource, readNativeVideoDateNavigationIntentsSource, readNativeVideoDateScreenFlowSource } from "../testUtils/nativeVideoDateFlowSources";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -248,10 +248,9 @@ const nativeReadyGateOverlay = readFileSync(
   join(process.cwd(), "apps/mobile/components/lobby/ReadyGateOverlay.tsx"),
   "utf8",
 );
-const nativeReadyRoute = readFileSync(
-  join(process.cwd(), "apps/mobile/app/ready/[id].tsx"),
-  "utf8",
-);
+// PR 8.5: the standalone ready screen body is split across lib/videoDate
+// sub-hooks; the family reader keeps every pin guarding the verbatim bodies.
+const nativeReadyRoute = readNativeReadyScreenFlowSource(process.cwd());
 const webReadyGateHook = readFileSync(
   join(process.cwd(), "src/hooks/useReadyGate.ts"),
   "utf8",
@@ -2022,9 +2021,15 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.match(nativeVideoDateRoute, /videoSessionHasPostDateSurveyTruth/);
   assert.match(nativeVideoDateRoute, /const openNativePostDateSurveyFromTerminalTruth = useCallback/);
   assert.match(nativeVideoDateRoute, /const surveyOpenedRef = useRef\(false\)/);
+  // Anchored from the reset stamp: the family concatenation has earlier
+  // `}, [sessionId]);` closers in the extracted sub-hooks (PR 8.5).
+  const surveyOpenedResetIndex = nativeVideoDateRoute.indexOf(
+    "surveyOpenedRef.current = false;",
+  );
+  assert.ok(surveyOpenedResetIndex >= 0);
   assert.ok(
-    nativeVideoDateRoute.indexOf("surveyOpenedRef.current = false;") <
-      nativeVideoDateRoute.indexOf("}, [sessionId]);"),
+    surveyOpenedResetIndex <
+      nativeVideoDateRoute.indexOf("}, [sessionId]);", surveyOpenedResetIndex),
   );
   const surveyOpenHelperIndex = nativeVideoDateRoute.indexOf("const openNativePostDateSurveyFromTerminalTruth = useCallback");
   const helperAuthGuardIndex = nativeVideoDateRoute.indexOf("if (!sessionId || !user?.id) return false;", surveyOpenHelperIndex);
@@ -2043,7 +2048,7 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.match(nativeVideoDateRoute, /if \(recoveredPartnerId\) setPartnerId\(recoveredPartnerId\)/);
   assert.match(
     nativeVideoDateRoute,
-    /truthDecision === ["']ended["'][\s\S]{0,120}recovery\.action === ["']show_terminal["'][\s\S]{0,120}recovery\.action === ["']go_survey["'][\s\S]*setDateEntryPermissionEligible\(false\);[\s\S]*openNativePostDateSurveyFromTerminalTruth\([\s\S]*recovery\.action === ["']go_survey["'][\s\S]{0,120}\?[\s\S]{0,120}["']go_survey_route_guard["'][\s\S]{0,120}:[\s\S]{0,120}["']ended_route_guard["'],[\s\S]*vs,/,
+    /decision\.target === ["']survey["'] \|\| decision\.target === ["']ended["'][\s\S]{0,200}setDateEntryPermissionEligible\(false\);[\s\S]{0,200}openNativePostDateSurveyFromTerminalTruth\([\s\S]{0,160}decision\.target === ["']survey["'][\s\S]{0,120}\?[\s\S]{0,120}["']go_survey_route_guard["'][\s\S]{0,120}:[\s\S]{0,120}["']ended_route_guard["'],[\s\S]{0,40}vs,/,
   );
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\(\s*["']terminal_session_recovery["'],\s*session/);
   assert.match(nativeVideoDateRoute, /const openNativePostDateSurvey = useCallback/);
@@ -2062,41 +2067,25 @@ test("native terminal route guard keeps an already-open post-date survey mounted
       .filter((index) => index >= 0);
     return hits.length > 0 ? Math.min(...hits) : -1;
   };
+  // PR 8.5 guard port: the shared date_route decision owns the terminal
+  // branch (decision.target replaces the advisor truthDecision chain).
   const endedGuardIndex = indexOfAny(nativeVideoDateRoute, [
-    "truthDecision === 'ended' ||",
-    'truthDecision === "ended" ||',
+    'if (decision.target === "survey" || decision.target === "ended") {',
+    "if (decision.target === 'survey' || decision.target === 'ended') {",
   ]);
-  const showTerminalGuardIndex = indexOfAny(
-    nativeVideoDateRoute,
-    [
-      "recovery.action === 'show_terminal' ||",
-      'recovery.action === "show_terminal" ||',
-    ],
-    endedGuardIndex,
-  );
-  const goSurveyGuardIndex = indexOfAny(
-    nativeVideoDateRoute,
-    [
-      "recovery.action === 'go_survey'",
-      'recovery.action === "go_survey"',
-    ],
-    showTerminalGuardIndex,
-  );
   const openSurveyIndex = nativeVideoDateRoute.indexOf(
     "const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(",
     endedGuardIndex,
   );
   const reasonIndex = indexOfMatch(
     nativeVideoDateRoute,
-    /recovery\.action === ["']go_survey["'][\s\S]{0,120}\?[\s\S]{0,120}["']go_survey_route_guard["'][\s\S]{0,120}:[\s\S]{0,120}["']ended_route_guard["']/,
+    /decision\.target === ["']survey["'][\s\S]{0,120}\?[\s\S]{0,120}["']go_survey_route_guard["'][\s\S]{0,120}:[\s\S]{0,120}["']ended_route_guard["']/,
     openSurveyIndex,
   );
   const openedSurveyBranchIndex = nativeVideoDateRoute.indexOf("if (openedSurvey) {", openSurveyIndex);
   const openedSurveyReturnIndex = nativeVideoDateRoute.indexOf("return;", openedSurveyBranchIndex);
   const bounceIndex = nativeVideoDateRoute.indexOf("route_bounced_to_lobby", openedSurveyReturnIndex);
   assert.ok(endedGuardIndex >= 0);
-  assert.ok(showTerminalGuardIndex > endedGuardIndex);
-  assert.ok(goSurveyGuardIndex > showTerminalGuardIndex);
   assert.ok(openSurveyIndex > endedGuardIndex);
   assert.ok(reasonIndex > openSurveyIndex);
   assert.ok(openedSurveyBranchIndex > openSurveyIndex);
@@ -2323,15 +2312,28 @@ test("native ready and date routes validate before requesting camera and microph
   assert.match(nativeVideoDateRoute, /if \(!getVideoSessionPartnerIdForUser\(vs, user\.id\)\) \{[\s\S]*setDateEntryPermissionEligible\(false\);/);
   assert.match(
     nativeVideoDateRoute,
-    /truthDecision === ["']ended["'][\s\S]{0,120}recovery\.action === ["']show_terminal["'][\s\S]{0,120}recovery\.action === ["']go_survey["'][\s\S]*setDateEntryPermissionEligible\(false\);[\s\S]*openNativePostDateSurveyFromTerminalTruth\([\s\S]*recovery\.action === ["']go_survey["'][\s\S]{0,120}\?[\s\S]{0,120}["']go_survey_route_guard["'][\s\S]{0,120}:[\s\S]{0,120}["']ended_route_guard["'],[\s\S]*vs,/,
+    /decision\.target === ["']survey["'] \|\| decision\.target === ["']ended["'][\s\S]{0,200}setDateEntryPermissionEligible\(false\);[\s\S]{0,200}openNativePostDateSurveyFromTerminalTruth\([\s\S]{0,160}decision\.target === ["']survey["'][\s\S]{0,120}\?[\s\S]{0,120}["']go_survey_route_guard["'][\s\S]{0,120}:[\s\S]{0,120}["']ended_route_guard["'],[\s\S]{0,40}vs,/,
   );
-  assert.match(nativeVideoDateRoute, /if \(canAttemptDaily \|\| truthDecision === ['"]navigate_date['"]\) \{\s*setDateEntryPermissionEligible\(true\);/);
+  assert.match(
+    nativeVideoDateRoute,
+    /if \(decision\.target === ["']date["']\) \{[\s\S]{0,1800}setDateEntryPermissionEligible\(true\);\s*return;/,
+  );
   assert.match(nativeVideoDateRoute, /session\.ended_at \|\|\s*!dateEntryPermissionEligible \|\|/);
 
-  const dateRouteAllowsPromptIndex = nativeVideoDateRoute.indexOf("setDateEntryPermissionEligible(true);");
-  const datePrejoinPermissionIndex = nativeVideoDateRoute.indexOf("const ok = await requestPermissions();");
-  assert.ok(dateRouteAllowsPromptIndex >= 0);
-  assert.ok(datePrejoinPermissionIndex > dateRouteAllowsPromptIndex);
+  // PR 8.5: the prejoin pipeline lives in its start-call concern hook; the
+  // eligibility guard must precede the permission request within that hook.
+  const startCallSource = readFileSync(
+    join(process.cwd(), "apps/mobile/lib/videoDate/useNativeVideoDateStartCall.ts"),
+    "utf8",
+  );
+  const startCallEligibilityGuardIndex = startCallSource.indexOf(
+    "!dateEntryPermissionEligible ||",
+  );
+  const datePrejoinPermissionIndex = startCallSource.indexOf(
+    "const ok = await requestPermissions();",
+  );
+  assert.ok(startCallEligibilityGuardIndex >= 0);
+  assert.ok(datePrejoinPermissionIndex > startCallEligibilityGuardIndex);
 });
 
 test("remaining prepare-entry hardening preserves historical repair while runtime route-confirms before provider tokens", () => {

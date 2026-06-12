@@ -76,7 +76,15 @@ function assertNoForbiddenSupabaseWrites(paths: string[], table: string, fields:
 }
 
 test("web Ready Gate current-session realtime remains session-id scoped", () => {
-  assert.match(webReadyGateHook, /table:\s*"video_sessions"[\s\S]{0,120}filter:\s*`id=eq\.\$\{sessionId\}`/);
+  // VD rebuild PR 6 consolidated the Ready Gate hook onto the shared
+  // session-scoped private broadcast channel; the helper owns id scoping.
+  assert.match(webReadyGateHook, /createVideoDateSessionChannel\(/);
+  const sessionChannelHelper = read("shared/matching/videoDateSessionChannel.ts");
+  assert.match(
+    sessionChannelHelper,
+    /const topic = videoDateSessionTopic\(options\.sessionId\)/,
+  );
+  assert.match(sessionChannelHelper, /config: \{ private: true \}/);
   assert.match(webReadyGateOverlay, /table:\s*"video_sessions"[\s\S]{0,140}filter:\s*`id=eq\.\$\{sessionId\}`/);
 });
 
@@ -132,7 +140,9 @@ test("date navigation remains gated by backend prepare-entry truth", () => {
 test("native Ready Gate sync and current-session realtime remain backend-truth based", () => {
   assert.match(nativeReadyGateApi, /ready_gate_transition/);
   assert.match(nativeReadyGateApi, /syncSession/);
-  assert.match(nativeReadyGateApi, /table:\s*'video_sessions'[\s\S]{0,120}filter:\s*`id=eq\.\$\{sessionId\}`/);
+  // VD rebuild PR 6: native Ready Gate realtime is the shared session-scoped
+  // private broadcast channel (see web pin above for the helper contract).
+  assert.match(nativeReadyGateApi, /createVideoDateSessionChannel\(/);
   assert.match(nativeReadyGateOverlay, /syncSession\(\)/);
 });
 
