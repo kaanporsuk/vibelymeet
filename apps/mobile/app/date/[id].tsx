@@ -1246,17 +1246,18 @@ export default function VideoDateScreen() {
     (call: DailyCallObject | null, reason: string) => {
       if (!call) return;
       if (nativeDailyCallSingletonState.sharedDailyCallEntry?.call !== call) return;
-      if (nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer) {
-        clearTimeout(nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer);
-        nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer = null;
+      const entry = nativeDailyCallSingletonState.sharedDailyCallEntry;
+      if (entry.idleDestroyTimer) {
+        clearTimeout(entry.idleDestroyTimer);
+        entry.idleDestroyTimer = null;
       }
       vdbg("daily_call_singleton_release", {
         reason,
-        sessionId: nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId,
-        userId: nativeDailyCallSingletonState.sharedDailyCallEntry.userId,
-        roomName: nativeDailyCallSingletonState.sharedDailyCallEntry.roomName,
-        state: nativeDailyCallSingletonState.sharedDailyCallEntry.state,
-        joinInFlight: Boolean(nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise),
+        sessionId: entry.sessionId,
+        userId: entry.userId,
+        roomName: entry.roomName,
+        state: entry.state,
+        joinInFlight: Boolean(entry.joinPromise),
       });
       nativeDailyCallSingletonState.sharedDailyCallEntry = null;
     },
@@ -1265,17 +1266,18 @@ export default function VideoDateScreen() {
   const parkSharedCallForWarmHandoff = useCallback(
     (call: DailyCallObject, reason: string) => {
       if (nativeDailyCallSingletonState.sharedDailyCallEntry?.call !== call) return false;
-      if (nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer) {
-        clearTimeout(nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer);
+      const entry = nativeDailyCallSingletonState.sharedDailyCallEntry;
+      if (entry.idleDestroyTimer) {
+        clearTimeout(entry.idleDestroyTimer);
       }
       const idleMs = NATIVE_DAILY_CALL_SINGLETON_IDLE_MS;
-      nativeDailyCallSingletonState.sharedDailyCallEntry.state = "idle";
-      nativeDailyCallSingletonState.sharedDailyCallEntry.joinPromise = null;
-      nativeDailyCallSingletonState.sharedDailyCallEntry.joinStartedAtMs = null;
-      nativeDailyCallSingletonState.sharedDailyCallEntry.lastError = null;
-      nativeDailyCallSingletonState.sharedDailyCallEntry.parkedAtMs = Date.now();
-      nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer = null;
-      nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyDisabled = idleMs == null;
+      entry.state = "idle";
+      entry.joinPromise = null;
+      entry.joinStartedAtMs = null;
+      entry.lastError = null;
+      entry.parkedAtMs = Date.now();
+      entry.idleDestroyTimer = null;
+      entry.idleDestroyDisabled = idleMs == null;
       if (typeof idleMs === "number") {
         nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyTimer = setTimeout(() => {
           const entry = nativeDailyCallSingletonState.sharedDailyCallEntry;
@@ -1320,11 +1322,11 @@ export default function VideoDateScreen() {
       }
       vdbg("daily_call_singleton_parked", {
         reason,
-        sessionId: nativeDailyCallSingletonState.sharedDailyCallEntry.sessionId,
-        userId: nativeDailyCallSingletonState.sharedDailyCallEntry.userId,
-        roomName: nativeDailyCallSingletonState.sharedDailyCallEntry.roomName,
+        sessionId: entry.sessionId,
+        userId: entry.userId,
+        roomName: entry.roomName,
         idleMs,
-        idleDestroyDisabled: nativeDailyCallSingletonState.sharedDailyCallEntry.idleDestroyDisabled,
+        idleDestroyDisabled: entry.idleDestroyDisabled,
       });
       return true;
     },
