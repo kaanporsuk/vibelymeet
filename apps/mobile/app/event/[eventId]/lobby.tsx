@@ -105,6 +105,10 @@ import {
   secondsUntilPostDateEventEnd,
   type PostDateContinuityDecision,
 } from "@clientShared/matching/postDateContinuity";
+import {
+  lobbyForegroundStampKey,
+  shouldStampLobbyForeground,
+} from "@clientShared/matching/lobbyForegroundStampThrottle";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import { resolvePrimaryProfilePhotoPath } from "../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import {
@@ -148,6 +152,7 @@ import {
 import { eventLobbyHref } from "@/lib/activeSessionRoutes";
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+const FORCED_SURVEY_RENAVIGATION_DAMPER_MS = 10_000;
 const VISIBLE_CARD_MARK_MAX_RETRIES = 5;
 type ServerInactiveEventReasonSource = "event" | "deck" | "swipe";
 const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
@@ -796,6 +801,10 @@ export default function EventLobbyScreen() {
     })();
   }, [endingBreak, id, queryClient, show, user?.id]);
   const lastOpenedSessionRef = useRef<string | null>(null);
+  const forcedSurveyNavigationRef = useRef<{
+    sessionId: string;
+    atMs: number;
+  } | null>(null);
   const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -844,6 +853,30 @@ export default function EventLobbyScreen() {
     ) => {
       const forceSurvey = options.forceSurvey === true;
       const forceNavigation = options.force === true || forceSurvey;
+      if (forceSurvey) {
+        // Parity with web EventLobby: damp same-session forced-survey
+        // re-navigation so a stale in_survey stamp cannot ping-pong
+        // lobby <-> date (2026-06-12 acceptance-run livelock).
+        const lastForced = forcedSurveyNavigationRef.current;
+        const nowMs = Date.now();
+        if (
+          lastForced &&
+          lastForced.sessionId === sessionIdToOpen &&
+          nowMs - lastForced.atMs < FORCED_SURVEY_RENAVIGATION_DAMPER_MS
+        ) {
+          vdbg("lobby_forced_survey_renavigation_damped", {
+            trigger,
+            sessionId: sessionIdToOpen,
+            eventId: id,
+            sinceLastMs: nowMs - lastForced.atMs,
+          });
+          return;
+        }
+        forcedSurveyNavigationRef.current = {
+          sessionId: sessionIdToOpen,
+          atMs: nowMs,
+        };
+      }
       if (
         !forceNavigation &&
         isDateNavigationSuppressedAfterManualExit(sessionIdToOpen)
@@ -1296,7 +1329,9 @@ export default function EventLobbyScreen() {
     if (!lobbySideEffectsEnabled || !isLobbyFocused || appState !== "active")
       return;
 
+    const stampKey = lobbyForegroundStampKey(user.id, id);
     const stampForeground = async () => {
+      if (!shouldStampLobbyForeground(stampKey)) return;
       try {
         await supabase.rpc("mark_lobby_foreground", { p_event_id: id });
       } catch (err) {

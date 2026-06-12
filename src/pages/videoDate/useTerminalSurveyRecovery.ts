@@ -409,6 +409,33 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       setPhase("ended");
       setTimeLeft(0);
       setShowFeedback(false);
+      if (verdict?.id && sessionRow.event_id) {
+        // Own verdict already persisted: release this registration before
+        // leaving, or a stale in_survey stamp keeps bouncing the lobby back
+        // here (2026-06-12 acceptance-run livelock). update_participant_status
+        // is the canonical own-row release and refuses server-side while a
+        // survey is genuinely pending, so this is safe under races. setStatus
+        // is not used here because its eventId binding can be unset on cold
+        // /date loads.
+        const { error: releaseError } = await supabase.rpc(
+          "update_participant_status",
+          { p_event_id: sessionRow.event_id, p_status: "browsing" },
+        );
+        vdbg("terminal_survey_complete_registration_release", {
+          sessionId: id,
+          userId: user.id,
+          source,
+          eventId: sessionRow.event_id,
+          released: !releaseError,
+          code: releaseError?.code ?? null,
+        });
+        if (releaseError) {
+          captureSupabaseError(
+            "terminal_survey_complete_registration_release_failed",
+            releaseError,
+          );
+        }
+      }
       const target = sessionRow.event_id
         ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
         : "/events";

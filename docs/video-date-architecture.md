@@ -39,7 +39,11 @@ this flow — never remove it.
 - **The Daily webhook ledger is provider truth.** `video-date-daily-webhook`
   appends to `video_date_daily_webhook_events`; joined/absence reconciliation
   and copresence checks read provider participant/session ids from the ledger,
-  not client claims.
+  not client claims. Since 2026-06-12 the function also materializes Daily's
+  nested `payload.payload.session_id` into `provider_participant_id`,
+  mirroring the tail of `video_date_daily_provider_session_id_from_event_v1`
+  (which already COALESCEd the column with that payload key — additive, not
+  behavior-changing; webhook fn v40).
 - **Post-date is durable and idempotent.** Web and native enqueue verdicts into
   a durable outbox and send `transition_version: 'v3'` plus an idempotency key
   through the `post-date-verdict` Edge Function, which calls only
@@ -61,10 +65,25 @@ self-contained bodies, pinned against live-catalog fixtures:
 | Entry vocabulary + maintenance | entry-named actions/columns (`complete_entry`, `continue_entry`, `entry_started_at`, …) | `20260611215259_video_date_entry_vocab_flip_maintenance_single_bodies.sql` |
 | Frozen v2 family dropped | `video_session_continue_entry_v2`, `video_session_entry_auto_promote_v2`, `video_session_date_timeout_v2`, `video_session_forfeit_v2` removed | `20260612134101_vd_rebuild_pr8_drop_frozen_v2_transition_rpcs.sql` |
 
+The 2026-06-12 acceptance-run follow-up (migration
+`20260612211818_vd_accept_followup_transition_survey_feedback_guard.sql`)
+feedback-guards `video_date_transition`'s terminal in_survey re-stamp: the pair
+is stamped only while at least one participant still lacks a `date_feedback`
+row (same guard semantics as `mark_video_date_remote_seen`); once both rows
+exist the branch releases instead (observability reason
+`terminal_survey_already_complete`), so revisiting a dead session can no longer
+re-open the partner's survey state. Clients close the loop for stale stamps:
+web/native terminal recovery releases a feedback-complete registration through
+`update_participant_status` before navigating away, and both lobbies damp
+same-session forced-survey re-navigation (10s window).
+
 Contract truth for this layer is pinned by
 `shared/matching/videoDateBackendTruthPinContracts.test.ts` against raw
 `pg_get_functiondef()` fixtures in `supabase/contract-fixtures/2026-06/`, plus
-the three `*SingleBodyContracts` suites. Lifecycle RPCs stay outermost
+the three `*SingleBodyContracts` suites and
+`shared/matching/videoDateAcceptFollowupContracts.test.ts` (terminal-stamp
+guard, client release/damper, webhook provider-id mapping, benign-failure alert
+classification, lobby-foreground throttle). Lifecycle RPCs stay outermost
 fail-soft: stale/duplicate/terminal calls return sanitized retryable JSON, never
 raw 500s.
 
