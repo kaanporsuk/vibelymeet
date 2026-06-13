@@ -201,7 +201,13 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
     setIsPartnerDisconnected(true);
     void markReconnectPartnerAway(sessionId, "daily_transport_grace_expired");
     requestReconnectSyncRef.current("partner_marked_away");
-  }, [sessionId, phase, partnerEverJoined]);
+  }, [
+    partnerEverJoined,
+    phase,
+    requestReconnectSyncRef,
+    sessionId,
+    setIsPartnerDisconnected,
+  ]);
 
   const cleanupDailyAndLocalState = useCallback(
     async (options?: NativeDailyCleanupOptions) => {
@@ -321,7 +327,33 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
       setCaptureProfile("ideal");
     },
     [
+      activeNativeDailyCallIdentityRef,
+      callRef,
+      captureProfileRef,
+      dailyTokenExpiresAtRef,
+      dailyTokenRecoveryInFlightRef,
+      lastNativeRemoteCameraSwitchHintIdRef,
+      localParticipantRef,
+      nativeCameraSwitchInFlightRef,
+      peerMissingTruthRefreshCountRef,
+      phaseRef,
+      recoverNativeDailyTokenRef,
+      remoteParticipantRef,
+      roomNameRef,
       sessionId,
+      setAwaitingFirstConnect,
+      setCaptureProfile,
+      setIsConnecting,
+      setIsMuted,
+      setIsVideoOff,
+      setLocalInDailyRoom,
+      setLocalParticipant,
+      setNetQualityTier,
+      setPartnerEverJoined,
+      setPeerMissingTerminal,
+      setPreJoinFailed,
+      setRemoteParticipant,
+      terminalSurveyHardStopRef,
       eventId,
       user?.id,
       showFeedback,
@@ -454,18 +486,23 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
     },
     [
       cleanupForAbortWithoutServerEnd,
+      countdownCompletionKeyRef,
+      dateEstablishedRef,
+      phaseRef,
       sessionId,
+      setShowFeedback,
       fetchServerTerminalTruth,
       confirmNativeTerminalPostDateRecovery,
       refetchVideoSession,
       eventId,
       session,
+      videoDateEndedRef,
     ],
   );
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
-  }, [handleCallEnd]);
+  }, [handleCallEnd, handleCallEndRef]);
 
   useEffect(() => {
     if (!peerMissingTerminal || !sessionId || showFeedback) return;
@@ -495,8 +532,11 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
       reason_code: "provider_absence_server_owned_after_encounter",
     });
   }, [
+    dateEstablishedRef,
     eventId,
     peerMissingTerminal,
+    phaseRef,
+    postEncounterPeerMissingSuppressedRef,
     session,
     sessionId,
     showFeedback,
@@ -507,7 +547,7 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
     if (!reconnectSyncTimerRef.current) return;
     clearTimeout(reconnectSyncTimerRef.current);
     reconnectSyncTimerRef.current = null;
-  }, []);
+  }, [reconnectSyncTimerRef]);
 
   const handleEndAfterInCallReport = useCallback(async () => {
     await handleCallEnd("local_end");
@@ -534,7 +574,16 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
       await cleanupForAbortWithoutServerEnd();
       router.replace(eventId ? eventLobbyHref(eventId) : tabsRootHref());
     },
-    [cleanupForAbortWithoutServerEnd, eventId, sessionId],
+    [
+      cleanupForAbortWithoutServerEnd,
+      eventId,
+      sessionId,
+      setSafetySubmitOutcome,
+      setShowFeedback,
+      setShowInCallSafety,
+      setShowProfileSheet,
+      videoDateEndedRef,
+    ],
   );
 
   const handleServerEndedAfterInCallReport = useCallback(
@@ -604,6 +653,10 @@ export function useNativeVideoDateCallEndCleanup(deps: NativeVideoDateCallEndCle
       confirmNativeTerminalPostDateRecovery,
       eventId,
       sessionId,
+      setSafetySubmitOutcome,
+      setShowFeedback,
+      setShowProfileSheet,
+      videoDateEndedRef,
     ],
   );
 

@@ -136,6 +136,24 @@ rebuild; the runtime proofs are
 `videoDateLifecycleRpcPostgrestRuntime` (env-gated) and the static posture pack
 `videoDatePhase5RlsContracts`.
 
+**Sanctioned `postgres_changes` exception (date surface): vibe questions.**
+The in-call ice-breaker state lives in `video_sessions` columns
+(`vibe_questions`, `vibe_question_index`, `vibe_question_anchor_at`) written by
+`get_or_seed_video_session_vibe_questions` / `advance_video_session_vibe_question`.
+Neither RPC appends a `video_session_events` row and no `video_sessions`
+trigger emits one for these columns, so the change is not visible on the
+broadcast topic. Until the RPCs are ported to append a broadcast event (needs
+a migration), both clients keep one narrow `postgres_changes` UPDATE listener
+on channel `vibe-questions-<sessionId>`: web
+`src/components/video-date/IceBreakerCard.tsx` and native
+`apps/mobile/app/date/[id].tsx`. This is the **only** sanctioned
+`postgres_changes` use on the date surface — everything else rides the
+broadcast topic — and each client converges after reconnect via the seeding
+RPC fetch fallback. Exactly these two subscription sites are pinned by
+`shared/matching/videoDateValidationFollowupContracts.test.ts`; port both
+clients to the broadcast event in the same change that adds the server-side
+emit, then delete the listeners and flip the pin.
+
 ## Client controller (shared, ported to web + native)
 
 `shared/videoDate/` is the platform-agnostic session controller (pure TS — no
@@ -200,6 +218,7 @@ shared (canonical, not advisory) across both platforms. Parity is pinned by
 | Provider operational QA | `dailyProviderOperationalQa`, `bunnyProviderOperationalQa`, `onesignalProviderOperationalQa` |
 | Web/native parity | `nativeReadyGateParityContract` |
 | Shared controller | `shared/videoDate/videoDateNavigationIntents.test.ts`, `videoDateSessionController.test.ts`, `videoDateSurfaceRouteDecision.test.ts` |
+| Validation follow-ups (vibe-questions transport exception, size-regrowth ceilings) | `videoDateValidationFollowupContracts` |
 
 `npm run test:video-date:red-flags` is the fast subset (ready-gate, evidence,
 survey, truth pins, controller). Static tests are never product acceptance —

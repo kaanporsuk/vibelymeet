@@ -58,7 +58,7 @@ export function useNativeReadyGateMediaPermissions(deps: NativeReadyGateMediaPer
       if (activeSessionIdRef.current !== activeSessionId) return;
       setNativeMediaDiagnostics(next);
     },
-    [hasMediaPermission],
+    [activeSessionIdRef, hasMediaPermission, setNativeMediaDiagnostics],
   );
 
   const applyMediaPermissionResult = useCallback(
@@ -86,7 +86,12 @@ export function useNativeReadyGateMediaPermissions(deps: NativeReadyGateMediaPer
       void refreshNativeMediaDiagnostics(result.ok);
       return result.ok;
     },
-    [refreshNativeMediaDiagnostics],
+    [
+      refreshNativeMediaDiagnostics,
+      setHasMediaPermission,
+      setNativePermissionDiagnostics,
+      setPermissionsResolved,
+    ],
   );
 
   const checkMediaPermissions = useCallback(async (): Promise<boolean> => {
@@ -130,7 +135,7 @@ export function useNativeReadyGateMediaPermissions(deps: NativeReadyGateMediaPer
       permissionSettingsOpenedRef.current = false;
       void checkMediaPermissions();
     }
-  }, [checkMediaPermissions]);
+  }, [checkMediaPermissions, permissionSettingsOpenedRef]);
 
   return {
     refreshNativeMediaDiagnostics,

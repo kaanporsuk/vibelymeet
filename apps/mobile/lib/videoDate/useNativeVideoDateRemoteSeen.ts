@@ -364,10 +364,17 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
       stamp(source, 1);
     },
     [
+      activeNativeDailyCallIdentityRef,
+      callRef,
       clearDailyAliveHeartbeatTimer,
       eventId,
       openNativePostDateSurveyFromTerminalTruth,
       refetchVideoSession,
+      remoteSeenActiveSessionRef,
+      remoteSeenInFlightSessionRef,
+      remoteSeenLastStampRef,
+      remoteSeenRetryTimerRef,
+      roomNameRef,
       sessionId,
       user?.id,
     ],
@@ -380,7 +387,7 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
         markRemoteSeenOnServerRef.current = null;
       }
     };
-  }, [markRemoteSeenOnServer]);
+  }, [markRemoteSeenOnServer, markRemoteSeenOnServerRef]);
 
   useEffect(() => {
     remoteSeenActiveSessionRef.current = sessionId ?? null;
@@ -393,7 +400,14 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
       remoteSeenLastStampRef.current = null;
       activeNativeDailyCallIdentityRef.current = null;
     };
-  }, [sessionId]);
+  }, [
+    activeNativeDailyCallIdentityRef,
+    remoteSeenActiveSessionRef,
+    remoteSeenInFlightSessionRef,
+    remoteSeenLastStampRef,
+    remoteSeenRetryTimerRef,
+    sessionId,
+  ]);
 
   return {
     markRemoteSeenOnServer,

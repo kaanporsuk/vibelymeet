@@ -160,14 +160,21 @@ export function useVideoDateBroadcastReconcile(
         },
       );
     },
-    [eventId, id, refetchCredits, user?.id],
+    [
+      eventId,
+      extensionBroadcastSeenRef,
+      id,
+      refetchCredits,
+      setPendingPartnerExtension,
+      user?.id,
+    ],
   );
 
   const clearBroadcastGapRetryTimer = useCallback(() => {
     if (!broadcastGapRetryTimerRef.current) return;
     clearTimeout(broadcastGapRetryTimerRef.current);
     broadcastGapRetryTimerRef.current = null;
-  }, []);
+  }, [broadcastGapRetryTimerRef]);
 
   const attemptBroadcastGapSnapshotRecovery = useCallback(
     async (source: string) => {
@@ -244,10 +251,15 @@ export function useVideoDateBroadcastReconcile(
     },
     [
       applyTimelineSnapshot,
+      broadcastGapRecoveryRef,
+      broadcastGapRetryTimerRef,
+      broadcastRefetchInFlightRef,
       clearBroadcastGapRetryTimer,
       eventId,
       id,
       recoverTerminalPostDateSurvey,
+      sessionSeqRef,
+      setTimingRefreshNonce,
       user?.id,
       videoDateAccess,
     ],
@@ -359,11 +371,16 @@ export function useVideoDateBroadcastReconcile(
     [
       applyTimelineSnapshot,
       attemptBroadcastGapSnapshotRecovery,
+      broadcastGapRecoveryRef,
+      broadcastPendingRefetchSeqRef,
+      broadcastRefetchInFlightRef,
       clearBroadcastGapRetryTimer,
       eventId,
       handleExtensionBroadcastEvent,
       id,
       recoverTerminalPostDateSurvey,
+      sessionSeqRef,
+      setTimingRefreshNonce,
       user?.id,
       videoDateAccess,
     ],
@@ -399,6 +416,7 @@ export function useVideoDateBroadcastReconcile(
       broadcastGapRecoveryRef.current = null;
     };
   }, [
+    broadcastGapRecoveryRef,
     clearBroadcastGapRetryTimer,
     eventId,
     id,

@@ -3407,13 +3407,19 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
       nativeDailyCallSingletonState.sharedNativePrejoinPipelineEntry = null;
     });
     return () => {
+      // The preserve-vs-cancel decision must read call/route truth at
+      // cleanup time (preserve-in-flight pipeline across same-session
+      // remounts); values frozen at effect setup would decide on stale
+      // truth.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional teardown-time read (see above)
+      const boundCallAtCleanup = boundCallRef.current;
       if (callRef.current) {
         vdbg("daily_call_listeners_preserved", {
           reason: "prejoin_effect_cleanup_live_call",
           sessionId,
           userId: user?.id ?? null,
-          hasBoundCall: Boolean(boundCallRef.current),
-          sameCall: boundCallRef.current === callRef.current,
+          hasBoundCall: Boolean(boundCallAtCleanup),
+          sameCall: boundCallAtCleanup === callRef.current,
         });
       } else {
         detachCallListeners("prejoin_effect_cleanup");
@@ -3437,8 +3443,11 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
         });
       }
       const sameSessionAndUser =
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional teardown-time read (see cleanup note above)
         latestDateRouteSessionIdRef.current === sessionId &&
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional teardown-time read (see cleanup note above)
         latestDateRouteUserIdRef.current === (user?.id ?? null) &&
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional teardown-time read (see cleanup note above)
         !latestDateRouteEndedRef.current;
       const preserveInFlight =
         sameSessionAndUser &&

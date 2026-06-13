@@ -361,11 +361,26 @@ export function useNativeVideoDateAppStateBackground(deps: NativeVideoDateAppSta
       sub.remove();
     };
   }, [
+    appStateAwaySessionRef,
+    appStateBackgroundIntervalRef,
+    appStateBackgroundStartedAtRef,
+    appStateBackgroundTimerRef,
+    appStateExpiredSessionRef,
+    appStateRecoveredTimerRef,
+    callRef,
     cleanupDailyAndLocalState,
     confirmNativeTerminalPostDateRecovery,
     eventId,
+    hasStartedJoinRef,
+    localInDailyRoomRef,
+    phaseRef,
+    requestReconnectSyncRef,
     retryBroadcastGapRecovery,
+    roomNameRef,
     sessionId,
+    setJoinAttemptNonce,
+    setNativeBackgroundGraceSeconds,
+    setNativeBackgroundStatus,
     refetchVideoSession,
   ]);
 }

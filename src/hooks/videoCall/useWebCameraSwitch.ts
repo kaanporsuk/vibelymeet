@@ -62,7 +62,7 @@ export function useWebCameraSwitch(deps: VideoCallSharedRuntime) {
       }
       return getLocalCameraSnapshot(localParticipant);
     },
-    [],
+    [latestLocalParticipantRef],
   );
 
   const waitForLocalCameraSwitchCommit = useCallback(
@@ -222,7 +222,12 @@ export function useWebCameraSwitch(deps: VideoCallSharedRuntime) {
         stream?.getAudioTracks().forEach((track) => track.stop());
       }
     },
-    [waitForLocalCameraSwitchCommit],
+    [
+      activeCallSessionIdRef,
+      captureProfileRef,
+      optionsRef,
+      waitForLocalCameraSwitchCommit,
+    ],
   );
 
   const switchToDeterministicWebCamera = useCallback(
@@ -314,7 +319,7 @@ export function useWebCameraSwitch(deps: VideoCallSharedRuntime) {
         commitLatencyMs: hint.commitLatencyMs,
       });
     },
-    [],
+    [activeCallSessionIdRef, optionsRef],
   );
   useEffect(() => {
     let cancelled = false;
@@ -344,7 +349,7 @@ export function useWebCameraSwitch(deps: VideoCallSharedRuntime) {
     return () => {
       cancelled = true;
     };
-  }, [isConnected, isVideoOff, localStream]);
+  }, [callObjectRef, isConnected, isVideoOff, localStream, setCanFlipCamera]);
 
   const flipCamera = useCallback(async () => {
     const co = callObjectRef.current;
@@ -488,10 +493,16 @@ export function useWebCameraSwitch(deps: VideoCallSharedRuntime) {
       setIsFlippingCamera(false);
     }
   }, [
+    activeCallSessionIdRef,
+    callObjectRef,
+    cameraSwitchInFlightRef,
     isFlippingCamera,
     isVideoOff,
+    optionsRef,
     readLocalCameraSnapshot,
     sendCommittedCameraSwitchHint,
+    setCanFlipCamera,
+    setIsFlippingCamera,
     switchToDeterministicWebCamera,
     waitForLocalCameraSwitchCommit,
   ]);

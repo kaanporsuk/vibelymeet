@@ -97,7 +97,7 @@ export function useNativeVideoDateCameraControls(deps: NativeVideoDateCameraCont
     // Daily: setLocalAudio(true) = mic on, false = mic off.
     call.setLocalAudio(!nextMuted);
     setIsMuted(nextMuted);
-  }, [isMuted]);
+  }, [callRef, isMuted, setIsMuted]);
 
   const toggleVideo = useCallback(() => {
     const call = callRef.current;
@@ -105,7 +105,7 @@ export function useNativeVideoDateCameraControls(deps: NativeVideoDateCameraCont
     const nextVideoOff = !isVideoOff;
     call.setLocalVideo(!nextVideoOff);
     setIsVideoOff(nextVideoOff);
-  }, [isVideoOff]);
+  }, [callRef, isVideoOff, setIsVideoOff]);
 
   const readNativeLocalCameraSnapshot = useCallback(
     (call: DailyCallObject | null | undefined) => {
@@ -123,7 +123,7 @@ export function useNativeVideoDateCameraControls(deps: NativeVideoDateCameraCont
       }
       return nativeLocalCameraSnapshot(local);
     },
-    [],
+    [localParticipantRef],
   );
 
   const waitForNativeCameraSwitchCommit = useCallback(
@@ -232,11 +232,11 @@ export function useNativeVideoDateCameraControls(deps: NativeVideoDateCameraCont
     return () => {
       cancelled = true;
     };
-  }, [isVideoOff, localParticipant, joinAttemptNonce]);
+  }, [callRef, isVideoOff, localParticipant, joinAttemptNonce, setCanFlipCamera]);
 
   useEffect(() => {
     if (isVideoOff) setCanFlipCamera(false);
-  }, [isVideoOff]);
+  }, [isVideoOff, setCanFlipCamera]);
 
   const handleFlipCamera = useCallback(async () => {
     const call = callRef.current;
@@ -441,11 +441,15 @@ export function useNativeVideoDateCameraControls(deps: NativeVideoDateCameraCont
       setIsFlippingCamera(false);
     }
   }, [
+    callRef,
     eventId,
     isFlippingCamera,
     isVideoOff,
+    nativeCameraSwitchInFlightRef,
     readNativeLocalCameraSnapshot,
     sessionId,
+    setCanFlipCamera,
+    setIsFlippingCamera,
     waitForNativeCameraSwitchCommit,
   ]);
 
