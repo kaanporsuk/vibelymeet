@@ -718,8 +718,8 @@ export function consumeWebVideoDateDailyPrewarm(params: {
 export function peekWebVideoDateDailyPrewarm(params: {
   sessionId: string;
   userId: string;
-  roomName: string;
-  roomUrl: string;
+  roomName?: string | null;
+  roomUrl?: string | null;
   captureProfile?: VideoDateWebMediaCaptureProfile;
 }): WebDailyPrewarmConsumeResult {
   if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
@@ -728,7 +728,10 @@ export function peekWebVideoDateDailyPrewarm(params: {
   if (entry.expiresAtMs <= Date.now()) {
     return { ok: false, reason: "expired" };
   }
-  if (entry.roomUrl !== params.roomUrl || entry.roomName !== params.roomName) {
+  if (
+    (params.roomUrl != null && entry.roomUrl !== params.roomUrl) ||
+    (params.roomName != null && entry.roomName !== params.roomName)
+  ) {
     return { ok: false, reason: "room_mismatch" };
   }
   if (

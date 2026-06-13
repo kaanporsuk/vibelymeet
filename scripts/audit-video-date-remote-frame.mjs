@@ -202,8 +202,10 @@ assert(
     webVideoCall.includes("permission_handoff_media_acquired") &&
     webVideoCall.includes("daily_media_permission_handoff_fallback_to_preflight") &&
     webVideoCall.includes("prewarmAppAcquiredMedia") &&
-    webVideoCall.includes('releaseAppAcquiredMedia("daily_room_failed_before_media_preflight")'),
-  `${webVideoCallPath}: Video Date must create its Daily call object through helpers, prefer app-acquired capture, and release room-bound media when room acquisition fails`
+    webVideoCall.includes("runMediaPreflightBeforeRoom") &&
+    webVideoCall.includes("daily_room_failed_after_media_preflight") &&
+    webVideoCall.includes("daily_room_failed_before_media_preflight"),
+  `${webVideoCallPath}: Video Date must create its Daily call object through helpers, prefer app-acquired capture, preflight before room by default, and release room-bound media when room acquisition fails`
 );
 assert(
   webDailyPrewarm.includes("dailyVideoDateCallObjectOptionsWithAppAcquiredMedia") &&

@@ -109,6 +109,7 @@ import {
 import {
   consumeWebDailyCallSingleton,
   getWebVideoDateStartGateEntry,
+  hasReusableWebDailyCallSingleton,
   registerWebVideoDateStartGateEntry,
   VideoCallStartFailure,
   VideoCallStartResult,
@@ -880,6 +881,61 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           entryStarted: Boolean(truthRow.entry_started_at),
         });
 
+        let captureProfileForCall = captureProfileRef.current;
+        const hasReusableDailySingletonBeforeRoom = userId
+          ? hasReusableWebDailyCallSingleton({
+              userId,
+              nextSessionId: sessionId,
+            })
+          : false;
+        const prewarmPeekBeforeRoom = hasReusableDailySingletonBeforeRoom
+          ? { ok: false as const, reason: "daily_call_singleton_reused" }
+          : userId
+            ? peekWebVideoDateDailyPrewarm({
+                sessionId,
+                userId,
+              })
+            : { ok: false as const, reason: "missing_user" };
+        if (prewarmPeekBeforeRoom.ok === true) {
+          captureProfileForCall = prewarmPeekBeforeRoom.entry.captureProfile;
+          captureProfileRef.current = prewarmPeekBeforeRoom.entry.captureProfile;
+          setCaptureProfile(prewarmPeekBeforeRoom.entry.captureProfile);
+        }
+        const prewarmAppAcquiredMediaBeforeRoom =
+          prewarmPeekBeforeRoom.ok === true &&
+          Boolean(prewarmPeekBeforeRoom.entry.appAcquiredMedia);
+        const runMediaPreflightBeforeRoom =
+          !hasReusableDailySingletonBeforeRoom &&
+          !prewarmAppAcquiredMediaBeforeRoom;
+        if (runMediaPreflightBeforeRoom) {
+          const mediaAllowedBeforeRoom = await preflightMediaPermission(
+            sessionId,
+            truthRow.event_id ?? eventId,
+            userId,
+            mediaPromptIntent,
+          );
+          if (!mediaAllowedBeforeRoom) {
+            setIsConnecting(false);
+            return {
+              ok: false,
+              failure: { kind: "media_permission_denied", retryable: true },
+            } as VideoCallStartResult;
+          }
+        } else {
+          setHasPermission(true);
+          setMediaPermissionResult(null);
+          setMediaPermissionError(null);
+          vdbg("daily_media_permission_preflight_skipped_before_room", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            source: hasReusableDailySingletonBeforeRoom
+              ? "daily_call_singleton"
+              : "daily_prewarm_app_acquired_media",
+            prewarmAppAcquiredMedia: prewarmAppAcquiredMediaBeforeRoom,
+          });
+        }
+
         const roomResult = await acquireDateRoom(
           sessionId,
           truthRow.event_id ?? eventId,
@@ -887,7 +943,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           truthRow,
         );
         if (roomResult.ok === false) {
-          releaseAppAcquiredMedia("daily_room_failed_before_media_preflight");
+          releaseAppAcquiredMedia(
+            runMediaPreflightBeforeRoom
+              ? "daily_room_failed_after_media_preflight"
+              : "daily_room_failed_before_media_preflight",
+          );
           setIsConnecting(false);
           return {
             ok: false,
@@ -1188,7 +1248,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
 
         roomNameRef.current = roomData.room_name;
 
-        let captureProfileForCall = captureProfileRef.current;
         const singletonCall = userId
           ? consumeWebDailyCallSingleton({
               userId,
@@ -1291,14 +1350,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
         adoptPrewarmAppAcquiredMedia();
         const skipMediaPreflightForReusableDailyMedia =
           singletonCall.ok === true || Boolean(prewarmAppAcquiredMedia);
-        const mediaAllowed = skipMediaPreflightForReusableDailyMedia
-          ? true
-          : await preflightMediaPermission(
-              sessionId,
-              truthRow.event_id ?? eventId,
-              userId,
-              mediaPromptIntent,
-            );
         if (skipMediaPreflightForReusableDailyMedia) {
           setHasPermission(true);
           setMediaPermissionResult(null);
@@ -1314,13 +1365,6 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             roomName: roomData.room_name,
             prewarmAppAcquiredMedia: Boolean(prewarmAppAcquiredMedia),
           });
-        }
-        if (!mediaAllowed) {
-          setIsConnecting(false);
-          return {
-            ok: false,
-            failure: { kind: "media_permission_denied", retryable: true },
-          } as VideoCallStartResult;
         }
         if (
           prewarmedCall.ok === false &&
