@@ -32,17 +32,26 @@ All share the signature `(p_session_id uuid, p_action text, p_reason text)`.
 
 ### `functions/public-heads/` (16 files)
 
-`pg_get_functiondef()` for the public RPC heads that constitute the
+`pg_get_functiondef()` dumps for the public RPC heads. 12 are the live
 client/Edge-facing Video Date surface:
 
 `video_date_transition`, `ready_gate_transition`, `video_session_mark_ready_v2`,
 `mark_video_date_daily_joined`, `mark_video_date_daily_alive`,
 `mark_video_date_remote_seen`, `claim_video_date_surface`,
-`release_video_date_surface_claim`, `video_session_handshake_auto_promote_v2`,
-`finalize_video_date_entry_deadline`, `finalize_video_date_handshake_deadline`,
+`release_video_date_surface_claim`, `finalize_video_date_entry_deadline`,
 `expire_stale_video_sessions`, `confirm_video_date_entry_prepared`,
-`submit_post_date_verdict_v3`, `video_session_forfeit_v2`,
-`video_session_date_timeout_v2`.
+`submit_post_date_verdict_v3`.
+
+The remaining 4 are **dropped-chain history pins** — the live function is gone,
+but the last `pg_get_functiondef()` dump is retained as a frozen reference so
+the truth-pin suites can assert the dropped contract and any silent revival is
+detectable. These are tracked in `scripts/check-contract-fixture-drift.mjs`'s
+`DROPPED_HISTORY` and the live function is EXPECTED to be absent:
+
+`finalize_video_date_handshake_deadline` (PR-5 vocab flip →
+`finalize_video_date_entry_deadline`), `video_session_handshake_auto_promote_v2`,
+`video_session_forfeit_v2`, `video_session_date_timeout_v2` (PR-8 frozen v2
+family drop, migration `20260612134101`).
 
 ### `snapshots/`
 

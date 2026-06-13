@@ -18,13 +18,26 @@ const migration = read(
 );
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 
-function functionBody(name: string): string {
-  const start = migration.indexOf(`CREATE OR REPLACE FUNCTION public.${name}`);
+function functionBodyIn(source: string, name: string): string {
+  const start = source.indexOf(`CREATE OR REPLACE FUNCTION public.${name}`);
   assert.notEqual(start, -1, `${name} should be recreated by the migration`);
-  const end = migration.indexOf("$function$;", start);
+  const end = source.indexOf("$function$;", start);
   assert.notEqual(end, -1, `${name} should have a dollar-quoted body`);
-  return migration.slice(start, end);
+  return source.slice(start, end);
 }
+
+function functionBody(name: string): string {
+  return functionBodyIn(migration, name);
+}
+
+// PR #1311 (20260612200500) consolidated the claim-surface post-date-survey
+// gate from the dropped bare v1 helper to the v2 (confirmed-encounter) helper.
+// Pin the claim survey gate against that live consolidated body, not the
+// superseded PR-3 (20260611190852) v1 generation (review P1 on PR #1311).
+const claimBodyConsolidated = functionBodyIn(
+  read("supabase/migrations/20260612200500_vd_survey_eligible_v1_consolidation.sql"),
+  "claim_video_date_surface",
+);
 
 const claimBody = functionBody("claim_video_date_surface");
 const aliveBody = functionBody("mark_video_date_daily_alive");
@@ -156,7 +169,10 @@ test("claim single body keeps single-active-owner semantics, claim events, and t
   // Surface vocabulary + per-surface gating.
   assert.match(claimBody, /'ready_gate', 'video_date', 'post_date_survey'/);
   assert.match(claimBody, /video_date_session_is_active_surface\(/);
-  assert.match(claimBody, /video_date_session_is_post_date_survey_eligible\(/);
+  // Live truth: the claim survey gate now calls the v2 (confirmed-encounter)
+  // helper after the PR #1311 consolidation dropped the bare v1 generation.
+  assert.match(claimBodyConsolidated, /video_date_session_is_post_date_survey_eligible_v2\(/);
+  assert.doesNotMatch(claimBodyConsolidated, /video_date_session_is_post_date_survey_eligible\(/);
 
   // Single-active-owner: stale expiry, conflict gating behind takeover.
   assert.match(claimBody, /AND expires_at <= v_now/);
