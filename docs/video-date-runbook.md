@@ -27,7 +27,9 @@ Room-cleanup consolidation stage 1 landed 2026-06-13: the merged
 `docs/investigations/video-date-room-cleanup-consolidation-plan.md`). The
 reconciliation cadence is gated by the newest `reconciliation_run` audit row;
 interval override: `VIDEO_DATE_ROOM_CLEANUP_RECONCILIATION_INTERVAL_SECONDS`
-(default 600). Force a pass manually (service-side, no secrets printed):
+(default 600). `dry_run: true` makes the whole invocation read-only (the
+mutating session pass is skipped too, and the marker never advances). Force a
+pass manually (service-side, no secrets printed):
 
 ```sql
 SELECT net.http_post(

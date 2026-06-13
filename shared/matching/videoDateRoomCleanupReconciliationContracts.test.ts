@@ -29,9 +29,13 @@ test("merged cleanup wires the reconciliation pass into the minute cron entrypoi
   assert.match(cleanupIndex, /force: reconcileForced,/);
   assert.match(cleanupIndex, /dryRun: reconcileDryRun,/);
   assert.match(cleanupIndex, /source: reconcileSource,/);
-  // Operator/manual probe contract: reconcile_now forces a pass; dry_run never deletes.
+  // Operator/manual probe contract: reconcile_now forces a pass; dry_run makes the WHOLE
+  // invocation read-only — the mutating session pass is skipped, not just reconciliation
+  // deletes (review follow-up on the documented manual probe).
   assert.match(cleanupIndex, /requestBody\.reconcile_now === true/);
   assert.match(cleanupIndex, /requestBody\.dry_run === true/);
+  assert.match(cleanupIndex, /if \(!reconcileDryRun\) \{/);
+  assert.match(cleanupIndex, /session_pass: reconcileDryRun \? "skipped_dry_run" : "ran"/);
   // The outcome is observable in both the summary log and the HTTP response.
   const reconciliationMentions = cleanupIndex.match(/reconciliation,/g) ?? [];
   assert.ok(reconciliationMentions.length >= 2, "summary log and response both report the pass");

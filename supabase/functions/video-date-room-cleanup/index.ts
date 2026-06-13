@@ -403,24 +403,31 @@ serve(async (req) => {
   const nowMs = Date.now();
   const cutoffIso = new Date(nowMs - DELETE_GRACE_MS).toISOString();
 
-  const { data: rows, error } = await supabase
-    .from("video_sessions")
-    .select(
-      "id, daily_room_name, daily_room_provider_deleted_at, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
-    )
-    .not("ended_at", "is", null)
-    .not("daily_room_name", "is", null)
-    .is("daily_room_provider_deleted_at", null)
-    .lte("ended_at", cutoffIso)
-    .order("ended_at", { ascending: true })
-    .limit(40);
+  // dry_run makes the whole invocation read-only: the session pass (which deletes rooms and
+  // stamps sessions) is skipped entirely, not just the reconciliation deletes. Cron ticks post
+  // an empty body and are unaffected.
+  let rows: VideoDateCleanupRow[] | null = null;
+  if (!reconcileDryRun) {
+    const { data, error } = await supabase
+      .from("video_sessions")
+      .select(
+        "id, daily_room_name, daily_room_provider_deleted_at, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
+      )
+      .not("ended_at", "is", null)
+      .not("daily_room_name", "is", null)
+      .is("daily_room_provider_deleted_at", null)
+      .lte("ended_at", cutoffIso)
+      .order("ended_at", { ascending: true })
+      .limit(40);
 
-  if (error) {
-    console.error("video-date-room-cleanup query:", error);
-    return new Response(JSON.stringify({ ok: false, error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    if (error) {
+      console.error("video-date-room-cleanup query:", error);
+      return new Response(JSON.stringify({ ok: false, error: error.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    rows = (data ?? []) as VideoDateCleanupRow[];
   }
 
   let deleted = 0;
@@ -642,6 +649,7 @@ serve(async (req) => {
       delete_failed: deleteFailed,
       provider_rate_limited: providerRateLimited,
       retry_after_seconds: retryAfterSeconds,
+      session_pass: reconcileDryRun ? "skipped_dry_run" : "ran",
       reconciliation,
     }),
   );
@@ -658,6 +666,7 @@ serve(async (req) => {
       deferred_unsafe_state: deferredUnsafeState,
       delete_failed: deleteFailed,
       provider_rate_limited: providerRateLimited,
+      session_pass: reconcileDryRun ? "skipped_dry_run" : "ran",
       reconciliation,
       ...(retryAfterSeconds != null
         ? {
