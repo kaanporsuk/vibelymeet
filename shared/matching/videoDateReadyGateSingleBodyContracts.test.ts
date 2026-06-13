@@ -327,6 +327,35 @@ test("re-dumped truth-pin head fixtures carry the single-body markers", () => {
   assert.doesNotMatch(markReadyFixture, /vd_mark_ready_20260609130139_hot_base/);
 });
 
+test("review-comments 1298-1305: actionability resolves terminal SESSION_ENDED before the non-ready-gate shortcut", () => {
+  // PR #1304's single-body rewrite reordered the owner-eligibility branches so
+  // the non_ready_gate_owned shortcut (which an ended session matches via
+  // state IS DISTINCT FROM 'ready_gate') ran ahead of the SESSION_ENDED
+  // terminal branch, reporting ended sessions as actionable (Codex P1 on
+  // PR #1304). This follow-up migration restores terminal-first ordering in
+  // the live single body; the pre-rebuild invariant is also pinned by
+  // readyGatePartialReadyDefinitiveClosure.test.ts.
+  const followup = read(
+    "supabase/migrations/20260613113508_review_comments_1298_1305_actionability_terminal_order.sql",
+  );
+  const body = functionBody(followup, "video_date_ready_gate_actionability_v1");
+  const terminalIndex = body.indexOf("v_session.ended_at IS NOT NULL");
+  const nonReadyGateOwnedIndex = body.indexOf("'non_ready_gate_owned', true");
+  assert.ok(terminalIndex >= 0, "missing terminal SESSION_ENDED guard");
+  assert.ok(nonReadyGateOwnedIndex >= 0, "missing non_ready_gate_owned branch");
+  assert.ok(
+    terminalIndex < nonReadyGateOwnedIndex,
+    "terminal sessions must resolve as SESSION_ENDED before the non-ready-gate-owned shortcut",
+  );
+  // Pure reorder: one CREATE OR REPLACE, unchanged signature, no DROP.
+  assert.equal((followup.match(/CREATE OR REPLACE FUNCTION public\./g) ?? []).length, 1);
+  assert.ok(!followup.includes("DROP FUNCTION"), "follow-up must not drop functions");
+  assert.match(
+    followup,
+    /CREATE OR REPLACE FUNCTION public\.video_date_ready_gate_actionability_v1\(\s*p_session_id uuid,\s*p_actor_id uuid DEFAULT auth\.uid\(\),\s*p_source text DEFAULT 'video_date_ready_gate_actionability_v1'::text,\s*p_allow_actor_owned_snooze boolean DEFAULT false,\s*p_require_current_ready_gate_registration boolean DEFAULT true,\s*p_terminalize_invalid boolean DEFAULT false,\s*p_lock_rows boolean DEFAULT false\s*\)/,
+  );
+});
+
 test("contract suite wiring includes these pins in v4 and red-flag batteries", () => {
   const wiring = /videoDateReadyGateSingleBodyContracts\.test\.ts/g;
   const hits = packageJson.match(wiring)?.length ?? 0;

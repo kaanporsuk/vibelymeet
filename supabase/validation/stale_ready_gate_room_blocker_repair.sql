@@ -32,18 +32,27 @@ select
   and def not like '%vs.ended_at IS NULL%AND vs.state IS DISTINCT FROM ''ended''%' as ok
 from trig;
 
+-- Retargeted to the folded single body (review 1298-1305 / PR #1305): the
+-- bounded alias was dropped and folded into public.expire_stale_video_sessions(),
+-- which still wraps stale pre-date ready-gate room recovery/metadata repair.
+-- Casting the dropped signature here used to abort the pack with
+-- undefined_function under ON_ERROR_STOP.
 with cleanup as (
-  select pg_get_functiondef('public.expire_stale_video_sessions_bounded(integer)'::regprocedure) as def
+  select pg_get_functiondef('public.expire_stale_video_sessions()'::regprocedure) as def
 )
 select
   'expire_cleanup_wraps_stale_room_metadata_repair' as check_name,
   def like '%public.terminalize_stale_pre_date_ready_gate_blockers(%'
-  and def like '%expire_stale_vsessions_bounded_202605060900_base%' as ok
+  and def like '%public.recover_ready_gate_missing_rooms_v1(%' as ok
 from cleanup;
 
+-- *_202605060900_base was folded into public.expire_stale_video_sessions() and
+-- dropped (review 1298-1305 / PR #1305). The 63-char truncation collision must
+-- still never exist, and the fold target must be present.
 select
   'stale_cleanup_base_name_is_not_truncated' as check_name,
-  to_regprocedure('public.expire_stale_vsessions_bounded_202605060900_base(integer)') is not null
+  to_regprocedure('public.expire_stale_vsessions_bounded_202605060900_base(integer)') is null
+  and to_regprocedure('public.expire_stale_video_sessions()') is not null
   and not exists (
     select 1
     from pg_proc p

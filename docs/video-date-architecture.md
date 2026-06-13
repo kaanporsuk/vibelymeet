@@ -27,7 +27,11 @@ as `'in_entry'` for one release.
   per user is enforced by the `enforce_one_active_video_session` trigger.
 - **The `daily-room` Edge Function is the sole Daily room/token minter.**
   `prepare_date_entry` runs: actionability precheck
-  (`video_date_ready_gate_actionability_v1`) → prepare-lease protection
+  (`video_date_ready_gate_actionability_v1`; the terminal `SESSION_ENDED` check
+  evaluates before the non-ready-gate-owned shortcut so an ended session is never
+  reported as actionable — see migration
+  `20260613113508_review_comments_1298_1305_actionability_terminal_order.sql`) →
+  prepare-lease protection
   (`video_date_protect_both_ready_entry_v1`, 90s lease on a virgin `both_ready`
   gate) → deterministic room creation → `confirm_video_date_entry_prepared` →
   meeting token. No other surface mints rooms or tokens

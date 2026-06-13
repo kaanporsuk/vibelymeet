@@ -729,13 +729,17 @@ export type VideoSessionDateEntryTruth = {
 
 export async function fetchVideoSessionDateEntryTruth(
   sessionId: string,
-  options?: { throwOnError?: boolean },
+  options?: { throwOnError?: boolean; fresh?: boolean },
 ): Promise<VideoSessionDateEntryTruth | null> {
-  const snapshot = await fetchVideoDateStartSnapshot(sessionId);
+  // Mutation-verification callers pass { fresh: true } so a post-RPC read does
+  // not confirm against a pre-mutation snapshot/row cached within 300ms by a
+  // concurrent date-route poller (review P2 on PR #1300).
+  const fresh = options?.fresh === true;
+  const snapshot = await fetchVideoDateStartSnapshot(sessionId, { fresh });
   const snapshotTruth = videoDateStartSnapshotToDateEntryTruth(snapshot);
   if (snapshotTruth) return snapshotTruth as VideoSessionDateEntryTruth;
 
-  const { data, error } = await fetchVideoDateSessionRow(sessionId);
+  const { data, error } = await fetchVideoDateSessionRow(sessionId, { fresh });
   if (error) {
     if (options?.throwOnError) {
       throw new Error(error.message || error.code || 'video_session_truth_query_failed');
@@ -1054,7 +1058,10 @@ export async function recordEntryDecision(
       };
     },
     fetchTruth: async () => {
-      const truth = await fetchVideoSessionDateEntryTruth(sessionId);
+      // Post-mutation verification must read live truth, never a cached
+      // pre-decision row, or a persisted decision can look unsaved and trigger
+      // a spurious retry / false save failure (review P2 on PR #1300).
+      const truth = await fetchVideoSessionDateEntryTruth(sessionId, { fresh: true });
       return { truth };
     },
     log: (event, payload) => {
@@ -1124,7 +1131,9 @@ export async function completeEntry(
   });
   vdbg('video_date_transition_before', { action: 'complete_entry', args });
   const { data, error } = await supabase.rpc('video_date_transition', args);
-  const truthAfter = await fetchVideoSessionDateEntryTruth(sessionId);
+  // Fresh read: the post-transition truth must reflect this RPC, not a
+  // pre-mutation cached row (review P2 on PR #1300).
+  const truthAfter = await fetchVideoSessionDateEntryTruth(sessionId, { fresh: true });
   vdbg('video_date_transition_after', {
     action: 'complete_entry',
     ok: !error,
