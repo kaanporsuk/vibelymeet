@@ -1606,7 +1606,9 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(readyGateOverlay, /permission_state: permissionResult\.permissionState/);
   assert.match(readyGateOverlay, /recovery_action: permissionResult\.recoveryAction/);
   assert.match(webVideoCallHook, /prewarmAppAcquiredMedia/);
-  assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("daily_room_failed_after_media_preflight"\)/);
+  assert.match(webVideoCallHook, /runMediaPreflightBeforeRoom/);
+  assert.match(webVideoCallHook, /daily_room_failed_after_media_preflight/);
+  assert.match(webVideoCallHook, /daily_room_failed_before_media_preflight/);
   assert.match(webVideoCallHook, /VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia \| null/);
@@ -2838,6 +2840,9 @@ test("web video date access recovery covers permission denial and playback-block
   assert.match(webVideoCallHook, /VIDEO_DATE_PLAYBACK_BLOCKED/);
   assert.match(webVideoCallHook, /VIDEO_DATE_PLAYBACK_RETRY/);
   assert.match(webVideoCallHook, /VIDEO_DATE_PLAYBACK_RECOVERED/);
+  assert.match(webVideoCallHook, /videoEl\.defaultMuted = true/);
+  assert.match(webVideoCallHook, /videoEl\.defaultMuted = false/);
+  assert.match(webVideoCallHook, /source_action: "remote_playback_retry_gesture"/);
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_BLOCKED/);
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RETRY/);
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RECOVERED/);

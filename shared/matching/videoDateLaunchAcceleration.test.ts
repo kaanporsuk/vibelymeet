@@ -100,3 +100,34 @@ test("join and first-frame telemetry expose prewarm and provider handoff context
   assert.match(webVideoCall, /media_handoff_used/);
   assert.match(webVideoCall, /media_handoff_miss_reason/);
 });
+
+test("web date route preflights before room unless Daily prewarm already owns live media", () => {
+  const preRoomPeekIndex = webVideoCall.indexOf("const prewarmPeekBeforeRoom");
+  const preflightGuardIndex = webVideoCall.indexOf("const runMediaPreflightBeforeRoom");
+  const preflightIndex = webVideoCall.indexOf("await preflightMediaPermission");
+  const acquireRoomIndex = webVideoCall.indexOf("const roomResult = await acquireDateRoom");
+  const roomBoundPeekIndex = webVideoCall.indexOf(
+    "roomName: roomData.room_name",
+    acquireRoomIndex,
+  );
+  const consumePrewarmIndex = webVideoCall.indexOf(
+    "consumeWebVideoDateDailyPrewarm({",
+    acquireRoomIndex,
+  );
+  const fallbackGetUserMediaIndex = webVideoCall.indexOf(
+    "navigator.mediaDevices.getUserMedia",
+    consumePrewarmIndex,
+  );
+
+  assert.ok(preRoomPeekIndex > -1, "web date route should peek reusable Daily media before room acquisition");
+  assert.ok(preflightGuardIndex > preRoomPeekIndex, "pre-room preflight should be guarded by reusable media proof");
+  assert.ok(preflightIndex > preflightGuardIndex, "browser media preflight should remain before room acquisition by default");
+  assert.ok(acquireRoomIndex > preflightIndex, "room preparation should happen after default media preflight");
+  assert.ok(roomBoundPeekIndex > acquireRoomIndex, "Daily prewarm must be revalidated against the prepared room");
+  assert.ok(consumePrewarmIndex > roomBoundPeekIndex, "Daily prewarm consume should stay room-bound");
+  assert.ok(fallbackGetUserMediaIndex > consumePrewarmIndex, "fallback capture should stay behind room-bound prewarm consume");
+  assert.match(webVideoCall, /const runMediaPreflightBeforeRoom =[\s\S]{0,120}!prewarmAppAcquiredMediaBeforeRoom/);
+  assert.match(webVideoCall, /daily_media_permission_preflight_skipped_before_room/);
+  assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_reused_daily_media/);
+  assert.match(webVideoCall, /source:[\s\S]{0,140}"daily_prewarm_app_acquired_media"/);
+});
