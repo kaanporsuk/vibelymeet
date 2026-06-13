@@ -768,7 +768,8 @@ const Dashboard = () => {
                   if (
                     activeSession &&
                     activeSession.kind === "video" &&
-                    (activeSession.queueStatus === "in_handshake" ||
+                    (activeSession.queueStatus === "in_entry" ||
+                      activeSession.queueStatus === "in_handshake" ||
                       activeSession.queueStatus === "in_date" ||
                       activeSession.queueStatus === "in_survey")
                   ) {

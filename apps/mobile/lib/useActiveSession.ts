@@ -32,7 +32,7 @@ import { fetchVideoDateStartSnapshot } from '@/lib/videoDateStartSnapshot';
 import { fetchVideoDatePartnerProfile } from '@/lib/videoDatePartnerProfile';
 
 export type ActiveSession =
-  | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
+  | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_entry' | 'in_handshake' | 'in_date' | 'in_survey' }
   | { kind: 'ready_gate'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_ready_gate' };
 
 type Options = { eventId?: string | null };
@@ -416,7 +416,7 @@ export function useActiveSession(
       .from('event_registrations')
       .select('event_id, current_room_id, queue_status, current_partner_id')
       .eq('profile_id', userId)
-      .in('queue_status', ['in_handshake', 'in_date', 'in_survey', 'in_ready_gate'])
+      .in('queue_status', ['in_entry', 'in_handshake', 'in_date', 'in_survey', 'in_ready_gate'])
       .not('current_room_id', 'is', null);
 
     if (regError) {
@@ -510,7 +510,7 @@ export function useActiveSession(
 
       if (session?.id) {
         const qs = reg.queue_status;
-        if (qs === 'in_ready_gate' || qs === 'in_handshake' || qs === 'in_date' || qs === 'in_survey') {
+        if (qs === 'in_ready_gate' || qs === 'in_entry' || qs === 'in_handshake' || qs === 'in_date' || qs === 'in_survey') {
           const truth = session as unknown as VideoSessionDateEntryTruth;
           const nowMs = Date.now();
           const truthDecision = decideVideoSessionRouteFromTruth(truth, nowMs);

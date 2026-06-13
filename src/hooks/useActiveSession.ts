@@ -461,7 +461,7 @@ export function useActiveSession(
       .from("event_registrations")
       .select("event_id, current_room_id, queue_status, current_partner_id")
       .eq("profile_id", userId)
-      .in("queue_status", ["in_handshake", "in_date", "in_survey", "in_ready_gate"])
+      .in("queue_status", ["in_entry", "in_handshake", "in_date", "in_survey", "in_ready_gate"])
       .not("current_room_id", "is", null);
 
     if (regError) {
@@ -654,7 +654,7 @@ export function useActiveSession(
           commitActiveSession(null, "session_not_startable");
         }
       }
-    } else if (qs === "in_handshake" || qs === "in_date") {
+    } else if (qs === "in_entry" || qs === "in_handshake" || qs === "in_date") {
       if (!freshDateRoute && truthDecision === "navigate_ready") {
         const synced = await syncReadyGateActiveSession(
           session,

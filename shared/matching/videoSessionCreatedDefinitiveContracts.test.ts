@@ -96,8 +96,8 @@ test("queued session with current_room_id remains lobby/syncing, not Ready Gate 
 
   assert.equal(decideVideoSessionRouteFromTruth(queued, NOW_MS), "stay_lobby");
   assert.equal(isActiveSessionDirectFallbackFresh(queued, NOW_MS), false);
-  assert.match(webActiveSession, /\.in\("queue_status", \["in_handshake", "in_date", "in_survey", "in_ready_gate"\]\)/);
-  assert.match(nativeActiveSession, /\.in\('queue_status', \['in_handshake', 'in_date', 'in_survey', 'in_ready_gate'\]\)/);
+  assert.match(webActiveSession, /\.in\("queue_status", \["in_entry", "in_handshake", "in_date", "in_survey", "in_ready_gate"\]\)/);
+  assert.match(nativeActiveSession, /\.in\('queue_status', \['in_entry', 'in_handshake', 'in_date', 'in_survey', 'in_ready_gate'\]\)/);
   assert.doesNotMatch(nativeActiveSession, /kind: 'syncing'/);
 });
 
