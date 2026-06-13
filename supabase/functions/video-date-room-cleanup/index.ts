@@ -14,6 +14,7 @@ import {
   ProviderRateLimitError,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
+import { maybeRunReconciliationPass } from "./reconciliation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -361,6 +362,21 @@ serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  const rawBody = await req.text().catch(() => "");
+  let requestBody: { reconcile_now?: unknown; dry_run?: unknown; source?: unknown } = {};
+  if (rawBody.trim()) {
+    try {
+      requestBody = JSON.parse(rawBody) as typeof requestBody;
+    } catch {
+      requestBody = {};
+    }
+  }
+  const reconcileForced = requestBody.reconcile_now === true;
+  const reconcileDryRun = requestBody.dry_run === true;
+  const reconcileSource = typeof requestBody.source === "string"
+    ? requestBody.source.slice(0, 80)
+    : "cron";
+
   if (!DAILY_API_KEY) {
     console.error(JSON.stringify({
       event: "video_date_room_cleanup_daily_config_blocked",
@@ -608,6 +624,12 @@ serve(async (req) => {
     }
   }
 
+  const reconciliation = await maybeRunReconciliationPass(supabase, {
+    force: reconcileForced,
+    dryRun: reconcileDryRun,
+    source: reconcileSource,
+  });
+
   console.log(
     JSON.stringify({
       event: "video-date-room-cleanup",
@@ -620,6 +642,7 @@ serve(async (req) => {
       delete_failed: deleteFailed,
       provider_rate_limited: providerRateLimited,
       retry_after_seconds: retryAfterSeconds,
+      reconciliation,
     }),
   );
 
@@ -635,6 +658,7 @@ serve(async (req) => {
       deferred_unsafe_state: deferredUnsafeState,
       delete_failed: deleteFailed,
       provider_rate_limited: providerRateLimited,
+      reconciliation,
       ...(retryAfterSeconds != null
         ? {
           retry_after_seconds: retryAfterSeconds,

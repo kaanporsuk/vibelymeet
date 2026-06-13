@@ -1,9 +1,13 @@
 # Video Date room-cleanup cron consolidation — decision + plan
 
-Date: 2026-06-12 (acceptance follow-up round 2). Status: **decided, planned,
-deliberately not implemented in the follow-up batch** — this is a behavior
-change to two incident-relevant lanes and must be its own PR with its own live
-gate.
+Date: 2026-06-12 (acceptance follow-up round 2). Status: **stage 1
+implemented 2026-06-13** — the merged `video-date-room-cleanup` runs both
+passes (reconciliation in `reconciliation.ts`, marker action
+`reconciliation_run` allowlisted by migration
+`20260613000240_vd_room_cleanup_reconciliation_marker_action`). Stage 2 — the
+orphan cron + function drop — stays gated on 24h of production
+`reconciliation_run` rows per the acceptance bar below, plus re-pointing the
+synthetic monitor's orphan dry-run probe at the merged function.
 
 ## Current state (verified live 2026-06-12)
 
