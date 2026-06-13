@@ -60,8 +60,12 @@ select
   and def like '%prepare_entry_actor_id = NULL%' as ok
 from fn;
 
+-- Retargeted to the folded single body (review 1298-1305 / PR #1305): the
+-- bounded alias and its *_202605031300_base helper were dropped and folded into
+-- public.expire_stale_video_sessions(). Casting the dropped signature here used
+-- to abort the whole pack with undefined_function under ON_ERROR_STOP.
 with fn as (
-  select pg_get_functiondef('public.expire_stale_video_sessions_bounded(integer)'::regprocedure) as def
+  select pg_get_functiondef('public.expire_stale_video_sessions()'::regprocedure) as def
 )
 select
   'expire_cleanup_preserves_active_lease_and_terminalizes_expired_lease' as check_name,
@@ -70,21 +74,19 @@ select
   and def like '%prepare_entry_expires_at <= v_now%'
   and def like '%ended_reason = ''prepare_entry_timeout''%'
   and def like '%active_prepare_entry_lease_preserved%'
-  and def like '%expire_stale_video_sessions_bounded_202605031300_base%' as ok
+  and def like '%public.expire_stale_video_date_phases_bounded(%'
+  and def like '%public.repair_stale_video_date_prepare_entries(%' as ok
 from fn;
 
--- private_video_date.vdt_prepare_lease dropped in PR 2; the remaining two
--- archived base helpers must still exist and be non-client-executable.
-with bases as (
-  select unnest(array[
-    to_regprocedure('public.confirm_vde_prepared_202605031300_base(uuid,text,text,text)'),
-    to_regprocedure('public.expire_stale_video_sessions_bounded_202605031300_base(integer)')
-  ]) as oid
-)
+-- private_video_date.vdt_prepare_lease dropped in PR 2; the two archived base
+-- helpers were folded into their single bodies and dropped (review 1298-1305 /
+-- PR #1305): confirm_vde_prepared_202605031300_base ->
+-- public.confirm_video_date_entry_prepared, and
+-- expire_stale_video_sessions_bounded_202605031300_base ->
+-- public.expire_stale_video_sessions().
 select
-  'renamed_prepare_lease_bases_are_not_client_executable' as check_name,
-  count(*) = 2
-  and bool_and(oid is not null)
-  and bool_and(not has_function_privilege('anon', oid, 'EXECUTE'))
-  and bool_and(not has_function_privilege('authenticated', oid, 'EXECUTE')) as ok
-from bases;
+  'renamed_prepare_lease_bases_are_folded_into_single_bodies' as check_name,
+  to_regprocedure('public.confirm_vde_prepared_202605031300_base(uuid,text,text,text)') is null
+  and to_regprocedure('public.expire_stale_video_sessions_bounded_202605031300_base(integer)') is null
+  and to_regprocedure('public.confirm_video_date_entry_prepared(uuid,text,text,text)') is not null
+  and to_regprocedure('public.expire_stale_video_sessions()') is not null as ok;

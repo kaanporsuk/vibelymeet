@@ -112,6 +112,12 @@ export async function fetchVideoDateSessionRow(
   if (existing) return existing;
 
   const request = (async (): Promise<VideoDateSessionRowResult> => {
+    // Stamp the cache entry with the time the read was issued, not the time it
+    // resolved. An older default read that started before a fresh recovery read
+    // must never overwrite the post-terminal row that the fresh read cached
+    // (review P2 on PR #1299): a default and fresh request can now run
+    // concurrently (split in-flight keys), and the default one can finish last.
+    const startedAt = Date.now();
     const { data, error } = await supabase
       .from("video_sessions")
       .select(VIDEO_DATE_SESSION_ROW_COLUMNS)
@@ -129,10 +135,13 @@ export async function fetchVideoDateSessionRow(
         : null,
     };
     if (!error) {
-      rowRecent.set(sessionId, { at: Date.now(), result });
-      if (rowRecent.size > 8) {
-        const oldest = rowRecent.keys().next().value;
-        if (oldest !== undefined) rowRecent.delete(oldest);
+      const existing = rowRecent.get(sessionId);
+      if (!existing || existing.at <= startedAt) {
+        rowRecent.set(sessionId, { at: startedAt, result });
+        if (rowRecent.size > 8) {
+          const oldest = rowRecent.keys().next().value;
+          if (oldest !== undefined) rowRecent.delete(oldest);
+        }
       }
     }
     return result;

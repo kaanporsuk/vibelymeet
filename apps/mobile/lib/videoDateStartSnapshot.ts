@@ -55,28 +55,47 @@ async function fetchVideoDateStartSnapshotUncached(
   }
 }
 
+// options.fresh bypasses the 300ms reuse window and the shared in-flight read
+// for post-mutation truth verification (review P2 on PR #1300): an entry
+// Vibe/Pass or complete-entry verification must never confirm against a
+// pre-mutation snapshot another date-route poller cached moments earlier.
 export async function fetchVideoDateStartSnapshot(
   sessionId: string,
+  options?: { fresh?: boolean },
 ): Promise<VideoDateStartSnapshot> {
-  const recent = snapshotRecent.get(sessionId);
-  if (recent && Date.now() - recent.at <= SNAPSHOT_REUSE_MS) {
-    return recent.snapshot;
+  if (!options?.fresh) {
+    const recent = snapshotRecent.get(sessionId);
+    if (recent && Date.now() - recent.at <= SNAPSHOT_REUSE_MS) {
+      return recent.snapshot;
+    }
+
+    const existing = snapshotInFlight.get(sessionId);
+    if (existing) return existing;
   }
 
-  const existing = snapshotInFlight.get(sessionId);
-  if (existing) return existing;
-
   const request = (async () => {
+    // Stamp the cache with issue time so an older default read cannot overwrite
+    // a newer fresh read's result; mirrors fetchVideoDateSessionRow.
+    const startedAt = Date.now();
     const snapshot = await fetchVideoDateStartSnapshotUncached(sessionId);
     if (snapshot.ok) {
-      snapshotRecent.set(sessionId, { at: Date.now(), snapshot });
-      if (snapshotRecent.size > 16) {
-        const oldest = snapshotRecent.keys().next().value;
-        if (oldest !== undefined) snapshotRecent.delete(oldest);
+      const existing = snapshotRecent.get(sessionId);
+      if (!existing || existing.at <= startedAt) {
+        snapshotRecent.set(sessionId, { at: startedAt, snapshot });
+        if (snapshotRecent.size > 16) {
+          const oldest = snapshotRecent.keys().next().value;
+          if (oldest !== undefined) snapshotRecent.delete(oldest);
+        }
       }
     }
     return snapshot;
   })();
+
+  // A fresh read bypasses reuse, so it must not be registered as the shared
+  // in-flight request that concurrent default readers would otherwise adopt.
+  if (options?.fresh) {
+    return request;
+  }
 
   snapshotInFlight.set(sessionId, request);
   try {

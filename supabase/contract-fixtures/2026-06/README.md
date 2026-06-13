@@ -30,7 +30,7 @@ with no added headers, so a future re-dump diffs cleanly against this snapshot.
 internal `vdt_*` delegation chain behind `public.video_date_transition`.
 All share the signature `(p_session_id uuid, p_action text, p_reason text)`.
 
-### `functions/public-heads/` (14 files)
+### `functions/public-heads/` (16 files)
 
 `pg_get_functiondef()` for the public RPC heads that constitute the
 client/Edge-facing Video Date surface:
@@ -41,7 +41,8 @@ client/Edge-facing Video Date surface:
 `release_video_date_surface_claim`, `video_session_handshake_auto_promote_v2`,
 `finalize_video_date_entry_deadline`, `finalize_video_date_handshake_deadline`,
 `expire_stale_video_sessions`, `confirm_video_date_entry_prepared`,
-`submit_post_date_verdict_v3`.
+`submit_post_date_verdict_v3`, `video_session_forfeit_v2`,
+`video_session_date_timeout_v2`.
 
 ### `snapshots/`
 
