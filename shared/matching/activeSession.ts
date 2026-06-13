@@ -10,6 +10,7 @@
 
 import {
   POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
+  PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON,
   canAttemptDailyRoomFromCanonicalVideoDateTruth,
   decideCanonicalVideoDateRoute,
   isVideoDateReadyGateTerminalStatus,
@@ -326,6 +327,12 @@ export function videoSessionHasTerminalEncounterExposureTruth(
   if (!row?.ended_at) return false;
   const endedReason = row.ended_reason ?? "";
   if (postDateSurveyIneligibleEndedReasons.has(endedReason)) return false;
+  if (
+    endedReason === PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON &&
+    row.date_started_at
+  ) {
+    return true;
+  }
   return videoSessionHasEncounterExposureTruth(row);
 }
 

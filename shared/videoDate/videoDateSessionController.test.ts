@@ -94,6 +94,18 @@ const PRE_STABLE_MEDIA_FAILED_TRUTH = snapshot({
   ended_reason: "pre_stable_media_failed",
 });
 
+const PROVIDER_ABSENCE_CONFIRMED_DATE_TRUTH = snapshot({
+  ...DATE_TRUTH,
+  state: "ended",
+  phase: "ended",
+  ended_at: new Date().toISOString(),
+  ended_reason: "provider_absence_after_confirmed_encounter",
+  participant_1_joined_at: null,
+  participant_2_joined_at: null,
+  participant_1_remote_seen_at: null,
+  participant_2_remote_seen_at: null,
+});
+
 function commandKinds(
   effects: ReturnType<
     ReturnType<typeof createVideoDateSessionController>["apply"]
@@ -454,6 +466,19 @@ test("terminal without survey truth → done; pre_stable_media_failed is survey-
     assert.equal(effects.route.target, "ended");
     assert.equal(effects.route.forceSurvey, false);
   }
+});
+
+test("provider absence after confirmed date enters survey_required from server truth", () => {
+  const { controller } = makeController();
+  controller.apply({ kind: "session_snapshot", snapshot: DATE_TRUTH });
+  const effects = controller.apply({
+    kind: "session_snapshot",
+    snapshot: PROVIDER_ABSENCE_CONFIRMED_DATE_TRUTH,
+  });
+  assert.equal(effects.state, "survey_required");
+  assert.equal(effects.route.target, "survey");
+  assert.equal(effects.route.forceSurvey, true);
+  assert.ok(commandKinds(effects).includes("stop_daily_alive_heartbeat"));
 });
 
 test("registration in_survey continuity pins terminal-survey recovery", () => {

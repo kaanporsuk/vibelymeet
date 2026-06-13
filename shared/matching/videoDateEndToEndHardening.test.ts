@@ -2087,6 +2087,29 @@ test("web date route opens ended-session survey only when feedback is missing", 
   assert.match(webVideoDatePage, /\(isConnecting \|\| !isConnected \|\| remotePlayback\.playRejected\)[\s\S]*!showFeedback/);
 });
 
+test("web terminal survey recovery keeps mounted survey active and checks in_survey fallback feedback", () => {
+  assert.match(sharedActiveSession, /PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON/);
+  assert.match(
+    sharedActiveSession,
+    /endedReason === PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON[\s\S]{0,120}row\.date_started_at[\s\S]{0,80}return true/s,
+  );
+  assert.match(
+    sharedVideoDateRouteDecision,
+    /endedReason === PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON[\s\S]{0,120}row\.date_started_at[\s\S]{0,80}return true/s,
+  );
+  assert.match(webVideoDatePage, /post_date_survey_open_already_active/);
+  assert.match(webVideoDatePage, /recoverFromInSurveyRegistration/);
+  assert.match(
+    webVideoDatePage,
+    /\.from\("event_registrations"\)[\s\S]*\.select\(TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT\)[\s\S]*\.eq\("queue_status", "in_survey"\)/,
+  );
+  assert.match(
+    webVideoDatePage,
+    /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", id\)[\s\S]*\.eq\("user_id", user\.id\)/,
+  );
+  assert.match(webVideoDatePage, /releaseRegistration: Boolean\(verdict\?\.id\)/);
+});
+
 test("bilateral remote video evidence gates terminal survey eligibility", () => {
   assert.match(remoteSeenEncounterGuardMigration, /ADD COLUMN IF NOT EXISTS participant_1_remote_seen_at timestamptz/);
   assert.match(remoteSeenEncounterGuardMigration, /ADD COLUMN IF NOT EXISTS participant_2_remote_seen_at timestamptz/);

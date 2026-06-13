@@ -125,6 +125,9 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "blocked_or_reported_pair",
 ] as const;
 
+export const PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON =
+  "provider_absence_after_confirmed_encounter" as const;
+
 const postDateSurveyIneligibleEndedReasons = new Set<string>(
   POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
 );
@@ -266,6 +269,12 @@ function videoDateRouteTruthHasPostDateSurvey(
   if (!row?.ended_at) return false;
   const endedReason = row.ended_reason ?? "";
   if (postDateSurveyIneligibleEndedReasons.has(endedReason)) return false;
+  if (
+    endedReason === PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON &&
+    row.date_started_at
+  ) {
+    return true;
+  }
   return videoDateRouteTruthHasEncounterExposure(row);
 }
 
