@@ -213,16 +213,16 @@ function logVdbgSessionStage(
 
 function isActiveDateQueueStatus(
   status: unknown,
-): status is "in_handshake" | "in_date" | "in_survey" {
+): status is "in_entry" | "in_handshake" | "in_date" | "in_survey" {
   return (
-    status === "in_handshake" || status === "in_date" || status === "in_survey"
+    status === "in_entry" || status === "in_handshake" || status === "in_date" || status === "in_survey"
   );
 }
 
 function isDailyEntryQueueStatus(
   status: unknown,
-): status is "in_handshake" | "in_date" {
-  return status === "in_handshake" || status === "in_date";
+): status is "in_entry" | "in_handshake" | "in_date" {
+  return status === "in_entry" || status === "in_handshake" || status === "in_date";
 }
 
 function buildEventLobbyTimeline(

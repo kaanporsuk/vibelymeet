@@ -94,7 +94,7 @@ interface ReadyGateOverlayProps {
 }
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
-const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
+const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_entry", "in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 const READY_GATE_DEGRADED_SYNC_POLL_MS = 2_500;
 const READY_GATE_RECONCILE_TIMEOUT_COOLDOWN_MS = 3_000;

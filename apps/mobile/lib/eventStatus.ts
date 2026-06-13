@@ -18,6 +18,7 @@ export type ClientWritableParticipantStatus =
 export type ParticipantStatus =
   | ClientWritableParticipantStatus
   | 'in_ready_gate'
+  | 'in_entry'
   | 'in_handshake'
   | 'in_date';
 

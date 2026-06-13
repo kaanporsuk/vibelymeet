@@ -31,7 +31,7 @@ export type ActiveSessionBase = {
   sessionId: string;
   eventId: string;
   partnerName?: string | null;
-  queueStatus: "in_handshake" | "in_date" | "in_survey" | "in_ready_gate";
+  queueStatus: "in_entry" | "in_handshake" | "in_date" | "in_survey" | "in_ready_gate";
 };
 
 export type VideoSessionTruthRouteDecision = "navigate_date" | "navigate_ready" | "stay_lobby" | "ended";
@@ -257,7 +257,7 @@ export function pickRegistrationForActiveSession<
   const withRoom = list.filter((r) => r.current_room_id);
   const video =
     withRoom.find(
-      (r) => r.queue_status === "in_handshake" || r.queue_status === "in_date" || r.queue_status === "in_survey"
+      (r) => r.queue_status === "in_entry" || r.queue_status === "in_handshake" || r.queue_status === "in_date" || r.queue_status === "in_survey"
     ) ?? null;
   if (video) return video;
   return withRoom.find((r) => r.queue_status === "in_ready_gate") ?? null;
@@ -492,8 +492,8 @@ export function inferVideoQueueStatusFromSessionTruth(
     phase?: string | null;
     date_started_at?: string | null;
   } | null
-): "in_date" | "in_handshake" {
-  if (!row) return "in_handshake";
+): "in_date" | "in_entry" {
+  if (!row) return "in_entry";
   if (videoSessionHasProviderRoom(row) && (row.state === "date" || row.phase === "date" || row.date_started_at)) return "in_date";
-  return "in_handshake";
+  return "in_entry";
 }

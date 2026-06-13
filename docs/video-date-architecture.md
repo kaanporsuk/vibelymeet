@@ -13,7 +13,11 @@ next-surface navigation. Deck/swipe internals, event registration, payments,
 chat, and profile browse are adjacent systems, not part of this flow.
 `public.event_registrations.queue_status` (text, default `'idle'`, CHECK
 `valid_queue_status`, allows `'in_survey'`) is survey-route continuity owned by
-this flow — never remove it.
+this flow — never remove it. The entry-phase value is `'in_entry'` (companion to
+the `video_sessions` `entry` phase; migration `20260613015625` flipped the legacy
+`'in_handshake'` writers + CHECK and pruned the dead queue-era values
+`searching`/`matched`/`completed`). Clients read-tolerate legacy `'in_handshake'`
+as `'in_entry'` for one release.
 
 ## Ownership model
 

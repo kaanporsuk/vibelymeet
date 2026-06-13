@@ -103,7 +103,7 @@ const SchedulePage = () => {
         .from("event_registrations")
         .select("current_room_id, event_id, queue_status")
         .eq("profile_id", user.id)
-        .in("queue_status", ["in_handshake", "in_date"])
+        .in("queue_status", ["in_entry", "in_handshake", "in_date"])
         .not("current_room_id", "is", null)
         .maybeSingle();
 

@@ -161,6 +161,10 @@ with `survey_required = false` and release both users without a survey.
 
 - Forward migrations only; never edit an applied migration — correct with a new
   one. After any apply: `npm run regen:supabase-types` (never hand-edit).
+- queue_status entry vocab is `in_entry` (migration `20260613015625`, companion
+  to the `entry` session phase). Web/native/shared read-sites read-tolerate the
+  legacy `in_handshake` value for one release; drop the legacy alternative only
+  after web is deployed and a native build carrying the flip has shipped.
 - Deploy Edge Functions only when their source changed; record deployed
   versions in the PR/branch delta.
 - Schema or Edge changes update `docs/video-date-architecture.md`, this

@@ -93,7 +93,7 @@ test("web EventLobby treats in_survey as date-stack owned and never prepares Dai
   );
   assert.match(
     webLobby,
-    /function isDailyEntryQueueStatus\([\s\S]{0,90}status: unknown,[\s\S]{0,90}\): status is "in_handshake" \| "in_date"/,
+    /function isDailyEntryQueueStatus\([\s\S]{0,90}status: unknown,[\s\S]{0,90}\): status is "in_entry" \| "in_handshake" \| "in_date"/,
   );
   assert.match(webDateNavGuard, /force\?: boolean/);
   assert.match(webDateNavGuard, /const force = options\.force === true/);

@@ -358,7 +358,7 @@ BEGIN
                   OR v_row.state = 'date'::public.video_date_state
                   OR v_row.phase = 'date'
                   THEN 'in_date'
-                ELSE 'in_handshake'
+                ELSE 'in_entry'
               END;
 
               v_result := jsonb_build_object(
@@ -476,7 +476,7 @@ BEGIN
                   OR v_row.state = 'date'::public.video_date_state
                   OR v_row.phase = 'date'
                   THEN 'in_date'
-                ELSE 'in_handshake'
+                ELSE 'in_entry'
               END;
 
               UPDATE public.event_registrations

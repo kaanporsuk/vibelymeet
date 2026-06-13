@@ -564,7 +564,7 @@ export function decideCanonicalVideoDateRoute(
 
   if (
     !hasProviderRoom &&
-    (queueStatus === "in_handshake" || queueStatus === "in_date") &&
+    (queueStatus === "in_entry" || queueStatus === "in_handshake" || queueStatus === "in_date") &&
     sessionId &&
     registration?.current_room_id === sessionId
   ) {

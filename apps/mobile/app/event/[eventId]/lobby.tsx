@@ -2087,7 +2087,7 @@ export default function EventLobbyScreen() {
             return;
           }
           if (
-            (queueStatus === "in_handshake" || queueStatus === "in_date") &&
+            (queueStatus === "in_entry" || queueStatus === "in_handshake" || queueStatus === "in_date") &&
             currentRoomId
           ) {
           navigateToDateSession(
@@ -2103,6 +2103,7 @@ export default function EventLobbyScreen() {
           }
           if (
             queueStatus === "in_ready_gate" ||
+            queueStatus === "in_entry" ||
             queueStatus === "in_handshake" ||
             queueStatus === "in_date" ||
             queueStatus === "in_survey" ||
@@ -2145,7 +2146,8 @@ export default function EventLobbyScreen() {
               return;
             }
             if (
-              (latestReg?.queue_status === "in_handshake" ||
+              (latestReg?.queue_status === "in_entry" ||
+                latestReg?.queue_status === "in_handshake" ||
                 latestReg?.queue_status === "in_date") &&
               latestReg.current_room_id
             ) {
