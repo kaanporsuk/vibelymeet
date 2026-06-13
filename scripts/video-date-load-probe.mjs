@@ -90,7 +90,12 @@ const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor((p / 10
 // ----------------------------------------------------------------- setup ----
 const ts = String(Date.now());
 const tag = `vd-load-${ts.slice(-9)}`;
-const eventId = crypto.randomUUID();
+// One disposable event PER PAIR: deck authority accepts a token-less handle_swipe
+// only when the target is the viewer's current top deck candidate
+// (event_deck_validate_presented_card NULL-token branch), so each pair gets a
+// private two-person event where the partner is always the top card.
+const eventIds = Array.from({ length: PAIRS }, () => crypto.randomUUID());
+const eventIdList = eventIds.map((id) => `'${id}'`).join(",");
 const users = [];
 for (let i = 0; i < PAIRS * 2; i += 1) {
   users.push({
@@ -117,7 +122,10 @@ const profileUpdates = users.map((u) => `
     email_verified=true, verified_email='${u.email}',
     tagline='${tag} disposable load user', discoverable=true
   WHERE id='${u.id}';`).join("");
-const regValues = users.map((u) => `('${eventId}', '${u.id}')`).join(",");
+const regValues = users.map((u, i) => `('${eventIds[Math.floor(i / 2)]}', '${u.id}')`).join(",");
+const eventValues = eventIds.map((id, i) =>
+  `('${id}', '${tag} Load Probe Event P${i + 1}', 'Disposable load-probe event. Safe to delete.',
+    '/placeholder.svg', now() - interval '5 minutes', 180, 12, 'live', 'all', true, false)`).join(",\n");
 
 await sql(`
 DO $$
@@ -137,23 +145,10 @@ BEGIN
   WHERE NOT EXISTS (SELECT 1 FROM public.notification_preferences np WHERE np.user_id = u.id);
   INSERT INTO public.events (id, title, description, cover_image, event_date, duration_minutes, max_attendees,
     status, visibility, is_free, is_test_event)
-  VALUES ('${eventId}', '${tag} Load Probe Event', 'Disposable load-probe event. Safe to delete.',
-    '/placeholder.svg', now() - interval '5 minutes', 180, ${users.length + 10}, 'live', 'all', true, false);
+  VALUES ${eventValues};
   INSERT INTO public.event_registrations (event_id, profile_id) VALUES ${regValues};
 END $$;`);
 log("fixtures created");
-
-log("signing in", users.length, "users…");
-for (const u of users) {
-  const res = await fetch(`${URL_}/auth/v1/token?grant_type=password`, {
-    method: "POST",
-    headers: { apikey: ANON, "Content-Type": "application/json" },
-    body: JSON.stringify({ email: u.email, password: u.pw }),
-  });
-  if (!res.ok) throw new Error(`signin failed for user ${u.id.slice(0, 8)}…`);
-  u.token = (await res.json()).access_token;
-}
-log("all signed in");
 
 // --------------------------------------------------------------- the run ----
 const report = { tag, pairs: PAIRS, swipe: [], markReady: [], errors: {} };
@@ -163,24 +158,83 @@ const recordError = (stage, status, payload) => {
   report.errors[key] = (report.errors[key] ?? 0) + 1;
 };
 
+async function signIn(u) {
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await sleep(1500 * attempt);
+    const res = await fetch(`${URL_}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: ANON, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: u.email, password: u.pw }),
+    });
+    if (res.ok) { u.token = (await res.json()).access_token; return; }
+    lastErr = new Error(`signin failed for user ${u.id.slice(0, 8)}… (http ${res.status})`);
+    if (res.status !== 429 && res.status < 500) throw lastErr; // non-rate-limit auth error: don't retry
+  }
+  throw lastErr;
+}
+
+// IMPORTANT: signin lives inside the try so the finally-block cleanup runs even
+// when auth rate-limits or a transient kills it mid-setup (otherwise fixtures orphan).
 try {
+  log("signing in", users.length, "users…");
+  // Bounded concurrency (chunks of 6) keeps the auth password-grant endpoint under
+  // its burst rate limit at higher --pairs counts.
+  for (let i = 0; i < users.length; i += 6) {
+    await Promise.all(users.slice(i, i + 6).map(signIn));
+    if (i + 6 < users.length) await sleep(250);
+  }
+  log("all signed in");
+
   // Phase 1: concurrent mutual swipes (pair i = users[2i], users[2i+1])
   log("phase 1: concurrent mutual swipes across all pairs");
   await Promise.all(Array.from({ length: PAIRS }, async (_, i) => {
     const a = users[2 * i];
     const b = users[2 * i + 1];
-    const r1 = await rpc("handle_swipe",
-      { p_event_id: eventId, p_actor_id: a.id, p_target_id: b.id, p_swipe_type: "vibe" }, a.token);
+    // Faithful client hot path: fetch the deck (get_event_deck_v3 builds the
+    // card reservations + per-card deck_token), then swipe the partner card with
+    // its token through handle_swipe_v2 (the authenticated-granted entrypoint the
+    // real swipe-actions Edge invokes; plain handle_swipe is service_role-only).
+    const pairEventId = eventIds[i];
+    const [deckA, deckB] = await Promise.all([
+      rpc("get_event_deck_v3", { p_event_id: pairEventId, p_user_id: a.id, p_limit: 20 }, a.token),
+      rpc("get_event_deck_v3", { p_event_id: pairEventId, p_user_id: b.id, p_limit: 20 }, b.token),
+    ]);
+    const tokenFor = (deck, partnerId) =>
+      (deck.payload?.profiles ?? []).find((p) => p.profile_id === partnerId)?.deck_token ?? null;
+    const tokenA = tokenFor(deckA, b.id);
+    const tokenB = tokenFor(deckB, a.id);
+    // PII-safe diagnostic: never persist raw deck profiles into the report.
+    if (i === 0) report.deckSample = {
+      tokenA: Boolean(tokenA),
+      tokenB: Boolean(tokenB),
+      deck_state: deckA.payload?.deck_state ?? deckA.payload?.ok ?? null,
+      deck_profile_count: (deckA.payload?.profiles ?? []).length,
+    };
+
+    const r1 = await rpc("handle_swipe_v2",
+      { p_event_id: pairEventId, p_actor_id: a.id, p_target_id: b.id, p_swipe_type: "vibe", p_deck_token: tokenA }, a.token);
     report.swipe.push(r1.ms);
+    if (i === 0) report.swipeSample = { r1: r1.payload };
     if (r1.status !== 200) recordError("swipe", r1.status, r1.payload);
-    const r2 = await rpc("handle_swipe",
-      { p_event_id: eventId, p_actor_id: b.id, p_target_id: a.id, p_swipe_type: "vibe" }, b.token);
+    const r2 = await rpc("handle_swipe_v2",
+      { p_event_id: pairEventId, p_actor_id: b.id, p_target_id: a.id, p_swipe_type: "vibe", p_deck_token: tokenB }, b.token);
     report.swipe.push(r2.ms);
+    if (i === 0) report.swipeSample.r2 = r2.payload;
     if (r2.status !== 200) recordError("swipe", r2.status, r2.payload);
   }));
 
+  if (report.swipeSample) {
+    log("swipe sample:", JSON.stringify({
+      tokenA_present: report.deckSample?.tokenA,
+      deck_profile_count: report.deckSample?.deck_profile_count,
+      r1_result: report.swipeSample.r1?.result ?? report.swipeSample.r1?.outcome,
+      r2_result: report.swipeSample.r2?.result ?? report.swipeSample.r2?.outcome,
+    }));
+  }
+
   const sessions = await sql(`select id, participant_1_id, participant_2_id
-    from public.video_sessions where event_id='${eventId}'`);
+    from public.video_sessions where event_id in (${eventIdList})`);
   log(`sessions created: ${sessions.length}/${PAIRS}`);
   if (sessions.length === 0) throw new Error("no sessions created — aborting probe");
 
@@ -203,7 +257,7 @@ try {
 
   await sleep(4000);
   const states = await sql(`select ready_gate_status, count(*)::int n
-    from public.video_sessions where event_id='${eventId}' group by 1`);
+    from public.video_sessions where event_id in (${eventIdList}) group by 1`);
   report.readyGateStates = states;
 
   const sw = [...report.swipe].sort((x, y) => x - y);
@@ -224,18 +278,18 @@ try {
     const steps = [
       `delete from public.date_feedback where user_id in (${ids})`,
       `delete from public.matches where profile_id_1 in (${ids}) or profile_id_2 in (${ids})`,
-      `delete from public.video_date_daily_webhook_events where session_id in (select id from public.video_sessions where event_id='${eventId}')`,
-      `delete from public.video_date_presence_events where session_id in (select id from public.video_sessions where event_id='${eventId}')`,
-      `delete from public.video_date_provider_outbox where session_id in (select id from public.video_sessions where event_id='${eventId}')`,
-      `delete from public.video_date_provider_outbox_failure_log where session_id in (select id from public.video_sessions where event_id='${eventId}')`,
-      `delete from public.video_session_deadlines where session_id in (select id from public.video_sessions where event_id='${eventId}')`,
-      `delete from public.event_loop_observability_events where event_id='${eventId}'`,
-      `delete from public.video_sessions where event_id='${eventId}'`,
-      `delete from public.event_deck_card_reservations where event_id='${eventId}'`,
-      `delete from public.event_profile_impressions where event_id='${eventId}'`,
-      `delete from public.event_swipes where event_id='${eventId}'`,
-      `delete from public.event_registrations where event_id='${eventId}'`,
-      `delete from public.events where id='${eventId}' and title like 'vd-load-%'`,
+      `delete from public.video_date_daily_webhook_events where session_id in (select id from public.video_sessions where event_id in (${eventIdList}))`,
+      `delete from public.video_date_presence_events where session_id in (select id from public.video_sessions where event_id in (${eventIdList}))`,
+      `delete from public.video_date_provider_outbox where session_id in (select id from public.video_sessions where event_id in (${eventIdList}))`,
+      `delete from public.video_date_provider_outbox_failure_log where session_id in (select id from public.video_sessions where event_id in (${eventIdList}))`,
+      `delete from public.video_session_deadlines where session_id in (select id from public.video_sessions where event_id in (${eventIdList}))`,
+      `delete from public.event_loop_observability_events where event_id in (${eventIdList})`,
+      `delete from public.video_sessions where event_id in (${eventIdList})`,
+      `delete from public.event_deck_card_reservations where event_id in (${eventIdList})`,
+      `delete from public.event_profile_impressions where event_id in (${eventIdList})`,
+      `delete from public.event_swipes where event_id in (${eventIdList})`,
+      `delete from public.event_registrations where event_id in (${eventIdList})`,
+      `delete from public.events where id in (${eventIdList}) and title like 'vd-load-%'`,
       `delete from public.notification_preferences where user_id in (${ids})`,
       `delete from public.profiles where id in (${ids}) and tagline like 'vd-load-%'`,
       `delete from auth.identities where user_id in (${ids})`,
@@ -245,8 +299,8 @@ try {
     const residue = await sql(`select
       (select count(*) from auth.users where id in (${ids})) au,
       (select count(*) from public.profiles where id in (${ids})) p,
-      (select count(*) from public.events where id='${eventId}') e,
-      (select count(*) from public.video_sessions where event_id='${eventId}') vs`);
+      (select count(*) from public.events where id in (${eventIdList})) e,
+      (select count(*) from public.video_sessions where event_id in (${eventIdList})) vs`);
     log("zero-residue:", JSON.stringify(residue[0]));
   } else {
     log("--keep set: fixtures retained for inspection; clean up manually");
