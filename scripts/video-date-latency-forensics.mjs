@@ -42,6 +42,16 @@ for (const envFile of [".env.local", ".env"]) {
 
 const PROJECT_REF = "schdyxcunwcvddlcshwd";
 const sessionArg = process.argv[2]?.trim() || null;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireUuid(value, label) {
+  if (!UUID_RE.test(value)) {
+    throw new Error(`${label} must be a UUID`);
+  }
+  return value.toLowerCase();
+}
+
+const validatedSessionArg = sessionArg ? requireUuid(sessionArg, "session id") : null;
 
 const token = execFileSync("bash", [
   "-c",
@@ -94,7 +104,7 @@ const sec = (a, b) => {
 const fmt = (n) => (n == null ? "  n/a" : `${n >= 0 ? " " : ""}${n.toFixed(1)}s`);
 
 async function resolveSessionId() {
-  if (sessionArg) return sessionArg;
+  if (validatedSessionArg) return validatedSessionArg;
   const rows = await sql(`
     select id from video_sessions
     where date_started_at is not null
@@ -102,7 +112,7 @@ async function resolveSessionId() {
   if (rows.length === 0) {
     throw new Error("no session with date_started_at found; pass a session id explicitly");
   }
-  return rows[0].id;
+  return requireUuid(rows[0].id, "resolved session id");
 }
 
 const sid = await resolveSessionId();
@@ -110,6 +120,7 @@ const room = `date-${sid.replace(/-/g, "")}`;
 
 const [s] = await sql(`
   select state, phase, ended_reason, started_at, ended_at, duration_seconds, session_seq,
+    participant_1_id, participant_2_id,
     entry_started_at, date_started_at, ready_participant_1_at, ready_participant_2_at,
     participant_1_provider_joined_at, participant_2_provider_joined_at,
     participant_1_remote_seen_at, participant_2_remote_seen_at,
@@ -124,13 +135,43 @@ if (!s) {
 const bothReady = s.ready_participant_1_at && s.ready_participant_2_at
   ? (new Date(s.ready_participant_1_at) > new Date(s.ready_participant_2_at)
       ? s.ready_participant_1_at
-      : s.ready_participant_2_at)
+    : s.ready_participant_2_at)
+  : null;
+
+const webhook = await sql(`
+  select event_type, occurred_at, processed_at, provider_user_id,
+    round(extract(epoch from (processed_at - occurred_at))::numeric, 2) webhook_lag_s
+  from video_date_daily_webhook_events
+  where session_id = '${sid}' or room_name = '${room}'
+  order by coalesce(occurred_at, created_at) asc`);
+const firstJoinByActor = new Map();
+for (const w of webhook) {
+  const eventType = String(w.event_type ?? "").replace(/[_-]/g, ".").toLowerCase();
+  if (eventType !== "participant.joined" && eventType !== "participant.join") {
+    continue;
+  }
+  const actorId = String(w.provider_user_id ?? "");
+  if (actorId !== s.participant_1_id && actorId !== s.participant_2_id) {
+    continue;
+  }
+  const joinedAt = w.occurred_at ?? w.processed_at ?? null;
+  if (!joinedAt) continue;
+  const previous = firstJoinByActor.get(actorId);
+  if (!previous || new Date(joinedAt).getTime() < new Date(previous).getTime()) {
+    firstJoinByActor.set(actorId, joinedAt);
+  }
+}
+const participant1FirstProviderJoin = s.participant_1_id
+  ? firstJoinByActor.get(s.participant_1_id) ?? null
+  : null;
+const participant2FirstProviderJoin = s.participant_2_id
+  ? firstJoinByActor.get(s.participant_2_id) ?? null
   : null;
 const bothJoined =
-  s.participant_1_provider_joined_at && s.participant_2_provider_joined_at
-    ? (new Date(s.participant_1_provider_joined_at) > new Date(s.participant_2_provider_joined_at)
-        ? s.participant_1_provider_joined_at
-        : s.participant_2_provider_joined_at)
+  participant1FirstProviderJoin && participant2FirstProviderJoin
+    ? (new Date(participant1FirstProviderJoin) > new Date(participant2FirstProviderJoin)
+        ? participant1FirstProviderJoin
+        : participant2FirstProviderJoin)
     : null;
 
 const legs = [
@@ -178,12 +219,6 @@ if (worst.label) {
   }
 }
 
-const webhook = await sql(`
-  select event_type, occurred_at, processed_at, provider_user_id,
-    round(extract(epoch from (processed_at - occurred_at))::numeric, 2) webhook_lag_s
-  from video_date_daily_webhook_events
-  where session_id = '${sid}' or room_name = '${room}'
-  order by coalesce(occurred_at, created_at) asc`);
 console.log(`\n=== Daily webhook copresence (provider truth) ===`);
 if (webhook.length === 0) console.log("  (none)");
 for (const w of webhook) {

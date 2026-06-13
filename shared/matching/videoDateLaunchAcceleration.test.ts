@@ -133,12 +133,18 @@ test("web date route preflights before room unless Daily prewarm already owns li
   assert.ok(roomBoundPeekIndex > acquireRoomIndex, "Daily prewarm must be revalidated against the prepared room");
   assert.ok(consumePrewarmIndex > roomBoundPeekIndex, "Daily prewarm consume should stay room-bound");
   assert.ok(fallbackGetUserMediaIndex > consumePrewarmIndex, "fallback capture should stay behind room-bound prewarm consume");
-  assert.match(webVideoCall, /const reusableDailyPrewarmBeforeRoom =[\s\S]{0,120}prewarmPendingBeforeRoom/);
+  assert.match(webDailyPrewarm, /export function hasLiveWebVideoDateDailyPrewarmAppMedia/);
+  assert.match(
+    webVideoCall,
+    /const prewarmAppAcquiredMediaBeforeRoom =[\s\S]{0,160}hasLiveWebVideoDateDailyPrewarmAppMedia\(\s*prewarmPeekBeforeRoom\.entry\.appAcquiredMedia/,
+  );
+  assert.match(webVideoCall, /const reusableDailyPrewarmBeforeRoom =\s*prewarmAppAcquiredMediaBeforeRoom/);
   assert.match(webVideoCall, /const runMediaPreflightBeforeRoom =[\s\S]{0,120}!reusableDailyPrewarmBeforeRoom/);
   assert.match(webVideoCall, /hasPendingWebVideoDateDailyPrewarm\(\{ sessionId, userId \}\)/);
   assert.match(webVideoCall, /daily_media_permission_preflight_skipped_before_room/);
   assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_reused_daily_media/);
-  assert.match(webVideoCall, /source:[\s\S]{0,180}"daily_prewarm_pending"/);
+  assert.doesNotMatch(webVideoCall, /source:[\s\S]{0,180}"daily_prewarm_pending"/);
+  assert.match(webVideoCall, /source:[\s\S]{0,180}"daily_prewarm_live_app_media"/);
 });
 
 test("web and native date routes wait briefly for matching Ready Gate Daily prewarm before fallback", () => {

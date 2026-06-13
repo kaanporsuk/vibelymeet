@@ -362,15 +362,35 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       sessionRow?: TerminalSurveySessionRow | null,
     ) => {
       if (!id || !user?.id) return false;
-      const { data: registrationFallback, error: registrationError } =
-        await supabase
+      const registrationFallbackBaseQuery = () =>
+        supabase
           .from("event_registrations")
           .select(TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
           .eq("profile_id", user.id)
-          .eq("queue_status", "in_survey")
-          .order("last_active_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .eq("queue_status", "in_survey");
+      const roomScopedFallback = await registrationFallbackBaseQuery()
+        .eq("current_room_id", id)
+        .order("last_active_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let registrationFallback = roomScopedFallback.data;
+      let registrationError = roomScopedFallback.error;
+      if (!registrationError && !registrationFallback) {
+        const routeScopedFallback = expectedEventId
+          ? await registrationFallbackBaseQuery()
+              .is("current_room_id", null)
+              .eq("event_id", expectedEventId)
+              .order("last_active_at", { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : await registrationFallbackBaseQuery()
+              .is("current_room_id", null)
+              .order("last_active_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+        registrationFallback = routeScopedFallback.data;
+        registrationError = routeScopedFallback.error;
+      }
       if (registrationError) {
         captureSupabaseError(
           "terminal_post_date_survey_registration_fallback_failed",

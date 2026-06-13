@@ -136,6 +136,12 @@ function getLivePrewarmMediaTracks(
   return { audioTrack, videoTrack };
 }
 
+export function hasLiveWebVideoDateDailyPrewarmAppMedia(
+  appAcquiredMedia: { stream: MediaStream | null | undefined } | null | undefined,
+): boolean {
+  return Boolean(getLivePrewarmMediaTracks(appAcquiredMedia?.stream));
+}
+
 function stopMediaStreamTracks(stream: MediaStream | null | undefined) {
   stream?.getTracks().forEach((track) => {
     try {
