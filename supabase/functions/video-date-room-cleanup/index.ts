@@ -640,13 +640,22 @@ serve(async (req) => {
   // A reconciliation failure must surface in the function result. "not_due"
   // (skipped because the marker gate says it's not time) is normal; a
   // marker_check_failed (could not read the gate) or a ran-but-failed pass
-  // (Daily listing 500/429/401, marker write failure) is a broken lane. Without
-  // this, the synthetic orphan/health probe — which treats
+  // (Daily listing 500/429/401) is a broken lane. A scan that succeeds but does
+  // not write the cadence marker on a non-dry-run pass (markerRecorded === false)
+  // is ALSO broken: the gate never advances, so the lane retries every minute
+  // and the stage-2 synthetic probe reads a false green (review P2 on PR #1324).
+  // Without this the orphan/health probe — which treats
   // `response.ok && payload.ok !== false` as success and which stage 2 repoints
   // here — would silently miss a dead reconciliation lane after consolidation.
-  const reconciliationFailed = reconciliation.ran === false
-    ? reconciliation.reason === "marker_check_failed"
-    : reconciliation.ok === false;
+  let reconciliationFailed: boolean;
+  if (reconciliation.ran === false) {
+    reconciliationFailed = reconciliation.reason === "marker_check_failed";
+  } else if (reconciliation.ok === false) {
+    reconciliationFailed = true;
+  } else {
+    reconciliationFailed = reconciliation.dryRun === false &&
+      reconciliation.markerRecorded === false;
+  }
 
   console.log(
     JSON.stringify({

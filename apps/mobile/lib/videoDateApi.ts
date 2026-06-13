@@ -735,9 +735,19 @@ export async function fetchVideoSessionDateEntryTruth(
   // not confirm against a pre-mutation snapshot/row cached within 300ms by a
   // concurrent date-route poller (review P2 on PR #1300).
   const fresh = options?.fresh === true;
-  const snapshot = await fetchVideoDateStartSnapshot(sessionId, { fresh });
-  const snapshotTruth = videoDateStartSnapshotToDateEntryTruth(snapshot);
-  if (snapshotTruth) return snapshotTruth as VideoSessionDateEntryTruth;
+  // Fresh verification must read the direct video_sessions row: the start-snapshot
+  // converter (videoDateStartSnapshotToDateEntryTruth) omits the decision columns
+  // (participant_*_liked / participant_*_decided_at) that
+  // persistEntryDecisionWithVerification confirms against, so short-circuiting on
+  // a successful snapshot would make a just-persisted decision look unsaved and
+  // trigger a needless retry/fail (review P2 on PR #1322). Non-fresh route-guard
+  // and hydration callers keep the snapshot-first fast path (broadcast-gap
+  // recovery); they do not consume the decision columns.
+  if (!fresh) {
+    const snapshot = await fetchVideoDateStartSnapshot(sessionId, { fresh });
+    const snapshotTruth = videoDateStartSnapshotToDateEntryTruth(snapshot);
+    if (snapshotTruth) return snapshotTruth as VideoSessionDateEntryTruth;
+  }
 
   const { data, error } = await fetchVideoDateSessionRow(sessionId, { fresh });
   if (error) {
