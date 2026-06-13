@@ -234,6 +234,28 @@ test("2a: releasing onto a terminal session clears the stale room pointer", () =
   );
 });
 
+const releaseGuardPassthroughMigration = read(
+  "supabase/migrations/20260613131415_vd_release_guard_passthrough_terminal_room_pointer.sql",
+);
+
+test("2a-followup: the in-gate release guard falls through once the session is terminal (PR #1316 review)", () => {
+  // The first guard must block a self-downgrade only while the session is LIVE.
+  // Without the terminal NOT EXISTS exclusion an in_ready_gate/in_entry/in_date
+  // registration pointing at an ended session never reaches v_clear_room — the
+  // exact stale-pointer trap 2a set out to clear. Pin the passthrough so a
+  // later body recreate cannot silently drop it.
+  assert.match(
+    releaseGuardPassthroughMigration,
+    /v_current_status IN \('in_ready_gate', 'in_entry', 'in_date'\)[\s\S]{0,200}AND NOT EXISTS \([\s\S]{0,240}vs\.ended_at IS NOT NULL[\s\S]{0,80}OR vs\.state::text = 'ended'/,
+    "first guard must carry the terminal-session NOT EXISTS passthrough",
+  );
+  assert.match(
+    releaseGuardPassthroughMigration,
+    /current_room_id = CASE WHEN v_clear_room THEN NULL ELSE current_room_id END/,
+    "recreated body preserves the v_clear_room clear-pointer contract",
+  );
+});
+
 test("2b: survey stamps are per-participant (own verdict blocks own re-stamp)", () => {
   const perRowGuard = /df_row\.user_id = event_registrations\.profile_id/;
   assert.match(perParticipantMigration, perRowGuard);

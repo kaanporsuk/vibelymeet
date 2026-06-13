@@ -212,16 +212,24 @@ try {
       deck_profile_count: (deckA.payload?.profiles ?? []).length,
     };
 
-    const r1 = await rpc("handle_swipe_v2",
-      { p_event_id: pairEventId, p_actor_id: a.id, p_target_id: b.id, p_swipe_type: "vibe", p_deck_token: tokenA }, a.token);
-    report.swipe.push(r1.ms);
-    if (i === 0) report.swipeSample = { r1: r1.payload };
-    if (r1.status !== 200) recordError("swipe", r1.status, r1.payload);
-    const r2 = await rpc("handle_swipe_v2",
-      { p_event_id: pairEventId, p_actor_id: b.id, p_target_id: a.id, p_swipe_type: "vibe", p_deck_token: tokenB }, b.token);
-    report.swipe.push(r2.ms);
-    if (i === 0) report.swipeSample.r2 = r2.payload;
-    if (r2.status !== 200) recordError("swipe", r2.status, r2.payload);
+    // The probe's claim is the tokenized client path. A missing deck_token would
+    // otherwise slip through handle_swipe_v2's legacy no-token branch (the single
+    // reserved partner card still resolves), so the probe records the gap as an
+    // error instead of reporting a swipe it never actually proved.
+    const swipeWithToken = async (actor, target, token) => {
+      if (!token) {
+        recordError("swipe", 0, { code: "missing_deck_token" });
+        return null;
+      }
+      const r = await rpc("handle_swipe_v2",
+        { p_event_id: pairEventId, p_actor_id: actor.id, p_target_id: target.id, p_swipe_type: "vibe", p_deck_token: token }, actor.token);
+      report.swipe.push(r.ms);
+      if (r.status !== 200) recordError("swipe", r.status, r.payload);
+      return r;
+    };
+    const r1 = await swipeWithToken(a, b, tokenA);
+    const r2 = await swipeWithToken(b, a, tokenB);
+    if (i === 0) report.swipeSample = { r1: r1?.payload ?? null, r2: r2?.payload ?? null };
   }));
 
   if (report.swipeSample) {
@@ -295,13 +303,31 @@ try {
       `delete from auth.identities where user_id in (${ids})`,
       `delete from auth.users where id in (${ids}) and email like 'vd-load-%@vibely.test'`,
     ];
-    for (const q of steps) { try { await sql(q); } catch (e) { log("cleanup err:", e.message.slice(0, 120)); } }
+    const cleanupErrors = [];
+    for (const q of steps) {
+      try { await sql(q); }
+      catch (e) { const msg = e.message.slice(0, 120); cleanupErrors.push(msg); log("cleanup err:", msg); }
+    }
     const residue = await sql(`select
       (select count(*) from auth.users where id in (${ids})) au,
       (select count(*) from public.profiles where id in (${ids})) p,
       (select count(*) from public.events where id in (${eventIdList})) e,
-      (select count(*) from public.video_sessions where event_id in (${eventIdList})) vs`);
-    log("zero-residue:", JSON.stringify(residue[0]));
+      (select count(*) from public.video_sessions where event_id in (${eventIdList})) vs`).catch((e) => {
+        cleanupErrors.push(`residue_check_failed: ${e.message.slice(0, 100)}`);
+        return [{ au: null, p: null, e: null, vs: null }];
+      });
+    const residueRow = residue[0] ?? {};
+    const residueTotal = Object.values(residueRow).reduce((acc, n) => acc + (Number(n) || 0), 0);
+    report.cleanup = { errors: cleanupErrors, residue: residueRow, residueTotal };
+    log("zero-residue:", JSON.stringify(residueRow));
+    // Disposable fixtures live in the linked production project: a cleanup
+    // failure or leftover residue must fail the run (non-zero exit) instead of
+    // silently exiting 0. Use process.exitCode rather than throwing out of this
+    // finally block so a primary run error from the try body is not masked.
+    if (cleanupErrors.length > 0 || residueTotal > 0) {
+      process.exitCode = 1;
+      log(`PROBE CLEANUP FAILED: ${cleanupErrors.length} error(s), residue total ${residueTotal} — fixtures may remain in the linked project; investigate before re-running.`);
+    }
   } else {
     log("--keep set: fixtures retained for inspection; clean up manually");
   }

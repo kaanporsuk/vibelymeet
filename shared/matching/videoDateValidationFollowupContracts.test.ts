@@ -23,6 +23,16 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const VIBE_CHANNEL = /channel\(`vibe-questions-\$\{sessionId\}`\)/;
 
+// The sanctioned exception is narrow by shape, not just by channel name: an
+// UPDATE on public.video_sessions filtered to the single session row. Pinning
+// the shape catches a widened subscription (dropped session filter, different
+// event/table) that would otherwise still pass the channel-name + count checks.
+const VIBE_LISTENER_SHAPE: Array<{ label: string; re: RegExp }> = [
+  { label: 'event: "UPDATE"', re: /event:\s*["']UPDATE["']/ },
+  { label: 'table: "video_sessions"', re: /table:\s*["']video_sessions["']/ },
+  { label: "filter: `id=eq.${sessionId}`", re: /filter:\s*`id=eq\.\$\{sessionId\}`/ },
+];
+
 // The full date surface is scanned recursively (not a hard-coded file list)
 // so a listener added in any in-call component or sub-hook — present or
 // future — is caught.
@@ -87,6 +97,15 @@ test("vibe-questions is the single sanctioned postgres_changes exception on the 
   for (const path of Object.keys(SANCTIONED_POSTGRES_CHANGES)) {
     const source = read(path);
     assert.match(source, VIBE_CHANNEL, `${path} must subscribe on the vibe-questions channel`);
+    for (const { label, re } of VIBE_LISTENER_SHAPE) {
+      assert.match(
+        source,
+        re,
+        `${path}: the sanctioned postgres_changes listener must keep its narrow shape (${label}). ` +
+          "Widening it (dropping the session filter, changing event/table) breaks the " +
+          'pinned exception — see docs/video-date-architecture.md "Realtime".',
+      );
+    }
   }
   assert.match(
     read("src/components/video-date/IceBreakerCard.tsx"),

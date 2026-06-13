@@ -91,7 +91,11 @@ whose own `date_feedback` row exists is never re-stamped `in_survey`, even
 while the partner is incomplete — guard in both `video_date_transition` stamp
 sites and `mark_video_date_remote_seen`); `update_participant_status` clears
 `current_room_id`/`current_partner_id` when releasing onto a terminal session
-(no dangling room pointers); historical webhook ledger rows were backfilled
+(no dangling room pointers) — and its first self-downgrade guard now blocks only
+while the referenced session is still *live*, so an in-gate registration whose
+session has ended falls through to that clear instead of staying pinned to a
+dead room pointer (migration `20260613131415`, PR #1316 review follow-up);
+historical webhook ledger rows were backfilled
 with `provider_participant_id` via the canonical extractor; and
 `mark_lobby_foreground` records reason `lobby_foreground_stamped` (the
 vestigial queue-era reason retired).
@@ -129,9 +133,14 @@ Daily room deletion outside the outbox has one owner: `video-date-room-cleanup`
 runs the session pass every minute and, marker-gated to a 10-minute cadence
 (`reconciliation_run` rows in `video_date_orphan_room_cleanup_audit`), the
 provider-reconciliation pass transplanted from the orphan lane (cron-merge
-stage 1, 2026-06-13; `reconciliation.ts` beside the function entrypoint). The
-legacy `video-date-orphan-room-cleanup` lane remains only for the stage-2
-observation window. Contract suite:
+stage 1, 2026-06-13; `reconciliation.ts` beside the function entrypoint). A
+reconciliation-pass failure (`marker_check_failed`, or a ran-but-failed pass)
+is surfaced in the function result as `ok: false` / HTTP 500 and a
+`reconciliation_failed` field — `not_due` stays green — so the synthetic
+orphan/health probe that stage 2 repoints here alerts on a broken lane instead
+of reading a false-green 200 (PR #1317 review follow-up). The legacy
+`video-date-orphan-room-cleanup` lane remains only for the stage-2 observation
+window. Contract suite:
 `shared/matching/videoDateRoomCleanupReconciliationContracts.test.ts`.
 
 ## Realtime

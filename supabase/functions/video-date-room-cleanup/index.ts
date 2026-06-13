@@ -637,6 +637,17 @@ serve(async (req) => {
     source: reconcileSource,
   });
 
+  // A reconciliation failure must surface in the function result. "not_due"
+  // (skipped because the marker gate says it's not time) is normal; a
+  // marker_check_failed (could not read the gate) or a ran-but-failed pass
+  // (Daily listing 500/429/401, marker write failure) is a broken lane. Without
+  // this, the synthetic orphan/health probe — which treats
+  // `response.ok && payload.ok !== false` as success and which stage 2 repoints
+  // here — would silently miss a dead reconciliation lane after consolidation.
+  const reconciliationFailed = reconciliation.ran === false
+    ? reconciliation.reason === "marker_check_failed"
+    : reconciliation.ok === false;
+
   console.log(
     JSON.stringify({
       event: "video-date-room-cleanup",
@@ -651,13 +662,17 @@ serve(async (req) => {
       retry_after_seconds: retryAfterSeconds,
       session_pass: reconcileDryRun ? "skipped_dry_run" : "ran",
       reconciliation,
+      reconciliation_failed: reconciliationFailed,
     }),
   );
 
-  const responseStatus = providerRateLimited > 0 ? 429 : 200;
+  // Rate limiting asks the caller to retry (429) and takes precedence; an
+  // otherwise-clean run with a failed reconciliation lane returns 500 so probes
+  // and the dispatcher alert instead of reading a false-green 200.
+  const responseStatus = providerRateLimited > 0 ? 429 : (reconciliationFailed ? 500 : 200);
   return new Response(
     JSON.stringify({
-      ok: providerRateLimited === 0,
+      ok: providerRateLimited === 0 && !reconciliationFailed,
       candidates: rows?.length ?? 0,
       daily_delete_attempts: deleted,
       already_cleaned: alreadyCleaned,
@@ -668,6 +683,7 @@ serve(async (req) => {
       provider_rate_limited: providerRateLimited,
       session_pass: reconcileDryRun ? "skipped_dry_run" : "ran",
       reconciliation,
+      reconciliation_failed: reconciliationFailed,
       ...(retryAfterSeconds != null
         ? {
           retry_after_seconds: retryAfterSeconds,
