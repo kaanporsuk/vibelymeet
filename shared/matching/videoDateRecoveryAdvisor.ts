@@ -3,7 +3,10 @@ import {
   decideVideoSessionRouteFromTruth,
   type VideoSessionTruthRouteDecision,
 } from "./activeSession";
-import { decideCanonicalVideoDateRoute } from "./videoDateRouteDecision";
+import {
+  PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON,
+  decideCanonicalVideoDateRoute,
+} from "./videoDateRouteDecision";
 import {
   resolveReadyGateTerminalRecovery,
   type ReadyGateTerminalRecovery,
@@ -123,6 +126,7 @@ const postDateSurveyIneligibleEndedReasons = new Set<string>(
 const terminalSurveyRecoveryEndedReasons = new Set<string>([
   "date_timeout",
   "ended_from_client",
+  PROVIDER_ABSENCE_AFTER_CONFIRMED_ENCOUNTER_REASON,
   "reconnect_grace_expired",
 ]);
 

@@ -63,6 +63,20 @@ const TERMINAL_NO_SURVEY = truth({
   ended_reason: "ready_gate_expired",
 });
 
+const TERMINAL_PROVIDER_ABSENCE_CONFIRMED_DATE = truth({
+  state: "ended",
+  ended_at: new Date().toISOString(),
+  ended_reason: "provider_absence_after_confirmed_encounter",
+  date_started_at: new Date().toISOString(),
+});
+
+const TERMINAL_DATE_STARTED_ONLY = truth({
+  state: "ended",
+  ended_at: new Date().toISOString(),
+  ended_reason: "completed",
+  date_started_at: new Date().toISOString(),
+});
+
 function decide(
   surface: VideoDateRouteSurface,
   sessionTruth: VideoDateRouteSessionTruth | null,
@@ -127,6 +141,32 @@ test("terminal survey truth pins the survey owner with forceSurvey and route own
 
   const onDate = decide("date_route", TERMINAL_SURVEY);
   assert.equal(onDate.decision.navigate, false, "date route opens the survey in place");
+});
+
+test("provider absence after a confirmed date is survey-due even if remote-seen fields are absent", () => {
+  const { decision, intents } = decide(
+    "date_route",
+    TERMINAL_PROVIDER_ABSENCE_CONFIRMED_DATE,
+  );
+  assert.equal(decision.target, "survey");
+  assert.equal(decision.forceSurvey, true);
+  assert.equal(decision.navigate, false);
+  assert.equal(decision.reason, "ended_pending_survey");
+  assert.equal(intents.isVideoDateRouteOwned(SESSION_ID, PROFILE_ID), true);
+
+  const completed = decide("date_route", TERMINAL_DATE_STARTED_ONLY);
+  assert.equal(
+    completed.decision.target,
+    "ended",
+    "generic terminal rows still need encounter exposure beyond date_started_at",
+  );
+
+  const ownFeedbackVisible = decide(
+    "date_route",
+    TERMINAL_PROVIDER_ABSENCE_CONFIRMED_DATE,
+    { userFeedbackSubmitted: true },
+  );
+  assert.equal(ownFeedbackVisible.decision.target, "ended");
 });
 
 test("registration in_survey continuity wins even without ended truth", () => {

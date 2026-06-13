@@ -69,6 +69,7 @@ type UseTerminalSurveyRecoveryDeps = {
   setTimeLeft: Dispatch<SetStateAction<number | null>>;
   setTimingReady: Dispatch<SetStateAction<boolean>>;
   setVideoDateAccess: Dispatch<SetStateAction<VideoDateAccess>>;
+  showFeedback: boolean;
   surveyOpenedRef: MutableRefObject<boolean>;
   terminalDailyStopRef: MutableRefObject<((reason: string) => void) | null>;
   terminalDailyStopRequestedRef: MutableRefObject<boolean>;
@@ -102,6 +103,7 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
     setTimeLeft,
     setTimingReady,
     setVideoDateAccess,
+    showFeedback,
     surveyOpenedRef,
     terminalDailyStopRef,
     terminalDailyStopRequestedRef,
@@ -159,7 +161,17 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
 
   const openPostDateSurvey = useCallback(
     (reason: string) => {
-      if (surveyOpenedRef.current) return false;
+      if (surveyOpenedRef.current || showFeedback) {
+        surveyOpenedRef.current = true;
+        enterTerminalSurveyHardStop(reason);
+        setShowFeedback(true);
+        vdbg("post_date_survey_open_already_active", {
+          sessionId: id ?? null,
+          reason,
+          showFeedback,
+        });
+        return true;
+      }
       surveyOpenedRef.current = true;
       enterTerminalSurveyHardStop(reason);
       setShowFeedback(true);
@@ -197,6 +209,7 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       eventId,
       logJourney,
       setShowFeedback,
+      showFeedback,
       surveyOpenedRef,
     ],
   );
@@ -252,6 +265,234 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
     ],
   );
 
+  const releaseFeedbackCompleteRegistration = useCallback(
+    async (source: string, releaseEventId: string) => {
+      if (!id || !user?.id) return;
+      let releaseError: { code?: string } | null = null;
+      let releaseAttempts = 0;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (attempt > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+        }
+        releaseAttempts = attempt + 1;
+        const { error } = await supabase.rpc("update_participant_status", {
+          p_event_id: releaseEventId,
+          p_status: "browsing",
+        });
+        releaseError = error ?? null;
+        if (!releaseError) break;
+      }
+      vdbg("terminal_survey_complete_registration_release", {
+        sessionId: id,
+        userId: user.id,
+        source,
+        eventId: releaseEventId,
+        released: !releaseError,
+        attempts: releaseAttempts,
+        code: releaseError?.code ?? null,
+      });
+      if (releaseError) {
+        captureSupabaseError(
+          "terminal_survey_complete_registration_release_failed",
+          releaseError,
+        );
+      }
+    },
+    [id, user?.id],
+  );
+
+  const leaveFeedbackCompleteTerminalSurvey = useCallback(
+    async (
+      source: string,
+      sessionRow: {
+        event_id?: string | null;
+        ended_at?: string | null;
+        ended_reason?: string | null;
+      },
+      options: { releaseRegistration?: boolean } = {},
+    ) => {
+      if (!id || !user?.id) return false;
+      clearEntryGraceState();
+      terminalSurveyRecoveryInFlightRef.current = false;
+      setTerminalSurveyRecoveryActive(false);
+      setPhase("ended");
+      setTimeLeft(0);
+      setShowFeedback(false);
+      if (options.releaseRegistration === true && sessionRow.event_id) {
+        // Own verdict already persisted: release this registration before
+        // leaving, or a stale in_survey stamp keeps bouncing the lobby back
+        // here (2026-06-12 acceptance-run livelock). update_participant_status
+        // is the canonical own-row release and refuses server-side while a
+        // survey is genuinely pending, so this is safe under races.
+        await releaseFeedbackCompleteRegistration(source, sessionRow.event_id);
+      }
+      const target = sessionRow.event_id
+        ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+        : "/events";
+      clearDateEntryTransition(id);
+      clearVideoDateRouteOwnership(id, user.id);
+      vdbgRedirect(target, source, {
+        sessionId: id,
+        userId: user.id,
+        eventId: sessionRow.event_id ?? null,
+        endedAt: sessionRow.ended_at ?? null,
+        endedReason: sessionRow.ended_reason ?? null,
+      });
+      navigate(target, { replace: true });
+      return true;
+    },
+    [
+      clearEntryGraceState,
+      id,
+      navigate,
+      releaseFeedbackCompleteRegistration,
+      setPhase,
+      setShowFeedback,
+      setTerminalSurveyRecoveryActive,
+      setTimeLeft,
+      terminalSurveyRecoveryInFlightRef,
+      user?.id,
+    ],
+  );
+
+  const recoverFromInSurveyRegistration = useCallback(
+    async (
+      source: string,
+      expectedEventId?: string | null,
+      sessionRow?: TerminalSurveySessionRow | null,
+    ) => {
+      if (!id || !user?.id) return false;
+      const { data: registrationFallback, error: registrationError } =
+        await supabase
+          .from("event_registrations")
+          .select(TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
+          .eq("profile_id", user.id)
+          .eq("queue_status", "in_survey")
+          .order("last_active_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+      if (registrationError) {
+        captureSupabaseError(
+          "terminal_post_date_survey_registration_fallback_failed",
+          registrationError,
+        );
+        recordUserAction(
+          "terminal_post_date_survey_registration_fallback_failed",
+          {
+            surface: "video_date",
+            session_id: id,
+            user_id: user.id,
+            source,
+            code: registrationError.code,
+          },
+        );
+        vdbg("terminal_post_date_survey_registration_fallback_failed", {
+          sessionId: id,
+          userId: user.id,
+          source,
+          code: registrationError.code,
+          message: registrationError.message,
+        });
+        return false;
+      }
+      const fallbackRow =
+        (registrationFallback as TerminalSurveyRegistrationFallbackRow | null) ??
+        null;
+      const fallbackMatchesCurrentRoute =
+        fallbackRow != null &&
+        (fallbackRow.current_room_id === id ||
+          (fallbackRow.current_room_id == null &&
+            (!expectedEventId || fallbackRow.event_id === expectedEventId)));
+      if (
+        fallbackRow?.queue_status !== "in_survey" ||
+        !fallbackMatchesCurrentRoute
+      ) {
+        return false;
+      }
+
+      let verdict: { id?: string | null } | null = null;
+      const { data: verdictData, error: verdictError } = await supabase
+        .from("date_feedback")
+        .select("id")
+        .eq("session_id", id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (verdictError) {
+        captureSupabaseError(
+          "terminal_post_date_survey_verdict_fetch_failed",
+          verdictError,
+        );
+        recordUserAction("terminal_post_date_survey_verdict_fetch_failed", {
+          surface: "video_date",
+          session_id: id,
+          user_id: user.id,
+          source,
+          code: verdictError.code,
+        });
+        vdbg("terminal_post_date_survey_verdict_fetch_failed", {
+          sessionId: id,
+          userId: user.id,
+          source,
+          code: verdictError.code,
+          message: verdictError.message,
+        });
+      } else {
+        verdict = verdictData ?? null;
+      }
+
+      if (verdict?.id) {
+        return leaveFeedbackCompleteTerminalSurvey(
+          source,
+          {
+            event_id: fallbackRow.event_id ?? expectedEventId ?? null,
+            ended_at: sessionRow?.ended_at ?? null,
+            ended_reason: sessionRow?.ended_reason ?? null,
+          },
+          { releaseRegistration: true },
+        );
+      }
+
+      if (sessionRow) {
+        hydrateTerminalSurveyContext(sessionRow, source);
+      } else {
+        if (fallbackRow.event_id) setEventId(fallbackRow.event_id);
+        if (fallbackRow.current_partner_id) {
+          setPartnerId(fallbackRow.current_partner_id);
+        }
+        setVideoDateAccess("allowed");
+        setTimingReady(true);
+        setCallStarted(false);
+        setCallStartFailure(null);
+      }
+      setStatus("in_survey");
+      vdbg("terminal_post_date_survey_registration_fallback", {
+        sessionId: id,
+        userId: user.id,
+        source,
+        eventId: fallbackRow.event_id ?? null,
+        currentRoomId: fallbackRow.current_room_id ?? null,
+        currentPartnerId: fallbackRow.current_partner_id ?? null,
+        lastActiveAt: fallbackRow.last_active_at ?? null,
+      });
+      openPostDateSurvey(`${source}_registration_recovery`);
+      return true;
+    },
+    [
+      hydrateTerminalSurveyContext,
+      id,
+      leaveFeedbackCompleteTerminalSurvey,
+      openPostDateSurvey,
+      setCallStartFailure,
+      setCallStarted,
+      setEventId,
+      setPartnerId,
+      setStatus,
+      setTimingReady,
+      setVideoDateAccess,
+      user?.id,
+    ],
+  );
+
   const recoverTerminalPostDateSurvey = useCallback(
     async (
       source: string,
@@ -284,71 +525,7 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
           code: sessionResult.error.code,
           message: sessionResult.error.message,
         });
-        const { data: registrationFallback, error: registrationError } =
-          await supabase
-            .from("event_registrations")
-            .select(TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
-            .eq("profile_id", user.id)
-            .eq("queue_status", "in_survey")
-            .order("last_active_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        if (registrationError) {
-          captureSupabaseError(
-            "terminal_post_date_survey_registration_fallback_failed",
-            registrationError,
-          );
-          recordUserAction(
-            "terminal_post_date_survey_registration_fallback_failed",
-            {
-              surface: "video_date",
-              session_id: id,
-              user_id: user.id,
-              source,
-              code: registrationError.code,
-            },
-          );
-          vdbg("terminal_post_date_survey_registration_fallback_failed", {
-            sessionId: id,
-            userId: user.id,
-            source,
-            code: registrationError.code,
-            message: registrationError.message,
-          });
-          return false;
-        }
-        const fallbackRow =
-          (registrationFallback as TerminalSurveyRegistrationFallbackRow | null) ??
-          null;
-        const fallbackMatchesCurrentRoute =
-          fallbackRow?.current_room_id == null ||
-          fallbackRow.current_room_id === id;
-        if (
-          fallbackRow?.queue_status === "in_survey" &&
-          fallbackMatchesCurrentRoute
-        ) {
-          if (fallbackRow.event_id) setEventId(fallbackRow.event_id);
-          if (fallbackRow.current_partner_id) {
-            setPartnerId(fallbackRow.current_partner_id);
-          }
-          setVideoDateAccess("allowed");
-          setTimingReady(true);
-          setCallStarted(false);
-          setCallStartFailure(null);
-          setStatus("in_survey");
-          vdbg("terminal_post_date_survey_registration_fallback", {
-            sessionId: id,
-            userId: user.id,
-            source,
-            eventId: fallbackRow.event_id ?? null,
-            currentRoomId: fallbackRow.current_room_id ?? null,
-            currentPartnerId: fallbackRow.current_partner_id ?? null,
-            lastActiveAt: fallbackRow.last_active_at ?? null,
-          });
-          openPostDateSurvey(`${source}_registration_recovery`);
-          return true;
-        }
-        return false;
+        return recoverFromInSurveyRegistration(source);
       }
       const sessionRow = sessionResult.data;
 
@@ -358,7 +535,11 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       }
 
       if (!videoSessionIndicatesTerminalEnd(sessionRow)) {
-        return false;
+        return recoverFromInSurveyRegistration(
+          source,
+          sessionRow.event_id ?? null,
+          sessionRow,
+        );
       }
 
       const hasPostDateSurveyTruth =
@@ -434,84 +615,18 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
         return true;
       }
 
-      clearEntryGraceState();
-      terminalSurveyRecoveryInFlightRef.current = false;
-      setTerminalSurveyRecoveryActive(false);
-      setPhase("ended");
-      setTimeLeft(0);
-      setShowFeedback(false);
-      if (verdict?.id && sessionRow.event_id) {
-        // Own verdict already persisted: release this registration before
-        // leaving, or a stale in_survey stamp keeps bouncing the lobby back
-        // here (2026-06-12 acceptance-run livelock). update_participant_status
-        // is the canonical own-row release and refuses server-side while a
-        // survey is genuinely pending, so this is safe under races. setStatus
-        // is not used here because its eventId binding can be unset on cold
-        // /date loads.
-        let releaseError: { code?: string } | null = null;
-        let releaseAttempts = 0;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          if (attempt > 0) {
-            await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
-          }
-          releaseAttempts = attempt + 1;
-          const { error } = await supabase.rpc("update_participant_status", {
-            p_event_id: sessionRow.event_id,
-            p_status: "browsing",
-          });
-          releaseError = error ?? null;
-          if (!releaseError) break;
-        }
-        vdbg("terminal_survey_complete_registration_release", {
-          sessionId: id,
-          userId: user.id,
-          source,
-          eventId: sessionRow.event_id,
-          released: !releaseError,
-          attempts: releaseAttempts,
-          code: releaseError?.code ?? null,
-        });
-        if (releaseError) {
-          captureSupabaseError(
-            "terminal_survey_complete_registration_release_failed",
-            releaseError,
-          );
-        }
-      }
-      const target = sessionRow.event_id
-        ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-        : "/events";
-      clearDateEntryTransition(id);
-      clearVideoDateRouteOwnership(id, user.id);
-      vdbgRedirect(target, source, {
-        sessionId: id,
-        userId: user.id,
-        eventId: sessionRow.event_id ?? null,
-        endedAt: sessionRow.ended_at ?? null,
-        endedReason: sessionRow.ended_reason ?? null,
+      return leaveFeedbackCompleteTerminalSurvey(source, sessionRow, {
+        releaseRegistration: Boolean(verdict?.id),
       });
-      navigate(target, { replace: true });
-      return true;
     },
     [
-      clearEntryGraceState,
       enterTerminalSurveyHardStop,
       hydrateTerminalSurveyContext,
       id,
-      navigate,
+      leaveFeedbackCompleteTerminalSurvey,
       openPostDateSurvey,
-      setCallStartFailure,
-      setCallStarted,
-      setEventId,
-      setPartnerId,
-      setPhase,
-      setShowFeedback,
-      setStatus,
-      setTerminalSurveyRecoveryActive,
-      setTimeLeft,
-      setTimingReady,
+      recoverFromInSurveyRegistration,
       setVideoDateAccess,
-      terminalSurveyRecoveryInFlightRef,
       user?.id,
     ],
   );

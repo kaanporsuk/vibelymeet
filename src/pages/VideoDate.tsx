@@ -447,6 +447,7 @@ const VideoDate = () => {
     setTimeLeft,
     setTimingReady,
     setVideoDateAccess,
+    showFeedback,
     surveyOpenedRef,
     terminalDailyStopRef,
     terminalDailyStopRequestedRef,
@@ -1647,31 +1648,38 @@ const VideoDate = () => {
         };
 
         if (canAttemptDaily) {
-          void (async () => {
-            try {
-              const { data: reg } = await supabase
-                .from("event_registrations")
-                .select("queue_status")
-                .eq("event_id", sessionRow.event_id)
-                .eq("profile_id", user.id)
-                .maybeSingle();
-              if (cancelled) return;
-              logRegistrationStatus(reg?.queue_status ?? null);
-            } catch (error: unknown) {
-              if (cancelled) return;
-              vdbg("date_guard_registration_status_failed", {
-                sessionId: id,
-                userId: user.id,
-                eventId: sessionRow.event_id,
-                state: sessionRow.state,
-                phase: sessionRow.phase,
-                error:
-                  error instanceof Error
-                    ? { name: error.name, message: error.message }
-                    : String(error),
-              });
+          try {
+            const { data: reg } = await supabase
+              .from("event_registrations")
+              .select("queue_status, current_room_id")
+              .eq("event_id", sessionRow.event_id)
+              .eq("profile_id", user.id)
+              .maybeSingle();
+            if (cancelled) return;
+            if (
+              reg?.queue_status === "in_survey" &&
+              (reg.current_room_id == null || reg.current_room_id === id)
+            ) {
+              const recovered = await recoverTerminalPostDateSurvey(
+                "date_guard_registration_survey",
+              );
+              if (recovered) return;
             }
-          })();
+            logRegistrationStatus(reg?.queue_status ?? null);
+          } catch (error: unknown) {
+            if (cancelled) return;
+            vdbg("date_guard_registration_status_failed", {
+              sessionId: id,
+              userId: user.id,
+              eventId: sessionRow.event_id,
+              state: sessionRow.state,
+              phase: sessionRow.phase,
+              error:
+                error instanceof Error
+                  ? { name: error.name, message: error.message }
+                  : String(error),
+            });
+          }
         } else {
           const { data: reg } = await supabase
             .from("event_registrations")

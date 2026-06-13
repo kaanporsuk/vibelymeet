@@ -394,7 +394,7 @@ test("survey verdict cannot advance until the actor date_feedback row is visible
     assert.match(source, /date_feedback_row_missing_after_verdict/);
     assert.match(
       source,
-      /const feedbackRowConfirmed = await confirmActorFeedbackRow\(liked, ['"]verdict_submitted['"]\)/,
+      /const feedbackRowConfirmed = await confirmActorFeedbackRow\(liked, (?:['"]verdict_submitted['"]|verdictSource)\)/,
     );
     assert.match(
       source,

@@ -73,8 +73,13 @@ test("1b: web terminal recovery releases a feedback-complete registration before
   assert.notEqual(releaseStart, -1, "release breadcrumb present");
   assert.match(
     webTerminalRecovery,
-    /if \(verdict\?\.id && sessionRow\.event_id\) \{[\s\S]+?update_participant_status[\s\S]+?p_status: "browsing"/,
-    "release is verdict-gated and goes through the canonical own-row RPC",
+    /const releaseFeedbackCompleteRegistration = useCallback\([\s\S]+?update_participant_status[\s\S]+?p_status: "browsing"/,
+    "release goes through the canonical own-row RPC",
+  );
+  assert.match(
+    webTerminalRecovery,
+    /leaveFeedbackCompleteTerminalSurvey\(source, sessionRow, \{\s*releaseRegistration: Boolean\(verdict\?\.id\),\s*\}\)/,
+    "terminal-session release remains verdict-gated",
   );
 });
 
