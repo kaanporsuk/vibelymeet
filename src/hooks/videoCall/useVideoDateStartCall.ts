@@ -23,6 +23,7 @@ import {
 } from "@/lib/dailyCallInstance";
 import {
   consumeWebVideoDateDailyPrewarmWhenReady,
+  hasLiveWebVideoDateDailyPrewarmAppMedia,
   hasPendingWebVideoDateDailyPrewarm,
   markWebVideoDateDailyPrewarmFallback,
   peekWebVideoDateDailyPrewarm,
@@ -926,9 +927,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
         }
         const prewarmAppAcquiredMediaBeforeRoom =
           prewarmPeekBeforeRoom.ok === true &&
-          Boolean(prewarmPeekBeforeRoom.entry.appAcquiredMedia);
+          hasLiveWebVideoDateDailyPrewarmAppMedia(
+            prewarmPeekBeforeRoom.entry.appAcquiredMedia,
+          );
         const reusableDailyPrewarmBeforeRoom =
-          prewarmPeekBeforeRoom.ok === true || prewarmPendingBeforeRoom;
+          prewarmAppAcquiredMediaBeforeRoom;
         const runMediaPreflightBeforeRoom =
           !hasReusableDailySingletonBeforeRoom &&
           !reusableDailyPrewarmBeforeRoom;
@@ -956,9 +959,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             userId,
             source: hasReusableDailySingletonBeforeRoom
               ? "daily_call_singleton"
-              : prewarmPendingBeforeRoom
-                ? "daily_prewarm_pending"
-                : "daily_prewarm_reusable_call",
+              : "daily_prewarm_live_app_media",
             prewarmAppAcquiredMedia: prewarmAppAcquiredMediaBeforeRoom,
             prewarmPending: prewarmPendingBeforeRoom,
           });
@@ -1346,7 +1347,21 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             ? prewarmedCall.entry.appAcquiredMedia
             : null;
         const adoptPrewarmAppAcquiredMedia = () => {
-          if (!prewarmAppAcquiredMedia) return;
+          if (!prewarmAppAcquiredMedia) return false;
+          if (
+            !hasLiveWebVideoDateDailyPrewarmAppMedia(prewarmAppAcquiredMedia)
+          ) {
+            vdbg("daily_prewarm_app_acquired_media_not_live", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              captureProfile: prewarmAppAcquiredMedia.captureProfile,
+              source: prewarmAppAcquiredMedia.source,
+            });
+            prewarmAppAcquiredMedia = null;
+            return false;
+          }
           const existingMedia = appAcquiredMediaRef.current;
           if (
             existingMedia &&
@@ -1373,12 +1388,14 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
               firstLiveTrack(prewarmAppAcquiredMedia.stream.getVideoTracks()),
             ),
           });
+          return true;
         };
         adoptPrewarmAppAcquiredMedia();
+        const prewarmHasLiveAppAcquiredMedia =
+          hasLiveWebVideoDateDailyPrewarmAppMedia(prewarmAppAcquiredMedia);
         const skipMediaPreflightForReusableDailyMedia =
           singletonCall.ok === true ||
-          prewarmedCall.ok === true ||
-          Boolean(prewarmAppAcquiredMedia);
+          prewarmHasLiveAppAcquiredMedia;
         if (skipMediaPreflightForReusableDailyMedia) {
           setHasPermission(true);
           setMediaPermissionResult(null);
@@ -1390,11 +1407,9 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             source:
               singletonCall.ok === true
                 ? "daily_call_singleton"
-                : prewarmAppAcquiredMedia
-                  ? "daily_prewarm_app_acquired_media"
-                  : "daily_prewarm_call_object",
+                : "daily_prewarm_app_acquired_media",
             roomName: roomData.room_name,
-            prewarmAppAcquiredMedia: Boolean(prewarmAppAcquiredMedia),
+            prewarmAppAcquiredMedia: prewarmHasLiveAppAcquiredMedia,
             dailyPrewarmConsumed: prewarmedCall.ok === true,
           });
         }

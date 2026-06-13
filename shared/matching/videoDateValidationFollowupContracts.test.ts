@@ -17,9 +17,17 @@ import { join } from "node:path";
 // 2. Size-regrowth pins: the rebuild accepted three judged-partial
 //    decompositions (PR 7.5 / 8.5 ledgers). Their size is frozen at the
 //    accepted LOC plus ~5% headroom so regrowth is caught in review.
+//
+// 3. PR #1322-#1330 review follow-ups: keep web pre-room media preflight until
+//    prewarm has live app-acquired tracks, filter terminal in_survey fallback
+//    before ordering/limit, and keep the latency forensics SQL channel safe.
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
+const webVideoCallStart = read("src/hooks/videoCall/useVideoDateStartCall.ts");
+const webDailyPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
+const webTerminalRecovery = read("src/pages/videoDate/useTerminalSurveyRecovery.ts");
+const latencyForensics = read("scripts/video-date-latency-forensics.mjs");
 
 const VIBE_CHANNEL = /channel\(`vibe-questions-\$\{sessionId\}`\)/;
 
@@ -121,6 +129,66 @@ test("vibe-questions is the single sanctioned postgres_changes exception on the 
     read("apps/mobile/lib/videoDateApi.ts"),
     /get_or_seed_video_session_vibe_questions/,
     "native videoDateApi must keep the seeding RPC binding",
+  );
+});
+
+test("web pre-room media preflight only skips for singleton or live app-acquired prewarm media", () => {
+  assert.match(webDailyPrewarm, /export function hasLiveWebVideoDateDailyPrewarmAppMedia/);
+  assert.match(
+    webDailyPrewarm,
+    /getLivePrewarmMediaTracks\(appAcquiredMedia\?\.stream\)/,
+  );
+  assert.match(
+    webVideoCallStart,
+    /const prewarmAppAcquiredMediaBeforeRoom =[\s\S]{0,180}hasLiveWebVideoDateDailyPrewarmAppMedia\(\s*prewarmPeekBeforeRoom\.entry\.appAcquiredMedia/s,
+  );
+  assert.match(
+    webVideoCallStart,
+    /const reusableDailyPrewarmBeforeRoom =\s*prewarmAppAcquiredMediaBeforeRoom/,
+  );
+  assert.doesNotMatch(
+    webVideoCallStart,
+    /const reusableDailyPrewarmBeforeRoom =[\s\S]{0,160}prewarmPendingBeforeRoom/,
+  );
+  assert.match(webVideoCallStart, /source:[\s\S]{0,120}"daily_prewarm_live_app_media"/);
+  assert.doesNotMatch(webVideoCallStart, /source:[\s\S]{0,160}"daily_prewarm_pending"/);
+  assert.match(
+    webVideoCallStart,
+    /const skipMediaPreflightForReusableDailyMedia =[\s\S]{0,120}prewarmHasLiveAppAcquiredMedia/,
+  );
+});
+
+test("terminal in_survey fallback filters current route before newest-row limit", () => {
+  const roomScopedIndex = webTerminalRecovery.indexOf('.eq("current_room_id", id)');
+  const nullRoomIndex = webTerminalRecovery.indexOf('.is("current_room_id", null)');
+  const eventScopedIndex = webTerminalRecovery.indexOf('.eq("event_id", expectedEventId)');
+  const orderIndex = webTerminalRecovery.indexOf('.order("last_active_at"', roomScopedIndex);
+  assert.ok(roomScopedIndex > -1, "fallback should first query the current route room");
+  assert.ok(nullRoomIndex > roomScopedIndex, "fallback should then query cleared-room survey continuity");
+  assert.ok(eventScopedIndex > nullRoomIndex, "cleared-room fallback should be scoped to expected event when known");
+  assert.ok(orderIndex > roomScopedIndex, "room/event filters must happen before ordering/limit");
+  assert.match(
+    webTerminalRecovery,
+    /registrationFallbackBaseQuery\(\)[\s\S]{0,120}\.eq\("current_room_id", id\)[\s\S]{0,120}\.order\("last_active_at"/,
+  );
+  assert.match(
+    webTerminalRecovery,
+    /registrationFallbackBaseQuery\(\)[\s\S]{0,160}\.is\("current_room_id", null\)[\s\S]{0,120}\.eq\("event_id", expectedEventId\)[\s\S]{0,120}\.order\("last_active_at"/,
+  );
+});
+
+test("latency forensics validates session ids and uses first provider joins", () => {
+  assert.match(latencyForensics, /const UUID_RE = \/\^\[0-9a-f\]/);
+  assert.match(latencyForensics, /const validatedSessionArg = sessionArg \? requireUuid\(sessionArg, "session id"\) : null/);
+  assert.match(latencyForensics, /if \(validatedSessionArg\) return validatedSessionArg/);
+  assert.match(latencyForensics, /return requireUuid\(rows\[0\]\.id, "resolved session id"\)/);
+  assert.match(latencyForensics, /const firstJoinByActor = new Map\(\)/);
+  assert.match(latencyForensics, /eventType !== "participant\.joined" && eventType !== "participant\.join"/);
+  assert.match(latencyForensics, /firstJoinByActor\.set\(actorId, joinedAt\)/);
+  assert.match(latencyForensics, /participant1FirstProviderJoin && participant2FirstProviderJoin/);
+  assert.doesNotMatch(
+    latencyForensics,
+    /s\.participant_1_provider_joined_at && s\.participant_2_provider_joined_at/,
   );
 });
 
