@@ -122,7 +122,11 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
       clearTimeout(reconnectRecoveryResetTimeoutRef.current);
       reconnectRecoveryResetTimeoutRef.current = null;
     }
-  }, []);
+  }, [
+    reconnectGraceTickerRef,
+    reconnectGraceTimeoutRef,
+    reconnectRecoveryResetTimeoutRef,
+  ]);
 
   const cleanupCallObject = useCallback(
     (caller: string, reason: string) => {
@@ -362,6 +366,15 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
       });
     },
     [
+      activeCallSessionIdRef,
+      activeDailyCallIdentityRef,
+      activePreparedEntryCacheHitRef,
+      activePreparedEntryCacheRef,
+      activeRemoteCameraSwitchRenderWatchRef,
+      appAcquiredMediaRef,
+      callObjectRef,
+      cameraSwitchInFlightRef,
+      captureProfileRef,
       clearDailyEventListeners,
       clearDailyAliveHeartbeatTimer,
       clearDailyTokenRefreshTimer,
@@ -369,9 +382,49 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
       clearFirstRemoteWatchdog,
       clearReconnectGraceTimers,
       clearRemoteRenderValidation,
+      dailyJoinStartedAtMsRef,
+      dailyListenerGenerationRef,
+      dailyTokenRecoveryInFlightRef,
+      firstRemoteObservedRef,
       hasSameSessionDailyContinuity,
+      lastDailyPrewarmConsumedRef,
+      lastLocalMountedTrackKeyRef,
+      lastLocalStreamRef,
+      lastLocalTrackIdsRef,
+      lastMediaHandoffMissReasonRef,
+      lastMediaHandoffUsedRef,
+      lastPrewarmedAlreadyJoinedRef,
+      lastPrewarmedJoinInFlightRef,
+      lastProviderVerifySkippedRef,
+      lastRemoteCameraSwitchHintIdRef,
+      lastRemoteMountedTrackKeyRef,
+      lastRemoteRenderParticipantIdRef,
+      lastRemoteStreamRef,
+      lastRemoteTrackIdsRef,
+      latestLocalParticipantRef,
+      latestRemoteParticipantRef,
+      localVideoReadyTrackedRef,
+      localVideoRef,
+      optionsRef,
+      reconnectGraceActiveRef,
+      reconnectPartnerAwayTriggeredRef,
+      reconnectSyncRequestedRef,
       releaseAppAcquiredMedia,
+      remoteFirstFrameTrackedRef,
+      remoteVideoRef,
       resetRemoteRenderRecoveryAttempts,
+      roomNameRef,
+      setDailyMeetingState,
+      setDailyReconnectState,
+      setHasPermission,
+      setIsConnected,
+      setIsConnecting,
+      setLocalInDailyRoom,
+      setLocalStream,
+      setNetworkTier,
+      setPeerMissing,
+      setReconnectGraceTimeLeft,
+      setRemotePlayback,
     ],
   );
   return {

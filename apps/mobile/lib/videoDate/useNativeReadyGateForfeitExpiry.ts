@@ -148,6 +148,8 @@ export function useNativeReadyGateForfeitExpiry(deps: NativeReadyGateForfeitExpi
       forfeit,
       sessionId,
       sessionLookupDone,
+      setTerminalActionError,
+      setTerminalActionPending,
       terminalActionPending,
     ],
   );
@@ -192,10 +194,15 @@ export function useNativeReadyGateForfeitExpiry(deps: NativeReadyGateForfeitExpi
       }
     },
     [
+      GATE_TIMEOUT_SEC,
       clientSyncedAtMs,
+      expirySyncInFlightRef,
+      expirySyncRetryAtMsRef,
       phaseDeadlineAtMs,
+      readyGateOpenedAtMsRef,
       serverNowMs,
       sessionId,
+      setTimeLeft,
       guardedSyncSession,
       user?.id,
     ],

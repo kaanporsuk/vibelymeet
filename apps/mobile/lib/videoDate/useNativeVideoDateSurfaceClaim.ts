@@ -222,10 +222,18 @@ export function useNativeVideoDateSurfaceClaim(deps: NativeVideoDateSurfaceClaim
     },
     [
       nativeSurfaceClientReady,
+      phaseRef,
       sessionId,
       setSurfaceClaimBlockedState,
       showFeedback,
+      surfaceClaimBackoffUntilRef,
+      surfaceClaimBlockedRef,
+      surfaceClaimFailureCountRef,
+      surfaceClaimInFlightPromiseRef,
+      surfaceClaimInFlightRef,
       user?.id,
+      videoDateClientInstanceIdRef,
+      videoDateSurfaceOwnerIdRef,
     ],
   );
 
@@ -248,8 +256,11 @@ export function useNativeVideoDateSurfaceClaim(deps: NativeVideoDateSurfaceClaim
     }
   }, [
     claimNativeVideoDateSurface,
+    hasStartedJoinRef,
     sessionId,
+    setJoinAttemptNonce,
     setSurfaceClaimBlockedState,
+    setSurfaceClaimTakeoverBusy,
     surfaceClaimTakeoverBusy,
     user?.id,
   ]);
@@ -367,6 +378,8 @@ export function useNativeVideoDateSurfaceClaim(deps: NativeVideoDateSurfaceClaim
     setSurfaceClaimBlockedState,
     showFeedback,
     user?.id,
+    videoDateClientInstanceIdRef,
+    videoDateSurfaceOwnerIdRef,
   ]);
 
   return {

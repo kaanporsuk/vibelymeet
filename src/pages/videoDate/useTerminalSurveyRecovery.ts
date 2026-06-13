@@ -137,11 +137,22 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       });
     },
     [
+      callStartAutoRetryCountRef,
       clearCallStartAutoRetryTimer,
       clearEntryGraceState,
       eventId,
       id,
+      setCallStartFailure,
+      setCallStarted,
+      setPhase,
       setStatus,
+      setTerminalSurveyRecoveryActive,
+      setTimeLeft,
+      setTimingReady,
+      setVideoDateAccess,
+      terminalDailyStopRef,
+      terminalDailyStopRequestedRef,
+      terminalSurveyRecoveryInFlightRef,
       user?.id,
     ],
   );
@@ -180,7 +191,14 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       }
       return true;
     },
-    [enterTerminalSurveyHardStop, id, eventId, logJourney],
+    [
+      enterTerminalSurveyHardStop,
+      id,
+      eventId,
+      logJourney,
+      setShowFeedback,
+      surveyOpenedRef,
+    ],
   );
 
   const hydrateTerminalSurveyContext = useCallback(
@@ -218,7 +236,20 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
         isParticipant1: isP1,
       });
     },
-    [clearCallStartAutoRetryTimer, id, user?.id],
+    [
+      callStartAutoRetryCountRef,
+      canonicalRoomNameRef,
+      clearCallStartAutoRetryTimer,
+      id,
+      setCallStartFailure,
+      setCallStarted,
+      setEventId,
+      setIsParticipant1,
+      setPartnerId,
+      setTimingReady,
+      setVideoDateAccess,
+      user?.id,
+    ],
   );
 
   const recoverTerminalPostDateSurvey = useCallback(
@@ -469,7 +500,18 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       id,
       navigate,
       openPostDateSurvey,
+      setCallStartFailure,
+      setCallStarted,
+      setEventId,
+      setPartnerId,
+      setPhase,
+      setShowFeedback,
       setStatus,
+      setTerminalSurveyRecoveryActive,
+      setTimeLeft,
+      setTimingReady,
+      setVideoDateAccess,
+      terminalSurveyRecoveryInFlightRef,
       user?.id,
     ],
   );
@@ -613,6 +655,7 @@ export function useTerminalSurveyRecovery(deps: UseTerminalSurveyRecoveryDeps) {
       logJourney,
       navigate,
       recoverTerminalPostDateSurvey,
+      setVideoDateAccess,
       user?.id,
     ],
   );

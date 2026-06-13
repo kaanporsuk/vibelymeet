@@ -75,7 +75,7 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
       reason,
       ageMs: Math.max(0, Date.now() - entry.acquiredAtMs),
     });
-  }, []);
+  }, [appAcquiredMediaRef, optionsRef]);
 
   const preflightMediaPermission = useCallback(
     async (
@@ -661,7 +661,17 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
         return false;
       }
     },
-    [releaseAppAcquiredMedia],
+    [
+      appAcquiredMediaRef,
+      captureProfileRef,
+      lastMediaHandoffMissReasonRef,
+      lastMediaHandoffUsedRef,
+      releaseAppAcquiredMedia,
+      setCaptureProfile,
+      setHasPermission,
+      setMediaPermissionError,
+      setMediaPermissionResult,
+    ],
   );
   return {
     releaseAppAcquiredMedia,

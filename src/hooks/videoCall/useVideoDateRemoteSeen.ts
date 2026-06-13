@@ -355,7 +355,13 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
 
       stamp(source, 1);
     },
-    [clearDailyAliveHeartbeatTimer],
+    [
+      activeDailyCallIdentityRef,
+      callObjectRef,
+      clearDailyAliveHeartbeatTimer,
+      optionsRef,
+      roomNameRef,
+    ],
   );
 
   useEffect(() => {
@@ -365,26 +371,37 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
         remoteSeenRetryTimerRef.current = null;
       }
       remoteSeenInFlightSessionRef.current = null;
-      const sessionId = optionsRef.current?.roomId ?? null;
+      // The live-remount identity-preservation decision must use
+      // teardown-time call/options state; values frozen at effect setup
+      // would decide on stale truth.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional teardown-time read (see above)
+      const currentOptions = optionsRef.current;
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional teardown-time read (see above)
       const call = callObjectRef.current;
+      const sessionId = currentOptions?.roomId ?? null;
       const shouldPreserveActiveIdentity =
         Boolean(sessionId) &&
         Boolean(call) &&
         hasSameSessionDailyContinuity(sessionId) &&
-        optionsRef.current?.videoSessionState !== "ended" &&
+        currentOptions?.videoSessionState !== "ended" &&
         !isTerminalDailyMeetingState(safeMeetingState(call));
       if (shouldPreserveActiveIdentity) {
         vdbg("daily_call_live_remount_identity_preserved", {
           sessionId,
-          eventId: optionsRef.current?.eventId ?? null,
-          userId: optionsRef.current?.userId ?? null,
+          eventId: currentOptions?.eventId ?? null,
+          userId: currentOptions?.userId ?? null,
           meetingState: safeMeetingState(call),
         });
         return;
       }
       activeDailyCallIdentityRef.current = null;
     };
-  }, [hasSameSessionDailyContinuity]);
+  }, [
+    activeDailyCallIdentityRef,
+    callObjectRef,
+    hasSameSessionDailyContinuity,
+    optionsRef,
+  ]);
 
   const markRemoteFirstFrameRendered = useCallback(
     (source: string) => {
@@ -464,7 +481,20 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
           lastProviderVerifySkippedRef.current,
       });
     },
-    [markRemoteSeenOnServer],
+    [
+      activePreparedEntryCacheHitRef,
+      activePreparedEntryCacheRef,
+      lastDailyPrewarmConsumedRef,
+      lastMediaHandoffMissReasonRef,
+      lastMediaHandoffUsedRef,
+      lastPrewarmedAlreadyJoinedRef,
+      lastPrewarmedJoinInFlightRef,
+      lastProviderVerifySkippedRef,
+      markRemoteSeenOnServer,
+      optionsRef,
+      remoteFirstFrameTrackedRef,
+      setRemotePlayback,
+    ],
   );
   return {
     markRemoteSeenOnServer,

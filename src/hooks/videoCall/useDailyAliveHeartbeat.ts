@@ -71,13 +71,13 @@ export function useDailyAliveHeartbeat(deps: VideoCallSharedRuntime) {
       reason,
       count: cleanups.length,
     });
-  }, []);
+  }, [dailyEventListenerCleanupsRef]);
 
   const clearDailyTokenRefreshTimer = useCallback(() => {
     if (!dailyTokenRefreshTimerRef.current) return;
     clearTimeout(dailyTokenRefreshTimerRef.current);
     dailyTokenRefreshTimerRef.current = null;
-  }, []);
+  }, [dailyTokenRefreshTimerRef]);
 
   const clearDailyAliveHeartbeatTimer = useCallback((reason: string) => {
     if (dailyAliveHeartbeatTimerRef.current) {
@@ -241,7 +241,7 @@ export function useDailyAliveHeartbeat(deps: VideoCallSharedRuntime) {
         });
       }
     },
-    [clearDailyAliveHeartbeatTimer],
+    [callObjectRef, clearDailyAliveHeartbeatTimer, optionsRef],
   );
 
   const startDailyAliveHeartbeat = useCallback(
@@ -330,6 +330,7 @@ export function useDailyAliveHeartbeat(deps: VideoCallSharedRuntime) {
         });
       });
   }, [
+    callObjectRef,
     isConnected,
     networkTier,
     options?.eventId,
@@ -407,7 +408,7 @@ export function useDailyAliveHeartbeat(deps: VideoCallSharedRuntime) {
     return () => {
       clearInterval(intervalId);
     };
-  }, [isConnected, isConnecting]);
+  }, [callObjectRef, isConnected, isConnecting, optionsRef]);
 
   return {
     clearDailyEventListeners,

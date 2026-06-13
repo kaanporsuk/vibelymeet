@@ -271,7 +271,7 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
         );
       }
     },
-    [markRemoteFirstFrameRendered],
+    [markRemoteFirstFrameRendered, optionsRef, playbackBlockedRef, setRemotePlayback],
   );
 
   const needsTrackReattach = useCallback(
@@ -341,14 +341,19 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
         },
       );
     },
-    [],
+    [
+      captureProfileRef,
+      lastLocalMountedTrackKeyRef,
+      lastRemoteMountedTrackKeyRef,
+      optionsRef,
+    ],
   );
 
   const clearFirstRemoteWatchdog = useCallback(() => {
     if (!firstRemoteWatchdogRef.current) return;
     clearTimeout(firstRemoteWatchdogRef.current);
     firstRemoteWatchdogRef.current = null;
-  }, []);
+  }, [firstRemoteWatchdogRef]);
 
   const remoteRenderDiagnostics = useCallback(
     (
@@ -380,7 +385,7 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
             : null,
       };
     },
-    [],
+    [optionsRef],
   );
 
   const resetRemoteRenderRecoveryAttempts = useCallback(() => {
@@ -420,7 +425,7 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
         remoteRenderRecoveryReattachTimeoutRef.current = null;
       }
     },
-    [],
+    [remoteVideoRef],
   );
 
   const resetRemoteRenderRecoveryForParticipant = useCallback(
@@ -434,7 +439,7 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
       lastRemoteRenderParticipantIdRef.current = participantId;
       resetRemoteRenderRecoveryAttempts();
     },
-    [resetRemoteRenderRecoveryAttempts],
+    [lastRemoteRenderParticipantIdRef, resetRemoteRenderRecoveryAttempts],
   );
 
   const forceRemoteMediaReattach = useCallback(
@@ -637,8 +642,12 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
     [
       attachTracks,
       clearRemoteRenderValidation,
+      latestRemoteParticipantRef,
       logTrackMounted,
+      optionsRef,
       remoteRenderDiagnostics,
+      remoteVideoRef,
+      setRemotePlayback,
     ],
   );
 
@@ -901,10 +910,15 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
       }, REMOTE_RENDER_VALIDATION_DELAY_MS);
     },
     [
+      activeRemoteCameraSwitchRenderWatchRef,
       clearRemoteRenderValidation,
       forceRemoteMediaReattach,
+      latestRemoteParticipantRef,
       markRemoteFirstFrameRendered,
+      reconnectGraceActiveRef,
       remoteRenderDiagnostics,
+      remoteVideoRef,
+      setRemotePlayback,
     ],
   );
 
@@ -940,7 +954,16 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
     }, 1000);
 
     return () => clearInterval(intervalId);
-  }, [attachTracks, logTrackMounted, needsTrackReattach]);
+  }, [
+    attachTracks,
+    latestLocalParticipantRef,
+    latestRemoteParticipantRef,
+    localVideoRef,
+    logTrackMounted,
+    needsTrackReattach,
+    remoteVideoRef,
+    roomNameRef,
+  ]);
   return {
     attachTracks,
     needsTrackReattach,

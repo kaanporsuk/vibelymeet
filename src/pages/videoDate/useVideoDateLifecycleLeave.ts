@@ -192,7 +192,7 @@ export function useVideoDateLifecycleLeave(
       );
       return transitionResult.ok;
     },
-    [id],
+    [id, phaseRef],
   );
 
   const retryPreDateManualEndInBackground = useCallback(
@@ -260,7 +260,7 @@ export function useVideoDateLifecycleLeave(
         );
       }, 750);
     },
-    [id, signalPreDateManualEnd],
+    [id, phaseRef, signalPreDateManualEnd],
   );
 
   const handlePreDateExit = useCallback(
@@ -332,10 +332,16 @@ export function useVideoDateLifecycleLeave(
       endCall,
       eventId,
       id,
+      manualExitInFlightRef,
       navigate,
+      phaseRef,
       resolveVideoDateExitTarget,
       retryPreDateManualEndInBackground,
+      setIsLeavingVideoDate,
+      setPhase,
+      setShowFeedback,
       setStatus,
+      setTimeLeft,
       signalPreDateManualEnd,
       user?.id,
     ],
@@ -372,17 +378,19 @@ export function useVideoDateLifecycleLeave(
       endCall,
       handleCallEnd,
       handlePreDateExit,
+      hasEnteredDateFlowRef,
       clearEntryGraceState,
       entryTruth,
       id,
       phase,
+      phaseRef,
     ],
   );
 
   const requestEndDateConfirmation = useCallback(() => {
     if (isLeavingVideoDate || isEndDateConfirming) return;
     setShowEndDateConfirm(true);
-  }, [isEndDateConfirming, isLeavingVideoDate]);
+  }, [isEndDateConfirming, isLeavingVideoDate, setShowEndDateConfirm]);
 
   const confirmEndDate = useCallback(async () => {
     if (isLeavingVideoDate || isEndDateConfirming) return;
@@ -393,7 +401,13 @@ export function useVideoDateLifecycleLeave(
     } finally {
       setIsEndDateConfirming(false);
     }
-  }, [handleLeave, isEndDateConfirming, isLeavingVideoDate]);
+  }, [
+    handleLeave,
+    isEndDateConfirming,
+    isLeavingVideoDate,
+    setIsEndDateConfirming,
+    setShowEndDateConfirm,
+  ]);
 
   useEffect(() => {
     if (!peerMissing.terminal || !id) return;
@@ -453,10 +467,13 @@ export function useVideoDateLifecycleLeave(
       window.clearInterval(interval);
     };
   }, [
+    explicitEndRequestedRef,
     id,
     videoDateAccess,
     showFeedback,
+    surveyOpenedRef,
     terminalSurveyRecoveryActive,
+    terminalSurveyRecoveryInFlightRef,
     phase,
     mediaPermissionError,
     peerMissing.terminal,
@@ -482,7 +499,7 @@ export function useVideoDateLifecycleLeave(
         setCallStarted(false);
       }
     })();
-  }, [clearPeerMissing, endCall, eventId, id]);
+  }, [clearPeerMissing, endCall, eventId, id, setCallStartFailure, setCallStarted]);
 
   const handlePeerMissingKeepWaiting = useCallback(() => {
     if (id) {
@@ -530,8 +547,10 @@ export function useVideoDateLifecycleLeave(
     eventId,
     handleLeave,
     handlePreDateExit,
+    hasEnteredDateFlowRef,
     entryTruth,
     id,
+    phaseRef,
   ]);
 
   useEffect(() => {

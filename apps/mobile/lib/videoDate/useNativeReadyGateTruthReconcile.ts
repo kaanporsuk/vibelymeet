@@ -347,7 +347,19 @@ export function useNativeReadyGateTruthReconcile(deps: NativeReadyGateTruthRecon
       router.replace(startable.recommendHref);
       return true;
     },
-    [cancelTerminalReadyGateWork, eventId, pathname, sessionId, user?.id],
+    [
+      cancelTerminalReadyGateWork,
+      dateNavigationStartedRef,
+      eventId,
+      nonRetryablePrepareBlockerRef,
+      pathname,
+      sessionId,
+      setPrepareEntryFailureCode,
+      setPrepareEntryFailureRetryable,
+      setTerminalActionError,
+      setTransitioning,
+      user?.id,
+    ],
   );
 
   return {
