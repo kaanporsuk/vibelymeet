@@ -5,6 +5,7 @@ import {
   clearAllVideoDatePermissionHandoffs,
   clearVideoDatePermissionHandoff,
   getVideoDatePermissionHandoff,
+  getVideoDatePermissionHandoffStatus,
   pruneExpiredVideoDatePermissionHandoffs,
   setVideoDatePermissionHandoff,
 } from "./videoDatePermissionHandoff";
@@ -45,6 +46,33 @@ test("video date permission handoff can be explicitly invalidated", () => {
 
   assert.equal(clearVideoDatePermissionHandoff(SESSION_ID, USER_ID), true);
   assert.equal(getVideoDatePermissionHandoff(SESSION_ID, USER_ID, 1001), null);
+});
+
+test("video date permission handoff status exposes precise miss reasons", () => {
+  clearAllVideoDatePermissionHandoffs();
+
+  assert.deepEqual(
+    getVideoDatePermissionHandoffStatus(SESSION_ID, USER_ID, 1000),
+    { ok: false, reason: "missing" },
+  );
+
+  setVideoDatePermissionHandoff({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    platform: "web",
+    source: "ready_gate",
+    nowMs: 1000,
+    ttlMs: 10,
+  });
+
+  assert.equal(
+    getVideoDatePermissionHandoffStatus(SESSION_ID, USER_ID, 1009).ok,
+    true,
+  );
+  assert.deepEqual(
+    getVideoDatePermissionHandoffStatus(SESSION_ID, USER_ID, 1010),
+    { ok: false, reason: "expired" },
+  );
 });
 
 test("setting a permission handoff opportunistically prunes expired entries", () => {

@@ -78,7 +78,7 @@ import {
   type VideoDateDailyCallObject,
 } from "@/lib/videoDateDailyMediaConfig";
 import {
-  consumeNativeVideoDateDailyPrewarm,
+  consumeNativeVideoDateDailyPrewarmWhenReady,
   markNativeVideoDateDailyPrewarmFallback,
 } from "@/lib/videoDateDailyPrewarm";
 import {
@@ -179,6 +179,7 @@ export interface NativeVideoDateStartCallDeps {
   clearPartnerAwayAfterTransportGrace: (reason: string) => void;
   dailyJoinStartedAtMsRef: MutableRefObject<number | null>;
   dailyPrewarmConsumedForJoinRef: MutableRefObject<boolean>;
+  dailyPrewarmFallbackReasonRef: MutableRefObject<string | null>;
   dailyTokenExpiresAtRef: MutableRefObject<string | null>;
   dailyTokenRecoveryInFlightRef: MutableRefObject<boolean>;
   dailyTokenRefreshTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
@@ -259,6 +260,7 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
     clearPartnerAwayAfterTransportGrace,
     dailyJoinStartedAtMsRef,
     dailyPrewarmConsumedForJoinRef,
+    dailyPrewarmFallbackReasonRef,
     dailyTokenExpiresAtRef,
     dailyTokenRecoveryInFlightRef,
     dailyTokenRefreshTimerRef,
@@ -434,6 +436,7 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
     const attemptId = prejoinAttemptSeqRef.current + 1;
     prejoinAttemptSeqRef.current = attemptId;
     dailyPrewarmConsumedForJoinRef.current = false;
+    dailyPrewarmFallbackReasonRef.current = null;
     prewarmedAlreadyJoinedRef.current = false;
     prewarmedJoinInFlightRef.current = false;
     providerVerifySkippedRef.current = null;
@@ -1268,6 +1271,8 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
       let tokenRes: GetDailyRoomTokenResult;
       let dailyTokenStartedAtMs = Date.now();
       let dailyRoomAttemptCount = 1;
+      let preparedEntryUsed = false;
+      let preparedEntryMissReason: string | null = null;
       try {
         currentStep = setPrejoinStep("daily_room");
         dailyTokenStartedAtMs = Date.now();
@@ -1289,6 +1294,8 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
         });
         const handoff = consumePreparedVideoDateEntry(sessionId, user.id);
         if (handoff.ok === true) {
+          preparedEntryUsed = true;
+          preparedEntryMissReason = null;
           activePreparedEntryCacheRef.current = handoff.cacheEntry;
           activePreparedEntryCacheHitRef.current = true;
           tokenRes = {
@@ -1312,6 +1319,7 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
             videoDateTraceId: handoff.envelope.videoDateTraceId,
           });
         } else {
+          preparedEntryMissReason = handoff.reason;
           vdbg("prejoin_step_prejoin_daily_room_handoff_missed", {
             sessionId,
             userId: user.id,
@@ -2159,7 +2167,7 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
       let dailyPrewarmConsumedForJoin = false;
       const prewarmedCall = idleSingletonEntry
         ? { ok: false as const, reason: "daily_call_singleton_reused" }
-        : consumeNativeVideoDateDailyPrewarm({
+        : await consumeNativeVideoDateDailyPrewarmWhenReady({
             sessionId,
             userId: user.id,
             eventId: eventId || null,
@@ -2175,6 +2183,9 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
           reason: prewarmedCall.reason,
         });
       }
+      if (prewarmedCall.ok === true) {
+        callCaptureProfile = prewarmedCall.entry.captureProfile;
+      }
       const prewarmedAlreadyJoined =
         prewarmedCall.ok === true && prewarmedCall.entry.joined;
       const prewarmedJoinStartedAtMs =
@@ -2188,6 +2199,8 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
             })
           : null;
       dailyPrewarmConsumedForJoinRef.current = prewarmedCall.ok === true;
+      dailyPrewarmFallbackReasonRef.current =
+        prewarmedCall.ok === true ? null : prewarmedCall.reason;
       prewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
       prewarmedJoinInFlightRef.current = Boolean(
         prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined,
@@ -2590,6 +2603,15 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
           providerVerifySkipped:
             activePreparedEntryCacheRef.current?.value
               .provider_verify_skipped ?? providerVerifySkippedRef.current,
+          preparedEntryUsed,
+          preparedEntryMissReason,
+          dailyPrewarmConsumed: dailyPrewarmConsumedForJoin,
+          dailyPrewarmFallbackReason:
+            dailyPrewarmFallbackReasonRef.current,
+          joinAlreadyInFlight: Boolean(
+            prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined,
+          ),
+          alreadyJoined: prewarmedAlreadyJoined,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -2626,9 +2648,13 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
           latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
           attempt_count: preparedJoinRetryUsedRef.current ? 2 : 1,
           cached_prepare_entry: activePreparedEntryCacheHitRef.current,
+          prepared_entry_used: preparedEntryUsed,
+          prepared_entry_miss_reason: preparedEntryMissReason,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
           daily_prewarm_consumed: dailyPrewarmConsumedForJoin,
+          daily_prewarm_fallback_reason:
+            dailyPrewarmFallbackReasonRef.current,
           prewarmed_join_in_flight: Boolean(
             prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined,
           ),
@@ -2845,6 +2871,15 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
             providerVerifySkipped:
               activePreparedEntryCacheRef.current?.value
                 .provider_verify_skipped ?? providerVerifySkippedRef.current,
+            preparedEntryUsed,
+            preparedEntryMissReason,
+            dailyPrewarmConsumed: dailyPrewarmConsumedForJoin,
+            dailyPrewarmFallbackReason:
+              dailyPrewarmFallbackReasonRef.current,
+            joinAlreadyInFlight: Boolean(
+              prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined,
+            ),
+            alreadyJoined: prewarmedAlreadyJoined,
           });
         const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
           context: joinSuccessLatencyContext,
@@ -2875,9 +2910,13 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
           bothReadyToDailyJoinMs: joinSuccessPayload.bothReadyToDailyJoinMs,
           prepareToJoinStartMs,
           cached_prepare_entry: activePreparedEntryCacheHitRef.current,
+          prepared_entry_used: preparedEntryUsed,
+          prepared_entry_miss_reason: preparedEntryMissReason,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
           daily_prewarm_consumed: dailyPrewarmConsumedForJoin,
+          daily_prewarm_fallback_reason:
+            dailyPrewarmFallbackReasonRef.current,
           prewarmed_join_in_flight: Boolean(
             prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined,
           ),
@@ -3321,6 +3360,7 @@ export function useNativeVideoDateStartCall(deps: NativeVideoDateStartCallDeps) 
           activePreparedEntryCacheRef.current = null;
           activePreparedEntryCacheHitRef.current = null;
           dailyPrewarmConsumedForJoinRef.current = false;
+          dailyPrewarmFallbackReasonRef.current = null;
           prewarmedAlreadyJoinedRef.current = false;
           prewarmedJoinInFlightRef.current = false;
           providerVerifySkippedRef.current = null;

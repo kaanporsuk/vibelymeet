@@ -22,7 +22,8 @@ import {
   isTerminalDailyMeetingState,
 } from "@/lib/dailyCallInstance";
 import {
-  consumeWebVideoDateDailyPrewarm,
+  consumeWebVideoDateDailyPrewarmWhenReady,
+  hasPendingWebVideoDateDailyPrewarm,
   markWebVideoDateDailyPrewarmFallback,
   peekWebVideoDateDailyPrewarm,
 } from "@/lib/videoDateDailyPrewarm";
@@ -229,6 +230,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
     lastMediaHandoffMissReasonRef,
     lastMediaHandoffUsedRef,
     lastPrewarmedAlreadyJoinedRef,
+    lastDailyPrewarmFallbackReasonRef,
     lastPrewarmedJoinInFlightRef,
     lastProviderVerifySkippedRef,
     lastRemoteCameraSwitchHintIdRef,
@@ -299,12 +301,19 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           roomData: DailyRoomSuccessResponse;
           cacheEntry: PreparedVideoDateEntryCacheEntry;
           cached: boolean;
+          preparedEntryUsed: boolean;
+          preparedEntryMissReason: string | null;
         }
       | {
           ok: false;
           failure: VideoCallStartFailure;
+          preparedEntryUsed: boolean;
+          preparedEntryMissReason: string | null;
         }
     > => {
+      let preparedEntryMissReason: string | null = userId
+        ? null
+        : "missing_user";
       if (userId) {
         const handoff = consumePreparedVideoDateEntry(sessionId, userId);
         if (handoff.ok === true) {
@@ -356,8 +365,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             roomData: successfulRoomData,
             cacheEntry: handoff.cacheEntry,
             cached: true,
+            preparedEntryUsed: true,
+            preparedEntryMissReason: null,
           };
         }
+        preparedEntryMissReason = handoff.reason;
         vdbg("daily_room_handoff_missed", {
           action: "prepare_date_entry",
           sessionId,
@@ -506,6 +518,8 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             roomData: successfulRoomData,
             cacheEntry: result.cacheEntry,
             cached: result.cached,
+            preparedEntryUsed: false,
+            preparedEntryMissReason,
           };
         }
 
@@ -554,6 +568,8 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
               httpStatus: lastFailure?.httpStatus,
               serverCode: lastFailure?.serverCode,
             },
+            preparedEntryUsed: false,
+            preparedEntryMissReason,
           };
         }
 
@@ -580,6 +596,8 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           httpStatus: lastFailure?.httpStatus,
           serverCode: lastFailure?.serverCode,
         },
+        preparedEntryUsed: false,
+        preparedEntryMissReason,
       };
     },
     [],
@@ -778,6 +796,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
       lastMediaHandoffUsedRef.current = false;
       lastMediaHandoffMissReasonRef.current = null;
       lastDailyPrewarmConsumedRef.current = false;
+      lastDailyPrewarmFallbackReasonRef.current = null;
       lastPrewarmedJoinInFlightRef.current = false;
       lastPrewarmedAlreadyJoinedRef.current = false;
       lastProviderVerifySkippedRef.current = null;
@@ -896,6 +915,10 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                 userId,
               })
             : { ok: false as const, reason: "missing_user" };
+        const prewarmPendingBeforeRoom =
+          !hasReusableDailySingletonBeforeRoom && userId
+            ? hasPendingWebVideoDateDailyPrewarm({ sessionId, userId })
+            : false;
         if (prewarmPeekBeforeRoom.ok === true) {
           captureProfileForCall = prewarmPeekBeforeRoom.entry.captureProfile;
           captureProfileRef.current = prewarmPeekBeforeRoom.entry.captureProfile;
@@ -904,9 +927,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
         const prewarmAppAcquiredMediaBeforeRoom =
           prewarmPeekBeforeRoom.ok === true &&
           Boolean(prewarmPeekBeforeRoom.entry.appAcquiredMedia);
+        const reusableDailyPrewarmBeforeRoom =
+          prewarmPeekBeforeRoom.ok === true || prewarmPendingBeforeRoom;
         const runMediaPreflightBeforeRoom =
           !hasReusableDailySingletonBeforeRoom &&
-          !prewarmAppAcquiredMediaBeforeRoom;
+          !reusableDailyPrewarmBeforeRoom;
         if (runMediaPreflightBeforeRoom) {
           const mediaAllowedBeforeRoom = await preflightMediaPermission(
             sessionId,
@@ -931,8 +956,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             userId,
             source: hasReusableDailySingletonBeforeRoom
               ? "daily_call_singleton"
-              : "daily_prewarm_app_acquired_media",
+              : prewarmPendingBeforeRoom
+                ? "daily_prewarm_pending"
+                : "daily_prewarm_reusable_call",
             prewarmAppAcquiredMedia: prewarmAppAcquiredMediaBeforeRoom,
+            prewarmPending: prewarmPendingBeforeRoom,
           });
         }
 
@@ -1282,12 +1310,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           setCaptureProfile(prewarmPeek.entry.captureProfile);
         }
         const consumePrewarmBeforeMediaPreflight =
-          prewarmPeek.ok === true &&
-          Boolean(prewarmPeek.entry.appAcquiredMedia);
+          prewarmPeek.ok === true || prewarmPendingBeforeRoom;
         let prewarmedCall = singletonCall.ok
           ? { ok: false as const, reason: "daily_call_singleton_reused" }
           : userId && consumePrewarmBeforeMediaPreflight
-            ? consumeWebVideoDateDailyPrewarm({
+            ? await consumeWebVideoDateDailyPrewarmWhenReady({
                 sessionId,
                 userId,
                 eventId: truthRow.event_id ?? eventId,
@@ -1349,7 +1376,9 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
         };
         adoptPrewarmAppAcquiredMedia();
         const skipMediaPreflightForReusableDailyMedia =
-          singletonCall.ok === true || Boolean(prewarmAppAcquiredMedia);
+          singletonCall.ok === true ||
+          prewarmedCall.ok === true ||
+          Boolean(prewarmAppAcquiredMedia);
         if (skipMediaPreflightForReusableDailyMedia) {
           setHasPermission(true);
           setMediaPermissionResult(null);
@@ -1361,9 +1390,12 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             source:
               singletonCall.ok === true
                 ? "daily_call_singleton"
-                : "daily_prewarm_app_acquired_media",
+                : prewarmAppAcquiredMedia
+                  ? "daily_prewarm_app_acquired_media"
+                  : "daily_prewarm_call_object",
             roomName: roomData.room_name,
             prewarmAppAcquiredMedia: Boolean(prewarmAppAcquiredMedia),
+            dailyPrewarmConsumed: prewarmedCall.ok === true,
           });
         }
         if (
@@ -1371,7 +1403,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           prewarmedCall.reason === "daily_prewarm_deferred_until_media_preflight" &&
           userId
         ) {
-          prewarmedCall = consumeWebVideoDateDailyPrewarm({
+          prewarmedCall = await consumeWebVideoDateDailyPrewarmWhenReady({
             sessionId,
             userId,
             eventId: truthRow.event_id ?? eventId,
@@ -1391,6 +1423,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             prewarmAppAcquiredMedia = prewarmedCall.entry.appAcquiredMedia;
             adoptPrewarmAppAcquiredMedia();
           }
+        }
+        if (prewarmedCall.ok === true) {
+          captureProfileForCall = prewarmedCall.entry.captureProfile;
+          captureProfileRef.current = prewarmedCall.entry.captureProfile;
+          setCaptureProfile(prewarmedCall.entry.captureProfile);
         }
         if (
           singletonCall.ok === false &&
@@ -1513,6 +1550,8 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           prewarmedJoinPromise =
             prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
           lastDailyPrewarmConsumedRef.current = prewarmedCall.ok === true;
+          lastDailyPrewarmFallbackReasonRef.current =
+            prewarmedCall.ok === true ? null : prewarmedCall.reason;
           lastPrewarmedAlreadyJoinedRef.current =
             prewarmedAlreadyJoined || singletonAlreadyJoined;
           lastPrewarmedJoinInFlightRef.current =
@@ -1589,7 +1628,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                       guarded.reason === "cleanup_pending"
                     ) {
                       const recoveredPrewarm = userId
-                        ? consumeWebVideoDateDailyPrewarm({
+                        ? await consumeWebVideoDateDailyPrewarmWhenReady({
                             sessionId,
                             userId,
                             eventId: truthRow.event_id ?? eventId,
@@ -1600,6 +1639,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
                         : { ok: false as const, reason: "missing_user" };
                       if (recoveredPrewarm.ok === true) {
                         prewarmedCall = recoveredPrewarm;
+                        captureProfileForCall =
+                          recoveredPrewarm.entry.captureProfile;
+                        captureProfileRef.current =
+                          recoveredPrewarm.entry.captureProfile;
+                        setCaptureProfile(recoveredPrewarm.entry.captureProfile);
                         prewarmAppAcquiredMedia =
                           recoveredPrewarm.entry.appAcquiredMedia;
                         adoptPrewarmAppAcquiredMedia();
@@ -2898,6 +2942,17 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           videoDateTraceId,
           cachedPrepareEntry: roomResult.cached,
           providerVerifySkipped: roomData.provider_verify_skipped ?? null,
+          mediaHandoffUsed: lastMediaHandoffUsedRef.current,
+          mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
+          preparedEntryUsed: roomResult.preparedEntryUsed,
+          preparedEntryMissReason: roomResult.preparedEntryMissReason,
+          dailyPrewarmConsumed: prewarmedCall.ok === true,
+          dailyPrewarmFallbackReason:
+            prewarmedCall.ok === true ? null : prewarmedCall.reason,
+          joinAlreadyInFlight:
+            Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) ||
+            singletonJoinInFlight,
+          alreadyJoined: prewarmedAlreadyJoined || singletonAlreadyJoined,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -2941,7 +2996,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           video_date_trace_id: videoDateTraceId,
           media_handoff_used: lastMediaHandoffUsedRef.current,
           media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+          prepared_entry_used: roomResult.preparedEntryUsed,
+          prepared_entry_miss_reason: roomResult.preparedEntryMissReason,
           daily_prewarm_consumed: prewarmedCall.ok === true,
+          daily_prewarm_fallback_reason:
+            prewarmedCall.ok === true ? null : prewarmedCall.reason,
           prewarmed_join_in_flight:
             Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) ||
             singletonJoinInFlight,
@@ -3086,6 +3145,17 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
             videoDateTraceId,
             cachedPrepareEntry: roomResult.cached,
             providerVerifySkipped: roomData.provider_verify_skipped ?? null,
+            mediaHandoffUsed: lastMediaHandoffUsedRef.current,
+            mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
+            preparedEntryUsed: roomResult.preparedEntryUsed,
+            preparedEntryMissReason: roomResult.preparedEntryMissReason,
+            dailyPrewarmConsumed: prewarmedCall.ok === true,
+            dailyPrewarmFallbackReason:
+              prewarmedCall.ok === true ? null : prewarmedCall.reason,
+            joinAlreadyInFlight:
+              Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) ||
+              singletonJoinInFlight,
+            alreadyJoined: prewarmedAlreadyJoined || singletonAlreadyJoined,
           });
         const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
           context: joinSuccessLatencyContext,
@@ -3124,7 +3194,11 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           video_date_trace_id: videoDateTraceId,
           media_handoff_used: lastMediaHandoffUsedRef.current,
           media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+          prepared_entry_used: roomResult.preparedEntryUsed,
+          prepared_entry_miss_reason: roomResult.preparedEntryMissReason,
           daily_prewarm_consumed: prewarmedCall.ok === true,
+          daily_prewarm_fallback_reason:
+            prewarmedCall.ok === true ? null : prewarmedCall.reason,
           prewarmed_join_in_flight:
             Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined) ||
             singletonJoinInFlight,
@@ -3141,7 +3215,12 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
           media_handoff_used: lastMediaHandoffUsedRef.current,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+          prepared_entry_used: roomResult.preparedEntryUsed,
+          prepared_entry_miss_reason: roomResult.preparedEntryMissReason,
           daily_prewarm_consumed: prewarmedCall.ok === true,
+          daily_prewarm_fallback_reason:
+            prewarmedCall.ok === true ? null : prewarmedCall.reason,
         });
 
         const buildProviderBackedDailyJoinedArgs = () => {
@@ -3648,6 +3727,7 @@ export function useVideoDateStartCall(deps: UseVideoDateStartCallDeps) {
       firstRemoteObservedRef,
       firstRemoteWatchdogRef,
       lastDailyPrewarmConsumedRef,
+      lastDailyPrewarmFallbackReasonRef,
       lastLocalStreamRef,
       lastLocalTrackIdsRef,
       lastMediaHandoffMissReasonRef,

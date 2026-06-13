@@ -22,6 +22,8 @@ import {
 const WEB_DAILY_PREWARM_TTL_MS = 45_000;
 const WEB_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS = 250;
 const WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 250;
+const WEB_DAILY_PREWARM_PENDING_TTL_MS = 5_000;
+const WEB_DAILY_PREWARM_PENDING_CONSUME_WAIT_MS = 900;
 
 type WebDailyPrewarmStatus =
   | "starting"
@@ -83,7 +85,21 @@ type WebDailyPrewarmConsumeResult =
   | { ok: true; entry: WebDailyPrewarmPublicEntry }
   | { ok: false; reason: string };
 
+type WebDailyPrewarmPendingEntry = {
+  key: string;
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomName: string;
+  roomUrl: string;
+  captureProfile: VideoDateWebMediaCaptureProfile;
+  startedAtMs: number;
+  expiresAtMs: number;
+  promise: Promise<WebDailyPrewarmConsumeResult>;
+};
+
 const prewarmEntries = new Map<string, WebDailyPrewarmEntry>();
+const pendingPrewarmStarts = new Map<string, WebDailyPrewarmPendingEntry>();
 
 function publicEntry(entry: WebDailyPrewarmEntry): WebDailyPrewarmPublicEntry {
   return {
@@ -328,9 +344,10 @@ export async function startWebVideoDateDailyPrewarm(params: {
   if (typeof window === "undefined")
     return { ok: false, reason: "window_unavailable" };
   const key = keyFor(params.sessionId, params.userId);
+  const nowMs = Date.now();
   const existing = prewarmEntries.get(key);
   if (existing) {
-    if (existing.expiresAtMs > Date.now()) {
+    if (existing.expiresAtMs > nowMs) {
       if (
         existing.roomName === params.roomName &&
         existing.roomUrl === params.roomUrl
@@ -345,6 +362,54 @@ export async function startWebVideoDateDailyPrewarm(params: {
 
   const captureProfile =
     params.appAcquiredMedia?.captureProfile ?? params.captureProfile ?? "ideal";
+  const pending = pendingPrewarmStarts.get(key);
+  if (pending && pending.expiresAtMs > nowMs) {
+    if (
+      pending.roomName === params.roomName &&
+      pending.roomUrl === params.roomUrl
+    ) {
+      return pending.promise;
+    }
+    pendingPrewarmStarts.delete(key);
+  }
+  const pendingPromise = startWebVideoDateDailyPrewarmNow({
+    ...params,
+    captureProfile,
+  });
+  const pendingEntry: WebDailyPrewarmPendingEntry = {
+    key,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    eventId: params.eventId,
+    roomName: params.roomName,
+    roomUrl: params.roomUrl,
+    captureProfile,
+    startedAtMs: nowMs,
+    expiresAtMs: nowMs + WEB_DAILY_PREWARM_PENDING_TTL_MS,
+    promise: pendingPromise,
+  };
+  pendingPrewarmStarts.set(key, pendingEntry);
+  try {
+    return await pendingPromise;
+  } finally {
+    if (pendingPrewarmStarts.get(key) === pendingEntry) {
+      pendingPrewarmStarts.delete(key);
+    }
+  }
+}
+
+async function startWebVideoDateDailyPrewarmNow(params: {
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomName: string;
+  roomUrl: string;
+  captureProfile: VideoDateWebMediaCaptureProfile;
+  appAcquiredMedia?: WebDailyPrewarmAppAcquiredMedia | null;
+  source: string;
+}): Promise<WebDailyPrewarmConsumeResult> {
+  const key = keyFor(params.sessionId, params.userId);
+  const captureProfile = params.captureProfile;
   const appAcquiredMediaTracks =
     params.appAcquiredMedia?.captureProfile === captureProfile
       ? getLivePrewarmMediaTracks(params.appAcquiredMedia.stream)
@@ -713,6 +778,68 @@ export function consumeWebVideoDateDailyPrewarm(params: {
     sourceAction: "daily_prewarm_consumed",
   });
   return { ok: true, entry: publicEntry(entry) };
+}
+
+function matchingPendingWebVideoDateDailyPrewarm(params: {
+  sessionId: string;
+  userId: string;
+  roomName?: string | null;
+  roomUrl?: string | null;
+}): WebDailyPrewarmPendingEntry | null {
+  const key = keyFor(params.sessionId, params.userId);
+  const pending = pendingPrewarmStarts.get(key);
+  if (!pending) return null;
+  if (pending.expiresAtMs <= Date.now()) {
+    pendingPrewarmStarts.delete(key);
+    return null;
+  }
+  if (
+    (params.roomName != null && pending.roomName !== params.roomName) ||
+    (params.roomUrl != null && pending.roomUrl !== params.roomUrl)
+  ) {
+    return null;
+  }
+  return pending;
+}
+
+export function hasPendingWebVideoDateDailyPrewarm(params: {
+  sessionId: string;
+  userId: string;
+  roomName?: string | null;
+  roomUrl?: string | null;
+}): boolean {
+  return Boolean(matchingPendingWebVideoDateDailyPrewarm(params));
+}
+
+export async function consumeWebVideoDateDailyPrewarmWhenReady(params: {
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomName: string;
+  roomUrl: string;
+  captureProfile: VideoDateWebMediaCaptureProfile;
+  waitMs?: number;
+}): Promise<WebDailyPrewarmConsumeResult> {
+  const immediate = consumeWebVideoDateDailyPrewarm(params);
+  if (immediate.ok === true) return immediate;
+  if (immediate.reason !== "missing") return immediate;
+
+  const pending = matchingPendingWebVideoDateDailyPrewarm(params);
+  if (!pending) return immediate;
+
+  const waited = await waitWithTimeout(
+    pending.promise,
+    params.waitMs ?? WEB_DAILY_PREWARM_PENDING_CONSUME_WAIT_MS,
+  );
+  if (!waited) return { ok: false, reason: "pending_timeout" };
+  if (waited.ok === false) {
+    return { ok: false, reason: `pending_${waited.reason}` };
+  }
+
+  return consumeWebVideoDateDailyPrewarm({
+    ...params,
+    captureProfile: waited.entry.captureProfile,
+  });
 }
 
 export function peekWebVideoDateDailyPrewarm(params: {

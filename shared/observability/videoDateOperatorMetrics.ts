@@ -177,6 +177,15 @@ export type ReadyGateToDateLatencyContext = {
   cachedPrepareEntry?: boolean | null;
   providerVerifySkipped?: boolean | null;
   permissionHandoffUsed?: boolean | null;
+  permissionHandoffMissReason?: string | null;
+  mediaHandoffUsed?: boolean | null;
+  mediaHandoffMissReason?: string | null;
+  preparedEntryUsed?: boolean | null;
+  preparedEntryMissReason?: string | null;
+  dailyPrewarmConsumed?: boolean | null;
+  dailyPrewarmFallbackReason?: string | null;
+  joinAlreadyInFlight?: boolean | null;
+  alreadyJoined?: boolean | null;
   readyGateOpenedAtMs?: number;
   readyTapAtMs?: number;
   readyGateTransitionStartedAtMs?: number;
@@ -389,6 +398,15 @@ export function startReadyGateToDateLatencyContext({
   cachedPrepareEntry,
   providerVerifySkipped,
   permissionHandoffUsed,
+  permissionHandoffMissReason,
+  mediaHandoffUsed,
+  mediaHandoffMissReason,
+  preparedEntryUsed,
+  preparedEntryMissReason,
+  dailyPrewarmConsumed,
+  dailyPrewarmFallbackReason,
+  joinAlreadyInFlight,
+  alreadyJoined,
   nowMs = Date.now(),
 }: {
   platform: LobbyPostDatePlatform;
@@ -400,6 +418,15 @@ export function startReadyGateToDateLatencyContext({
   cachedPrepareEntry?: boolean | null;
   providerVerifySkipped?: boolean | null;
   permissionHandoffUsed?: boolean | null;
+  permissionHandoffMissReason?: string | null;
+  mediaHandoffUsed?: boolean | null;
+  mediaHandoffMissReason?: string | null;
+  preparedEntryUsed?: boolean | null;
+  preparedEntryMissReason?: string | null;
+  dailyPrewarmConsumed?: boolean | null;
+  dailyPrewarmFallbackReason?: string | null;
+  joinAlreadyInFlight?: boolean | null;
+  alreadyJoined?: boolean | null;
   nowMs?: number;
 }): ReadyGateToDateLatencyContext {
   const previous = readyGateToDateLatencyContexts.get(sessionId);
@@ -415,6 +442,15 @@ export function startReadyGateToDateLatencyContext({
   context.cachedPrepareEntry = cachedPrepareEntry;
   context.providerVerifySkipped = providerVerifySkipped;
   context.permissionHandoffUsed = permissionHandoffUsed;
+  context.permissionHandoffMissReason = permissionHandoffMissReason;
+  context.mediaHandoffUsed = mediaHandoffUsed;
+  context.mediaHandoffMissReason = mediaHandoffMissReason;
+  context.preparedEntryUsed = preparedEntryUsed;
+  context.preparedEntryMissReason = preparedEntryMissReason;
+  context.dailyPrewarmConsumed = dailyPrewarmConsumed;
+  context.dailyPrewarmFallbackReason = dailyPrewarmFallbackReason;
+  context.joinAlreadyInFlight = joinAlreadyInFlight;
+  context.alreadyJoined = alreadyJoined;
   context.readyGateOpenedAtMs = nowMs;
   readyGateToDateLatencyContexts.set(sessionId, context);
   return context;
@@ -440,6 +476,15 @@ export function recordReadyGateToDateLatencyCheckpoint({
   cachedPrepareEntry,
   providerVerifySkipped,
   permissionHandoffUsed,
+  permissionHandoffMissReason,
+  mediaHandoffUsed,
+  mediaHandoffMissReason,
+  preparedEntryUsed,
+  preparedEntryMissReason,
+  dailyPrewarmConsumed,
+  dailyPrewarmFallbackReason,
+  joinAlreadyInFlight,
+  alreadyJoined,
 }: {
   sessionId: string;
   platform?: LobbyPostDatePlatform;
@@ -453,6 +498,15 @@ export function recordReadyGateToDateLatencyCheckpoint({
   cachedPrepareEntry?: boolean | null;
   providerVerifySkipped?: boolean | null;
   permissionHandoffUsed?: boolean | null;
+  permissionHandoffMissReason?: string | null;
+  mediaHandoffUsed?: boolean | null;
+  mediaHandoffMissReason?: string | null;
+  preparedEntryUsed?: boolean | null;
+  preparedEntryMissReason?: string | null;
+  dailyPrewarmConsumed?: boolean | null;
+  dailyPrewarmFallbackReason?: string | null;
+  joinAlreadyInFlight?: boolean | null;
+  alreadyJoined?: boolean | null;
 }): ReadyGateToDateLatencyContext {
   const context =
     readyGateToDateLatencyContexts.get(sessionId) ??
@@ -471,6 +525,15 @@ export function recordReadyGateToDateLatencyCheckpoint({
   if (cachedPrepareEntry !== undefined) context.cachedPrepareEntry = cachedPrepareEntry;
   if (providerVerifySkipped !== undefined) context.providerVerifySkipped = providerVerifySkipped;
   if (permissionHandoffUsed !== undefined) context.permissionHandoffUsed = permissionHandoffUsed;
+  if (permissionHandoffMissReason !== undefined) context.permissionHandoffMissReason = permissionHandoffMissReason;
+  if (mediaHandoffUsed !== undefined) context.mediaHandoffUsed = mediaHandoffUsed;
+  if (mediaHandoffMissReason !== undefined) context.mediaHandoffMissReason = mediaHandoffMissReason;
+  if (preparedEntryUsed !== undefined) context.preparedEntryUsed = preparedEntryUsed;
+  if (preparedEntryMissReason !== undefined) context.preparedEntryMissReason = preparedEntryMissReason;
+  if (dailyPrewarmConsumed !== undefined) context.dailyPrewarmConsumed = dailyPrewarmConsumed;
+  if (dailyPrewarmFallbackReason !== undefined) context.dailyPrewarmFallbackReason = dailyPrewarmFallbackReason;
+  if (joinAlreadyInFlight !== undefined) context.joinAlreadyInFlight = joinAlreadyInFlight;
+  if (alreadyJoined !== undefined) context.alreadyJoined = alreadyJoined;
 
   const field = checkpointField(checkpoint);
   (context as Record<string, unknown>)[field] = nowMs;
@@ -556,6 +619,15 @@ export function buildReadyGateToDateLatencyPayload({
     cached_prepare_entry: context.cachedPrepareEntry ?? null,
     provider_verify_skipped: context.providerVerifySkipped ?? null,
     permission_handoff_used: context.permissionHandoffUsed ?? null,
+    permission_handoff_miss_reason: context.permissionHandoffMissReason ?? null,
+    media_handoff_used: context.mediaHandoffUsed ?? null,
+    media_handoff_miss_reason: context.mediaHandoffMissReason ?? null,
+    prepared_entry_used: context.preparedEntryUsed ?? null,
+    prepared_entry_miss_reason: context.preparedEntryMissReason ?? null,
+    daily_prewarm_consumed: context.dailyPrewarmConsumed ?? null,
+    daily_prewarm_fallback_reason: context.dailyPrewarmFallbackReason ?? null,
+    join_already_in_flight: context.joinAlreadyInFlight ?? null,
+    already_joined: context.alreadyJoined ?? null,
     duration_ms: resolvedDurationMs,
     latency_bucket: bucketVideoDateLatencyMs(resolvedDurationMs),
     ...durations,
