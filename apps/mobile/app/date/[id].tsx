@@ -2319,7 +2319,7 @@ export default function VideoDateScreen() {
       }
       const regQuery = supabase
         .from("event_registrations")
-        .select("queue_status")
+        .select("queue_status, current_room_id")
         .eq("profile_id", user.id);
       if (vs.event_id) {
         regQuery.eq("event_id", vs.event_id as string);
@@ -2342,7 +2342,12 @@ export default function VideoDateScreen() {
           truth: vs,
           registration: {
             queue_status: reg?.queue_status ?? null,
-            current_room_id: null,
+            // Pass the real current_room_id so an `in_survey` registration scoped
+            // to a different room cannot force this /date/:sessionId into the
+            // survey path; a null/cleared room id stays unscoped (review P2 on
+            // PR #1310). After `end`, current_room_id is cleared to null, so the
+            // normal pending-survey recovery is unchanged.
+            current_room_id: reg?.current_room_id ?? null,
             event_id: (vs.event_id as string | null) ?? null,
           },
         },

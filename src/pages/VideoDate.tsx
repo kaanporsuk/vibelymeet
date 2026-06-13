@@ -1675,7 +1675,7 @@ const VideoDate = () => {
         } else {
           const { data: reg } = await supabase
             .from("event_registrations")
-            .select("queue_status")
+            .select("queue_status, current_room_id")
             .eq("event_id", sessionRow.event_id)
             .eq("profile_id", user.id)
             .maybeSingle();
@@ -1696,7 +1696,11 @@ const VideoDate = () => {
               truth: sessionRow,
               registration: {
                 queue_status: registrationQueueStatus,
-                current_room_id: null,
+                // Pass the real current_room_id so an `in_survey` registration
+                // scoped to a different room cannot force this /date/:id into the
+                // survey path; a null/cleared room id stays unscoped (review P2
+                // on PR #1310, parity with the native date-route guard).
+                current_room_id: reg?.current_room_id ?? null,
                 event_id: sessionRow.event_id,
               },
             },
