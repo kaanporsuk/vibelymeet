@@ -76,6 +76,7 @@ type Props = {
 };
 
 type SurveyStep = 'verdict' | 'celebration' | 'awaiting_partner' | 'highlights' | 'safety' | 'done';
+type VerdictSource = 'vibe' | 'pass' | 'skip';
 
 type CelebrationData = {
   sharedVibes: string[];
@@ -232,6 +233,7 @@ export function PostDateSurvey({
   const [verdictError, setVerdictError] = useState<string | null>(null);
   const [verdictRetryable, setVerdictRetryable] = useState(false);
   const [lastVerdictAttempt, setLastVerdictAttempt] = useState<boolean | null>(null);
+  const lastVerdictSourceAttemptRef = useRef<VerdictSource>('pass');
   const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
 
   const [tagSel, setTagSel] = useState({
@@ -770,18 +772,33 @@ export function PostDateSurvey({
     finishSurveyRef.current = finishSurvey;
   }, [finishSurvey]);
 
-  const handleVerdict = async (liked: boolean) => {
+  const handleVerdict = async (liked: boolean, source: VerdictSource = liked ? 'vibe' : 'pass') => {
     if (submitting || verdictUiState === 'submitting' || verdictUiState === 'confirmed') return;
     setSubmitting(true);
     setVerdictUiState('submitting');
     setVerdictError(null);
     setVerdictRetryable(false);
     setLastVerdictAttempt(liked);
-    trackEvent(liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP, {
-      platform: 'native',
-      session_id: sessionId,
-      event_id: eventId,
-    });
+    lastVerdictSourceAttemptRef.current = source;
+
+    const verdictSource = source === 'skip' ? 'verdict_skipped' : 'verdict_submitted';
+    const verdictLabel = liked ? 'vibe' : 'pass';
+
+    if (source === 'skip') {
+      trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        step: 'verdict',
+        outcome: 'pass',
+      });
+    } else {
+      trackEvent(liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+      });
+    }
     try {
       let result: SubmitVerdictAndCheckMutualResult | null = null;
       for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -836,7 +853,7 @@ export function PostDateSurvey({
         setVerdictUiState('retryable_failed');
         return;
       }
-      const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, 'verdict_submitted');
+      const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, verdictSource);
       if (!feedbackRowConfirmed) {
         setVerdictRetryable(true);
         setVerdictError("Couldn't confirm your answer. Tap to retry.");
@@ -848,16 +865,18 @@ export function PostDateSurvey({
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,
-        verdict: liked ? 'vibe' : 'pass',
+        verdict: verdictLabel,
+        source: verdictSource,
       });
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_SUBMITTED, {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,
-        verdict: liked ? 'vibe' : 'pass',
+        verdict: verdictLabel,
+        source: verdictSource,
       });
       surveyLifecycleRef.current = 'submitted';
-      logJourney('survey_completed', { source: 'verdict_submitted', verdict: liked ? 'vibe' : 'pass' }, 'survey_completed');
+      logJourney('survey_completed', { source: verdictSource, verdict: verdictLabel }, 'survey_completed');
       trackEvent(LobbyPostDateEvents.MUTUAL_VIBE_OUTCOME, {
         platform: 'native',
         session_id: sessionId,
@@ -1380,6 +1399,25 @@ export function PostDateSurvey({
             },
           ]}
         >
+          <Pressable
+            disabled={submitting || verdictUiState === 'submitting'}
+            onPress={() => void handleVerdict(false, 'skip')}
+            accessibilityRole="button"
+            accessibilityLabel="Skip this check-in"
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.skipVerdictBtn,
+              {
+                borderColor: withNativeAlpha('#ffffff', 0.08),
+                backgroundColor: withNativeAlpha('#ffffff', 0.045),
+              },
+              (submitting || verdictUiState === 'submitting') && styles.disabledAction,
+              pressed && !submitting && verdictUiState !== 'submitting' && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.skipVerdictText, { color: theme.mutedForeground }]}>Skip</Text>
+          </Pressable>
+
           <View style={styles.avatarStage}>
             <View style={[styles.avatarHalo, { backgroundColor: withNativeAlpha(theme.tint, 0.18) }]} />
             <LinearGradient
@@ -1416,7 +1454,7 @@ export function PostDateSurvey({
               {verdictRetryable && lastVerdictAttempt !== null ? (
                 <Pressable
                   disabled={submitting || verdictUiState === 'submitting'}
-                  onPress={() => void handleVerdict(lastVerdictAttempt)}
+                  onPress={() => void handleVerdict(lastVerdictAttempt, lastVerdictSourceAttemptRef.current)}
                   style={[
                     styles.retryBtn,
                     { borderColor: theme.danger, backgroundColor: theme.surface },
@@ -1535,6 +1573,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'hidden',
     ...shadows.card,
+  },
+  skipVerdictBtn: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    zIndex: 2,
+    minHeight: 44,
+    minWidth: 68,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skipVerdictText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   avatarStage: {
     width: 124,
