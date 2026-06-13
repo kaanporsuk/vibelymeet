@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 // 2026-06-13 post-rebuild validation follow-ups.
@@ -23,29 +23,29 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const VIBE_CHANNEL = /channel\(`vibe-questions-\$\{sessionId\}`\)/;
 
-const DATE_SURFACE_FILES = [
-  "src/components/video-date/IceBreakerCard.tsx",
+// The full date surface is scanned recursively (not a hard-coded file list)
+// so a listener added in any in-call component or sub-hook — present or
+// future — is caught.
+const DATE_SURFACE_ROOTS = [
+  "src/components/video-date",
   "src/pages/VideoDate.tsx",
-  "src/pages/videoDate/useTerminalSurveyRecovery.ts",
-  "src/pages/videoDate/useVideoDateBroadcastReconcile.ts",
-  "src/pages/videoDate/useVideoDateLifecycleLeave.ts",
+  "src/pages/videoDate",
   "src/hooks/useVideoCall.ts",
-  "src/hooks/videoCall/useDailyAliveHeartbeat.ts",
-  "src/hooks/videoCall/useDailyCallCleanup.ts",
-  "src/hooks/videoCall/useRemoteRenderPipeline.ts",
-  "src/hooks/videoCall/useVideoDateMediaPreflight.ts",
-  "src/hooks/videoCall/useVideoDateRemoteSeen.ts",
-  "src/hooks/videoCall/useVideoDateStartCall.ts",
-  "src/hooks/videoCall/useWebCameraSwitch.ts",
-  "apps/mobile/app/date/[id].tsx",
-  "apps/mobile/lib/videoDate/useNativeVideoDateAppStateBackground.ts",
-  "apps/mobile/lib/videoDate/useNativeVideoDateCallEndCleanup.ts",
-  "apps/mobile/lib/videoDate/useNativeVideoDateCallListeners.ts",
-  "apps/mobile/lib/videoDate/useNativeVideoDateCameraControls.ts",
-  "apps/mobile/lib/videoDate/useNativeVideoDateRemoteSeen.ts",
-  "apps/mobile/lib/videoDate/useNativeVideoDateStartCall.ts",
-  "apps/mobile/lib/videoDate/useNativeVideoDateSurfaceClaim.ts",
+  "src/hooks/videoCall",
+  "apps/mobile/app/date",
+  "apps/mobile/lib/videoDate",
+  "apps/mobile/components/video-date",
 ] as const;
+
+function collectSourceFiles(path: string): string[] {
+  const absolute = join(root, path);
+  if (statSync(absolute).isFile()) return [path];
+  return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
+    const child = `${path}/${entry.name}`;
+    if (entry.isDirectory()) return collectSourceFiles(child);
+    return /\.(ts|tsx)$/.test(entry.name) ? [child] : [];
+  });
+}
 
 const SANCTIONED_POSTGRES_CHANGES: Record<string, number> = {
   "src/components/video-date/IceBreakerCard.tsx": 1,
@@ -53,7 +53,20 @@ const SANCTIONED_POSTGRES_CHANGES: Record<string, number> = {
 };
 
 test("vibe-questions is the single sanctioned postgres_changes exception on the date surface", () => {
-  for (const path of DATE_SURFACE_FILES) {
+  const files = DATE_SURFACE_ROOTS.flatMap(collectSourceFiles);
+  // Vacuity guard: a renamed/moved root must fail loudly, not skip silently.
+  assert.ok(
+    files.length >= 40,
+    `date-surface scan found only ${files.length} files — a root moved? Update DATE_SURFACE_ROOTS.`,
+  );
+  for (const sanctioned of Object.keys(SANCTIONED_POSTGRES_CHANGES)) {
+    assert.ok(
+      files.includes(sanctioned),
+      `date-surface scan no longer covers ${sanctioned} — update DATE_SURFACE_ROOTS / the sanctioned map.`,
+    );
+  }
+
+  for (const path of files) {
     const source = read(path);
     const expected = SANCTIONED_POSTGRES_CHANGES[path] ?? 0;
     const actual = source.match(/postgres_changes/g)?.length ?? 0;
