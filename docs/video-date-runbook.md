@@ -48,7 +48,11 @@ cron job `video-date-orphan-room-cleanup` + its function with dependent-scan
 evidence, re-point the `synthetic-video-date-monitor` orphan probe at the
 merged function (`{"reconcile_now": true, "dry_run": true}`), and update the
 cron snapshot fixture + `videoDateBackendTruthPinContracts` cron pin +
-`videoDateRoomCleanupReconciliationContracts` stage-1 pins in the same PR.
+`videoDateRoomCleanupReconciliationContracts` stage-1 pins in the same PR. The
+repoint is safe to alert on: a reconciliation-pass failure now returns
+`ok: false` / HTTP 500 with a `reconciliation_failed` flag (PR #1317 review
+follow-up), so the probe's `response.ok && payload.ok !== false` success check
+catches a dead reconciliation lane (`not_due` stays a green 200).
 
 ## Monitoring posture (PR 9, user-decided)
 
