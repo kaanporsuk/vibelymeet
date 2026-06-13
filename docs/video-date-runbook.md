@@ -128,6 +128,17 @@ in `docs/video-date-architecture.md`. Env-gated runtime RLS proofs:
   mark_ready storm via real user tokens, latency percentiles + error codes
   (57014 watch), tag-scoped cleanup. Run deliberately — it creates real
   concurrent load; pair with compute-tier decisions.
+- `npm run latency:video-date [sessionId]` — read-only post-run connect-latency
+  triage (`scripts/video-date-latency-forensics.mjs`): prints the ready→date
+  budget (open→ready→both-joined→entry→date), the dominant leg, Daily webhook
+  copresence (join order + webhook lag), and the first surface-claim per actor.
+  No arg picks the most recent session that reached a date. Server-side truth
+  only by default; the join→first-remote-frame sub-breakdown (subscription vs.
+  decode vs. play) is appended when `POSTHOG_PERSONAL_API_KEY` +
+  `POSTHOG_PROJECT_ID` are set (env, or keychain services `PostHog Personal API`
+  / `PostHog Project ID`). API host is the regional APP host
+  (`https://eu.posthog.com`), not the `eu.i.posthog.com` ingestion host; the key
+  needs only `query:read` scope.
 
 ## Smoke procedure (mutating production test)
 

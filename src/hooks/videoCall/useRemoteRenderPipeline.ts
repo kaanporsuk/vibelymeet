@@ -141,12 +141,44 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
               { once: true },
             );
           }
+          // Muted autoplay is never blocked by the browser autoplay policy, so
+          // the remote frame renders immediately instead of flashing a frozen
+          // "Tap to resume" frame during the initial track-attach race. Audio is
+          // restored by unmuting on play success below.
+          videoEl.muted = true;
           const playPromise = videoEl.play();
           if (playPromise && typeof playPromise.then === "function") {
             void playPromise
               .then(() => {
                 const recoveredFromBlock = playbackBlockedRef.current;
                 playbackBlockedRef.current = false;
+                // Restore audio after the muted bootstrap. If the browser blocks
+                // audible playback without a qualifying gesture it pauses the
+                // element shortly after unmute; recover by re-muting + replaying
+                // (frame keeps rendering) and surface the existing tap-to-resume
+                // path so one tap enables sound — never a frozen frame, never a
+                // silent audio loss.
+                if (videoEl.muted) {
+                  videoEl.muted = false;
+                  const onUnmutePause = () => {
+                    videoEl.removeEventListener("pause", onUnmutePause);
+                    if (videoEl.ended) return;
+                    videoEl.muted = true;
+                    void videoEl.play().catch(() => undefined);
+                    setRemotePlayback((prev) => ({
+                      ...prev,
+                      playRejected: true,
+                      error: "Remote video paused. Tap to resume.",
+                    }));
+                  };
+                  videoEl.addEventListener("pause", onUnmutePause, {
+                    once: true,
+                  });
+                  window.setTimeout(
+                    () => videoEl.removeEventListener("pause", onUnmutePause),
+                    1200,
+                  );
+                }
                 if (!isLocal && remoteTrackKey) {
                   const recovery = remoteRenderRecoveryInFlightRef.current;
                   if (recovery?.trackKey === remoteTrackKey) {
