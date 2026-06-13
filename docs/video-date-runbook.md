@@ -15,18 +15,40 @@ Video Date lanes:
 | `video-date-deadline-finalizer` | `* * * * *` | Claims due session deadlines (`claim_video_session_deadlines_v2`) and finalizes entry/date timeouts |
 | `expire-stale-video-sessions` | `* * * * *` | Stale-session expiry |
 | `expire-video-date-reconnect-graces` | `* * * * *` | Expires reconnect graces so absence reconciliation can terminalize |
-| `video-date-room-cleanup` | `* * * * *` | Session-bound Daily room deletes (presence-grace before delete; direct Daily API) |
-| `video-date-orphan-room-cleanup` | `*/10 * * * *` | Provider-side room reconciliation with safety interlock; writes `video_date_orphan_room_cleanup_audit` |
+| `video-date-room-cleanup` | `* * * * *` | Session pass every tick (session-bound Daily room deletes; presence-grace before delete) plus marker-gated provider-reconciliation pass at the 10-minute cadence (orphan-lane semantics; writes `video_date_orphan_room_cleanup_audit`, marker action `reconciliation_run`) |
+| `video-date-orphan-room-cleanup` | `*/10 * * * *` | Legacy reconciliation lane, redundant since the 2026-06-13 cron-merge stage 1; kept running for the 24h observation window, then dropped in stage 2 |
 | `daily-room-keepwarm` | `*/5 * * * *` | Keeps the daily-room Edge path warm |
 | `synthetic-video-date-monitor` | `*/5 * * * *` | THE synthetic monitor (see below) |
 | `video-date-recovery-alert-dispatcher` | `*/5 * * * *` | THE alert path (see below) |
 | `post-date-verdict-reminders` | `*/5 * * * *` | Pending-verdict reminder lane only |
 
-Room-cleanup/orphan-cleanup consolidation is deliberately deferred (both call
-the Daily API directly, not the outbox delete kind — merging is a behavior
-change). The concrete consolidation design and its acceptance bar live in
-`docs/investigations/video-date-room-cleanup-consolidation-plan.md`
-(2026-06-12); execute it as a dedicated PR.
+Room-cleanup consolidation stage 1 landed 2026-06-13: the merged
+`video-date-room-cleanup` runs both passes (design + acceptance bar in
+`docs/investigations/video-date-room-cleanup-consolidation-plan.md`). The
+reconciliation cadence is gated by the newest `reconciliation_run` audit row;
+interval override: `VIDEO_DATE_ROOM_CLEANUP_RECONCILIATION_INTERVAL_SECONDS`
+(default 600). `dry_run: true` makes the whole invocation read-only (the
+mutating session pass is skipped too, and the marker never advances). Force a
+pass manually (service-side, no secrets printed):
+
+```sql
+SELECT net.http_post(
+  url := trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1))
+    || '/functions/v1/video-date-room-cleanup',
+  headers := jsonb_build_object(
+    'Content-Type', 'application/json',
+    'Authorization', 'Bearer ' || trim((SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1))
+  ),
+  body := jsonb_build_object('reconcile_now', true, 'dry_run', true, 'source', 'manual-probe')
+);
+```
+
+Stage 2 (after 24h of `reconciliation_run` rows with healthy counters): drop
+cron job `video-date-orphan-room-cleanup` + its function with dependent-scan
+evidence, re-point the `synthetic-video-date-monitor` orphan probe at the
+merged function (`{"reconcile_now": true, "dry_run": true}`), and update the
+cron snapshot fixture + `videoDateBackendTruthPinContracts` cron pin +
+`videoDateRoomCleanupReconciliationContracts` stage-1 pins in the same PR.
 
 ## Monitoring posture (PR 9, user-decided)
 

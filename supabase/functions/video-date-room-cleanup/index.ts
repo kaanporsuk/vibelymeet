@@ -14,6 +14,7 @@ import {
   ProviderRateLimitError,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
+import { maybeRunReconciliationPass } from "./reconciliation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -361,6 +362,21 @@ serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  const rawBody = await req.text().catch(() => "");
+  let requestBody: { reconcile_now?: unknown; dry_run?: unknown; source?: unknown } = {};
+  if (rawBody.trim()) {
+    try {
+      requestBody = JSON.parse(rawBody) as typeof requestBody;
+    } catch {
+      requestBody = {};
+    }
+  }
+  const reconcileForced = requestBody.reconcile_now === true;
+  const reconcileDryRun = requestBody.dry_run === true;
+  const reconcileSource = typeof requestBody.source === "string"
+    ? requestBody.source.slice(0, 80)
+    : "cron";
+
   if (!DAILY_API_KEY) {
     console.error(JSON.stringify({
       event: "video_date_room_cleanup_daily_config_blocked",
@@ -387,24 +403,31 @@ serve(async (req) => {
   const nowMs = Date.now();
   const cutoffIso = new Date(nowMs - DELETE_GRACE_MS).toISOString();
 
-  const { data: rows, error } = await supabase
-    .from("video_sessions")
-    .select(
-      "id, daily_room_name, daily_room_provider_deleted_at, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
-    )
-    .not("ended_at", "is", null)
-    .not("daily_room_name", "is", null)
-    .is("daily_room_provider_deleted_at", null)
-    .lte("ended_at", cutoffIso)
-    .order("ended_at", { ascending: true })
-    .limit(40);
+  // dry_run makes the whole invocation read-only: the session pass (which deletes rooms and
+  // stamps sessions) is skipped entirely, not just the reconciliation deletes. Cron ticks post
+  // an empty body and are unaffected.
+  let rows: VideoDateCleanupRow[] | null = null;
+  if (!reconcileDryRun) {
+    const { data, error } = await supabase
+      .from("video_sessions")
+      .select(
+        "id, daily_room_name, daily_room_provider_deleted_at, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
+      )
+      .not("ended_at", "is", null)
+      .not("daily_room_name", "is", null)
+      .is("daily_room_provider_deleted_at", null)
+      .lte("ended_at", cutoffIso)
+      .order("ended_at", { ascending: true })
+      .limit(40);
 
-  if (error) {
-    console.error("video-date-room-cleanup query:", error);
-    return new Response(JSON.stringify({ ok: false, error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    if (error) {
+      console.error("video-date-room-cleanup query:", error);
+      return new Response(JSON.stringify({ ok: false, error: error.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    rows = (data ?? []) as VideoDateCleanupRow[];
   }
 
   let deleted = 0;
@@ -608,6 +631,12 @@ serve(async (req) => {
     }
   }
 
+  const reconciliation = await maybeRunReconciliationPass(supabase, {
+    force: reconcileForced,
+    dryRun: reconcileDryRun,
+    source: reconcileSource,
+  });
+
   console.log(
     JSON.stringify({
       event: "video-date-room-cleanup",
@@ -620,6 +649,8 @@ serve(async (req) => {
       delete_failed: deleteFailed,
       provider_rate_limited: providerRateLimited,
       retry_after_seconds: retryAfterSeconds,
+      session_pass: reconcileDryRun ? "skipped_dry_run" : "ran",
+      reconciliation,
     }),
   );
 
@@ -635,6 +666,8 @@ serve(async (req) => {
       deferred_unsafe_state: deferredUnsafeState,
       delete_failed: deleteFailed,
       provider_rate_limited: providerRateLimited,
+      session_pass: reconcileDryRun ? "skipped_dry_run" : "ran",
+      reconciliation,
       ...(retryAfterSeconds != null
         ? {
           retry_after_seconds: retryAfterSeconds,

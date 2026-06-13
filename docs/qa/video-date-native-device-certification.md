@@ -1,13 +1,13 @@
 # Video Date Native Device Certification
 
-Date: 2026-06-08
+Date: 2026-06-13 (refreshed for the 2026-06 rebuild + acceptance follow-ups; original 2026-06-08)
 
-Native source parity and static contracts are necessary, but they are not physical-device proof. This checklist certifies the Expo/native Video Date path on real iOS and Android devices.
+Native source parity and static contracts are necessary, but they are not physical-device proof. This checklist certifies the Expo/native Video Date path on real iOS and Android devices. Headless web acceptance runs (including the 2026-06-12 production acceptance pass) never exercise a real push permission grant or a delivered notification — those are certifiable only here.
 
 ## Preconditions
 
 - Use a disposable live or staging event with two eligible users.
-- Use the current app build that contains the target commit.
+- Use the current app build that contains the target commit. The build must include the client halves of PRs #1314 and #1316 (post-survey registration release with retry, lobby foreground-stamp throttle, forced-survey renavigation damper).
 - Use two separate physical devices and two separate accounts.
 - Confirm camera, microphone, push notification, and network permissions are available.
 - Run `npm run test:video-date:red-flags` and `npm run test:video-date-v4` before device QA.
@@ -19,8 +19,10 @@ Native source parity and static contracts are necessary, but they are not physic
 Run each scenario on both platforms unless a scenario explicitly covers a cross-device pairing.
 
 - Mutual match inside the same event routes both users to the same Ready Gate session.
-- Standalone `/ready/[id]` deep link opens actionable Ready Gate truth and records entry proof.
-- Ready Gate overlay path opens actionable Ready Gate truth and records entry proof.
+- Standalone `/ready/[id]` deep link opens actionable Ready Gate truth (entry proof no longer exists; readiness is the decisive direct commit).
+- Ready Gate overlay path opens actionable Ready Gate truth.
+- Push permission is granted for real on the device (OS prompt accepted), and a OneSignal player id is registered for the account (no `notification_no_player_id` failures for these users in `video_date_provider_outbox`).
+- At least one Video Date notification (match, ready, or date event) is actually delivered to the lock screen / notification shade, and tapping it routes to the correct surface. This leg has never been exercised by any headless run and passes only with a real delivered notification.
 - First Ready tap reaches `ready_a` or `ready_b`; second reaches `both_ready`.
 - Post-ready room warmup never joins Daily before `/date/[id]`.
 - `/date/[id]` takes route ownership after `both_ready`; lobby and Ready Gate do not bounce the user back.
@@ -39,6 +41,7 @@ Run each scenario on both platforms unless a scenario explicitly covers a cross-
 
 - Build id, commit SHA, device model, OS version, app version, event id, and session id.
 - Whether the user entered through overlay, standalone `/ready/[id]`, notification, or deep link.
+- Push evidence: OS-level permission state, OneSignal player id presence (masked), the delivered notification (screenshot), and the surface it routed to on tap.
 - Ready Gate RPC payloads for both users.
 - Daily room name, provider participant ids, joined/left timestamps, and remote-seen timestamps.
 - Screenshots or screen recordings for Ready Gate, live date, survey, and post-feedback next surface.

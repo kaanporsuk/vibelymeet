@@ -117,6 +117,15 @@ the deadline lane uses `claim_video_session_deadlines_v2` /
 There is no worker-run mutex layer (dropped in PR 9). The full cron set is in
 the runbook.
 
+Daily room deletion outside the outbox has one owner: `video-date-room-cleanup`
+runs the session pass every minute and, marker-gated to a 10-minute cadence
+(`reconciliation_run` rows in `video_date_orphan_room_cleanup_audit`), the
+provider-reconciliation pass transplanted from the orphan lane (cron-merge
+stage 1, 2026-06-13; `reconciliation.ts` beside the function entrypoint). The
+legacy `video-date-orphan-room-cleanup` lane remains only for the stage-2
+observation window. Contract suite:
+`shared/matching/videoDateRoomCleanupReconciliationContracts.test.ts`.
+
 ## Realtime
 
 Session updates broadcast over private per-session topics via DB-triggered
