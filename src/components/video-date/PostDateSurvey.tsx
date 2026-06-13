@@ -67,6 +67,7 @@ interface PostDateSurveyProps {
 }
 
 type SurveyStep = "verdict" | "celebration" | "awaiting_partner" | "highlights" | "safety";
+type VerdictSource = "vibe" | "pass" | "skip";
 
 const PostDateContinuityStrip = ({ decision }: { decision: PostDateContinuityDecision }) => {
   const toneClass = {
@@ -128,6 +129,7 @@ export const PostDateSurvey = ({
   const [verdictError, setVerdictError] = useState<string | null>(null);
   const [verdictRetryable, setVerdictRetryable] = useState(false);
   const [lastVerdictAttempt, setLastVerdictAttempt] = useState<boolean | null>(null);
+  const lastVerdictSourceAttemptRef = useRef<VerdictSource>("pass");
   const [isFinishingSurvey, setIsFinishingSurvey] = useState(false);
   const [, setSurveyStatus] = useState<string>("in_survey");
   // Data for the polished mutual-match celebration
@@ -656,22 +658,36 @@ export const PostDateSurvey = ({
 
   // Screen 1: Verdict (mandatory) — single backend path (RPC via Edge: persist + mutual match + server push when new match)
   const handleVerdict = useCallback(
-    async (liked: boolean) => {
+    async (liked: boolean, source: VerdictSource = liked ? "vibe" : "pass") => {
       if (!user?.id || isSubmitting || verdictUiState === "submitting" || verdictUiState === "confirmed") return;
       setIsSubmitting(true);
       setVerdictUiState("submitting");
       setVerdictError(null);
       setVerdictRetryable(false);
       setLastVerdictAttempt(liked);
+      lastVerdictSourceAttemptRef.current = source;
 
-      trackEvent(
-        liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
-        {
+      const verdictSource = source === "skip" ? "verdict_skipped" : "verdict_submitted";
+      const verdictLabel = liked ? "vibe" : "pass";
+
+      if (source === "skip") {
+        trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
-        }
-      );
+          step: "verdict",
+          outcome: "pass",
+        });
+      } else {
+        trackEvent(
+          liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
+          {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+          }
+        );
+      }
 
       try {
         const result = await submitWebPostDateOutboxItem({
@@ -712,7 +728,7 @@ export const PostDateSurvey = ({
           setVerdictUiState("retryable_failed");
           return;
         }
-        const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, "verdict_submitted");
+        const feedbackRowConfirmed = await confirmActorFeedbackRow(liked, verdictSource);
         if (!feedbackRowConfirmed) {
           setVerdictRetryable(true);
           setVerdictError("Couldn't confirm your answer. Tap to retry.");
@@ -725,15 +741,17 @@ export const PostDateSurvey = ({
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
-          verdict: liked ? "vibe" : "pass",
+          verdict: verdictLabel,
+          source: verdictSource,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_SUBMITTED, {
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
-          verdict: liked ? "vibe" : "pass",
+          verdict: verdictLabel,
+          source: verdictSource,
         });
-        logJourney("survey_completed", { source: "verdict_submitted", verdict: liked ? "vibe" : "pass" }, "survey_completed");
+        logJourney("survey_completed", { source: verdictSource, verdict: verdictLabel }, "survey_completed");
 
         trackEvent(LobbyPostDateEvents.MUTUAL_VIBE_OUTCOME, {
           platform: "web",
@@ -1061,6 +1079,7 @@ export const PostDateSurvey = ({
                     partnerName={partnerName}
                     partnerImage={partnerImage}
                     onVerdict={handleVerdict}
+                    onSkip={() => void handleVerdict(false, "skip")}
                     onReport={handleReportFromVerdict}
                     isSubmitting={isSubmitting}
                   />
@@ -1085,7 +1104,7 @@ export const PostDateSurvey = ({
                               session_id: sessionId,
                               event_id: eventId,
                             });
-                            void handleVerdict(lastVerdictAttempt);
+                            void handleVerdict(lastVerdictAttempt, lastVerdictSourceAttemptRef.current);
                           }}
                           className="h-8 rounded-full border-destructive/40 bg-background/80 text-xs text-foreground hover:bg-background"
                         >

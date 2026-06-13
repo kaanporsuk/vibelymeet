@@ -7,6 +7,7 @@ interface VerdictScreenProps {
   partnerName: string;
   partnerImage: string;
   onVerdict: (liked: boolean) => void;
+  onSkip: () => void;
   onReport: () => void;
   isSubmitting?: boolean;
 }
@@ -15,6 +16,7 @@ export const VerdictScreen = ({
   partnerName,
   partnerImage,
   onVerdict,
+  onSkip,
   onReport,
   isSubmitting = false,
 }: VerdictScreenProps) => {
@@ -27,6 +29,23 @@ export const VerdictScreen = ({
       exit={{ opacity: 0, x: -40 }}
       className="relative flex w-full max-w-full flex-col items-center gap-7 overflow-hidden py-2"
     >
+      <button
+        type="button"
+        onClick={() => {
+          if (isSubmitting) return;
+          haptics.light();
+          onSkip();
+        }}
+        disabled={isSubmitting}
+        aria-label="Skip this check-in"
+        className={cn(
+          "absolute right-0 top-0 z-10 flex min-h-11 items-center rounded-full border border-white/[0.08] bg-white/[0.045] px-4 text-xs font-semibold text-white/[0.62] backdrop-blur transition-colors hover:border-white/15 hover:bg-white/[0.08] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35",
+          isSubmitting && "cursor-not-allowed opacity-50",
+        )}
+      >
+        Skip
+      </button>
+
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}

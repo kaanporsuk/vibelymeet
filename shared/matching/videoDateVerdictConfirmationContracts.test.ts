@@ -20,6 +20,7 @@ const flags = readFileSync(join(root, "shared/featureFlags/videoDateV4Flags.ts")
 const outboxTypes = readFileSync(join(root, "shared/postDateOutbox/types.ts"), "utf8");
 const edgeFunction = readFileSync(join(root, "supabase/functions/post-date-verdict/index.ts"), "utf8");
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
+const webVerdictScreen = readFileSync(join(root, "src/components/video-date/survey/VerdictScreen.tsx"), "utf8");
 const webSafetyScreen = readFileSync(join(root, "src/components/video-date/survey/SafetyScreen.tsx"), "utf8");
 const nativeSurvey = readFileSync(join(root, "apps/mobile/components/video-date/PostDateSurvey.tsx"), "utf8");
 const nativeApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
@@ -157,7 +158,12 @@ test("web and native surveys gate optimistic advancement behind shared confirmat
     assert.doesNotMatch(source, /postDateInstantNext|canOptimisticallyAdvanceVerdict|optimisticStep/);
     const verdictSubmitBlock =
       source.match(/const confirmedResult = await waitForVerdictConfirmation[\s\S]+?applyConfirmedVerdictStep\(confirmedResult\);/)?.[0] ?? "";
-    assert.match(verdictSubmitBlock, /const feedbackRowConfirmed = await confirmActorFeedbackRow\(liked, ['"]verdict_submitted['"]\)/);
+    assert.match(source, /type VerdictSource = ['"]vibe['"] \| ['"]pass['"] \| ['"]skip['"]/);
+    assert.match(source, /lastVerdictSourceAttemptRef/);
+    assert.match(source, /source === ['"]skip['"] \? ['"]verdict_skipped['"] : ['"]verdict_submitted['"]/);
+    assert.match(source, /POST_DATE_SURVEY_SKIP[\s\S]{0,180}step: ['"]verdict['"][\s\S]{0,120}outcome: ['"]pass['"]/);
+    assert.match(source, /source: verdictSource/);
+    assert.match(verdictSubmitBlock, /const feedbackRowConfirmed = await confirmActorFeedbackRow\(liked, verdictSource\)/);
     assert.ok(
       verdictSubmitBlock.indexOf("waitForVerdictConfirmation") < verdictSubmitBlock.indexOf("confirmActorFeedbackRow"),
       "survey must wait for verdict confirmation before actor feedback-row proof",
@@ -174,6 +180,12 @@ test("web and native surveys gate optimistic advancement behind shared confirmat
   }
   // Verdict submission is hard-coded to v3; no flag-gated version selection.
   assert.doesNotMatch(nativeSurvey, /outbox_v2\.submit_verdict|backendVersion/);
+  assert.match(webVerdictScreen, /aria-label=["']Skip this check-in["']/);
+  assert.match(webVerdictScreen, /absolute right-0 top-0/);
+  assert.match(webSurvey, /onSkip=\{\(\) => void handleVerdict\(false, ["']skip["']\)\}/);
+  assert.match(nativeSurvey, /accessibilityLabel=["']Skip this check-in["']/);
+  assert.match(nativeSurvey, /onPress=\{\(\) => void handleVerdict\(false, ['"]skip['"]\)\}/);
+  assert.match(nativeSurvey, /minHeight: 44/);
   assert.match(webSafetyScreen, /onReport: \(reason: string, details: string, alsoBlock: boolean\) => boolean \| Promise<boolean>/);
   assert.match(webSafetyScreen, /isReportSubmitting/);
 });
