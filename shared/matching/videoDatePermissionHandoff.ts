@@ -20,6 +20,10 @@ export type VideoDatePermissionHandoffState = {
   source: string;
 };
 
+export type VideoDatePermissionHandoffStatus =
+  | { ok: true; entry: VideoDatePermissionHandoffState }
+  | { ok: false; reason: "missing" | "expired" };
+
 const permissionHandoffs = new Map<string, VideoDatePermissionHandoffState>();
 
 function permissionHandoffKey(sessionId: string, userId: string): string {
@@ -68,14 +72,23 @@ export function getVideoDatePermissionHandoff(
   userId: string,
   nowMs: number = Date.now(),
 ): VideoDatePermissionHandoffState | null {
+  const status = getVideoDatePermissionHandoffStatus(sessionId, userId, nowMs);
+  return status.ok ? status.entry : null;
+}
+
+export function getVideoDatePermissionHandoffStatus(
+  sessionId: string,
+  userId: string,
+  nowMs: number = Date.now(),
+): VideoDatePermissionHandoffStatus {
   const key = permissionHandoffKey(sessionId, userId);
   const entry = permissionHandoffs.get(key);
-  if (!entry) return null;
+  if (!entry) return { ok: false, reason: "missing" };
   if (entry.expiresAtMs <= nowMs) {
     permissionHandoffs.delete(key);
-    return null;
+    return { ok: false, reason: "expired" };
   }
-  return entry;
+  return { ok: true, entry };
 }
 
 export function clearVideoDatePermissionHandoff(sessionId: string, userId: string): boolean {

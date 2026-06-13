@@ -157,7 +157,7 @@ import {
   type ReadyGateToDateLatencyCheckpoint,
   type VideoDateOperatorOutcome,
 } from "@clientShared/observability/videoDateOperatorMetrics";
-import { getVideoDatePermissionHandoff } from "@clientShared/matching/videoDatePermissionHandoff";
+import { getVideoDatePermissionHandoffStatus } from "@clientShared/matching/videoDatePermissionHandoff";
 import { LiveSurfaceOfflineStrip } from "@/components/connectivity/LiveSurfaceOfflineStrip";
 import { avatarUrl } from "@/lib/imageUrl";
 import {
@@ -201,10 +201,6 @@ import {
   type VideoDateDailyCallObject,
 } from "@/lib/videoDateDailyMediaConfig";
 import { registerNativeVideoDateDailyCleanup } from "@/lib/nativeDailyCallInstance";
-import {
-  consumeNativeVideoDateDailyPrewarm,
-  markNativeVideoDateDailyPrewarmFallback,
-} from "@/lib/videoDateDailyPrewarm";
 import {
   VIDEO_DATE_REMOTE_OBJECT_FIT,
   VIDEO_DATE_REMOTE_OBJECT_POSITION,
@@ -747,6 +743,7 @@ export default function VideoDateScreen() {
   const activePreparedEntryCacheHitRef = useRef<boolean | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
   const dailyPrewarmConsumedForJoinRef = useRef(false);
+  const dailyPrewarmFallbackReasonRef = useRef<string | null>(null);
   const prewarmedAlreadyJoinedRef = useRef(false);
   const prewarmedJoinInFlightRef = useRef(false);
   const providerVerifySkippedRef = useRef<boolean | null>(null);
@@ -2104,6 +2101,7 @@ export default function VideoDateScreen() {
     activePreparedEntryCacheHitRef.current = null;
     dailyJoinStartedAtMsRef.current = null;
     dailyPrewarmConsumedForJoinRef.current = false;
+    dailyPrewarmFallbackReasonRef.current = null;
     prewarmedAlreadyJoinedRef.current = false;
     prewarmedJoinInFlightRef.current = false;
     providerVerifySkippedRef.current = null;
@@ -3189,6 +3187,11 @@ export default function VideoDateScreen() {
           providerVerifySkipped:
             activePreparedEntryCacheRef.current?.value
               .provider_verify_skipped ?? providerVerifySkippedRef.current,
+          dailyPrewarmConsumed: dailyPrewarmConsumedForJoinRef.current,
+          dailyPrewarmFallbackReason:
+            dailyPrewarmFallbackReasonRef.current,
+          joinAlreadyInFlight: prewarmedJoinInFlightRef.current,
+          alreadyJoined: prewarmedAlreadyJoinedRef.current,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -3212,6 +3215,8 @@ export default function VideoDateScreen() {
         duration_ms: bothReadyToFirstRemoteFrameMs,
         latency_bucket: bucketVideoDateLatencyMs(bothReadyToFirstRemoteFrameMs),
         daily_prewarm_consumed: dailyPrewarmConsumedForJoinRef.current,
+        daily_prewarm_fallback_reason:
+          dailyPrewarmFallbackReasonRef.current,
         prewarmed_join_in_flight: prewarmedJoinInFlightRef.current,
         prewarmed_already_joined: prewarmedAlreadyJoinedRef.current,
         provider_verify_skipped:
@@ -4343,6 +4348,8 @@ export default function VideoDateScreen() {
     }
     const finishPermissionCheck = (ok: boolean, source: string) => {
       if (ok) setPermissionRecoveryAction(null);
+      const permissionHandoffUsed =
+        source === "ready_gate_permission_handoff";
       if (sessionId && ok) {
         const successContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -4350,7 +4357,10 @@ export default function VideoDateScreen() {
           eventId: eventId || null,
           sourceSurface: "video_date_daily",
           checkpoint: "permission_check_success",
-          permissionHandoffUsed: source === "ready_gate_permission_handoff",
+          permissionHandoffUsed,
+          permissionHandoffMissReason: permissionHandoffUsed
+            ? null
+            : permissionHandoffMissReason,
         });
         const durationMs = Math.max(0, Date.now() - permissionStartedAt);
         trackEvent(
@@ -4371,6 +4381,10 @@ export default function VideoDateScreen() {
           source_action: source,
           duration_ms: durationMs,
           latency_bucket: bucketVideoDateLatencyMs(durationMs),
+          permission_handoff_used: permissionHandoffUsed,
+          permission_handoff_miss_reason: permissionHandoffUsed
+            ? null
+            : permissionHandoffMissReason,
         });
       }
       return ok;
@@ -4399,10 +4413,16 @@ export default function VideoDateScreen() {
         microphone_can_ask_again: result.microphoneCanAskAgain,
       });
     };
-    const permissionHandoff =
+    const permissionHandoffStatus =
       sessionId && user?.id
-        ? getVideoDatePermissionHandoff(sessionId, user.id)
-        : null;
+        ? getVideoDatePermissionHandoffStatus(sessionId, user.id)
+        : ({ ok: false as const, reason: "missing_user" } as const);
+    const permissionHandoff = permissionHandoffStatus.ok === true
+      ? permissionHandoffStatus.entry
+      : null;
+    const permissionHandoffMissReason = permissionHandoffStatus.ok === true
+      ? null
+      : permissionHandoffStatus.reason;
     if (permissionHandoff) {
       vdbg("prejoin_step_prejoin_permissions_before", {
         platform: Platform.OS,
@@ -4622,6 +4642,7 @@ export default function VideoDateScreen() {
     clearPartnerAwayAfterTransportGrace,
     dailyJoinStartedAtMsRef,
     dailyPrewarmConsumedForJoinRef,
+    dailyPrewarmFallbackReasonRef,
     dailyTokenExpiresAtRef,
     dailyTokenRecoveryInFlightRef,
     dailyTokenRefreshTimerRef,

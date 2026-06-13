@@ -23,7 +23,7 @@ import {
   mediaPermissionResultForStatus,
   type MediaPermissionQueryState,
 } from "@clientShared/media/mediaPermissionResult";
-import { getVideoDatePermissionHandoff } from "@clientShared/matching/videoDatePermissionHandoff";
+import { getVideoDatePermissionHandoffStatus } from "@clientShared/matching/videoDatePermissionHandoff";
 import {
   describeMediaError,
   resolveWebVideoDateMediaCaptureReadiness,
@@ -173,6 +173,9 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
             sourceSurface: "video_date_daily",
             checkpoint: "permission_check_success",
             permissionHandoffUsed: true,
+            permissionHandoffMissReason: null,
+            mediaHandoffUsed: true,
+            mediaHandoffMissReason: null,
           });
           trackEvent(
             LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -194,6 +197,8 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
             latency_bucket: bucketVideoDateLatencyMs(durationMs),
             media_handoff_used: true,
             media_handoff_miss_reason: null,
+            permission_handoff_used: true,
+            permission_handoff_miss_reason: null,
           });
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
             platform: "web",
@@ -246,9 +251,15 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
       });
 
       let deferredMediaPermissionError: unknown = null;
-      const permissionHandoff = userId
-        ? getVideoDatePermissionHandoff(sessionId, userId)
+      const permissionHandoffResult = userId
+        ? getVideoDatePermissionHandoffStatus(sessionId, userId)
+        : ({ ok: false as const, reason: "missing_user" } as const);
+      const permissionHandoff = permissionHandoffResult.ok === true
+        ? permissionHandoffResult.entry
         : null;
+      const permissionHandoffMissReason = permissionHandoffResult.ok === true
+        ? null
+        : permissionHandoffResult.reason;
       const captureReadiness = await resolveWebVideoDateMediaCaptureReadiness(
         promptIntent,
         Boolean(permissionHandoff),
@@ -407,6 +418,9 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
             sourceSurface: "video_date_daily",
             checkpoint: "permission_check_success",
             permissionHandoffUsed: true,
+            permissionHandoffMissReason: null,
+            mediaHandoffUsed: false,
+            mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
           });
           trackEvent(
             LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -428,6 +442,8 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
             latency_bucket: bucketVideoDateLatencyMs(durationMs),
             media_handoff_used: false,
             media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+            permission_handoff_used: true,
+            permission_handoff_miss_reason: null,
           });
           vdbg("daily_media_permission_handoff_used", {
             sessionId,
@@ -539,6 +555,9 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
           sourceSurface: "video_date_daily",
           checkpoint: "permission_check_success",
           permissionHandoffUsed: false,
+          permissionHandoffMissReason,
+          mediaHandoffUsed: false,
+          mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -560,6 +579,8 @@ export function useVideoDateMediaPreflight(deps: VideoCallSharedRuntime) {
           latency_bucket: bucketVideoDateLatencyMs(durationMs),
           media_handoff_used: false,
           media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+          permission_handoff_used: false,
+          permission_handoff_miss_reason: permissionHandoffMissReason,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
           platform: "web",

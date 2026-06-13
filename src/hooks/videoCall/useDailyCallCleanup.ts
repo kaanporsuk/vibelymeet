@@ -67,6 +67,7 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
     firstRemoteObservedRef,
     hasSameSessionDailyContinuity,
     lastDailyPrewarmConsumedRef,
+    lastDailyPrewarmFallbackReasonRef,
     lastLocalMountedTrackKeyRef,
     lastLocalStreamRef,
     lastLocalTrackIdsRef,
@@ -325,6 +326,7 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
           lastMediaHandoffUsedRef.current = false;
           lastMediaHandoffMissReasonRef.current = null;
           lastDailyPrewarmConsumedRef.current = false;
+          lastDailyPrewarmFallbackReasonRef.current = null;
           lastPrewarmedJoinInFlightRef.current = false;
           lastPrewarmedAlreadyJoinedRef.current = false;
           lastProviderVerifySkippedRef.current = null;
@@ -388,6 +390,7 @@ export function useDailyCallCleanup(deps: UseDailyCallCleanupDeps) {
       firstRemoteObservedRef,
       hasSameSessionDailyContinuity,
       lastDailyPrewarmConsumedRef,
+      lastDailyPrewarmFallbackReasonRef,
       lastLocalMountedTrackKeyRef,
       lastLocalStreamRef,
       lastLocalTrackIdsRef,

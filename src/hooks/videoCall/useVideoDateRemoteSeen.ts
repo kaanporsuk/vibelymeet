@@ -50,6 +50,7 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
     clearDailyAliveHeartbeatTimer,
     hasSameSessionDailyContinuity,
     lastDailyPrewarmConsumedRef,
+    lastDailyPrewarmFallbackReasonRef,
     lastMediaHandoffMissReasonRef,
     lastMediaHandoffUsedRef,
     lastPrewarmedAlreadyJoinedRef,
@@ -450,6 +451,13 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
         providerVerifySkipped:
           entry?.value.provider_verify_skipped ??
           lastProviderVerifySkippedRef.current,
+        mediaHandoffUsed: lastMediaHandoffUsedRef.current,
+        mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
+        dailyPrewarmConsumed: lastDailyPrewarmConsumedRef.current,
+        dailyPrewarmFallbackReason:
+          lastDailyPrewarmFallbackReasonRef.current,
+        joinAlreadyInFlight: lastPrewarmedJoinInFlightRef.current,
+        alreadyJoined: lastPrewarmedAlreadyJoinedRef.current,
       });
       trackEvent(
         LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -474,6 +482,8 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
         media_handoff_used: lastMediaHandoffUsedRef.current,
         media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
         daily_prewarm_consumed: lastDailyPrewarmConsumedRef.current,
+        daily_prewarm_fallback_reason:
+          lastDailyPrewarmFallbackReasonRef.current,
         prewarmed_join_in_flight: lastPrewarmedJoinInFlightRef.current,
         prewarmed_already_joined: lastPrewarmedAlreadyJoinedRef.current,
         provider_verify_skipped:
@@ -485,6 +495,7 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
       activePreparedEntryCacheHitRef,
       activePreparedEntryCacheRef,
       lastDailyPrewarmConsumedRef,
+      lastDailyPrewarmFallbackReasonRef,
       lastMediaHandoffMissReasonRef,
       lastMediaHandoffUsedRef,
       lastPrewarmedAlreadyJoinedRef,

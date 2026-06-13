@@ -19,6 +19,8 @@ import {
 const NATIVE_DAILY_PREWARM_TTL_MS = 45_000;
 const NATIVE_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS = 250;
 const NATIVE_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 250;
+const NATIVE_DAILY_PREWARM_PENDING_TTL_MS = 5_000;
+const NATIVE_DAILY_PREWARM_PENDING_CONSUME_WAIT_MS = 900;
 
 type NativeDailyPrewarmStatus =
   | "starting"
@@ -71,7 +73,21 @@ type NativeDailyPrewarmConsumeResult =
   | { ok: true; entry: NativeDailyPrewarmPublicEntry }
   | { ok: false; reason: string };
 
+type NativeDailyPrewarmPendingEntry = {
+  key: string;
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomName: string;
+  roomUrl: string;
+  captureProfile: NativeVideoDateCaptureProfile;
+  startedAtMs: number;
+  expiresAtMs: number;
+  promise: Promise<NativeDailyPrewarmConsumeResult>;
+};
+
 const prewarmEntries = new Map<string, NativeDailyPrewarmEntry>();
+const pendingPrewarmStarts = new Map<string, NativeDailyPrewarmPendingEntry>();
 
 function publicEntry(
   entry: NativeDailyPrewarmEntry,
@@ -272,9 +288,10 @@ export async function startNativeVideoDateDailyPrewarm(params: {
 }): Promise<NativeDailyPrewarmConsumeResult> {
   if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
   const key = keyFor(params.sessionId, params.userId);
+  const nowMs = Date.now();
   const existing = prewarmEntries.get(key);
   if (existing) {
-    if (existing.expiresAtMs > Date.now()) {
+    if (existing.expiresAtMs > nowMs) {
       if (
         existing.roomName === params.roomName &&
         existing.roomUrl === params.roomUrl
@@ -288,6 +305,53 @@ export async function startNativeVideoDateDailyPrewarm(params: {
   }
 
   const captureProfile = params.captureProfile ?? "ideal";
+  const pending = pendingPrewarmStarts.get(key);
+  if (pending && pending.expiresAtMs > nowMs) {
+    if (
+      pending.roomName === params.roomName &&
+      pending.roomUrl === params.roomUrl
+    ) {
+      return pending.promise;
+    }
+    pendingPrewarmStarts.delete(key);
+  }
+  const pendingPromise = startNativeVideoDateDailyPrewarmNow({
+    ...params,
+    captureProfile,
+  });
+  const pendingEntry: NativeDailyPrewarmPendingEntry = {
+    key,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    eventId: params.eventId,
+    roomName: params.roomName,
+    roomUrl: params.roomUrl,
+    captureProfile,
+    startedAtMs: nowMs,
+    expiresAtMs: nowMs + NATIVE_DAILY_PREWARM_PENDING_TTL_MS,
+    promise: pendingPromise,
+  };
+  pendingPrewarmStarts.set(key, pendingEntry);
+  try {
+    return await pendingPromise;
+  } finally {
+    if (pendingPrewarmStarts.get(key) === pendingEntry) {
+      pendingPrewarmStarts.delete(key);
+    }
+  }
+}
+
+async function startNativeVideoDateDailyPrewarmNow(params: {
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomName: string;
+  roomUrl: string;
+  captureProfile: NativeVideoDateCaptureProfile;
+  source: string;
+}): Promise<NativeDailyPrewarmConsumeResult> {
+  const key = keyFor(params.sessionId, params.userId);
+  const captureProfile = params.captureProfile;
   const guardedCall = await createVideoDateDailyCallObjectGuarded(
     captureProfile,
     {
@@ -635,6 +699,68 @@ export function consumeNativeVideoDateDailyPrewarm(params: {
     sourceAction: "daily_prewarm_consumed",
   });
   return { ok: true, entry: publicEntry(entry) };
+}
+
+function matchingPendingNativeVideoDateDailyPrewarm(params: {
+  sessionId: string;
+  userId: string;
+  roomName?: string | null;
+  roomUrl?: string | null;
+}): NativeDailyPrewarmPendingEntry | null {
+  const key = keyFor(params.sessionId, params.userId);
+  const pending = pendingPrewarmStarts.get(key);
+  if (!pending) return null;
+  if (pending.expiresAtMs <= Date.now()) {
+    pendingPrewarmStarts.delete(key);
+    return null;
+  }
+  if (
+    (params.roomName != null && pending.roomName !== params.roomName) ||
+    (params.roomUrl != null && pending.roomUrl !== params.roomUrl)
+  ) {
+    return null;
+  }
+  return pending;
+}
+
+export function hasPendingNativeVideoDateDailyPrewarm(params: {
+  sessionId: string;
+  userId: string;
+  roomName?: string | null;
+  roomUrl?: string | null;
+}): boolean {
+  return Boolean(matchingPendingNativeVideoDateDailyPrewarm(params));
+}
+
+export async function consumeNativeVideoDateDailyPrewarmWhenReady(params: {
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomName: string;
+  roomUrl: string;
+  captureProfile: NativeVideoDateCaptureProfile;
+  waitMs?: number;
+}): Promise<NativeDailyPrewarmConsumeResult> {
+  const immediate = consumeNativeVideoDateDailyPrewarm(params);
+  if (immediate.ok === true) return immediate;
+  if (immediate.reason !== "missing") return immediate;
+
+  const pending = matchingPendingNativeVideoDateDailyPrewarm(params);
+  if (!pending) return immediate;
+
+  const waited = await waitWithTimeout(
+    pending.promise,
+    params.waitMs ?? NATIVE_DAILY_PREWARM_PENDING_CONSUME_WAIT_MS,
+  );
+  if (!waited) return { ok: false, reason: "pending_timeout" };
+  if (waited.ok === false) {
+    return { ok: false, reason: `pending_${waited.reason}` };
+  }
+
+  return consumeNativeVideoDateDailyPrewarm({
+    ...params,
+    captureProfile: waited.entry.captureProfile,
+  });
 }
 
 export function destroyNativeVideoDateDailyPrewarm(

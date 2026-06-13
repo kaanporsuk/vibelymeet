@@ -132,6 +132,7 @@ export type VideoCallSharedRuntime = {
   lastMediaHandoffUsedRef: MutableRefObject<boolean>;
   lastMediaHandoffMissReasonRef: MutableRefObject<string | null>;
   lastDailyPrewarmConsumedRef: MutableRefObject<boolean>;
+  lastDailyPrewarmFallbackReasonRef: MutableRefObject<string | null>;
   lastPrewarmedJoinInFlightRef: MutableRefObject<boolean>;
   lastPrewarmedAlreadyJoinedRef: MutableRefObject<boolean>;
   lastProviderVerifySkippedRef: MutableRefObject<boolean | null>;

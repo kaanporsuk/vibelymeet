@@ -142,6 +142,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastMediaHandoffUsedRef = useRef(false);
   const lastMediaHandoffMissReasonRef = useRef<string | null>(null);
   const lastDailyPrewarmConsumedRef = useRef(false);
+  const lastDailyPrewarmFallbackReasonRef = useRef<string | null>(null);
   const lastPrewarmedJoinInFlightRef = useRef(false);
   const lastPrewarmedAlreadyJoinedRef = useRef(false);
   const lastProviderVerifySkippedRef = useRef<boolean | null>(null);
@@ -263,6 +264,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     lastMediaHandoffUsedRef,
     lastMediaHandoffMissReasonRef,
     lastDailyPrewarmConsumedRef,
+    lastDailyPrewarmFallbackReasonRef,
     lastPrewarmedJoinInFlightRef,
     lastPrewarmedAlreadyJoinedRef,
     lastProviderVerifySkippedRef,
