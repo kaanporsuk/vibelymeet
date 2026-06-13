@@ -98,7 +98,15 @@ test("web and native Ready Gate hydration are snapshot-first with raw reads only
 test("shared route truth, ready redirects, and active-session hydration use startup snapshot", () => {
   assert.match(webTruth, /fetchVideoDateStartSnapshot\(sessionId\)[\s\S]*videoDateStartSnapshotToDateEntryTruth/);
   assert.match(webTruth, /event_id, participant_1_id, participant_2_id[\s\S]*date_started_at[\s\S]*participant_1_remote_seen_at/);
-  assert.match(nativeVideoDateApi, /fetchVideoDateStartSnapshot\(sessionId\)[\s\S]*videoDateStartSnapshotToDateEntryTruth/);
+  // Native keeps the snapshot-first fast path for non-fresh route-guard/hydration
+  // reads, but fresh mutation-verification reads bypass the snapshot (which omits
+  // the decision columns participant_*_liked / *_decided_at) and go straight to
+  // the row read (review P2 on PR #1322).
+  assert.match(
+    nativeVideoDateApi,
+    /if \(!fresh\) \{[\s\S]*fetchVideoDateStartSnapshot\(sessionId, \{ fresh \}\)[\s\S]*videoDateStartSnapshotToDateEntryTruth/,
+  );
+  assert.match(nativeVideoDateApi, /fetchVideoDateSessionRow\(sessionId, \{ fresh \}\)/);
   assert.match(webReadyRedirect, /fetchVideoDateStartSnapshot\(candidate\)/);
   assert.doesNotMatch(webReadyRedirect, /\.from\("video_sessions"\)/);
   assert.match(nativeReadyRoute, /fetchVideoDateStartSnapshot\(String\(sessionId\)\)/);

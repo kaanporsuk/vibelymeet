@@ -39,6 +39,16 @@ test("merged cleanup wires the reconciliation pass into the minute cron entrypoi
   // The outcome is observable in both the summary log and the HTTP response.
   const reconciliationMentions = cleanupIndex.match(/reconciliation,/g) ?? [];
   assert.ok(reconciliationMentions.length >= 2, "summary log and response both report the pass");
+  // A reconciliation failure flips ok/HTTP 500. The failure predicate must also
+  // treat a non-dry-run scan that did not write the cadence marker
+  // (markerRecorded === false) as failed — otherwise the gate never advances,
+  // the lane retries every minute, and the stage-2 probe reads a false green
+  // (review P2 on PR #1324).
+  assert.match(
+    cleanupIndex,
+    /reconciliation\.dryRun === false &&\s*reconciliation\.markerRecorded === false/,
+  );
+  assert.match(cleanupIndex, /ok: providerRateLimited === 0 && !reconciliationFailed/);
 });
 
 test("reconciliation pass keeps the orphan lane's safety semantics verbatim", () => {
