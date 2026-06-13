@@ -100,3 +100,22 @@ test("join and first-frame telemetry expose prewarm and provider handoff context
   assert.match(webVideoCall, /media_handoff_used/);
   assert.match(webVideoCall, /media_handoff_miss_reason/);
 });
+
+test("web date route consumes matching Daily prewarm before browser media preflight", () => {
+  const acquireRoomIndex = webVideoCall.indexOf("const roomResult = await acquireDateRoom");
+  const peekIndex = webVideoCall.indexOf("peekWebVideoDateDailyPrewarm({");
+  const consumePrewarmIndex = webVideoCall.indexOf("consumeWebVideoDateDailyPrewarm({");
+  const preflightIndex = webVideoCall.indexOf("await preflightMediaPermission");
+  const fallbackGetUserMediaIndex = webVideoCall.indexOf(
+    "navigator.mediaDevices.getUserMedia",
+    preflightIndex,
+  );
+
+  assert.ok(acquireRoomIndex > -1, "web date route should resolve prepared room before media fallback");
+  assert.ok(peekIndex > acquireRoomIndex, "Daily prewarm peek should be room-bound");
+  assert.ok(consumePrewarmIndex > peekIndex, "Daily prewarm consume should use the peeked capture profile");
+  assert.ok(preflightIndex > consumePrewarmIndex, "browser media preflight should run after Daily prewarm consume");
+  assert.ok(fallbackGetUserMediaIndex > preflightIndex, "fallback capture should stay behind preflight");
+  assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_reused_daily_media/);
+  assert.match(webVideoCall, /source:[\s\S]{0,140}"daily_prewarm_app_acquired_media"/);
+});

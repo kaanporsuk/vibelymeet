@@ -145,6 +145,7 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
           // the remote frame renders immediately instead of flashing a frozen
           // "Tap to resume" frame during the initial track-attach race. Audio is
           // restored by unmuting on play success below.
+          videoEl.defaultMuted = true;
           videoEl.muted = true;
           const playPromise = videoEl.play();
           if (playPromise && typeof playPromise.then === "function") {
@@ -159,10 +160,12 @@ export function useRemoteRenderPipeline(deps: UseRemoteRenderPipelineDeps) {
                 // path so one tap enables sound — never a frozen frame, never a
                 // silent audio loss.
                 if (videoEl.muted) {
+                  videoEl.defaultMuted = false;
                   videoEl.muted = false;
                   const onUnmutePause = () => {
                     videoEl.removeEventListener("pause", onUnmutePause);
                     if (videoEl.ended) return;
+                    videoEl.defaultMuted = true;
                     videoEl.muted = true;
                     void videoEl.play().catch(() => undefined);
                     setRemotePlayback((prev) => ({

@@ -19,6 +19,7 @@ import {
   AppAcquiredVideoDateMedia,
   createRemotePlaybackState,
   DailyReconnectState,
+  describeMediaError,
   PeerMissingState,
   RemoteCameraSwitchRenderWatch,
   RemotePlaybackState,
@@ -368,6 +369,60 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       participantSessionId: participant.session_id ?? null,
     });
     attachTracks(participant, videoEl, false);
+    videoEl.defaultMuted = false;
+    videoEl.muted = false;
+    const audiblePlay = videoEl.play();
+    if (audiblePlay && typeof audiblePlay.then === "function") {
+      void audiblePlay
+        .then(() => {
+          const recoveredFromBlock = playbackBlockedRef.current;
+          playbackBlockedRef.current = false;
+          setRemotePlayback((prev) => ({
+            ...prev,
+            playSucceeded: true,
+            playRejected: false,
+            error: undefined,
+          }));
+          if (recoveredFromBlock) {
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_RECOVERED, {
+              platform: "web",
+              session_id: optionsRef.current?.roomId ?? null,
+              event_id: optionsRef.current?.eventId ?? null,
+              source_action: "remote_playback_retry_gesture",
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          playbackBlockedRef.current = true;
+          videoEl.defaultMuted = true;
+          videoEl.muted = true;
+          void videoEl.play().catch(() => undefined);
+          setRemotePlayback((prev) => ({
+            ...prev,
+            playSucceeded: false,
+            playRejected: true,
+            error: describeMediaError(error) || "Remote video paused. Tap to resume.",
+          }));
+          vdbg("daily_remote_video_play_retry_rejected", {
+            sessionId: optionsRef.current?.roomId ?? null,
+            eventId: optionsRef.current?.eventId ?? null,
+            userId: optionsRef.current?.userId ?? null,
+            participantSessionId: participant.session_id ?? null,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : String(error),
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_BLOCKED, {
+            platform: "web",
+            session_id: optionsRef.current?.roomId ?? null,
+            event_id: optionsRef.current?.eventId ?? null,
+            reason:
+              error instanceof Error ? error.name : "retry_play_rejected",
+            source_action: "remote_playback_retry_gesture",
+          });
+        });
+    }
   }, [attachTracks]);
 
   const clearPeerMissing = useCallback(() => {

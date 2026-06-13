@@ -715,6 +715,42 @@ export function consumeWebVideoDateDailyPrewarm(params: {
   return { ok: true, entry: publicEntry(entry) };
 }
 
+export function peekWebVideoDateDailyPrewarm(params: {
+  sessionId: string;
+  userId: string;
+  roomName: string;
+  roomUrl: string;
+  captureProfile?: VideoDateWebMediaCaptureProfile;
+}): WebDailyPrewarmConsumeResult {
+  if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
+  const entry = prewarmEntries.get(keyFor(params.sessionId, params.userId));
+  if (!entry) return { ok: false, reason: "missing" };
+  if (entry.expiresAtMs <= Date.now()) {
+    return { ok: false, reason: "expired" };
+  }
+  if (entry.roomUrl !== params.roomUrl || entry.roomName !== params.roomName) {
+    return { ok: false, reason: "room_mismatch" };
+  }
+  if (
+    params.captureProfile &&
+    entry.captureProfile !== params.captureProfile
+  ) {
+    return { ok: false, reason: "capture_profile_mismatch" };
+  }
+  if (
+    entry.status === "fallback" ||
+    entry.status === "destroyed" ||
+    entry.status === "join_failed"
+  ) {
+    return { ok: false, reason: "not_usable" };
+  }
+  const unusableReason = rejectUnusablePrewarmEntry(entry);
+  if (unusableReason) {
+    return { ok: false, reason: "call_not_usable" };
+  }
+  return { ok: true, entry: publicEntry(entry) };
+}
+
 export function destroyWebVideoDateDailyPrewarm(
   sessionId: string,
   userId: string,
