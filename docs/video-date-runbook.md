@@ -158,9 +158,11 @@ Testing") exactly:
    both surveys submitted.
 3. **Verify** (read-only admin SQL): same Daily room on both sides; webhook
    ledger shows both `participant.joined` with provider session ids and no
-   later unmatched `participant.left`; `date_started_at` stamped; both
-   `date_feedback` rows persisted; registrations released from `in_survey`;
-   outbox rows for the session drained or terminal.
+   later unmatched `participant.left`; both participant remote-seen timestamps
+   stamped from render-bound evidence; `stable_bilateral_media_at` and
+   `date_started_at` stamped; both `date_feedback` rows persisted;
+   registrations released from `in_survey`; outbox rows for the session drained
+   or terminal.
 4. **Cleanup**: delete only rows created by the smoke tag (pair-scoped,
    tag-scoped predicates that also prove the fake emails); verify final counts
    are zero. Mask IDs/emails/tokens in all evidence.

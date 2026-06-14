@@ -17,6 +17,9 @@ const joinedFacadeMigration = read(
 );
 const webVideoCall = readWebVideoCallFlowSource(root);
 const nativeDateRoute = readNativeVideoDateScreenFlowSource();
+const remoteSeenEvidence = read(
+  "shared/matching/videoDateRemoteSeenEvidence.ts",
+);
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
 
@@ -124,11 +127,18 @@ test("promotion RPCs reuse lifecycle eligibility before date promotion", () => {
 });
 
 test("web remote-seen server stamps are render-bound, not participant/snapshot-bound", () => {
-  assert.match(webVideoCall, /const baseEvidenceSource = source/);
+  assert.match(
+    webVideoCall,
+    /const baseEvidenceSource =[\s\S]{0,120}normalizeVideoDateRemoteSeenEvidenceSource\(source\)/,
+  );
+  assert.match(
+    webVideoCall,
+    /isVideoDateRemoteSeenRenderEvidenceSource\(baseEvidenceSource\)/,
+  );
   assert.match(webVideoCall, /p_evidence_source: baseEvidenceSource/);
   assert.doesNotMatch(webVideoCall, /p_evidence_source: attemptSource/);
-  assert.match(webVideoCall, /source === "loadeddata"/);
-  assert.match(webVideoCall, /source === "playing"/);
+  assert.match(remoteSeenEvidence, /"loadeddata"/);
+  assert.match(remoteSeenEvidence, /"playing"/);
   assert.match(
     webVideoCall,
     /markRemoteFirstFrameRendered\(\s*method === "request_video_frame_callback"[\s\S]{0,160}"request_video_frame_callback"[\s\S]{0,160}"first_remote_frame"/,
@@ -139,10 +149,17 @@ test("web remote-seen server stamps are render-bound, not participant/snapshot-b
 });
 
 test("native remote-seen server stamps are mounted-media-bound, not participant/snapshot-bound", () => {
-  assert.match(nativeDateRoute, /const baseEvidenceSource = source/);
+  assert.match(
+    nativeDateRoute,
+    /const baseEvidenceSource =[\s\S]{0,120}normalizeVideoDateRemoteSeenEvidenceSource\(source\)/,
+  );
+  assert.match(
+    nativeDateRoute,
+    /isVideoDateRemoteSeenRenderEvidenceSource\(baseEvidenceSource\)/,
+  );
   assert.match(nativeDateRoute, /p_evidence_source: baseEvidenceSource/);
   assert.doesNotMatch(nativeDateRoute, /p_evidence_source: attemptSource/);
-  assert.match(nativeDateRoute, /source === "remote_track_mounted"/);
+  assert.match(remoteSeenEvidence, /"remote_track_mounted"/);
   assert.match(nativeDateRoute, /markRemoteSeenOnServer\("remote_track_mounted"\)/);
   assert.doesNotMatch(
     nativeDateRoute,

@@ -939,6 +939,153 @@ export default function VideoDateScreen() {
     [eventId, logJourney, sessionId, user?.id],
   );
 
+  const recoverNativePostDateSurveyFromInSurveyRegistration = useCallback(
+    async (
+      source: string,
+      expectedEventId?: string | null,
+      sessionRow?: NativeTerminalSurveySessionRow | null,
+    ) => {
+      if (!sessionId || !user?.id) return false;
+      if (surveyOpenedRef.current) {
+        vdbg("post_date_survey_open_already_active", {
+          sessionId,
+          userId: user.id,
+          source,
+        });
+        return true;
+      }
+      const registrationFallbackBaseQuery = () =>
+        supabase
+          .from("event_registrations")
+          .select(NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
+          .eq("profile_id", user.id)
+          .eq("queue_status", "in_survey");
+      const roomScopedFallback = await registrationFallbackBaseQuery()
+        .eq("current_room_id", sessionId)
+        .order("last_active_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let registrationFallback = roomScopedFallback.data;
+      let registrationError = roomScopedFallback.error;
+      if (!registrationError && !registrationFallback) {
+        const routeScopedFallback = expectedEventId
+          ? await registrationFallbackBaseQuery()
+              .is("current_room_id", null)
+              .eq("event_id", expectedEventId)
+              .order("last_active_at", { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : await registrationFallbackBaseQuery()
+              .is("current_room_id", null)
+              .order("last_active_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+        registrationFallback = routeScopedFallback.data;
+        registrationError = routeScopedFallback.error;
+      }
+      if (registrationError) {
+        vdbg("terminal_post_date_survey_registration_fallback_failed", {
+          sessionId,
+          userId: user.id,
+          source,
+          code: registrationError.code ?? null,
+          message: registrationError.message,
+        });
+        return false;
+      }
+      const fallbackRow =
+        (registrationFallback as NativeTerminalSurveyRegistrationFallbackRow | null) ??
+        null;
+      const fallbackMatchesCurrentRoute =
+        fallbackRow != null &&
+        (fallbackRow.current_room_id === sessionId ||
+          (fallbackRow.current_room_id == null &&
+            (!expectedEventId || fallbackRow.event_id === expectedEventId)));
+      if (
+        fallbackRow?.queue_status !== "in_survey" ||
+        !fallbackMatchesCurrentRoute
+      ) {
+        return false;
+      }
+
+      let verdict: { id?: string | null } | null = null;
+      const { data: verdictData, error: verdictError } = await supabase
+        .from("date_feedback")
+        .select("id")
+        .eq("session_id", sessionId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (verdictError) {
+        vdbg("terminal_post_date_survey_verdict_fetch_failed", {
+          sessionId,
+          userId: user.id,
+          source,
+          code: verdictError.code ?? null,
+          message: verdictError.message,
+        });
+      } else {
+        verdict = verdictData ?? null;
+      }
+
+      if (verdict?.id) return false;
+
+      const recoveredPartnerId =
+        sessionRow && user.id === sessionRow.participant_1_id
+          ? sessionRow.participant_2_id
+          : sessionRow && user.id === sessionRow.participant_2_id
+            ? sessionRow.participant_1_id
+            : fallbackRow.current_partner_id;
+      if (recoveredPartnerId) setPartnerId(recoveredPartnerId);
+      const recoveredEventId =
+        sessionRow?.event_id ?? fallbackRow.event_id ?? expectedEventId ?? null;
+      if (recoveredEventId) setEventId(recoveredEventId);
+      if (sessionRow?.participant_1_id) {
+        setIsParticipant1(user.id === sessionRow.participant_1_id);
+      }
+      dateEstablishedRef.current = true;
+      logJourney(
+        "date_route_recovered",
+        { source: `${source}_registration_recovery` },
+        "date_route_recovered",
+      );
+      logJourney(
+        "survey_lost_prevented",
+        { source: `${source}_registration_recovery` },
+        "survey_lost_prevented",
+      );
+      vdbg("terminal_post_date_survey_registration_fallback", {
+        sessionId,
+        userId: user.id,
+        source,
+        eventId: fallbackRow.event_id ?? null,
+        currentRoomId: fallbackRow.current_room_id ?? null,
+        currentPartnerId: fallbackRow.current_partner_id ?? null,
+        lastActiveAt: fallbackRow.last_active_at ?? null,
+        expectedEventId: expectedEventId ?? null,
+        sessionEndedAt: sessionRow?.ended_at ?? null,
+        sessionEndedReason: sessionRow?.ended_reason ?? null,
+      });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
+        platform: "native",
+        session_id: sessionId,
+        event_id: recoveredEventId ?? eventId ?? null,
+        room_name: sessionRow?.daily_room_name ?? roomNameRef.current ?? null,
+        source_surface: "video_date_route",
+        source_action: `${source}_registration_recovery`,
+        outcome: "recovered",
+        reason_code: `${source}_registration_recovery`,
+        pendingPostDateSurveyDue: true,
+        registrationFallback: true,
+      });
+      return openNativePostDateSurvey(`${source}_registration_recovery`, {
+        eventId: recoveredEventId ?? eventId ?? null,
+        roomName: sessionRow?.daily_room_name ?? roomNameRef.current ?? null,
+        pendingPostDateSurveyDue: true,
+      });
+    },
+    [eventId, logJourney, openNativePostDateSurvey, sessionId, user?.id],
+  );
+
   const openNativePostDateSurveyFromTerminalTruth = useCallback(
     async (
       source: string,
@@ -969,78 +1116,7 @@ export default function VideoDateScreen() {
             code: error.code ?? null,
             message: error.message,
           });
-          const { data: registrationFallback, error: registrationError } =
-            await supabase
-              .from("event_registrations")
-              .select(NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT)
-              .eq("profile_id", user.id)
-              .eq("queue_status", "in_survey")
-              .order("last_active_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-          if (registrationError) {
-            vdbg("terminal_post_date_survey_registration_fallback_failed", {
-              sessionId,
-              userId: user.id,
-              source,
-              code: registrationError.code ?? null,
-              message: registrationError.message,
-            });
-            return false;
-          }
-          const fallbackRow =
-            (registrationFallback as NativeTerminalSurveyRegistrationFallbackRow | null) ??
-            null;
-          const fallbackMatchesCurrentRoute =
-            fallbackRow?.current_room_id == null ||
-            fallbackRow.current_room_id === sessionId;
-          if (
-            fallbackRow?.queue_status === "in_survey" &&
-            fallbackMatchesCurrentRoute
-          ) {
-            if (fallbackRow.current_partner_id) {
-              setPartnerId(fallbackRow.current_partner_id);
-            }
-            if (fallbackRow.event_id) setEventId(fallbackRow.event_id);
-            dateEstablishedRef.current = true;
-            logJourney(
-              "date_route_recovered",
-              { source: `${source}_registration_recovery` },
-              "date_route_recovered",
-            );
-            logJourney(
-              "survey_lost_prevented",
-              { source: `${source}_registration_recovery` },
-              "survey_lost_prevented",
-            );
-            vdbg("terminal_post_date_survey_registration_fallback", {
-              sessionId,
-              userId: user.id,
-              source,
-              eventId: fallbackRow.event_id ?? null,
-              currentRoomId: fallbackRow.current_room_id ?? null,
-              currentPartnerId: fallbackRow.current_partner_id ?? null,
-              lastActiveAt: fallbackRow.last_active_at ?? null,
-            });
-            trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
-              platform: "native",
-              session_id: sessionId,
-              event_id: fallbackRow.event_id ?? eventId ?? null,
-              room_name: roomNameRef.current ?? null,
-              source_surface: "video_date_route",
-              source_action: `${source}_registration_recovery`,
-              outcome: "recovered",
-              reason_code: `${source}_registration_recovery`,
-              pendingPostDateSurveyDue: true,
-              registrationFallback: true,
-            });
-            return openNativePostDateSurvey(`${source}_registration_recovery`, {
-              eventId: fallbackRow.event_id ?? eventId ?? null,
-              roomName: roomNameRef.current ?? null,
-              pendingPostDateSurveyDue: true,
-            });
-          }
-          return false;
+          return recoverNativePostDateSurveyFromInSurveyRegistration(source);
         }
         sessionRow = data ?? null;
       }
@@ -1117,7 +1193,14 @@ export default function VideoDateScreen() {
         pendingPostDateSurveyDue,
       });
     },
-    [eventId, logJourney, openNativePostDateSurvey, sessionId, user?.id],
+    [
+      eventId,
+      logJourney,
+      openNativePostDateSurvey,
+      recoverNativePostDateSurveyFromInSurveyRegistration,
+      sessionId,
+      user?.id,
+    ],
   );
 
   const confirmNativeTerminalPostDateRecovery = useCallback(
@@ -1175,6 +1258,14 @@ export default function VideoDateScreen() {
         if (recoveredSurvey) return true;
 
         const fallbackEventId = sessionRow?.event_id ?? eventId;
+        const recoveredFromRegistration =
+          await recoverNativePostDateSurveyFromInSurveyRegistration(
+            attemptSource,
+            fallbackEventId ?? null,
+            sessionRow,
+          );
+        if (recoveredFromRegistration) return true;
+
         if (fallbackEventId) {
           // Mirror web useTerminalSurveyRecovery: when the own verdict already
           // exists, release the registration before leaving so a stale
@@ -1246,6 +1337,7 @@ export default function VideoDateScreen() {
       eventId,
       logJourney,
       openNativePostDateSurveyFromTerminalTruth,
+      recoverNativePostDateSurveyFromInSurveyRegistration,
       refetchVideoSession,
       sessionId,
       user?.id,

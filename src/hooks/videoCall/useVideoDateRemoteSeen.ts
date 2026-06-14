@@ -8,13 +8,25 @@ import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
-import { getVideoDateEntryOwner, updateVideoDateDailyOwnerState, updateVideoDateEntryOwnerState } from "@clientShared/matching/videoDateEntryOwner";
+import {
+  getVideoDateDailyOwner,
+  getVideoDateEntryOwner,
+  subscribeVideoDateDailyOwner,
+  updateVideoDateDailyOwnerState,
+  updateVideoDateEntryOwnerState,
+} from "@clientShared/matching/videoDateEntryOwner";
 import {
   videoDateLifecycleRpcCode,
   videoDateLifecycleRpcIndicatesTerminalStop,
   videoDateLifecycleRpcIndicatesTerminalSurvey,
   videoDateLifecycleRpcRetryable,
 } from "@clientShared/matching/videoDateLifecycleRpc";
+import {
+  buildVideoDateRemoteSeenProviderMissingPayload,
+  isVideoDateRemoteSeenRenderEvidenceSource,
+  normalizeVideoDateRemoteSeenEvidenceSource,
+  VIDEO_DATE_REMOTE_SEEN_PENDING_EVIDENCE_TTL_MS,
+} from "@clientShared/matching/videoDateRemoteSeenEvidence";
 import {
   isTerminalDailyMeetingState,
 } from "@/lib/dailyCallInstance";
@@ -37,6 +49,14 @@ import type { DailyAliveHeartbeatApi } from "./useDailyAliveHeartbeat";
 const REMOTE_SEEN_RPC_MAX_ATTEMPTS = 3;
 const REMOTE_SEEN_RPC_RETRY_DELAY_MS = 1_500;
 const REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000;
+
+type WebRemoteSeenPendingEvidence = {
+  createdAtMs: number;
+  roomName: string | null;
+  sessionId: string;
+  source: string;
+  userId: string;
+};
 
 type UseVideoDateRemoteSeenDeps = VideoCallSharedRuntime &
   Pick<DailyAliveHeartbeatApi, "clearDailyAliveHeartbeatTimer">;
@@ -70,6 +90,8 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
   const remoteSeenRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const remoteSeenPendingEvidenceRef =
+    useRef<WebRemoteSeenPendingEvidence | null>(null);
 
   const markRemoteSeenOnServer = useCallback(
     (source: string) => {
@@ -81,15 +103,28 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
       const currentUserId = currentOptions?.userId;
       if (!currentUserId) return;
       const userId = currentUserId;
-      if (remoteSeenInFlightSessionRef.current === sessionId) return;
       const nowMs = Date.now();
-      const lastStamp = remoteSeenLastStampRef.current;
+      const baseEvidenceSource =
+        normalizeVideoDateRemoteSeenEvidenceSource(source);
       const forceRestamp =
-        source === "loadeddata" ||
-        source === "playing" ||
-        source === "remote_track_mounted" ||
-        source === "first_remote_frame" ||
-        source === "request_video_frame_callback";
+        isVideoDateRemoteSeenRenderEvidenceSource(baseEvidenceSource);
+      if (forceRestamp) {
+        const pending = remoteSeenPendingEvidenceRef.current;
+        remoteSeenPendingEvidenceRef.current = {
+          createdAtMs:
+            pending?.sessionId === sessionId &&
+            pending.userId === userId &&
+            pending.source === baseEvidenceSource
+              ? pending.createdAtMs
+              : nowMs,
+          roomName: roomNameRef.current,
+          sessionId,
+          source: baseEvidenceSource,
+          userId,
+        };
+      }
+      if (remoteSeenInFlightSessionRef.current === sessionId) return;
+      const lastStamp = remoteSeenLastStampRef.current;
       if (
         !forceRestamp &&
         lastStamp?.sessionId === sessionId &&
@@ -98,26 +133,50 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
         return;
       }
 
-      const baseEvidenceSource = source;
-      const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
+      const buildProviderBoundRemoteSeenArgs = (
+        attemptSource: string,
+        attempt: number,
+      ) => {
         const call = callObjectRef.current;
-        const providerSessionId = readDailyProviderSessionId(call);
+        const callProviderSessionId = readDailyProviderSessionId(call);
         const meetingState = safeMeetingState(call);
-        const providerBackedJoined =
-          meetingState === "joined-meeting" && Boolean(providerSessionId);
         const identity = activeDailyCallIdentityRef.current;
         const identityCurrent =
           identity?.sessionId === sessionId && identity.userId === userId
             ? identity
             : null;
         const entryOwner = getVideoDateEntryOwner(sessionId, userId);
-        const ownerId = identityCurrent?.ownerId ?? entryOwner?.ownerId ?? null;
-        const callInstanceId = identityCurrent?.callInstanceId ?? null;
+        const dailyOwner = getVideoDateDailyOwner({
+          sessionId,
+          userId,
+          roomName: roomNameRef.current,
+        });
+        const providerSessionId =
+          callProviderSessionId ??
+          entryOwner?.providerSessionId ??
+          dailyOwner?.providerSessionId ??
+          null;
+        const providerBackedJoined =
+          meetingState === "joined-meeting" && Boolean(providerSessionId);
+        const ownerId =
+          identityCurrent?.ownerId ??
+          entryOwner?.ownerId ??
+          dailyOwner?.ownerId ??
+          null;
+        const callInstanceId =
+          identityCurrent?.callInstanceId ??
+          entryOwner?.callInstanceId ??
+          dailyOwner?.callInstanceId ??
+          null;
         const entryAttemptId =
-          identityCurrent?.entryAttemptId ?? entryOwner?.entryAttemptId ?? null;
+          identityCurrent?.entryAttemptId ??
+          entryOwner?.entryAttemptId ??
+          dailyOwner?.entryAttemptId ??
+          null;
         const videoDateTraceId =
           identityCurrent?.videoDateTraceId ??
           entryOwner?.videoDateTraceId ??
+          dailyOwner?.videoDateTraceId ??
           null;
 
         if (!providerBackedJoined || !providerSessionId || !callInstanceId) {
@@ -133,30 +192,55 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
             : !callInstanceId
               ? "REMOTE_SEEN_CALL_INSTANCE_MISSING"
               : "REMOTE_SEEN_OWNER_NOT_JOINED";
-          vdbg("mark_video_date_remote_seen_skipped_provider_missing", {
-            sessionId,
-            eventId,
-            userId,
-            source: attemptSource,
-            providerSessionId,
-            meetingState,
-            providerBackedJoined,
-            callInstanceId,
-            ownerId,
+          const payload = buildVideoDateRemoteSeenProviderMissingPayload({
+            code,
+            retryAfterMs: REMOTE_SEEN_RPC_RETRY_DELAY_MS,
             terminal,
           });
+          vdbg(
+            terminal
+              ? "mark_video_date_remote_seen_skipped_provider_missing"
+              : "mark_video_date_remote_seen_provider_pending",
+            {
+              sessionId,
+              eventId,
+              userId,
+              source: attemptSource,
+              baseEvidenceSource,
+              code,
+              attempt,
+              providerSessionId,
+              callProviderSessionId,
+              meetingState,
+              providerBackedJoined,
+              callInstanceId,
+              ownerId,
+              terminal,
+              retryable: payload.retryable,
+              willRetry: payload.retryable === true,
+              hasIdentityCallInstance: Boolean(identityCurrent?.callInstanceId),
+              hasEntryOwnerCallInstance: Boolean(entryOwner?.callInstanceId),
+              hasDailyOwnerCallInstance: Boolean(dailyOwner?.callInstanceId),
+              hasCallProviderSession: Boolean(callProviderSessionId),
+              hasEntryOwnerProviderSession: Boolean(
+                entryOwner?.providerSessionId,
+              ),
+              hasDailyOwnerProviderSession: Boolean(
+                dailyOwner?.providerSessionId,
+              ),
+              pendingEvidenceAgeMs:
+                remoteSeenPendingEvidenceRef.current?.sessionId === sessionId
+                  ? Math.max(
+                      0,
+                      nowMs - remoteSeenPendingEvidenceRef.current.createdAtMs,
+                    )
+                  : null,
+            },
+          );
           return {
             ok: false as const,
             code,
-            payload: {
-              ok: false,
-              error: code.toLowerCase(),
-              code,
-              retryable: false,
-              provider_presence_required: true,
-              provider_presence_missing: true,
-              provider_presence_terminal: terminal,
-            },
+            payload,
           };
         }
 
@@ -179,9 +263,6 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
           },
         };
       };
-
-      const initialProof = buildProviderBoundRemoteSeenArgs(source);
-      if (!initialProof.ok) return;
 
       if (remoteSeenRetryTimerRef.current) {
         clearTimeout(remoteSeenRetryTimerRef.current);
@@ -226,6 +307,7 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
         const retryable =
           videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
         if (terminalStop) {
+          remoteSeenPendingEvidenceRef.current = null;
           if (remoteSeenRetryTimerRef.current) {
             clearTimeout(remoteSeenRetryTimerRef.current);
             remoteSeenRetryTimerRef.current = null;
@@ -254,6 +336,7 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
           payload: payload ?? null,
         });
         if (!retryable || terminalStop) {
+          remoteSeenPendingEvidenceRef.current = null;
           return;
         }
         if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
@@ -263,7 +346,7 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
       };
 
       function stamp(attemptSource: string, attempt: number) {
-        const proof = buildProviderBoundRemoteSeenArgs(attemptSource);
+        const proof = buildProviderBoundRemoteSeenArgs(attemptSource, attempt);
         if (!proof.ok) {
           handleFailure(
             attemptSource,
@@ -301,6 +384,7 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
             if (remoteSeenInFlightSessionRef.current === sessionId) {
               remoteSeenInFlightSessionRef.current = null;
             }
+            remoteSeenPendingEvidenceRef.current = null;
             remoteSeenLastStampRef.current = {
               sessionId: activeSessionId,
               stampedAtMs: Date.now(),
@@ -366,12 +450,60 @@ export function useVideoDateRemoteSeen(deps: UseVideoDateRemoteSeenDeps) {
   );
 
   useEffect(() => {
+    return subscribeVideoDateDailyOwner((owner) => {
+      const pending = remoteSeenPendingEvidenceRef.current;
+      if (!pending) return;
+      const nowMs = Date.now();
+      if (
+        nowMs - pending.createdAtMs >
+        VIDEO_DATE_REMOTE_SEEN_PENDING_EVIDENCE_TTL_MS
+      ) {
+        remoteSeenPendingEvidenceRef.current = null;
+        return;
+      }
+      if (
+        !owner ||
+        owner.sessionId !== pending.sessionId ||
+        owner.userId !== pending.userId
+      ) {
+        return;
+      }
+      if (
+        owner.roomName &&
+        pending.roomName &&
+        owner.roomName !== pending.roomName
+      ) {
+        return;
+      }
+      if (owner.state !== "joined" && owner.state !== "remote_seen") return;
+      if (!owner.callInstanceId || !owner.providerSessionId) return;
+      if (optionsRef.current?.roomId !== pending.sessionId) return;
+      if (remoteSeenInFlightSessionRef.current === pending.sessionId) return;
+      vdbg("mark_video_date_remote_seen_pending_evidence_drain", {
+        sessionId: pending.sessionId,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: pending.userId,
+        source: pending.source,
+        ownerState: owner.state,
+        ownerSource: owner.source ?? null,
+        ownerRoomName: owner.roomName ?? null,
+        pendingRoomName: pending.roomName,
+        pendingEvidenceAgeMs: Math.max(0, nowMs - pending.createdAtMs),
+        callInstanceId: owner.callInstanceId,
+        providerSessionId: owner.providerSessionId,
+      });
+      markRemoteSeenOnServer(pending.source);
+    });
+  }, [markRemoteSeenOnServer, optionsRef]);
+
+  useEffect(() => {
     return () => {
       if (remoteSeenRetryTimerRef.current) {
         clearTimeout(remoteSeenRetryTimerRef.current);
         remoteSeenRetryTimerRef.current = null;
       }
       remoteSeenInFlightSessionRef.current = null;
+      remoteSeenPendingEvidenceRef.current = null;
       // The live-remount identity-preservation decision must use
       // teardown-time call/options state; values frozen at effect setup
       // would decide on stale truth.
