@@ -810,17 +810,17 @@ export async function syncVideoDateReconnect(sessionId: string): Promise<SyncRec
       : null;
   if (p?.success === false) {
     const code = videoDateLifecycleRpcCode(p);
+    const terminalSurvey = videoDateLifecycleRpcIndicatesTerminalSurvey(p);
     const terminalStop =
-      videoDateLifecycleRpcIndicatesTerminalSurvey(p) ||
-      videoDateLifecycleRpcIndicatesTerminalStop(p);
-    vdbg('sync_reconnect_result', {
-      sessionId,
-      outcome: 'rpc_error',
-      code,
-      retryable: videoDateLifecycleRpcRetryable(p) === true,
-      error: typeof p.error === 'string' ? p.error : null,
-    });
+      terminalSurvey || videoDateLifecycleRpcIndicatesTerminalStop(p);
     if (terminalStop) {
+      vdbg('sync_reconnect_result', {
+        sessionId,
+        outcome: terminalSurvey ? 'terminal_survey' : 'terminal_ended',
+        code,
+        retryable: videoDateLifecycleRpcRetryable(p) === true,
+        error: typeof p.error === 'string' ? p.error : null,
+      });
       return {
         reconnect_grace_ends_at: null,
         ended: true,
@@ -831,6 +831,13 @@ export async function syncVideoDateReconnect(sessionId: string): Promise<SyncRec
         partner_marked_away: false,
       };
     }
+    vdbg('sync_reconnect_result', {
+      sessionId,
+      outcome: 'rpc_error',
+      code,
+      retryable: videoDateLifecycleRpcRetryable(p) === true,
+      error: typeof p.error === 'string' ? p.error : null,
+    });
     return null;
   }
   return {

@@ -40,9 +40,15 @@ as `'in_entry'` for one release.
 - **Entry → date promotion is evidence-gated.** Promotion requires
   provider-proofed remote-seen (`mark_video_date_remote_seen` demands current
   owner/call/provider identity plus render-bound media evidence) or the stable
-  bilateral media gate (durable heartbeat-backed copresence). Promotion runs
-  through the evidence single bodies `video_date_promote_confirmed_encounter_v1`
-  / `video_date_promote_provider_overlap_v1`. Pre-stable provider absence
+  bilateral media gate (durable heartbeat-backed copresence). Web and native
+  queue render-bound remote-seen evidence locally until the matching
+  provider/call owner proof is available, then retry the provider-bound RPC
+  without changing the original evidence source. Once one participant has
+  stamped remote-seen, the stable bilateral media gate intentionally requires
+  the other participant's remote-seen proof before date promotion. Promotion
+  runs through the evidence single bodies
+  `video_date_promote_confirmed_encounter_v1` /
+  `video_date_promote_provider_overlap_v1`. Pre-stable provider absence
   downgrades to `pre_stable_media_failed` with `survey_required = false`.
 - **The Daily webhook ledger is provider truth.** `video-date-daily-webhook`
   appends to `video_date_daily_webhook_events`; joined/absence reconciliation
@@ -211,6 +217,9 @@ shared (canonical, not advisory) across both platforms. Parity is pinned by
    the lobby — the real join is owned by the `/date` route.
 4. **Entry**: both clients join Daily; webhook ledger + heartbeats accumulate
    provider proof; clients stamp remote-seen only with render-bound evidence.
+   If render evidence arrives before call/provider identity proof is readable,
+   the client keeps it pending and drains it when the same session/user Daily
+   owner reports provider-backed proof.
 5. **Date**: evidence gate promotes to `date` (`date_started_at` stamps).
    Reconnect/parking are controller states; live same-session calls survive
    remount churn; cleanup is destructive only on explicit end/abort/timeout.
@@ -232,7 +241,7 @@ shared (canonical, not advisory) across both platforms. Parity is pinned by
 | Golden-flow certification | `videoDateGoldenFlowCertificationContracts`, `videoDateGoldenFlowLeanPass` |
 | RPC payload truth pins (PR 1, updated through PR 8) | `videoDateBackendTruthPinContracts`, `videoDateTransitionSingleBodyContracts`, `videoDateEvidenceSingleBodyContracts`, `videoDateReadyGateSingleBodyContracts` |
 | Ready Gate (incl. 15s statement_timeout pin) | `readyGateDecisiveMarkReadyCommit`, `readyGateMarkReadyActionabilitySafety`, `readyGatePartialReadyDefinitiveClosure`, `bothReadyCanonicalDailyRoomDefinitiveOwner`, `readyGate57014ReliabilityContracts`, `readyGateEntryProofRemovalContracts` |
-| Evidence / promotion | `videoDateStrictDailyJoinRemoteSeen`, `videoDateStableBilateralMediaGateContracts`, `videoDateProviderOverlapPromotion` |
+| Evidence / promotion | `videoDateStrictDailyJoinRemoteSeen`, `videoDateRemoteSeenRetryContracts`, `videoDateStableBilateralMediaGateContracts`, `videoDateProviderOverlapPromotion` |
 | Survey / feedback | `videoDateVerdictConfirmationContracts`, `videoDateSurveyFeedbackDrainGuard`, `videoDateTerminalSurveyLifecycleHardening` |
 | RLS (static posture + runtime) | `videoDatePhase5RlsContracts`, `videoDateRealtimeRlsRuntime`, `videoDatePublicApiRlsRuntime`, `videoDateLifecycleRpcPostgrestRuntime` |
 | Provider operational QA | `dailyProviderOperationalQa`, `bunnyProviderOperationalQa`, `onesignalProviderOperationalQa` |

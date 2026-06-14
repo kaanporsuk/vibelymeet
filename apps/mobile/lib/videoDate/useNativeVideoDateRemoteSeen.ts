@@ -2,6 +2,7 @@ import {
   type MutableRefObject,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
 import {
   useAuth,
@@ -31,7 +32,9 @@ import {
   useVideoDateSession,
 } from "@/lib/videoDateApi";
 import {
+  getVideoDateDailyOwner,
   getVideoDateEntryOwner,
+  subscribeVideoDateDailyOwner,
   updateVideoDateDailyOwnerState,
   updateVideoDateEntryOwnerState,
 } from "@clientShared/matching/videoDateEntryOwner";
@@ -41,6 +44,12 @@ import {
   videoDateLifecycleRpcIndicatesTerminalSurvey,
   videoDateLifecycleRpcRetryable,
 } from "@clientShared/matching/videoDateLifecycleRpc";
+import {
+  buildVideoDateRemoteSeenProviderMissingPayload,
+  isVideoDateRemoteSeenRenderEvidenceSource,
+  normalizeVideoDateRemoteSeenEvidenceSource,
+  VIDEO_DATE_REMOTE_SEEN_PENDING_EVIDENCE_TTL_MS,
+} from "@clientShared/matching/videoDateRemoteSeenEvidence";
 
 /**
  * Remote-seen evidence concern of the native Video Date screen: provider-bound mark_video_date_remote_seen stamping with bounded retries plus the per-session reset effect.
@@ -67,6 +76,14 @@ export interface NativeVideoDateRemoteSeenDeps {
   user: ReturnType<typeof useAuth>["user"];
 }
 
+type NativeRemoteSeenPendingEvidence = {
+  createdAtMs: number;
+  roomName: string | null;
+  sessionId: string;
+  source: string;
+  userId: string;
+};
+
 export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps) {
   const {
     activeNativeDailyCallIdentityRef,
@@ -85,17 +102,35 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
     user,
   } = deps;
 
+  const remoteSeenPendingEvidenceRef =
+    useRef<NativeRemoteSeenPendingEvidence | null>(null);
+
   const markRemoteSeenOnServer = useCallback(
     (source: string) => {
       if (!sessionId || !user?.id) return;
       const userId = user.id;
-      if (remoteSeenInFlightSessionRef.current === sessionId) return;
       const nowMs = Date.now();
-      const lastStamp = remoteSeenLastStampRef.current;
+      const baseEvidenceSource =
+        normalizeVideoDateRemoteSeenEvidenceSource(source);
       const forceRestamp =
-        source === "remote_track_mounted" ||
-        source === "first_remote_frame" ||
-        source === "request_video_frame_callback";
+        isVideoDateRemoteSeenRenderEvidenceSource(baseEvidenceSource);
+      if (forceRestamp) {
+        const pending = remoteSeenPendingEvidenceRef.current;
+        remoteSeenPendingEvidenceRef.current = {
+          createdAtMs:
+            pending?.sessionId === sessionId &&
+            pending.userId === userId &&
+            pending.source === baseEvidenceSource
+              ? pending.createdAtMs
+              : nowMs,
+          roomName: roomNameRef.current,
+          sessionId,
+          source: baseEvidenceSource,
+          userId,
+        };
+      }
+      if (remoteSeenInFlightSessionRef.current === sessionId) return;
+      const lastStamp = remoteSeenLastStampRef.current;
       if (
         !forceRestamp &&
         lastStamp?.sessionId === sessionId &&
@@ -104,26 +139,50 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
         return;
       }
 
-      const baseEvidenceSource = source;
-      const buildProviderBoundRemoteSeenArgs = (attemptSource: string) => {
+      const buildProviderBoundRemoteSeenArgs = (
+        attemptSource: string,
+        attempt: number,
+      ) => {
         const call = callRef.current;
-        const providerSessionId = readNativeDailyProviderSessionId(call);
+        const callProviderSessionId = readNativeDailyProviderSessionId(call);
         const meetingState = safeNativeDailyMeetingState(call);
-        const providerBackedJoined =
-          meetingState === "joined-meeting" && Boolean(providerSessionId);
         const identity = activeNativeDailyCallIdentityRef.current;
         const identityCurrent =
           identity?.sessionId === sessionId && identity.userId === userId
             ? identity
             : null;
         const entryOwner = getVideoDateEntryOwner(sessionId, userId);
-        const ownerId = identityCurrent?.ownerId ?? entryOwner?.ownerId ?? null;
-        const callInstanceId = identityCurrent?.callInstanceId ?? null;
+        const dailyOwner = getVideoDateDailyOwner({
+          sessionId,
+          userId,
+          roomName: roomNameRef.current,
+        });
+        const providerSessionId =
+          callProviderSessionId ??
+          entryOwner?.providerSessionId ??
+          dailyOwner?.providerSessionId ??
+          null;
+        const providerBackedJoined =
+          meetingState === "joined-meeting" && Boolean(providerSessionId);
+        const ownerId =
+          identityCurrent?.ownerId ??
+          entryOwner?.ownerId ??
+          dailyOwner?.ownerId ??
+          null;
+        const callInstanceId =
+          identityCurrent?.callInstanceId ??
+          entryOwner?.callInstanceId ??
+          dailyOwner?.callInstanceId ??
+          null;
         const entryAttemptId =
-          identityCurrent?.entryAttemptId ?? entryOwner?.entryAttemptId ?? null;
+          identityCurrent?.entryAttemptId ??
+          entryOwner?.entryAttemptId ??
+          dailyOwner?.entryAttemptId ??
+          null;
         const videoDateTraceId =
           identityCurrent?.videoDateTraceId ??
           entryOwner?.videoDateTraceId ??
+          dailyOwner?.videoDateTraceId ??
           null;
 
         if (!providerBackedJoined || !providerSessionId || !callInstanceId) {
@@ -139,30 +198,55 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
             : !callInstanceId
               ? "REMOTE_SEEN_CALL_INSTANCE_MISSING"
               : "REMOTE_SEEN_OWNER_NOT_JOINED";
-          vdbg("mark_video_date_remote_seen_skipped_provider_missing", {
-            sessionId,
-            eventId,
-            userId,
-            source: attemptSource,
-            providerSessionId,
-            meetingState,
-            providerBackedJoined,
-            callInstanceId,
-            ownerId,
+          const payload = buildVideoDateRemoteSeenProviderMissingPayload({
+            code,
+            retryAfterMs: REMOTE_SEEN_RPC_RETRY_DELAY_MS,
             terminal,
           });
+          vdbg(
+            terminal
+              ? "mark_video_date_remote_seen_skipped_provider_missing"
+              : "mark_video_date_remote_seen_provider_pending",
+            {
+              sessionId,
+              eventId,
+              userId,
+              source: attemptSource,
+              baseEvidenceSource,
+              code,
+              attempt,
+              providerSessionId,
+              callProviderSessionId,
+              meetingState,
+              providerBackedJoined,
+              callInstanceId,
+              ownerId,
+              terminal,
+              retryable: payload.retryable,
+              willRetry: payload.retryable === true,
+              hasIdentityCallInstance: Boolean(identityCurrent?.callInstanceId),
+              hasEntryOwnerCallInstance: Boolean(entryOwner?.callInstanceId),
+              hasDailyOwnerCallInstance: Boolean(dailyOwner?.callInstanceId),
+              hasCallProviderSession: Boolean(callProviderSessionId),
+              hasEntryOwnerProviderSession: Boolean(
+                entryOwner?.providerSessionId,
+              ),
+              hasDailyOwnerProviderSession: Boolean(
+                dailyOwner?.providerSessionId,
+              ),
+              pendingEvidenceAgeMs:
+                remoteSeenPendingEvidenceRef.current?.sessionId === sessionId
+                  ? Math.max(
+                      0,
+                      nowMs - remoteSeenPendingEvidenceRef.current.createdAtMs,
+                    )
+                  : null,
+            },
+          );
           return {
             ok: false as const,
             code,
-            payload: {
-              ok: false,
-              error: code.toLowerCase(),
-              code,
-              retryable: false,
-              provider_presence_required: true,
-              provider_presence_missing: true,
-              provider_presence_terminal: terminal,
-            },
+            payload,
           };
         }
 
@@ -185,9 +269,6 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
           },
         };
       };
-
-      const initialProof = buildProviderBoundRemoteSeenArgs(source);
-      if (!initialProof.ok) return;
 
       if (remoteSeenRetryTimerRef.current) {
         clearTimeout(remoteSeenRetryTimerRef.current);
@@ -232,6 +313,7 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
         const retryable =
           videoDateLifecycleRpcRetryable(payload) ?? !terminalStop;
         if (terminalStop) {
+          remoteSeenPendingEvidenceRef.current = null;
           if (remoteSeenRetryTimerRef.current) {
             clearTimeout(remoteSeenRetryTimerRef.current);
             remoteSeenRetryTimerRef.current = null;
@@ -260,6 +342,7 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
           payload: payload ?? null,
         });
         if (!retryable || terminalStop) {
+          remoteSeenPendingEvidenceRef.current = null;
           return;
         }
         if (attempt < REMOTE_SEEN_RPC_MAX_ATTEMPTS) {
@@ -269,7 +352,7 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
       };
 
       function stamp(attemptSource: string, attempt: number) {
-        const proof = buildProviderBoundRemoteSeenArgs(attemptSource);
+        const proof = buildProviderBoundRemoteSeenArgs(attemptSource, attempt);
         if (!proof.ok) {
           handleFailure(
             attemptSource,
@@ -307,6 +390,7 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
             if (remoteSeenInFlightSessionRef.current === sessionId) {
               remoteSeenInFlightSessionRef.current = null;
             }
+            remoteSeenPendingEvidenceRef.current = null;
             remoteSeenLastStampRef.current = {
               sessionId,
               stampedAtMs: Date.now(),
@@ -381,6 +465,58 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
   );
 
   useEffect(() => {
+    return subscribeVideoDateDailyOwner((owner) => {
+      const pending = remoteSeenPendingEvidenceRef.current;
+      if (!pending) return;
+      const nowMs = Date.now();
+      if (
+        nowMs - pending.createdAtMs >
+        VIDEO_DATE_REMOTE_SEEN_PENDING_EVIDENCE_TTL_MS
+      ) {
+        remoteSeenPendingEvidenceRef.current = null;
+        return;
+      }
+      if (
+        !owner ||
+        owner.sessionId !== pending.sessionId ||
+        owner.userId !== pending.userId
+      ) {
+        return;
+      }
+      if (
+        owner.roomName &&
+        pending.roomName &&
+        owner.roomName !== pending.roomName
+      ) {
+        return;
+      }
+      if (owner.state !== "joined" && owner.state !== "remote_seen") return;
+      if (!owner.callInstanceId || !owner.providerSessionId) return;
+      if (remoteSeenActiveSessionRef.current !== pending.sessionId) return;
+      if (remoteSeenInFlightSessionRef.current === pending.sessionId) return;
+      vdbg("mark_video_date_remote_seen_pending_evidence_drain", {
+        sessionId: pending.sessionId,
+        eventId,
+        userId: pending.userId,
+        source: pending.source,
+        ownerState: owner.state,
+        ownerSource: owner.source ?? null,
+        ownerRoomName: owner.roomName ?? null,
+        pendingRoomName: pending.roomName,
+        pendingEvidenceAgeMs: Math.max(0, nowMs - pending.createdAtMs),
+        callInstanceId: owner.callInstanceId,
+        providerSessionId: owner.providerSessionId,
+      });
+      markRemoteSeenOnServer(pending.source);
+    });
+  }, [
+    eventId,
+    markRemoteSeenOnServer,
+    remoteSeenActiveSessionRef,
+    remoteSeenInFlightSessionRef,
+  ]);
+
+  useEffect(() => {
     markRemoteSeenOnServerRef.current = markRemoteSeenOnServer;
     return () => {
       if (markRemoteSeenOnServerRef.current === markRemoteSeenOnServer) {
@@ -398,6 +534,7 @@ export function useNativeVideoDateRemoteSeen(deps: NativeVideoDateRemoteSeenDeps
       }
       remoteSeenInFlightSessionRef.current = null;
       remoteSeenLastStampRef.current = null;
+      remoteSeenPendingEvidenceRef.current = null;
       activeNativeDailyCallIdentityRef.current = null;
     };
   }, [

@@ -184,6 +184,10 @@ const remoteSeenEncounterGuardMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260603090000_video_date_remote_seen_encounter_guard.sql"),
   "utf8",
 );
+const remoteSeenEvidence = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateRemoteSeenEvidence.ts"),
+  "utf8",
+);
 const encounterPairGuardAclPolishMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260503100000_video_date_pair_guard_function_acl_polish.sql"),
   "utf8",
@@ -2110,6 +2114,46 @@ test("web terminal survey recovery keeps mounted survey active and checks in_sur
   assert.match(webVideoDatePage, /releaseRegistration: Boolean\(verdict\?\.id\)/);
 });
 
+test("native terminal survey recovery checks in_survey registration before lobby bounce", () => {
+  assert.match(
+    nativeVideoDateRoute,
+    /const recoverNativePostDateSurveyFromInSurveyRegistration = useCallback/,
+  );
+  assert.match(
+    nativeVideoDateRoute,
+    /\.from\("event_registrations"\)[\s\S]*\.select\(NATIVE_TERMINAL_SURVEY_REGISTRATION_FALLBACK_SELECT\)[\s\S]*\.eq\("queue_status", "in_survey"\)/,
+  );
+  assert.match(
+    nativeVideoDateRoute,
+    /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", sessionId\)[\s\S]*\.eq\("user_id", user\.id\)/,
+  );
+  assert.match(nativeVideoDateRoute, /if \(verdict\?\.id\) return false/);
+  assert.match(
+    nativeVideoDateRoute,
+    /openNativePostDateSurvey\(`\$\{source\}_registration_recovery`/,
+  );
+
+  const terminalTruthIndex = nativeVideoDateRoute.indexOf(
+    "const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(",
+  );
+  const registrationRecoveryIndex = nativeVideoDateRoute.indexOf(
+    "recoverNativePostDateSurveyFromInSurveyRegistration(",
+    terminalTruthIndex,
+  );
+  const registrationRecoveryReturnIndex = nativeVideoDateRoute.indexOf(
+    "if (recoveredFromRegistration) return true;",
+    registrationRecoveryIndex,
+  );
+  const redirectIndex = nativeVideoDateRoute.indexOf(
+    "_terminal_no_survey_truth",
+    registrationRecoveryReturnIndex,
+  );
+  assert.ok(terminalTruthIndex >= 0);
+  assert.ok(registrationRecoveryIndex > terminalTruthIndex);
+  assert.ok(registrationRecoveryReturnIndex > registrationRecoveryIndex);
+  assert.ok(redirectIndex > registrationRecoveryReturnIndex);
+});
+
 test("bilateral remote video evidence gates terminal survey eligibility", () => {
   assert.match(remoteSeenEncounterGuardMigration, /ADD COLUMN IF NOT EXISTS participant_1_remote_seen_at timestamptz/);
   assert.match(remoteSeenEncounterGuardMigration, /ADD COLUMN IF NOT EXISTS participant_2_remote_seen_at timestamptz/);
@@ -2473,6 +2517,18 @@ test("mobile terminal survey recovery uses server survey truth instead of local 
   assert.match(nativeVideoDateApi, /survey_required: payload\?\.survey_required/);
   assert.match(nativeVideoDateApi, /participant_1_remote_seen_at\?: string \| null/);
   assert.match(nativeVideoDateApi, /participant_2_remote_seen_at\?: string \| null/);
+  assert.match(
+    nativeVideoDateApi,
+    /const terminalSurvey =\s*videoDateLifecycleRpcIndicatesTerminalSurvey\(p\)/,
+  );
+  assert.match(
+    nativeVideoDateApi,
+    /outcome: terminalSurvey \? ['"]terminal_survey['"] : ['"]terminal_ended['"]/,
+  );
+  assert.ok(
+    nativeVideoDateApi.indexOf("outcome: terminalSurvey ? 'terminal_survey' : 'terminal_ended'") <
+      nativeVideoDateApi.indexOf("outcome: 'rpc_error'"),
+  );
   assert.match(webVideoDatePage, /survey_required\?: boolean/);
   assert.match(webVideoDatePage, /payload\?\.survey_required === true/);
 });
@@ -3208,7 +3264,10 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /p_provider_session_id: providerSessionId/);
   assert.match(webVideoCallHook, /p_call_instance_id: callInstanceId/);
   assert.match(webVideoCallHook, /p_owner_state: "joined"/);
-  assert.match(webVideoCallHook, /const baseEvidenceSource = source/);
+  assert.match(
+    webVideoCallHook,
+    /const baseEvidenceSource =[\s\S]{0,120}normalizeVideoDateRemoteSeenEvidenceSource\(source\)/,
+  );
   assert.match(webVideoCallHook, /p_evidence_source: baseEvidenceSource/);
   assert.doesNotMatch(webVideoCallHook, /p_evidence_source: attemptSource/);
   assert.match(webVideoCallHook, /mark_video_date_remote_seen_skipped_provider_missing/);
@@ -3220,11 +3279,11 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(webVideoCallHook, /if \(!currentUserId\) return/);
   assert.match(webVideoCallHook, /const userId = currentUserId/);
   assert.match(webVideoCallHook, /REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000/);
-  assert.match(webVideoCallHook, /source === "loadeddata"/);
-  assert.match(webVideoCallHook, /source === "playing"/);
-  assert.match(webVideoCallHook, /source === "remote_track_mounted"/);
-  assert.match(webVideoCallHook, /source === "first_remote_frame"/);
-  assert.match(webVideoCallHook, /source === "request_video_frame_callback"/);
+  assert.match(remoteSeenEvidence, /"loadeddata"/);
+  assert.match(remoteSeenEvidence, /"playing"/);
+  assert.match(remoteSeenEvidence, /"remote_track_mounted"/);
+  assert.match(remoteSeenEvidence, /"first_remote_frame"/);
+  assert.match(remoteSeenEvidence, /"request_video_frame_callback"/);
   assert.match(webVideoCallHook, /remoteSeenInFlightSessionRef\.current = null/);
   assert.match(
     webVideoCallHook,
@@ -3275,7 +3334,10 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
   assert.match(nativeVideoDateRoute, /p_provider_session_id: providerSessionId/);
   assert.match(nativeVideoDateRoute, /p_call_instance_id: callInstanceId/);
   assert.match(nativeVideoDateRoute, /p_owner_state: "joined"/);
-  assert.match(nativeVideoDateRoute, /const baseEvidenceSource = source/);
+  assert.match(
+    nativeVideoDateRoute,
+    /const baseEvidenceSource =[\s\S]{0,120}normalizeVideoDateRemoteSeenEvidenceSource\(source\)/,
+  );
   assert.match(nativeVideoDateRoute, /p_evidence_source: baseEvidenceSource/);
   assert.doesNotMatch(nativeVideoDateRoute, /p_evidence_source: attemptSource/);
   assert.match(nativeVideoDateRoute, /mark_video_date_remote_seen_skipped_provider_missing/);
@@ -3286,9 +3348,9 @@ test("web and native stamp bilateral remote-video evidence once remote media is 
     /\.rpc\(\s*["']mark_video_date_remote_seen["'],\s*\{[\s\S]{0,80}p_session_id: sessionId/,
   );
   assert.match(nativeVideoDateRoute, /REMOTE_SEEN_RPC_RESTAMP_MIN_INTERVAL_MS = 10_000/);
-  assert.match(nativeVideoDateRoute, /source === "remote_track_mounted"/);
-  assert.match(nativeVideoDateRoute, /source === "first_remote_frame"/);
-  assert.match(nativeVideoDateRoute, /source === "request_video_frame_callback"/);
+  assert.match(remoteSeenEvidence, /"remote_track_mounted"/);
+  assert.match(remoteSeenEvidence, /"first_remote_frame"/);
+  assert.match(remoteSeenEvidence, /"request_video_frame_callback"/);
   assert.match(nativeVideoDateRoute, /remoteSeenInFlightSessionRef\.current = null/);
   assert.match(
     nativeVideoDateRoute,
